@@ -27,6 +27,8 @@ import {
 	type ProjectRowSecurity,
 	type ProjectSharingPermission,
 	resolvePreloadedSkills,
+	resolveSemanticLayerModeOverride,
+	type SemanticLayerMode,
 	serializeProjectColumnSecurity,
 	serializeProjectRowSecurity,
 	serializeUserGroupColumnPolicies,
@@ -84,6 +86,7 @@ export interface UserGroup extends Omit<
 	ssoMappings: UserGroupSsoMappings;
 	columnPolicies: UserGroupColumnPolicies;
 	rowPolicies: UserGroupRowPolicies;
+	semanticLayerMode: SemanticLayerMode | null;
 }
 
 export interface UserGroupOverview {
@@ -109,6 +112,7 @@ export interface EffectiveUserGroupAccess {
 	columnPolicies: UserGroupColumnPolicies[];
 	rowPolicies: UserGroupRowPolicies[];
 	preloadedSkills: string[];
+	semanticLayerModeOverride: SemanticLayerMode | null;
 }
 
 interface UserGroupLlmAccess {
@@ -263,6 +267,9 @@ export const resolveUserGroupAccess = async (
 				preloadedSkills: config.preloadedSkills.filter((skill) => isSkillGranted(skillsAccess, skill)),
 			})),
 		),
+		semanticLayerModeOverride: resolveSemanticLayerModeOverride(
+			applicableGroups.map((group) => group.config.semanticLayerMode),
+		),
 	};
 };
 
@@ -363,6 +370,7 @@ export const createUserGroup = async (
 	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): Promise<UserGroup> => {
 	const expectedRowPoliciesRegistry =
 		rowPolicies.policies.length === 0
@@ -392,6 +400,7 @@ export const createUserGroup = async (
 		advancedContextExplorer,
 		llmConfigIds,
 		llmModelIdsByConfig,
+		semanticLayerMode,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -448,6 +457,7 @@ export const createUserGroupWithinLimit = async (
 	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): Promise<UserGroup> => {
 	const expectedRowPoliciesRegistry =
 		rowPolicies.policies.length === 0
@@ -477,6 +487,7 @@ export const createUserGroupWithinLimit = async (
 		advancedContextExplorer,
 		llmConfigIds,
 		llmModelIdsByConfig,
+		semanticLayerMode,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -546,6 +557,7 @@ export const updateUserGroup = async (
 		preloadedSkills?: string[];
 		llmConfigIds?: string[];
 		llmModelIdsByConfig?: LlmModelIdsByConfig;
+		semanticLayerMode?: SemanticLayerMode | null;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -590,6 +602,7 @@ export const updateUserGroup = async (
 			data.preloadedSkills ?? currentConfig.preloadedSkills,
 			data.shareTargets ?? currentConfig.shareTargets,
 			data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
+			data.semanticLayerMode === undefined ? currentConfig.semanticLayerMode : data.semanticLayerMode,
 		),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
@@ -966,6 +979,7 @@ function createUserGroupValues(
 	advancedContextExplorer = false,
 	llmConfigIds: string[] = [],
 	llmModelIdsByConfig: LlmModelIdsByConfig = {},
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	const filteredColumnPolicies = filterUserGroupColumnPoliciesByDatabaseContext(columnPolicies, databaseAccess);
@@ -980,6 +994,7 @@ function createUserGroupValues(
 			preloadedSkills,
 			shareTargets,
 			advancedContextExplorer,
+			semanticLayerMode,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess,
@@ -1186,6 +1201,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		showAllSettings: config.showAllSettings,
 		advancedContextExplorer: config.advancedContextExplorer,
 		preloadedSkills: config.preloadedSkills,
+		semanticLayerMode: config.semanticLayerMode,
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,
 		filesAccess: contextAccess.filesAccess,

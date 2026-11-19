@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DEFAULT_SEMANTIC_LAYER_MODE, SEMANTIC_LAYER_MODES } from '@nao/shared/types';
-import type { SemanticLayerMode } from '@nao/shared/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
+import { isSemanticLayerMode, SEMANTIC_LAYER_MODE_DETAILS } from '@/lib/semantic-layer';
 import { trpc } from '@/main';
 
 interface SettingsSemanticLayerProps {
@@ -11,23 +11,6 @@ interface SettingsSemanticLayerProps {
 }
 
 const MODE_SELECT_ID = 'semantic-layer-mode';
-
-const MODE_LABELS: Record<SemanticLayerMode, { label: string; description: string }> = {
-	prioritized: {
-		label: 'Semantics first',
-		description:
-			'Metric questions go through the semantic layer first; the agent falls back to SQL when it cannot answer.',
-	},
-	exclusive: {
-		label: 'Semantics only',
-		description:
-			"Every warehouse question goes through the semantic layer; SQL is limited to nao's local DuckDB to reshape results and read files.",
-	},
-	disabled: {
-		label: "Don't use semantics",
-		description: 'Definitions stay readable as context, but the agent cannot run semantic queries.',
-	},
-};
 
 export function SettingsSemanticLayer({ isAdmin }: SettingsSemanticLayerProps) {
 	const queryClient = useQueryClient();
@@ -60,7 +43,7 @@ export function SettingsSemanticLayer({ isAdmin }: SettingsSemanticLayerProps) {
 				label='Mode'
 				description={
 					isConfigured ? (
-						MODE_LABELS[mode].description
+						SEMANTIC_LAYER_MODE_DETAILS[mode].description
 					) : (
 						<>
 							No semantic layer is declared in this project. Add a <code>semantic_layer</code> section to{' '}
@@ -80,7 +63,7 @@ export function SettingsSemanticLayer({ isAdmin }: SettingsSemanticLayerProps) {
 						<SelectContent>
 							{SEMANTIC_LAYER_MODES.map((option) => (
 								<SelectItem key={option} value={option}>
-									{MODE_LABELS[option].label}
+									{SEMANTIC_LAYER_MODE_DETAILS[option].label}
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -89,8 +72,4 @@ export function SettingsSemanticLayer({ isAdmin }: SettingsSemanticLayerProps) {
 			/>
 		</SettingsCard>
 	);
-}
-
-function isSemanticLayerMode(value: string): value is SemanticLayerMode {
-	return (SEMANTIC_LAYER_MODES as readonly string[]).includes(value);
 }

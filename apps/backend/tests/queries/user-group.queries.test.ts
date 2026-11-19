@@ -1130,6 +1130,36 @@ describe('user group queries', () => {
 		]);
 	});
 
+	it('preserves inherited semantic access and unions explicit group overrides', async () => {
+		const defaultGroup = (await getUserGroupOverview(PROJECT_ID)).groups[0];
+		expect(defaultGroup.semanticLayerMode).toBeNull();
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).semanticLayerModeOverride).toBeNull();
+
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			semanticLayerMode: 'exclusive',
+		});
+		const analysts = await createUserGroup(PROJECT_ID, 'Semantic Analysts');
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			semanticLayerMode: 'disabled',
+		});
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).semanticLayerModeOverride).toBe(
+			'prioritized',
+		);
+
+		await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: ['storyCreation'] });
+		expect(
+			(await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.id === analysts.id)
+				?.semanticLayerMode,
+		).toBe('disabled');
+
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).semanticLayerModeOverride).toBe('exclusive');
+	});
+
 	it('unions MCP grants and lets a whole-server grant absorb tool grants', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		const defaultGroup = overview.groups[0];
@@ -1253,6 +1283,7 @@ describe('user group queries', () => {
 				{ version: 1, policies: [] },
 			],
 			preloadedSkills: [],
+			semanticLayerModeOverride: null,
 		});
 
 		expect(await listUserGroupMemberships(PROJECT_ID)).toContainEqual({

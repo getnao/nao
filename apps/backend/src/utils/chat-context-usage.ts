@@ -12,6 +12,7 @@ import { compactionService } from '../services/compaction';
 import { memoryService } from '../services/memory';
 import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { tokenCounter } from '../services/token-counter';
+import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
 import type { ContextUsage, UIMessage } from '../types/chat';
 import { resolveContextWindow } from './llm';
 
@@ -25,11 +26,14 @@ export async function getChatContextUsage(opts: {
 	if (!projectId) {
 		return null;
 	}
-	const [project, agentSettings] = await Promise.all([
+	const [project, agentSettings, userGroupAccess] = await Promise.all([
 		projectQueries.getProjectById(projectId),
 		projectQueries.getAgentSettings(projectId),
+		resolveAvailableUserGroupAccess(projectId, opts.userId),
 	]);
-	const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, agentSettings) : null;
+	const semanticLayerMode = project?.path
+		? resolveSemanticLayerMode(project.path, agentSettings, userGroupAccess.semanticLayerModeOverride)
+		: null;
 	const tools = getTools(agentSettings, undefined, { semanticLayerMode });
 	const messages = await getChatAsModelMessages({ ...opts, projectId, tools });
 	const messageTokens = tokenCounter.estimateMessages(messages);

@@ -102,6 +102,7 @@ vi.mock('@/main', () => ({
 		},
 		project: {
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
+			getAgentSettings: { queryOptions: vi.fn(() => ({ queryKey: ['agent-settings'] })) },
 			getLlmAccessReadiness: {
 				queryKey: vi.fn(() => ['llm-access-readiness']),
 				queryOptions: vi.fn(() => ({ queryKey: ['llm-access-readiness'] })),
@@ -332,6 +333,7 @@ const allUsers = {
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 	llmConfigIds: [] as string[],
 	llmModelIdsByConfig: {},
+	semanticLayerMode: null,
 };
 const analysts = {
 	...allUsers,
@@ -1904,6 +1906,21 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('button', { name: 'Strict mode' }).getAttribute('aria-pressed')).toBe('false');
 	});
 
+	it('marks a semantic layer group override as an unsaved Context change', async () => {
+		mockQueries({
+			'agent-settings': {
+				semanticLayer: { mode: 'prioritized' },
+				capabilities: { semanticLayer: true },
+			},
+		});
+		renderEditor('context');
+
+		fireEvent.click(screen.getByRole('combobox', { name: 'Semantic layer' }));
+		fireEvent.click(await screen.findByRole('option', { name: 'Semantics only' }));
+
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+	});
+
 	it('hides actions after refreshed group data matches the draft', () => {
 		const { rerender } = renderEditor();
 		renameGroup('Analytics');
@@ -2015,6 +2032,15 @@ describe('UserGroupEditor', () => {
 				preloadedSkills: ['revenue'],
 			}),
 		).toBe(true);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: group.databaseAccess,
+				semanticLayerMode: 'exclusive',
+			}),
+		).toBe(true);
 	});
 });
 
@@ -2058,6 +2084,15 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.getByText('Yes')).toBeTruthy();
 		expect(screen.queryByRole('switch')).toBeNull();
 		expect(screen.queryByText('Density slider')).toBeNull();
+	});
+
+	it('shows effective semantic access from all applicable groups', () => {
+		renderUserDetail({ activeTab: 'context', semanticLayerMode: 'exclusive' });
+
+		expect(screen.getByRole('heading', { name: 'Effective semantic access' })).toBeTruthy();
+		expect(screen.getByText('Semantics only')).toBeTruthy();
+		expect(screen.getByText('Semantic queries allowed')).toBeTruthy();
+		expect(screen.getByText('Warehouse SQL blocked')).toBeTruthy();
 	});
 
 	it('shows only the MCP servers and tools granted to the user', () => {
@@ -2611,6 +2646,7 @@ function createUserDetail(
 			projectColumnSecurity={props.projectColumnSecurity ?? EMPTY_PROJECT_COLUMN_SECURITY}
 			securityState={props.securityState ?? 'ready'}
 			onRetrySecurity={props.onRetrySecurity}
+			semanticLayerMode={props.semanticLayerMode}
 			activeTab={activeTab}
 			onTabChange={vi.fn()}
 		/>

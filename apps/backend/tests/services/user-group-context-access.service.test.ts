@@ -147,6 +147,7 @@ describe('warehouse Context access', () => {
 			skillsAccess: { mode: 'all' },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
+			semanticLayerModeOverride: null,
 		});
 		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
 	});
@@ -771,6 +772,7 @@ function userGroupAccess(overrides: Partial<UserGroupAccess>): UserGroupAccess {
 		mcpAccess: { mode: 'all' },
 		columnPolicies: [],
 		rowPolicies: [],
+		semanticLayerModeOverride: null,
 		...overrides,
 	};
 }

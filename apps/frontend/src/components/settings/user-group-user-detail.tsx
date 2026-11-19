@@ -8,7 +8,7 @@ import {
 } from '@nao/shared';
 import { Lock } from 'lucide-react';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
-import type { MemberStatus, UserRole } from '@nao/shared/types';
+import type { MemberStatus, SemanticLayerMode, UserRole } from '@nao/shared/types';
 import type {
 	DatabaseContextAccess,
 	DocsContextAccess,
@@ -41,6 +41,7 @@ import { Button } from '@/components/ui/button';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
+import { SEMANTIC_LAYER_MODE_CAPABILITIES, SEMANTIC_LAYER_MODE_DETAILS } from '@/lib/semantic-layer';
 
 interface UserGroupDetailUser {
 	id: string;
@@ -88,6 +89,7 @@ interface UserGroupUserDetailProps {
 	securityState?: 'loading' | 'error' | 'ready';
 	onRetryColumnSecurity?: () => void;
 	onRetrySecurity?: () => void;
+	semanticLayerMode?: SemanticLayerMode | null;
 	activeTab: UserGroupUserDetailTab;
 	onTabChange: (tab: UserGroupUserDetailTab) => void;
 }
@@ -124,6 +126,7 @@ export function UserGroupUserDetail({
 	securityState = 'ready',
 	onRetryColumnSecurity,
 	onRetrySecurity,
+	semanticLayerMode,
 	activeTab,
 	onTabChange,
 }: UserGroupUserDetailProps) {
@@ -204,23 +207,28 @@ export function UserGroupUserDetail({
 				<TabPanel idBase='user-group-user-detail' tabId={activeTab} className='pt-5'>
 					{activeTab === 'features' && <EffectiveFeatures access={effectiveAccess} />}
 					{activeTab === 'context' && (
-						<UserGroupEffectiveContext
-							databaseAccess={effectiveAccess.databaseAccess}
-							docsAccess={effectiveAccess.docsAccess}
-							filesAccess={effectiveAccess.filesAccess}
-							contextObjects={contextObjects}
-							docsEntries={docsEntries}
-							filesEntries={filesEntries}
-							databaseSyncState={databaseSyncState}
-							docsSyncState={docsSyncState}
-							filesSyncState={filesSyncState}
-							databaseCatalogState={databaseCatalogState}
-							docsCatalogState={docsCatalogState}
-							filesCatalogState={filesCatalogState}
-							onRetryDatabaseCatalog={onRetryDatabaseCatalog}
-							onRetryDocsCatalog={onRetryDocsCatalog}
-							onRetryFilesCatalog={onRetryFilesCatalog}
-						/>
+						<div className='flex flex-col gap-5'>
+							{semanticLayerMode !== undefined && (
+								<EffectiveSemanticLayerAccess mode={semanticLayerMode} />
+							)}
+							<UserGroupEffectiveContext
+								databaseAccess={effectiveAccess.databaseAccess}
+								docsAccess={effectiveAccess.docsAccess}
+								filesAccess={effectiveAccess.filesAccess}
+								contextObjects={contextObjects}
+								docsEntries={docsEntries}
+								filesEntries={filesEntries}
+								databaseSyncState={databaseSyncState}
+								docsSyncState={docsSyncState}
+								filesSyncState={filesSyncState}
+								databaseCatalogState={databaseCatalogState}
+								docsCatalogState={docsCatalogState}
+								filesCatalogState={filesCatalogState}
+								onRetryDatabaseCatalog={onRetryDatabaseCatalog}
+								onRetryDocsCatalog={onRetryDocsCatalog}
+								onRetryFilesCatalog={onRetryFilesCatalog}
+							/>
+						</div>
 					)}
 					{activeTab === 'mcp' && <UserGroupEffectiveMcp mcpAccess={effectiveAccess.mcpAccess} />}
 					{activeTab === 'skills' && (
@@ -250,6 +258,43 @@ export function UserGroupUserDetail({
 					{activeTab === 'budget' && <UserGroupUserBudget userId={user.id} isLicensed={hasMemberBudget} />}
 				</TabPanel>
 			</section>
+		</div>
+	);
+}
+
+function EffectiveSemanticLayerAccess({ mode }: { mode: SemanticLayerMode | null }) {
+	if (mode === null) {
+		return (
+			<div>
+				<h4 className='text-sm font-medium'>Effective semantic access</h4>
+				<p className='text-xs text-muted-foreground'>No semantic layer is configured for this project.</p>
+			</div>
+		);
+	}
+
+	const capabilities = SEMANTIC_LAYER_MODE_CAPABILITIES[mode];
+	return (
+		<div className='flex flex-col gap-3'>
+			<div>
+				<h4 className='text-sm font-medium'>Effective semantic access</h4>
+				<p className='text-xs text-muted-foreground'>
+					Combined from All Users and every other applicable group.
+				</p>
+			</div>
+			<div className='flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between'>
+				<div className='min-w-0'>
+					<p className='text-sm font-medium'>{SEMANTIC_LAYER_MODE_DETAILS[mode].label}</p>
+					<p className='text-xs text-muted-foreground'>{SEMANTIC_LAYER_MODE_DETAILS[mode].description}</p>
+				</div>
+				<div className='flex shrink-0 flex-wrap gap-2'>
+					<Badge variant={capabilities.semanticQueries ? 'success' : 'error'}>
+						Semantic queries {capabilities.semanticQueries ? 'allowed' : 'blocked'}
+					</Badge>
+					<Badge variant={capabilities.warehouseSql ? 'success' : 'error'}>
+						Warehouse SQL {capabilities.warehouseSql ? 'allowed' : 'blocked'}
+					</Badge>
+				</div>
+			</div>
 		</div>
 	);
 }

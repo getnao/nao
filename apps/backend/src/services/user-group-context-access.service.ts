@@ -11,6 +11,7 @@ import {
 	type ProjectRowSecurity,
 	resolveWarehouseColumnSecurity,
 	resolveWarehouseRowSecurity,
+	type SemanticLayerMode,
 	type SkillsAccess,
 	unionDatabaseContextAccess,
 	type UserGroupFeature,
@@ -61,6 +62,7 @@ export async function resolveProjectContextAccess(
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	preloadedSkillNames: string[];
+	semanticLayerModeOverride: SemanticLayerMode | null;
 }> {
 	const access = await resolveMemberWarehouseAccess(projectId, userId);
 	const { effectiveAccess } = access;
@@ -77,6 +79,7 @@ export async function resolveProjectContextAccess(
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 		preloadedSkillNames: effectiveAccess.preloadedSkills,
+		semanticLayerModeOverride: effectiveAccess.semanticLayerModeOverride,
 	};
 }
 

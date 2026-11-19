@@ -91,6 +91,28 @@ describe('resolveSemanticLayerMode', () => {
 		expect(resolveSemanticLayerMode(dir, { semanticLayer: { mode: 'exclusive' } })).toBe('exclusive');
 		expect(resolveSemanticLayerMode(dir, { semanticLayer: { mode: 'disabled' } })).toBe('disabled');
 	});
+
+	it.each<SemanticLayerMode>(['exclusive', 'prioritized', 'disabled'])(
+		'keeps the existing %s project mode when groups have no override',
+		(projectMode) => {
+			expect(
+				resolveSemanticLayerMode(projectWithSemanticLayer(), { semanticLayer: { mode: projectMode } }, null),
+			).toBe(projectMode);
+		},
+	);
+
+	it('prefers an explicit group override but still requires a configured layer', () => {
+		expect(
+			resolveSemanticLayerMode(projectWithSemanticLayer(), { semanticLayer: { mode: 'disabled' } }, 'exclusive'),
+		).toBe('exclusive');
+		expect(
+			resolveSemanticLayerMode(
+				writeProject(['project_name: demo']),
+				{ semanticLayer: { mode: 'disabled' } },
+				'exclusive',
+			),
+		).toBeNull();
+	});
 });
 
 describe('execute_semantic_query exposure', () => {
