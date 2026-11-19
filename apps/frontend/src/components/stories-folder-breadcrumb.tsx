@@ -2,6 +2,7 @@ import { ChevronRight, Lock, Users } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useDndContext, useDroppable } from '@dnd-kit/core';
 import type { LucideIcon } from 'lucide-react';
+import { FolderAccessPopover } from '@/components/stories-folder-access-popover';
 import { cn } from '@/lib/utils';
 
 export type BreadcrumbNode = { id: string | null; name: string; isPrivate?: boolean; isTeam?: boolean };
@@ -51,15 +52,16 @@ function DroppableCrumb({
 	const activeData = active?.data.current as { type?: string; isOwnedByUser?: boolean } | undefined;
 	const blockPrivateDrop = node.isPrivate && activeData?.type === 'story' && activeData?.isOwnedByUser === false;
 	const { setNodeRef, isOver } = useDroppable({ id: droppableId, disabled: blockPrivateDrop });
+	const accessFolderId = isLast ? getAccessFolderId(node) : null;
 
 	const inner = (
 		<span
 			ref={setNodeRef}
 			className={cn(
-				'flex items-center gap-1 rounded transition-colors',
+				'flex items-center gap-1 rounded-full transition-colors',
 				isOver && 'bg-primary/10 text-primary',
 				isLast ? 'text-foreground' : 'text-muted-foreground hover:text-foreground cursor-pointer',
-				node.id === null ? 'p-0.5' : '',
+				node.id === null ? 'p-0.5' : 'px-1.5 py-0.5',
 			)}
 		>
 			{node.id === null ? <RootIcon className='size-4' /> : node.name}
@@ -67,6 +69,10 @@ function DroppableCrumb({
 			{node.isTeam && <Users className='size-2.5 shrink-0 text-muted-foreground' />}
 		</span>
 	);
+
+	if (accessFolderId) {
+		return <FolderAccessPopover folderId={accessFolderId}>{inner}</FolderAccessPopover>;
+	}
 
 	if (isLast) {
 		return inner;
@@ -77,4 +83,8 @@ function DroppableCrumb({
 			{inner}
 		</Link>
 	);
+}
+
+function getAccessFolderId(node: BreadcrumbNode): string | null {
+	return node.isTeam && node.id ? node.id : null;
 }

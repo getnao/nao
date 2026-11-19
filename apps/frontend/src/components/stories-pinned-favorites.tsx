@@ -29,6 +29,7 @@ export function PromotedSections({
 	onDeleteFolder,
 	onArchiveFolder,
 	onRestoreFolder,
+	onShowFolderAccess,
 	className,
 	selectedStoryIds,
 	selectedFolderIds,
@@ -44,6 +45,7 @@ export function PromotedSections({
 	onDeleteFolder: (folder: FolderItem) => void;
 	onArchiveFolder: (folder: FolderItem) => void;
 	onRestoreFolder: (folder: FolderItem) => void;
+	onShowFolderAccess: (folder: FolderItem) => void;
 	className?: string;
 	selectedStoryIds?: Set<string>;
 	selectedFolderIds?: Set<string>;
@@ -86,6 +88,7 @@ export function PromotedSections({
 		onDelete: onDeleteFolder,
 		onArchive: onArchiveFolder,
 		onRestore: onRestoreFolder,
+		onShowAccess: onShowFolderAccess,
 	};
 
 	const selectionHandlers = { selectedStoryIds, selectedFolderIds, selectionActive, onToggleStory, onToggleFolder };
@@ -138,6 +141,7 @@ type FolderHandlers = {
 	onDelete: (folder: FolderItem) => void;
 	onArchive: (folder: FolderItem) => void;
 	onRestore: (folder: FolderItem) => void;
+	onShowAccess: (folder: FolderItem) => void;
 };
 
 type SelectionHandlers = {
@@ -232,6 +236,7 @@ function PromotedItem({
 			onDelete={folderHandlers.onDelete}
 			onArchive={folderHandlers.onArchive}
 			onRestore={folderHandlers.onRestore}
+			onShowAccess={folderHandlers.onShowAccess}
 			selected={selectionHandlers.selectedFolderIds?.has(entry.folder.id)}
 			selectionActive={selectionHandlers.selectionActive}
 			onToggleSelect={selectionHandlers.onToggleFolder}

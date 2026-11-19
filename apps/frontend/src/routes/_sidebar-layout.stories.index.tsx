@@ -25,6 +25,7 @@ import type { PointerPosition } from '@/hooks/use-drag-pointer';
 import type { StoryReferences } from '@/lib/story-reference';
 import { FolderBreadcrumb } from '@/components/stories-folder-breadcrumb';
 import { StoriesSelectionBar } from '@/components/stories-selection-bar';
+import { FolderAccessDialog } from '@/components/stories-folder-access-popover';
 import { FolderCreateDialog } from '@/components/stories-folder-create-dialog';
 import { FolderDeleteDialog } from '@/components/stories-folder-delete-dialog';
 import { FolderPickerDialog } from '@/components/stories-folder-picker-dialog';
@@ -131,6 +132,7 @@ type DialogState =
 	| { kind: 'delete'; folder: FolderItem }
 	| { kind: 'picker-story'; item: StoryItem }
 	| { kind: 'picker-folder'; folder: FolderItem }
+	| { kind: 'access'; folder: FolderItem }
 	| { kind: 'picker-selection'; selection: StoryReferences }
 	| null;
 
@@ -769,6 +771,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 							onDeleteFolder={(folder) => setDialog({ kind: 'delete', folder })}
 							onArchiveFolder={handleArchiveFolder}
 							onRestoreFolder={handleRestoreFolder}
+							onShowFolderAccess={(folder) => setDialog({ kind: 'access', folder })}
 							className='mb-6'
 							selectedStoryIds={selectedStoryIds}
 							selectedFolderIds={selectedFolderIds}
@@ -796,6 +799,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 						onDeleteFolder={(folder) => setDialog({ kind: 'delete', folder })}
 						onArchiveFolder={handleArchiveFolder}
 						onRestoreFolder={handleRestoreFolder}
+						onShowFolderAccess={(folder) => setDialog({ kind: 'access', folder })}
 						onNewFolder={() => setDialog({ kind: 'create' })}
 						selectedStoryIds={selectedStoryIds}
 						selectedFolderIds={selectedFolderIds}
@@ -907,6 +911,17 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 					}}
 					target={{ type: 'folder', folderId: dialog.folder.id }}
 					isOwner={dialog.folder.ownerId === session?.user?.id}
+				/>
+			)}
+
+			{dialog?.kind === 'access' && (
+				<FolderAccessDialog
+					folder={dialog.folder}
+					onOpenChange={(open) => {
+						if (!open) {
+							setDialog(null);
+						}
+					}}
 				/>
 			)}
 		</div>

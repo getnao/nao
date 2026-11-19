@@ -11,6 +11,7 @@ import { agentService } from '../services/agent';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { assertCanShareToProject, assertCanShareWith } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
+import { getFolderAccess } from '../services/story-folder-access.service';
 import { getFolderViewer } from '../services/story-folder-viewer.service';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
 
@@ -186,6 +187,12 @@ export const storyFolderRoutes = {
 
 	listItems: projectProtectedProcedure.query(async ({ ctx }) => {
 		return storyFolderQueries.listFolderItemsForProject(await getViewer(ctx), ctx.project.id);
+	}),
+
+	access: projectProtectedProcedure.input(z.object({ id: z.string() })).query(async ({ input, ctx }) => {
+		const folder = await assertFolderInProject(input.id, ctx);
+		await assertCanSeeFolder(folder, ctx);
+		return getFolderAccess(folder);
 	}),
 
 	create: canSendProcedure

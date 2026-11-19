@@ -30,8 +30,23 @@ export async function listShareableUserGroups(projectId: string): Promise<Sharea
 		}));
 }
 
+interface ShareableUserGroupWithMembers {
+	id: string;
+	name: string;
+	memberIds: string[];
+}
+
 /** Current project members of the given shareable user groups. */
 export async function listShareableUserGroupMemberIds(projectId: string, groupIds: string[]): Promise<string[]> {
+	const groups = await listShareableUserGroupsWithMembers(projectId, groupIds);
+	return [...new Set(groups.flatMap((group) => group.memberIds))];
+}
+
+/** The given groups that are active custom groups, with their current project members. */
+export async function listShareableUserGroupsWithMembers(
+	projectId: string,
+	groupIds: string[],
+): Promise<ShareableUserGroupWithMembers[]> {
 	if (groupIds.length === 0) {
 		return [];
 	}
@@ -41,15 +56,11 @@ export async function listShareableUserGroupMemberIds(projectId: string, groupId
 		userGroupQueries.listUserGroupSsoMemberships(projectId),
 		projectQueries.listUsersWithProjectAccess(projectId),
 	]);
-	const shareableGroupIds = new Set(
-		groups.filter((group) => !group.isDefault && groupIds.includes(group.id)).map((group) => group.id),
-	);
-	if (shareableGroupIds.size === 0) {
-		return [];
-	}
 	const projectUserIds = new Set(users.map((user) => user.id));
 	const membersByGroupId = groupMemberIdsByGroup([...manualMemberships, ...ssoMemberships], projectUserIds);
-	return [...new Set([...shareableGroupIds].flatMap((groupId) => [...(membersByGroupId.get(groupId) ?? [])]))];
+	return groups
+		.filter((group) => !group.isDefault && groupIds.includes(group.id))
+		.map((group) => ({ id: group.id, name: group.name, memberIds: [...(membersByGroupId.get(group.id) ?? [])] }));
 }
 
 export async function assertShareableUserGroupIds(projectId: string, groupIds: string[]): Promise<void> {
