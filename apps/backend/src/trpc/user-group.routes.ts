@@ -51,6 +51,7 @@ import type { ActivityType } from '../db/abstractSchema';
 import { env, isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import * as impersonationQueries from '../queries/user-group-impersonation.queries';
@@ -63,6 +64,7 @@ import {
 	previewProjectWideShareRevocation,
 	revokeUnauthorizedProjectWideShares,
 } from '../services/project-sharing.service';
+import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import {
 	listEffectiveEntraUserGroupMappings,
 	listEffectiveOidcUserGroupMappings,
@@ -92,6 +94,7 @@ const toolCallDensityPolicySchema = z.object({
 	canChange: z.boolean(),
 });
 const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
+const storyFolderIdsSchema = z.array(z.string().min(1)).max(1_000);
 const shareTargetsSchema = z
 	.object({
 		includeOwnGroup: z.boolean(),
@@ -492,10 +495,12 @@ export const userGroupRoutes = {
 				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
+				storyFolderIds: storyFolderIdsSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertGroupBudgetEditable(ctx.project.id, input);
+			await assertTeamFoldersChangeAllowed(ctx.project.id, null, input.storyFolderIds);
 			const llmAccess = await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
@@ -558,6 +563,7 @@ export const userGroupRoutes = {
 					: createUserGroup(...values, rowPoliciesRegistry, columnPoliciesRegistry);
 			});
 			await saveGroupBudget(ctx.project.id, group.id, input);
+			await saveGroupTeamFolders(ctx, group.id, input.storyFolderIds);
 			return group;
 		}),
 
@@ -585,11 +591,13 @@ export const userGroupRoutes = {
 				llmModelIdsByConfig: llmModelIdsByConfigSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
+				storyFolderIds: storyFolderIdsSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await assertGroupBudgetEditable(ctx.project.id, input);
+			await assertTeamFoldersChangeAllowed(ctx.project.id, input.groupId, input.storyFolderIds);
 			const llmAccess =
 				input.llmConfigIds === undefined
 					? undefined
@@ -675,6 +683,7 @@ export const userGroupRoutes = {
 				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			}
 			await saveGroupBudget(ctx.project.id, input.groupId, input);
+			await saveGroupTeamFolders(ctx, input.groupId, input.storyFolderIds);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
 		}),
@@ -702,6 +711,7 @@ export const userGroupRoutes = {
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+		await assertNoFolderLeftWithoutGroup(input.groupId);
 		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
 		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 		await revokeUnauthorizedProjectWideShares(ctx.project.id);
@@ -741,6 +751,56 @@ export const userGroupRoutes = {
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };
+
+async function saveGroupTeamFolders(
+	ctx: { project: { id: string }; user: { id: string } },
+	groupId: string,
+	storyFolderIds: string[] | undefined,
+): Promise<void> {
+	if (storyFolderIds === undefined) {
+		return;
+	}
+	try {
+		await storyFolderQueries.setGroupTeamFolders(ctx.project.id, groupId, storyFolderIds, ctx.user.id);
+	} catch (error) {
+		if (error instanceof storyFolderQueries.TeamFolderError) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+		}
+		throw error;
+	}
+}
+
+/** Like MCP restrictions, taking folders away from a group stays possible without the license. */
+async function assertTeamFoldersChangeAllowed(
+	projectId: string,
+	groupId: string | null,
+	storyFolderIds: string[] | undefined,
+): Promise<void> {
+	if (!storyFolderIds?.length) {
+		return;
+	}
+	const currentFolderIds = groupId ? await storyFolderQueries.listGroupFolderIds(groupId) : [];
+	if (storyFolderIds.every((folderId) => currentFolderIds.includes(folderId))) {
+		return;
+	}
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Team folders require an Enterprise license.' });
+	}
+	if (groupId) {
+		await assertShareableUserGroupIds(projectId, [groupId]);
+	}
+}
+
+/** A team folder without groups would open to the entire project, so its last group cannot just disappear. */
+async function assertNoFolderLeftWithoutGroup(groupId: string): Promise<void> {
+	const folderNames = await storyFolderQueries.listFolderNamesOnlyOwnedByGroup(groupId);
+	if (folderNames.length > 0) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: `This group is the only one with access to ${folderNames.map((name) => `"${name}"`).join(', ')}. Remove these folders from the group in its Folders tab, or give them to another group, before deleting it. Archived folders must be restored first.`,
+		});
+	}
+}
 
 interface GroupBudgetsInput {
 	budgetLimitUsd?: number | null;

@@ -153,6 +153,11 @@ export function describeTeamGroups(groupNames: string[]): string {
 	return `the ${GROUP_NAMES_FORMAT.format(groupNames)} ${groupNames.length === 1 ? 'group' : 'groups'}`;
 }
 
+export function getFolderPath(tree: FolderItem[], folder: FolderItem): string {
+	const parent = folder.parentId ? tree.find((candidate) => candidate.id === folder.parentId) : undefined;
+	return parent ? `${getFolderPath(tree, parent)} / ${folder.name}` : folder.name;
+}
+
 function isPrivateContext(folderId: string | null, folders: FolderItem[]): boolean {
 	if (folderId === null) {
 		return false;

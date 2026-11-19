@@ -8,6 +8,7 @@ import { getStoryShareAccess } from '../../src/queries/shared-story.queries';
 import { canUserAccessStory } from '../../src/queries/story.queries';
 import type { FolderViewer } from '../../src/queries/story-folder.queries';
 import {
+	archiveFolder,
 	createFolder,
 	deleteFolderMovingContentsToParent,
 	ensurePrivateRoot,
@@ -15,6 +16,9 @@ import {
 	listFolderTree,
 	moveFolder,
 	moveStoryToFolder,
+	setGroupTeamFolders,
+	TeamFolderError,
+	unarchiveFolder,
 } from '../../src/queries/story-folder.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -94,6 +98,21 @@ describe('team folders', () => {
 		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
 	});
 
+	it('keeps an archived team folder with its group when the group saves its folders', async () => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		await archiveFolder(sales.id);
+
+		await setGroupTeamFolders(PROJECT_ID, GROUP_ID, [], ADMIN_ID);
+		await unarchiveFolder(OWNER_ID, PROJECT_ID, sales.id);
+
+		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
+	});
+
 	it("shares a story with the folder's groups while it is filed there", async () => {
 		const sales = await createFolder({
 			ownerId: OWNER_ID,
@@ -134,6 +153,20 @@ describe('team folders', () => {
 
 		await moveStoryToFolder(STORY_ID, privateRoot, placement);
 		expect(await canUserAccessStory(STORY_ID, ADMIN_ID)).toBe(false);
+	});
+
+	it('refuses to nest team folders, even when both are added at once', async () => {
+		const parent = await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'Parent' });
+		const child = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Child',
+			parentId: parent.id,
+		});
+
+		await expect(setGroupTeamFolders(PROJECT_ID, GROUP_ID, [parent.id, child.id], ADMIN_ID)).rejects.toThrow(
+			TeamFolderError,
+		);
 	});
 
 	it('refuses to move a folder holding a team folder out of the open folders, and the team folder keeps its groups', async () => {
