@@ -113,7 +113,7 @@ def setup_project_name(
 
     if config_file.exists():
         try:
-            existing_config = NaoConfig.try_load(current_dir, raise_on_error=True)
+            existing_config = NaoConfig.try_load(current_dir, raise_on_error=True, allow_missing_file_references=True)
         except NaoConfigError as e:
             raise InitError(
                 f"Found invalid nao_config.yaml.\n{e}\n\nFix the configuration file and rerun `nao init`."

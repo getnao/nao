@@ -24,6 +24,7 @@ import {
 } from '../types/llm';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
+import { holdsFileReference, resolveFileReferences } from './nao-config-references';
 
 export type ConfigProviderBudget = {
 	limitUsd: number;
@@ -144,7 +145,10 @@ export function findConfigLlmProvider(config: ConfigLlm | null, provider: LlmPro
 
 const rawCache = new Map<string, { mtimeMs: number; llm: unknown }>();
 
-/** Parse the config file, caching by modification time so hot paths only pay a stat. */
+/**
+ * Parse the config file, caching by modification time so hot paths only pay a stat. A block that reads other
+ * files through `from_file` is not cached, as they change without the config file changing.
+ */
 function loadLlmBlock(projectPath: string): unknown {
 	const filePath = configPath(projectPath);
 
@@ -162,16 +166,23 @@ function loadLlmBlock(projectPath: string): unknown {
 	}
 
 	let llm: unknown = null;
+	let dependsOnOtherFiles = false;
 	try {
 		const config = yaml.load(fs.readFileSync(filePath, 'utf-8'));
-		llm = isRecord(config) ? (config.llm ?? null) : null;
+		const rawLlm = isRecord(config) ? (config.llm ?? null) : null;
+		dependsOnOtherFiles = holdsFileReference(rawLlm);
+		llm = resolveFileReferences(rawLlm, projectPath);
 	} catch (err) {
 		logger.warn(`Failed to parse ${filePath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',
 		});
 	}
 
-	rawCache.set(filePath, { mtimeMs, llm });
+	if (dependsOnOtherFiles) {
+		rawCache.delete(filePath);
+	} else {
+		rawCache.set(filePath, { mtimeMs, llm });
+	}
 	return llm;
 }
 
