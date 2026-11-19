@@ -778,6 +778,13 @@
       "when": 1795044832091,
       "tag": "0110_query_result_previews",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "6",
+      "when": 1795104702210,
+      "tag": "0111_api_key_scope",
+      "breakpoints": true
     }
   ]
 }
