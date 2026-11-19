@@ -141,6 +141,18 @@ export function isTeamFolder(folder: FolderItem): boolean {
 	return folder.teamGroupIds.length > 0;
 }
 
+/** Subfolders of a team folder inherit its groups: only the team folder itself owns them. */
+export function ownsTeamGroups(folder: FolderItem, folders: FolderItem[]): boolean {
+	const parent = folders.find((candidate) => candidate.id === folder.parentId);
+	return isTeamFolder(folder) && !(parent && isTeamFolder(parent));
+}
+
+const GROUP_NAMES_FORMAT = new Intl.ListFormat('en', { type: 'conjunction' });
+
+export function describeTeamGroups(groupNames: string[]): string {
+	return `the ${GROUP_NAMES_FORMAT.format(groupNames)} ${groupNames.length === 1 ? 'group' : 'groups'}`;
+}
+
 function isPrivateContext(folderId: string | null, folders: FolderItem[]): boolean {
 	if (folderId === null) {
 		return false;

@@ -903,7 +903,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 							setDialog(null);
 						}
 					}}
-					target={{ type: 'folder', folderId: dialog.folder.id, currentVisibility: dialog.folder.visibility }}
+					target={{ type: 'folder', folderId: dialog.folder.id }}
 					isOwner={dialog.folder.ownerId === session?.user?.id}
 				/>
 			)}
