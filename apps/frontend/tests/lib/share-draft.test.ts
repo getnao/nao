@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ShareCandidate, ShareGrant } from '@/lib/share-access';
-import type { ShareSavedState } from '@/lib/share-draft';
+import type { ShareDraft, ShareSavedState } from '@/lib/share-draft';
+import type { FolderItem } from '@/lib/stories-page';
 import {
 	createShareDraft,
+	fitDraftToFolder,
 	isProjectOverride,
 	isShareDraftChanged,
 	isShareDraftEmpty,
@@ -24,6 +26,7 @@ const ANALYSTS: ShareCandidate = {
 	name: 'Analysts',
 	detail: '3 members',
 };
+const SALES: ShareCandidate = { key: 'group:sales', kind: 'group', id: 'sales', name: 'Sales', detail: '2 members' };
 
 const NOT_SHARED: ShareSavedState = { isShared: false, visibility: 'specific', projectRole: 'viewer', grants: [] };
 
@@ -117,6 +120,49 @@ describe('share draft', () => {
 		};
 
 		expect(toSavedGrants(draft)).toEqual([grant(ADA, 'viewer')]);
+	});
+
+	it.each<[string, Pick<FolderItem, 'visibility' | 'teamGroupIds'> | null, ShareDraft['visibility'], ShareGrant[]]>([
+		['the root', null, 'project', [grant(ADA, 'editor')]],
+		['an open folder', { visibility: 'public', teamGroupIds: [] }, 'project', [grant(ADA, 'editor')]],
+		['a private folder', { visibility: 'private', teamGroupIds: [] }, 'specific', [grant(ADA, 'editor')]],
+		[
+			'a team folder',
+			{ visibility: 'public', teamGroupIds: ['analysts'] },
+			'specific',
+			[grant(ADA, 'editor'), grant(ANALYSTS, 'viewer')],
+		],
+	])('opens the draft to the audience of %s', (_, folder, visibility, grants) => {
+		const draft = {
+			visibility: 'project' as const,
+			projectRole: 'viewer' as const,
+			grants: [grant(ADA, 'editor')],
+		};
+
+		expect(fitDraftToFolder(draft, folder, [ADA, BOB, ANALYSTS])).toEqual({ ...draft, visibility, grants });
+	});
+
+	it.each<[string, Pick<FolderItem, 'visibility' | 'teamGroupIds'> | null, ShareGrant[]]>([
+		[
+			'another team folder',
+			{ visibility: 'public', teamGroupIds: ['sales'] },
+			[grant(ADA, 'editor'), grant(SALES, 'viewer')],
+		],
+		['the root', null, [grant(ADA, 'editor')]],
+		[
+			'a private folder',
+			{ visibility: 'private', teamGroupIds: [] },
+			[grant(ADA, 'editor'), grant(ANALYSTS, 'viewer')],
+		],
+	])('replaces the groups of the team folder left for %s', (_, folder, grants) => {
+		const draft = {
+			visibility: 'specific' as const,
+			projectRole: 'viewer' as const,
+			grants: [grant(ADA, 'editor'), grant(ANALYSTS, 'viewer')],
+		};
+		const teamFolder = { visibility: 'public' as const, teamGroupIds: ['analysts'] };
+
+		expect(fitDraftToFolder(draft, folder, [ADA, ANALYSTS, SALES], teamFolder).grants).toEqual(grants);
 	});
 });
 

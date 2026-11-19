@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { StoriesFilters, StoryItem } from '@/lib/stories-page';
-import { buildCurrentLevelEntries, DEFAULT_FILTERS, filterStories } from '@/lib/stories-page';
+import type { FolderItem, FolderShareAudience, StoriesFilters, StoryItem } from '@/lib/stories-page';
+import {
+	buildCurrentLevelEntries,
+	DEFAULT_FILTERS,
+	filterStories,
+	listFittingFolders,
+	pickDefaultFolderId,
+} from '@/lib/stories-page';
 
 describe('stories library filters', () => {
 	const items = [
@@ -49,6 +55,52 @@ describe('stories library filters', () => {
 		]);
 	});
 });
+
+describe('story folder for a share', () => {
+	const tree = [
+		buildFolder('private', { visibility: 'private', systemType: 'private_folder' }),
+		buildFolder('open'),
+		buildFolder('sales', { teamGroupIds: ['sales-group'] }),
+		buildFolder('sales-emea', { parentId: 'sales', teamGroupIds: ['sales-group'] }),
+		buildFolder('board', { teamGroupIds: ['board-group', 'sales-group'] }),
+	];
+	const project: FolderShareAudience = { visibility: 'project', groupIds: [] };
+	const sales: FolderShareAudience = { visibility: 'specific', groupIds: ['sales-group'] };
+	const people: FolderShareAudience = { visibility: 'specific', groupIds: [] };
+
+	it.each<[string, FolderShareAudience, (string | null)[], (string | null)[], string | null]>([
+		['the project', project, [null, 'open'], ['private', 'sales'], null],
+		['a group', sales, ['private', 'sales', 'sales-emea'], ['board', 'sales-emea'], 'sales-emea'],
+		['people only', people, ['private'], ['sales'], 'private'],
+	])(
+		'offers folders that fit a share with %s, preferring the first one that fits',
+		(_, share, fitting, preferred, picked) => {
+			const options = listFittingFolders(tree, share);
+
+			expect(options.map((option) => option.id)).toEqual(fitting);
+			expect(pickDefaultFolderId(options, tree, preferred)).toBe(picked);
+		},
+	);
+});
+
+function buildFolder(id: string, overrides: Partial<FolderItem> = {}): FolderItem {
+	return {
+		id,
+		name: id,
+		parentId: null,
+		ownerId: 'owner',
+		projectId: 'project',
+		visibility: 'public',
+		systemType: null,
+		archivedAt: null,
+		createdAt: new Date(0),
+		updatedAt: new Date(0),
+		storyCount: 0,
+		teamGroupIds: [],
+		teamGroupNames: [],
+		...overrides,
+	} as FolderItem;
+}
 
 function buildStory(overrides: Partial<StoryItem> & { storyId: string }): StoryItem {
 	return {

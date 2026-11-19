@@ -5,12 +5,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import {
+	getSharedStoryByStoryId,
 	getSharedStoryInfo,
 	getStoryShareRole,
 	updateSharedStoryGeneralAccess,
 } from '../../src/queries/shared-story.queries';
 import { getStoryById } from '../../src/queries/story.queries';
-import { ensureStoryPrivate, moveStoryToFolder } from '../../src/queries/story-folder.queries';
+import { setStoryFolder } from '../../src/queries/story-folder.queries';
 import { getReferenceableStory } from '../../src/queries/story-reference.queries';
 import { ensureStoryChat } from '../../src/services/editable-story';
 import { notifySharedItem } from '../../src/services/notification.service';
@@ -23,7 +24,10 @@ import {
 	type StoryShareChange,
 } from '../../src/services/story-share-settings.service';
 
-const mocks = vi.hoisted(() => ({ attachChatToStandaloneStory: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	attachChatToStandaloneStory: vi.fn(),
+	storyFolderId: null as string | null,
+}));
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -36,7 +40,21 @@ vi.mock('../../src/services/project-sharing.service', () => ({
 	assertCanShareWith: vi.fn(),
 }));
 vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
-vi.mock('../../src/queries/story-folder.queries', () => ({ ensureStoryPrivate: vi.fn(), moveStoryToFolder: vi.fn() }));
+vi.mock('../../src/queries/story-folder.queries', () => ({
+	ensurePrivateRoot: vi.fn(async () => PRIVATE_FOLDER_ID),
+	ensureStoryPrivate: vi.fn(),
+	getLastUsedFolderId: vi.fn(async () => null),
+	getStoryFolderItem: vi.fn(async () => (mocks.storyFolderId ? { folderId: mocks.storyFolderId } : null)),
+	resolveFolderAudience: vi.fn(async (folderId: string | null) => {
+		if (folderId === PRIVATE_FOLDER_ID) {
+			return { kind: 'private' };
+		}
+		return folderId === TEAM_FOLDER_ID ? { kind: 'groups', groupIds: [GROUP_ID] } : { kind: 'project' };
+	}),
+	setStoryFolder: vi.fn(async (_storyId: string, folderId: string | null) => {
+		mocks.storyFolderId = folderId;
+	}),
+}));
 vi.mock('../../src/services/story-delivery.service', () => ({ teardownStoryDelivery: vi.fn() }));
 vi.mock('../../src/services/standalone-story', () => ({
 	attachChatToStandaloneStory: mocks.attachChatToStandaloneStory,
@@ -51,6 +69,8 @@ const OUTSIDER_ID = 'roles-outsider';
 const PROJECT_VIEWER_ID = 'roles-project-viewer';
 const GROUP_ID = 'roles-group';
 const STORY_ID = 'roles-story';
+const PRIVATE_FOLDER_ID = 'roles-private-folder';
+const TEAM_FOLDER_ID = 'roles-team-folder';
 
 const OWNER: ShareActor = { id: OWNER_ID, name: 'Owner', role: 'user', projectId: PROJECT_ID };
 
@@ -60,6 +80,7 @@ describe('story edit rights shared through roles', () => {
 	beforeEach(async () => {
 		await db.delete(s.sharedStory);
 		vi.clearAllMocks();
+		mocks.storyFolderId = PRIVATE_FOLDER_ID;
 	});
 
 	afterAll(() => {
@@ -242,15 +263,27 @@ describe('story edit rights shared through roles', () => {
 		expect(assertCanShareWith).toHaveBeenCalledWith(PROJECT_ID, OWNER_ID, { userIds: [VIEWER_ID], groupIds: [] });
 	});
 
-	it('moves the story between folders only when who can see it changes', async () => {
+	it('moves the story only when its folder stops matching who it is shared with', async () => {
 		await save({ visibility: 'project' });
-		expect(moveStoryToFolder).toHaveBeenCalledOnce();
+		expect(mocks.storyFolderId).toBeNull();
 
 		await save({ visibility: 'project', projectRole: 'editor' });
-		expect(moveStoryToFolder).toHaveBeenCalledOnce();
+		expect(setStoryFolder).toHaveBeenCalledOnce();
 
 		await save({ users: [editor(EDITOR_ID)] });
-		expect(ensureStoryPrivate).toHaveBeenCalledOnce();
+		expect(mocks.storyFolderId).toBe(PRIVATE_FOLDER_ID);
+	});
+
+	it('keeps the people chosen when a story leaves a team folder it no longer fits', async () => {
+		mocks.storyFolderId = TEAM_FOLDER_ID;
+		await save({ users: [viewer(VIEWER_ID)], groups: [viewer(GROUP_ID)] });
+		expect(mocks.storyFolderId).toBe(TEAM_FOLDER_ID);
+
+		await save({ users: [viewer(VIEWER_ID)] });
+
+		expect(mocks.storyFolderId).toBe(PRIVATE_FOLDER_ID);
+		expect(await getStoryShareRole(STORY_ID, VIEWER_ID)).toBe('viewer');
+		expect(await getStoryShareRole(STORY_ID, GROUP_MEMBER_ID)).toBeNull();
 	});
 
 	it('lets only the owner or an admin change who has access, never an editor', async () => {
@@ -260,6 +293,12 @@ describe('story edit rights shared through roles', () => {
 			code: 'FORBIDDEN',
 		});
 		await expect(assertCanManageStoryShare(await story(), OWNER)).resolves.toBeUndefined();
+	});
+
+	it('keeps the owner as the author and sharer when an admin shares their story', async () => {
+		await save({ visibility: 'project' }, { ...OWNER, id: OUTSIDER_ID, role: 'admin' });
+
+		expect(await getSharedStoryByStoryId(STORY_ID)).toMatchObject({ userId: OWNER_ID, authorName: OWNER_ID });
 	});
 
 	it('unshares the story when it is limited to nobody', async () => {
@@ -286,8 +325,8 @@ async function canEdit(userId: string): Promise<boolean | undefined> {
 	return (await getReferenceableStory(userId, PROJECT_ID, STORY_ID))?.canEdit;
 }
 
-async function save(change: Partial<StoryShareChange>) {
-	await saveStoryShareSettings(await story(), OWNER, {
+async function save(change: Partial<StoryShareChange>, actor: ShareActor = OWNER) {
+	await saveStoryShareSettings(await story(), actor, {
 		visibility: 'specific',
 		projectRole: 'viewer',
 		users: [],

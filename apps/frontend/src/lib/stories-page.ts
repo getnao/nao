@@ -153,6 +153,61 @@ export function describeTeamGroups(groupNames: string[]): string {
 	return `the ${GROUP_NAMES_FORMAT.format(groupNames)} ${groupNames.length === 1 ? 'group' : 'groups'}`;
 }
 
+export interface FolderShareAudience {
+	visibility: 'project' | 'specific';
+	groupIds: string[];
+}
+
+interface FolderOption {
+	id: string | null;
+	label: string;
+}
+
+const ROOT_FOLDER_OPTION: FolderOption = { id: null, label: 'Home' };
+
+/**
+ * Folders whose audience matches the share: the root and open folders for the whole project,
+ * otherwise the private folders and the team folders of the selected groups.
+ */
+export function listFittingFolders(tree: FolderItem[], share: FolderShareAudience): FolderOption[] {
+	const fitting = tree.filter((folder) => folderFitsShare(folder, share));
+	const options = fitting
+		.map((folder) => ({ id: folder.id, label: getFolderPath(tree, folder) }))
+		.sort((a, b) => a.label.localeCompare(b.label));
+	return folderFitsShare(null, share) ? [ROOT_FOLDER_OPTION, ...options] : options;
+}
+
+/** Keeps the current folder when it still fits, then the last used one, then the root or the private folder. */
+export function pickDefaultFolderId(
+	options: FolderOption[],
+	tree: FolderItem[],
+	preferredIds: (string | null | undefined)[],
+): string | null | undefined {
+	const preferred = preferredIds.find((id) => options.some((option) => option.id === id));
+	if (preferred !== undefined) {
+		return preferred;
+	}
+	const privateFolderId = tree.find((folder) => folder.systemType === 'private_folder')?.id;
+	const fallbackIds = [null, privateFolderId, options[0]?.id];
+	return fallbackIds.find((id) => id !== undefined && options.some((option) => option.id === id));
+}
+
+export function folderFitsShare(folder: FolderItem | null, share: FolderShareAudience): boolean {
+	if (folder === null) {
+		return share.visibility === 'project';
+	}
+	if (folder.systemType === 'shared_with_me') {
+		return false;
+	}
+	if (folder.visibility === 'private') {
+		return share.visibility === 'specific';
+	}
+	if (!isTeamFolder(folder)) {
+		return share.visibility === 'project';
+	}
+	return share.visibility === 'specific' && folder.teamGroupIds.every((groupId) => share.groupIds.includes(groupId));
+}
+
 export function getFolderPath(tree: FolderItem[], folder: FolderItem): string {
 	const parent = folder.parentId ? tree.find((candidate) => candidate.id === folder.parentId) : undefined;
 	return parent ? `${getFolderPath(tree, parent)} / ${folder.name}` : folder.name;

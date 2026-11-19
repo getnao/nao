@@ -1,6 +1,6 @@
 import { SHARED_WITH_ME_FOLDER_ID } from '@nao/shared';
 import type { FolderVisibility } from '@nao/shared/types';
-import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
@@ -877,6 +877,45 @@ export async function listFolderItemsForProject(
 		.from(s.storyFolderItem)
 		.where(inArray(s.storyFolderItem.folderId, folderIds))
 		.execute();
+}
+
+/** The folder the user last created, or last shared one of their stories in. */
+export async function getLastUsedFolderId(userId: string, projectId: string): Promise<string | null> {
+	const [[created], [shared]] = await Promise.all([
+		db
+			.select({ folderId: s.storyFolder.id, usedAt: s.storyFolder.createdAt })
+			.from(s.storyFolder)
+			.where(
+				and(
+					eq(s.storyFolder.ownerId, userId),
+					eq(s.storyFolder.projectId, projectId),
+					isNull(s.storyFolder.systemType),
+					isNull(s.storyFolder.archivedAt),
+				),
+			)
+			.orderBy(desc(s.storyFolder.createdAt))
+			.limit(1)
+			.execute(),
+		db
+			.select({ folderId: s.storyFolderItem.folderId, usedAt: s.sharedStory.createdAt })
+			.from(s.sharedStory)
+			.innerJoin(s.storyFolderItem, eq(s.storyFolderItem.storyId, s.sharedStory.storyId))
+			.innerJoin(s.storyFolder, eq(s.storyFolder.id, s.storyFolderItem.folderId))
+			.where(
+				and(
+					eq(s.sharedStory.userId, userId),
+					eq(s.sharedStory.projectId, projectId),
+					isNull(s.storyFolder.archivedAt),
+				),
+			)
+			.orderBy(desc(s.sharedStory.createdAt))
+			.limit(1)
+			.execute(),
+	]);
+	if (!created || !shared) {
+		return created?.folderId ?? shared?.folderId ?? null;
+	}
+	return created.usedAt >= shared.usedAt ? created.folderId : shared.folderId;
 }
 
 /**

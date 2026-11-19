@@ -11,9 +11,17 @@ export type FolderTreeSelectProps = {
 	currentId?: string | null;
 	onSelect: (id: string | null) => void;
 	isDisabled?: (folder: FolderItem) => boolean;
+	isRootDisabled?: boolean;
 };
 
-export function FolderTreeSelect({ tree, selectedId, currentId, onSelect, isDisabled }: FolderTreeSelectProps) {
+export function FolderTreeSelect({
+	tree,
+	selectedId,
+	currentId,
+	onSelect,
+	isDisabled,
+	isRootDisabled = false,
+}: FolderTreeSelectProps) {
 	const rootSelected = selectedId === null;
 
 	return (
@@ -24,7 +32,7 @@ export function FolderTreeSelect({ tree, selectedId, currentId, onSelect, isDisa
 				visibility='public'
 				selected={rootSelected}
 				current={currentId === null}
-				disabled={false}
+				disabled={isRootDisabled}
 				depth={0}
 				onSelect={() => onSelect(null)}
 			/>

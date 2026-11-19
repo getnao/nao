@@ -12,6 +12,7 @@ import { notifySharedItem } from './notification.service';
 import { assertCanShareToProject, assertCanShareWith } from './project-sharing.service';
 import { assertShareableUserGroupIds } from './shareable-user-groups.service';
 import { unshareStory } from './shared-story.service';
+import { getFolderViewer } from './story-folder-viewer.service';
 
 export type ShareActor = { id: string; name: string; role: UserRole | null; projectId: string };
 
@@ -24,6 +25,8 @@ export type StoryShareSettings = {
 	owner: storyQueries.StoryOwner | null;
 	users: sharedStoryQueries.SharedStoryUserGrant[];
 	groups: sharedStoryQueries.SharedStoryGroupGrant[];
+	folderId: string | null;
+	lastUsedFolderId: string | null;
 };
 
 export type ShareGrantChange = sharedStoryQueries.SharedStoryRoleGrant;
@@ -34,13 +37,16 @@ export type StoryShareChange = {
 	users: ShareGrantChange[];
 	groups: ShareGrantChange[];
 	notify: boolean;
+	folderId?: string | null;
 };
 
 export async function getStoryShareSettings(story: DBStory, actor: ShareActor): Promise<StoryShareSettings> {
 	await assertCanSeeStoryShare(story, actor);
-	const [owner, share] = await Promise.all([
+	const [owner, share, folderItem, lastUsedFolderId] = await Promise.all([
 		storyQueries.getStoryOwner(story.id),
 		sharedStoryQueries.getSharedStoryInfo(story.id, actor.projectId),
+		storyFolderQueries.getStoryFolderItem(story.id),
+		storyFolderQueries.getLastUsedFolderId(actor.id, actor.projectId),
 	]);
 	const [users, groups] = share
 		? await Promise.all([
@@ -57,6 +63,8 @@ export async function getStoryShareSettings(story: DBStory, actor: ShareActor): 
 		owner,
 		users,
 		groups,
+		folderId: folderItem?.folderId ?? null,
+		lastUsedFolderId,
 	};
 }
 
@@ -72,18 +80,27 @@ export async function saveStoryShareSettings(
 	const recipients = { userIds: users.map((user) => user.id), groupIds: groups.map((group) => group.id) };
 
 	if (change.visibility === 'specific' && recipients.userIds.length === 0 && recipients.groupIds.length === 0) {
+		if (change.folderId !== undefined) {
+			await assertFolderFitsShare(change.folderId, { ...change, groups }, ownerId, actor);
+		}
 		await unshareIfShared(story, actor);
+		if (change.folderId !== undefined) {
+			await storyFolderQueries.setStoryFolder(story.id, change.folderId);
+		}
 		return;
 	}
 	if (change.visibility === 'project') {
 		await assertCanShareToProject(actor.projectId, actor.id);
+	}
+	if (change.folderId !== undefined) {
+		await assertFolderFitsShare(change.folderId, { ...change, groups }, ownerId, actor);
 	}
 	const existingShare = await sharedStoryQueries.getSharedStoryInfo(story.id, actor.projectId);
 	const newRecipients = await listNewRecipients(existingShare?.id ?? null, recipients);
 	await assertShareableUserGroupIds(actor.projectId, newRecipients.groupIds);
 	await assertCanShareWith(actor.projectId, actor.id, newRecipients);
 
-	const share = existingShare ?? (await createStoryShare(story, actor));
+	const share = existingShare ?? (await createStoryShare(story, actor, ownerId));
 	const wasProjectWide = share.visibility === 'project';
 	const previousProjectRole = share.projectRole;
 	const affectedUserIds = await listAffectedUserIds(share.id, users, groups);
@@ -94,8 +111,10 @@ export async function saveStoryShareSettings(
 		users,
 		groups,
 	});
-	if (!existingShare || existingShare.visibility !== change.visibility) {
-		await placeStoryInFolder(story, actor, ownerId, change.visibility);
+	if (change.folderId !== undefined) {
+		await storyFolderQueries.setStoryFolder(story.id, change.folderId);
+	} else {
+		await refileIfFolderStopsFitting(story, actor, ownerId, { ...change, groups });
 	}
 
 	const currentRoles = await effectiveRoles(story.id, affectedUserIds);
@@ -145,11 +164,15 @@ async function assertCanSeeStoryShare(story: DBStory, actor: ShareActor): Promis
 }
 
 /** A story is shared from its first recipient on: until then it stays private to its owner. */
-async function createStoryShare(story: DBStory, actor: ShareActor): Promise<StoryShareRow> {
+async function createStoryShare(
+	story: DBStory,
+	actor: ShareActor,
+	ownerId: string | undefined,
+): Promise<StoryShareRow> {
 	const created = await sharedStoryQueries.createSharedStory({
 		storyId: story.id,
 		projectId: actor.projectId,
-		userId: actor.id,
+		userId: ownerId ?? actor.id,
 		visibility: 'specific',
 	});
 	await logActivity({
@@ -187,18 +210,76 @@ async function listNewRecipients(
 	};
 }
 
-async function placeStoryInFolder(
+/**
+ * The folder decides who its stories are shared with, so it must match the share: an open folder for the entire
+ * project, a team folder whose groups all get the story, or one of the owner's private folders.
+ */
+async function assertFolderFitsShare(
+	folderId: string | null,
+	change: Pick<StoryShareChange, 'visibility' | 'groups'>,
+	ownerId: string | undefined,
+	actor: ShareActor,
+): Promise<void> {
+	if (folderId !== null) {
+		const folder = await storyFolderQueries.getFolderById(folderId);
+		const viewer = await getFolderViewer(actor.projectId, actor.id, actor.role);
+		const isReachable =
+			folder !== null &&
+			folder.projectId === actor.projectId &&
+			folder.archivedAt === null &&
+			(await storyFolderQueries.canSeeFolder(folder, viewer));
+		if (!isReachable) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Folder not found.' });
+		}
+		if (folder.visibility === 'private' && folder.ownerId !== ownerId) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: "Only the owner's private folders can hold this story.",
+			});
+		}
+	}
+	const audience = await storyFolderQueries.resolveFolderAudience(folderId);
+	if (!folderFitsShare(audience, change)) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'This folder does not match who the story is shared with.',
+		});
+	}
+}
+
+function folderFitsShare(
+	audience: storyFolderQueries.FolderAudience,
+	change: Pick<StoryShareChange, 'visibility' | 'groups'>,
+): boolean {
+	if (change.visibility === 'project') {
+		return audience.kind === 'project';
+	}
+	if (audience.kind === 'groups') {
+		return audience.groupIds.every((groupId) => change.groups.some((group) => group.id === groupId));
+	}
+	return audience.kind === 'private';
+}
+
+/**
+ * Without a chosen folder, the story stays where it is while that folder still matches the share. Otherwise it goes
+ * to the root or the owner's private folder, keeping the access the save just set.
+ */
+async function refileIfFolderStopsFitting(
 	story: DBStory,
 	actor: ShareActor,
 	ownerId: string | undefined,
-	visibility: Visibility,
+	change: Pick<StoryShareChange, 'visibility' | 'groups'>,
 ): Promise<void> {
-	const folderScope = { storyOwnerId: ownerId ?? actor.id, projectId: actor.projectId };
-	if (visibility === 'project') {
-		await storyFolderQueries.moveStoryToFolder(story.id, null, folderScope);
-	} else {
-		await storyFolderQueries.ensureStoryPrivate(story.id, folderScope);
+	const folderItem = await storyFolderQueries.getStoryFolderItem(story.id);
+	const audience = await storyFolderQueries.resolveFolderAudience(folderItem?.folderId ?? null);
+	if (folderFitsShare(audience, change)) {
+		return;
 	}
+	const folderId =
+		change.visibility === 'project'
+			? null
+			: await storyFolderQueries.ensurePrivateRoot(ownerId ?? actor.id, actor.projectId);
+	await storyFolderQueries.setStoryFolder(story.id, folderId);
 }
 
 /** Everyone the save can change the access of: who the share names now, and who it is about to name. */
