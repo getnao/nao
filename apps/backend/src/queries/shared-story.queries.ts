@@ -111,9 +111,9 @@ export async function canUserAccessSharedStory(sharedStoryId: string, userId: st
 	return !!row;
 }
 
-/** Matches `shared_story` rows granted to the user directly or through one of their active user groups. */
+/** Matches `shared_story` rows granted to the user directly, through one of their active user groups, or as admin. */
 export function sharedStoryGrantsUser(userId: string, lockedGroupIds: readonly string[]): SQL {
-	return sql`(${directlyGrantsUser(userId, SHARE_ROLES)} or ${groupGrantsUser(userId, SHARE_ROLES, lockedGroupIds)})`;
+	return sql`(${directlyGrantsUser(userId, SHARE_ROLES)} or ${groupGrantsUser(userId, SHARE_ROLES, lockedGroupIds)} or ${grantsTeamFolderStoryToAdmin(userId)})`;
 }
 
 /**
@@ -555,27 +555,46 @@ function directlyGrantsUser(userId: string, roles: readonly ShareRole[]): SQL {
 	)`;
 }
 
-/** Mirrors `getUserRoleInProject`: a project role wins, otherwise the organization role applies. */
 function canWriteInStoryProject(userId: string): SQL {
+	return storyProjectRoleMatches(userId, (role) => sql`${role} <> 'viewer'`);
+}
+
+/** Admins see every team folder, so they also see the stories filed there. */
+function grantsTeamFolderStoryToAdmin(userId: string): SQL {
+	return sql`(${isFiledInTeamFolder()} and ${storyProjectRoleMatches(userId, (role) => sql`${role} = 'admin'`)})`;
+}
+
+/** Stories of an open folder are shared with the entire project, so a share with specific people there means a team folder. */
+function isFiledInTeamFolder(): SQL {
+	return sql`(${s.sharedStory.visibility} = 'specific' and exists (
+		select 1 from ${s.storyFolderItem}
+		inner join ${s.storyFolder} on ${s.storyFolder.id} = ${s.storyFolderItem.folderId}
+		where ${s.storyFolderItem.storyId} = ${s.sharedStory.storyId}
+		  and ${s.storyFolder.visibility} = 'public'
+	))`;
+}
+
+/** Mirrors `getUserRoleInProject`: a project role wins, otherwise the organization role applies. */
+function storyProjectRoleMatches(userId: string, matchesRole: (role: AnyColumn) => SQL): SQL {
 	const isProjectMember = sql`exists (
 		select 1 from ${s.projectMember}
 		where ${s.projectMember.projectId} = ${s.sharedStory.projectId}
 		  and ${s.projectMember.userId} = ${userId}
 	)`;
-	const isProjectWriter = sql`exists (
+	const hasProjectRole = sql`exists (
 		select 1 from ${s.projectMember}
 		where ${s.projectMember.projectId} = ${s.sharedStory.projectId}
 		  and ${s.projectMember.userId} = ${userId}
-		  and ${s.projectMember.role} <> 'viewer'
+		  and ${matchesRole(s.projectMember.role)}
 	)`;
-	const isOrganizationWriter = sql`exists (
+	const hasOrganizationRole = sql`exists (
 		select 1 from ${s.project}
 		inner join ${s.orgMember} on ${s.orgMember.orgId} = ${s.project.orgId}
 		where ${s.project.id} = ${s.sharedStory.projectId}
 		  and ${s.orgMember.userId} = ${userId}
-		  and ${s.orgMember.role} <> 'viewer'
+		  and ${matchesRole(s.orgMember.role)}
 	)`;
-	return sql`(${isProjectWriter} or (not ${isProjectMember} and ${isOrganizationWriter}))`;
+	return sql`(${hasProjectRole} or (not ${isProjectMember} and ${hasOrganizationRole}))`;
 }
 
 function groupGrantsUser(userId: string, roles: readonly ShareRole[], lockedGroupIds: readonly string[]): SQL {
@@ -637,7 +656,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 		.from(s.sharedStory)
 		.innerJoin(s.story, eq(s.sharedStory.storyId, s.story.id))
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
-		.innerJoin(s.user, eq(s.sharedStory.userId, s.user.id))
+		.innerJoin(s.user, eq(s.user.id, sql`coalesce(${s.chat.userId}, ${s.story.userId})`))
 		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))
 		.innerJoin(

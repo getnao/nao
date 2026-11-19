@@ -38,6 +38,11 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 		}
 	},
 	SystemFolderError,
+	TeamFolderError: class extends Error {},
+	canSeeFolder: vi.fn(async () => true),
+	isSameAudience: vi.fn(() => true),
+	resolveAudienceAfterMove: vi.fn(async () => ({ kind: 'project' })),
+	resolveFolderAudience: vi.fn(async () => ({ kind: 'project' })),
 	getFolderById: mocks.getFolderById,
 	moveItemsToFolder: mocks.moveItemsToFolder,
 	proposedParentChainContains: mocks.proposedParentChainContains,
@@ -45,6 +50,11 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 vi.mock('../../src/services/agent', () => ({ agentService: { get: mocks.getAgent } }));
 vi.mock('../../src/services/project-sharing.service', () => ({
 	assertCanShareToProject: mocks.assertCanShareToProject,
+	assertCanShareWith: vi.fn(),
+}));
+vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
+vi.mock('../../src/services/story-folder-viewer.service', () => ({
+	getFolderViewer: vi.fn(async () => ({ userId: 'user-id', isAdmin: false, isViewer: false, groupIds: new Set() })),
 }));
 
 import { storyFolderRoutes } from '../../src/trpc/story-folder.routes';
