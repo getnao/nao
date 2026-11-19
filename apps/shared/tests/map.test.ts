@@ -24,6 +24,7 @@ import {
 	resolveColumnName,
 	resolveMapConfig,
 	scaleBubbleRadius,
+	validateGeoJson,
 	withOpacity,
 } from '../src/map';
 import type * as displayMap from '../src/tools/display-map';
@@ -739,5 +740,45 @@ describe('indexBoundaries', () => {
 	it('does not overwrite an already-indexed key with a different property value', () => {
 		const index = indexBoundaries(boundaries, ['iso', 'name']);
 		expect(index.get('fr')).toBe(geometry);
+	});
+});
+
+describe('validateGeoJson', () => {
+	const square = {
+		type: 'Polygon',
+		coordinates: [
+			[
+				[0, 0],
+				[1, 0],
+				[1, 1],
+				[0, 0],
+			],
+		],
+	};
+
+	it('accepts features without geometry or properties, as GeoJSON allows', () => {
+		const result = validateGeoJson({
+			type: 'FeatureCollection',
+			features: [
+				{ type: 'Feature', geometry: square, properties: { code: '75' } },
+				{ type: 'Feature', geometry: null, properties: null },
+			],
+		});
+
+		expect(result).toMatchObject({ featureCount: 2, propertyKeys: ['code'] });
+	});
+
+	it('names the first feature whose geometry is broken', () => {
+		const collection = {
+			type: 'FeatureCollection',
+			features: [
+				{ type: 'Feature', geometry: square, properties: {} },
+				{ type: 'Feature', geometry: { type: 'Polygon' }, properties: {} },
+			],
+		};
+
+		expect(() => validateGeoJson(collection)).toThrow(
+			'Feature 2 is not valid GeoJSON: its geometry has no coordinates list.',
+		);
 	});
 });

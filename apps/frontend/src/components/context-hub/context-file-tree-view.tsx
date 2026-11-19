@@ -1,0 +1,727 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useBlocker, useNavigate } from '@tanstack/react-router';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDefaultLayout } from 'react-resizable-panels';
+import { isTestFilePath } from '@nao/shared/test-paths';
+import type { ShouldBlockFn } from '@tanstack/react-router';
+
+import type { FileSelectionOptions } from '@/components/settings/file-tree';
+import type { ContextHubView } from '@/hooks/use-context-hub-view';
+import type { ContextExplorerSearch, TestDrawerSearch } from '@/lib/context-explorer-search';
+
+import { ContextFileRecommendations } from '@/components/context-hub/context-file-recommendations';
+import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
+import { ContextFileDiff } from '@/components/settings/context-file-diff';
+import { ContextGitPanel } from '@/components/settings/context-git-panel';
+import { ContextSidebar } from '@/components/settings/context-sidebar';
+import { FileHeaderProblems } from '@/components/settings/file-header-problems';
+import { FileTree } from '@/components/settings/file-tree';
+import { FileViewer } from '@/components/settings/file-viewer';
+import { SortableTabs, TabBar } from '@/components/settings/sortable-tabs';
+import { TestDrawerLayout } from '@/components/settings/test-drawer';
+import { UpstreamFileDiff } from '@/components/settings/upstream-file-diff';
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
+import { Spinner } from '@/components/ui/spinner';
+import { FileExplorerWorktreeProvider } from '@/contexts/file-explorer-worktree';
+import { useRegisterOpenContextFileCallback } from '@/contexts/open-context-file-callback';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useLocalStorage } from '@/hooks/use-local-storage';
+import { useContextChanges } from '@/hooks/use-context-changes';
+import { useFileChangeMarks } from '@/hooks/use-file-change-marks';
+import { getTabShownAfterClosing, useOpenedTabs } from '@/hooks/use-opened-tabs';
+import {
+	consumeHistoricalContextDiffSearch,
+	consumeOpenTestsSearch,
+	getHistoricalContextDiffTarget,
+} from '@/lib/context-explorer-search';
+import { isListedInContextHub } from '@/lib/context-hub';
+import { getDistinguishingFolders } from '@/lib/file-path';
+import { createLocalStorage } from '@/lib/local-storage';
+import { trpc } from '@/main';
+
+const contentSearchStorage = createLocalStorage<boolean>('nao-file-explorer-content-search', true);
+
+type ViewerTarget = (
+	| { type: 'file'; path: string; openSource: boolean; testRun?: string }
+	| { type: 'diff'; path: string }
+	| { type: 'upstream-diff'; path: string }
+	| { type: 'empty' }
+) & { closedTestTab?: string; closedFileTabs?: string[] };
+type SourceAutoOpenRequest = { path: string; id: number };
+
+/** The file tree view of the Context Hub: every file of the context, its changes, branches and tests. */
+export function ContextFileTreeView({
+	search: contextSearch,
+	onSwitchView,
+}: {
+	search: ContextExplorerSearch;
+	/** Absent for people who only get the doc view. */
+	onSwitchView?: (view: ContextHubView, openPath: string | null) => void;
+}) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const {
+		path: initialPath,
+		from: historicalFrom,
+		to: historicalTo,
+		test: testDrawerTest,
+		testRun: testDrawerRun,
+		tests: testDrawerOpening,
+	} = contextSearch;
+	const activeTestPath = testDrawerTest && isTestFilePath(testDrawerTest) ? testDrawerTest : null;
+	const initialHistoricalDiff = getHistoricalContextDiffTarget({
+		path: initialPath,
+		from: historicalFrom,
+		to: historicalTo,
+	});
+	const [selectedPath, setSelectedPath] = useState<string | null>(() => initialPath ?? null);
+	const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
+	const [selectedUpstreamDiffPath, setSelectedUpstreamDiffPath] = useState<string | null>(null);
+	const [historicalDiff, setHistoricalDiff] = useState(() => initialHistoricalDiff);
+	const [pendingViewerTarget, setPendingViewerTarget] = useState<ViewerTarget | null>(null);
+	const [sourceAutoOpenRequest, setSourceAutoOpenRequest] = useState<SourceAutoOpenRequest | null>(null);
+	const [viewerRevision, setViewerRevision] = useState(0);
+	const [isViewerDirty, setIsViewerDirty] = useState(false);
+	const [editorDraft, setEditorDraft] = useState<{ path: string; content: string } | null>(null);
+	const [testDrawerOpenRequestId, setTestDrawerOpenRequestId] = useState(0);
+	const [syncedTestPath, setSyncedTestPath] = useState<string | null>(null);
+	const openedTestTabs = useOpenedTabs();
+	const openedFileTabs = useOpenedTabs(initialPath && !initialHistoricalDiff ? [initialPath] : []);
+	const fileTabFolders = useMemo(() => getDistinguishingFolders(openedFileTabs.paths), [openedFileTabs.paths]);
+	const hasResolvedInitialTestTabRef = useRef(false);
+	const [search, setSearch] = useState('');
+	const [isContentSearchEnabled, setIsContentSearchEnabled] = useLocalStorage(contentSearchStorage);
+	const trimmedSearch = search.trim();
+	const contentSearchQuery = trimmedSearch.slice(0, 200);
+	const debouncedSearch = useDebouncedValue(contentSearchQuery, 250);
+	const isLiveContentSearchEligible = isContentSearchEnabled && trimmedSearch.length >= 2;
+	const shouldSearchContent = isContentSearchEnabled && debouncedSearch.length >= 2;
+	const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+		id: 'context-explorer',
+		storage: localStorage,
+	});
+	const isShowingDiff = !!historicalDiff || !!selectedDiffPath || !!selectedUpstreamDiffPath;
+	const shownFilePath = isShowingDiff ? null : selectedPath;
+	const editorTestPath = shownFilePath && isTestFilePath(shownFilePath) ? shownFilePath : null;
+	const handleEditorDraftChange = useCallback((path: string, content: string) => {
+		setEditorDraft({ path, content });
+	}, []);
+	const shouldBlockNavigation = useCallback<ShouldBlockFn>(
+		({ current, next, action }) => {
+			if (!isViewerDirty) {
+				return false;
+			}
+			if (current.pathname !== next.pathname) {
+				return true;
+			}
+			const isHistoryStep = action === 'BACK' || action === 'FORWARD' || action === 'GO';
+			const nextTestPath = (next.search as ContextExplorerSearch).test;
+			return isHistoryStep && nextTestPath !== undefined && nextTestPath !== selectedPath;
+		},
+		[isViewerDirty, selectedPath],
+	);
+	const navigationBlocker = useBlocker({
+		shouldBlockFn: shouldBlockNavigation,
+		enableBeforeUnload: isViewerDirty,
+		disabled: !isViewerDirty,
+		withResolver: true,
+	});
+
+	useEffect(() => {
+		if (hasResolvedInitialTestTabRef.current) {
+			return;
+		}
+		hasResolvedInitialTestTabRef.current = true;
+		if (!testDrawerTest && editorTestPath) {
+			void navigate({
+				to: '.',
+				search: (previous: ContextExplorerSearch) => ({ ...previous, test: editorTestPath }),
+				replace: true,
+			});
+		}
+	}, [editorTestPath, navigate, testDrawerTest]);
+
+	useEffect(() => {
+		const target = getHistoricalContextDiffTarget({
+			path: initialPath,
+			from: historicalFrom,
+			to: historicalTo,
+		});
+		if (!target) {
+			return;
+		}
+		setSelectedPath(target.path);
+		setSelectedDiffPath(null);
+		setHistoricalDiff(target);
+		void navigate({
+			to: '.',
+			search: consumeHistoricalContextDiffSearch(target),
+			replace: true,
+		});
+	}, [historicalFrom, historicalTo, initialPath, navigate]);
+
+	useEffect(() => {
+		if (testDrawerOpening !== 'open') {
+			return;
+		}
+		setTestDrawerOpenRequestId((current) => current + 1);
+		void navigate({
+			to: '.',
+			search: consumeOpenTestsSearch,
+			replace: true,
+		});
+	}, [testDrawerOpening, navigate]);
+
+	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
+	const fileChangeMarks = useFileChangeMarks();
+	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
+	const rulesPreviewGroups = useQuery(trpc.contextExplorer.getRulesPreviewGroups.queryOptions());
+	const rulesPreviewGroupsState = rulesPreviewGroups.isLoading
+		? ({ status: 'loading' } as const)
+		: rulesPreviewGroups.isError || !rulesPreviewGroups.data
+			? ({ status: 'error' } as const)
+			: ({ status: 'ready', ...rulesPreviewGroups.data } as const);
+	const fileContent = useQuery({
+		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
+		enabled: !!selectedPath,
+	});
+	const savedFileContent = fileContent.data?.content;
+	const activeTestFile = useMemo(
+		() => resolveActiveTestFile({ activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent }),
+		[activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent],
+	);
+	const contentSearch = useQuery({
+		...trpc.contextExplorer.searchContent.queryOptions({ query: debouncedSearch }),
+		enabled: shouldSearchContent,
+		placeholderData: keepPreviousData,
+	});
+	const isContentSearchPending =
+		isLiveContentSearchEligible && (contentSearchQuery !== debouncedSearch || contentSearch.isFetching);
+	const contentMatches = useMemo(() => {
+		if (!isLiveContentSearchEligible || !shouldSearchContent) {
+			return new Map();
+		}
+		return new Map(
+			(contentSearch.data?.results ?? []).map((match) => [
+				match.path,
+				{ count: match.count, line: match.line, text: match.text },
+			]),
+		);
+	}, [contentSearch.data?.results, isLiveContentSearchEligible, shouldSearchContent]);
+
+	const requestSourceAutoOpen = (path: string) => {
+		setSourceAutoOpenRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
+	};
+
+	/** Moves the Tests drawer as a new browser history step, so going back returns to where it was. */
+	const navigateTestDrawer = (location: TestDrawerSearch) => {
+		if (location.test === testDrawerTest && location.testRun === testDrawerRun) {
+			return;
+		}
+		void navigate({
+			to: '.',
+			search: (previous: ContextExplorerSearch) => ({
+				...previous,
+				test: location.test,
+				testRun: location.testRun,
+			}),
+		});
+	};
+
+	const openTestSuite = () => {
+		navigateTestDrawer({});
+		setTestDrawerOpenRequestId((current) => current + 1);
+	};
+
+	const selectTestTab = (testPath: string | null, runId?: string) => {
+		if (testPath === null || testPath === editorTestPath) {
+			navigateTestDrawer({ test: testPath ?? undefined, testRun: runId });
+			return;
+		}
+		requestViewerTarget({ type: 'file', path: testPath, openSource: false });
+	};
+
+	/** Closing the tab of the test in the editor also closes the file, or opens the neighbor tab when it was shown. */
+	const closeTestTab = (testPath: string) => {
+		const isShown = testPath === activeTestPath;
+		const neighborPath = isShown ? getTabShownAfterClosing(openedTestTabs.paths, [testPath], testPath) : null;
+		const closedFileTabs = testPath === editorTestPath ? [testPath] : undefined;
+		if (neighborPath) {
+			requestViewerTarget({
+				type: 'file',
+				path: neighborPath,
+				openSource: false,
+				closedTestTab: testPath,
+				closedFileTabs,
+			});
+		} else if (testPath === editorTestPath) {
+			requestViewerTarget({ ...getViewerTargetAfterClosingFiles([testPath]), closedTestTab: testPath });
+		} else {
+			openedTestTabs.closeTab(testPath);
+			if (isShown) {
+				navigateTestDrawer({});
+			}
+		}
+	};
+
+	const selectFileTab = (path: string) => {
+		if (path !== shownFilePath) {
+			requestViewerTarget({ type: 'file', path, openSource: false });
+		}
+	};
+
+	/** Closing the tab of the file in the editor shows its neighbor tab, or nothing once no tab is left. */
+	const closeFileTabs = (paths: string[]) => {
+		if (!selectedPath || !paths.includes(selectedPath)) {
+			openedFileTabs.closeTabs(paths);
+		} else if (isShowingDiff) {
+			openedFileTabs.closeTabs(paths);
+			setSelectedPath(getTabShownAfterClosing(openedFileTabs.paths, paths, selectedPath));
+		} else {
+			requestViewerTarget(getViewerTargetAfterClosingFiles(paths));
+		}
+	};
+
+	const getViewerTargetAfterClosingFiles = (paths: string[]): ViewerTarget => {
+		const nextPath = selectedPath ? getTabShownAfterClosing(openedFileTabs.paths, paths, selectedPath) : null;
+		return nextPath
+			? { type: 'file', path: nextPath, openSource: false, closedFileTabs: paths }
+			: { type: 'empty', closedFileTabs: paths };
+	};
+
+	const selectTestRun = (runId: string | null) => {
+		navigateTestDrawer({ test: activeTestPath ?? undefined, testRun: runId ?? undefined });
+	};
+
+	/** The Tests drawer follows the file in the editor: a test shows its tab, any other file all the tests. */
+	const syncTestDrawerWithFile = (path: string | null, testRun?: string) => {
+		if (path && isTestFilePath(path)) {
+			openedTestTabs.openTab(path);
+			navigateTestDrawer({ test: path, testRun });
+		} else if (activeTestPath) {
+			navigateTestDrawer({});
+		}
+	};
+
+	const showFile = (path: string | null) => {
+		if (path) {
+			openedFileTabs.openTab(path);
+		}
+		setSelectedPath(path);
+		setSelectedDiffPath(null);
+		setSelectedUpstreamDiffPath(null);
+		setHistoricalDiff(null);
+		setSourceAutoOpenRequest(null);
+	};
+
+	const applyViewerTarget = (target: ViewerTarget) => {
+		if (target.closedTestTab) {
+			openedTestTabs.closeTab(target.closedTestTab);
+		}
+		if (target.closedFileTabs) {
+			openedFileTabs.closeTabs(target.closedFileTabs);
+		}
+		if (target.type === 'file') {
+			showFile(target.path);
+			syncTestDrawerWithFile(target.path, target.testRun);
+			if (target.openSource) {
+				requestSourceAutoOpen(target.path);
+			}
+			return;
+		}
+		if (target.type === 'empty') {
+			showFile(null);
+			syncTestDrawerWithFile(null);
+			return;
+		}
+		setHistoricalDiff(null);
+		setSelectedDiffPath(target.type === 'diff' ? target.path : null);
+		setSelectedUpstreamDiffPath(target.type === 'upstream-diff' ? target.path : null);
+	};
+
+	const requestViewerTarget = (target: ViewerTarget) => {
+		if (isViewerDirty) {
+			setPendingViewerTarget(target);
+			return;
+		}
+		applyViewerTarget(target);
+	};
+
+	const handleSelectFile = (path: string, options: FileSelectionOptions) => {
+		if (
+			path === selectedPath &&
+			selectedDiffPath === null &&
+			selectedUpstreamDiffPath === null &&
+			historicalDiff === null
+		) {
+			if (options.isContentMatch) {
+				requestSourceAutoOpen(path);
+			}
+			if (isTestFilePath(path) && path !== activeTestPath) {
+				syncTestDrawerWithFile(path);
+			}
+			return;
+		}
+		requestViewerTarget({ type: 'file', path, openSource: options.isContentMatch });
+	};
+
+	useRegisterOpenContextFileCallback((path) => handleSelectFile(path, { isContentMatch: false }), [handleSelectFile]);
+
+	const handleViewDiff = (path: string) => {
+		if (path === selectedDiffPath) {
+			return;
+		}
+		requestViewerTarget({ type: 'diff', path });
+	};
+
+	const handleViewUpstreamDiff = (path: string) => {
+		if (path === selectedUpstreamDiffPath) {
+			return;
+		}
+		requestViewerTarget({ type: 'upstream-diff', path });
+	};
+
+	const handleChangesCommitted = async (paths: string[]) => {
+		if (!selectedDiffPath || !paths.includes(selectedDiffPath)) {
+			return;
+		}
+		const committedDiffPath = selectedDiffPath;
+		setSelectedDiffPath(null);
+		await queryClient.cancelQueries({
+			queryKey: trpc.contextExplorer.getFileDiff.queryKey({ path: committedDiffPath }),
+		});
+	};
+
+	const handleDiscardAndChangeView = () => {
+		if (!pendingViewerTarget) {
+			return;
+		}
+		setIsViewerDirty(false);
+		applyViewerTarget(pendingViewerTarget);
+		setPendingViewerTarget(null);
+	};
+
+	const handleLocalChangeDiscarded = async (path: string) => {
+		if (selectedDiffPath === path) {
+			setSelectedDiffPath(null);
+		}
+		if (selectedPath !== path) {
+			return;
+		}
+		setIsViewerDirty(false);
+		await queryClient.invalidateQueries({
+			queryKey: trpc.contextExplorer.readFile.queryKey({ path }),
+		});
+		setViewerRevision((current) => current + 1);
+	};
+
+	const handleAllLocalChangesDiscarded = async () => {
+		setSelectedDiffPath(null);
+		setIsViewerDirty(false);
+		if (selectedPath) {
+			await queryClient.invalidateQueries({
+				queryKey: trpc.contextExplorer.readFile.queryKey({ path: selectedPath }),
+			});
+			setViewerRevision((current) => current + 1);
+		}
+	};
+
+	const handleRepositoryChanged = () => {
+		openedFileTabs.closeTabs(openedFileTabs.paths);
+		setSelectedPath(null);
+		setSelectedDiffPath(null);
+		setSelectedUpstreamDiffPath(null);
+		setHistoricalDiff(null);
+		setSourceAutoOpenRequest(null);
+		setIsViewerDirty(false);
+		setViewerRevision((current) => current + 1);
+	};
+
+	const handleDiscardAndNavigate = () => {
+		if (navigationBlocker.status !== 'blocked') {
+			return;
+		}
+		setIsViewerDirty(false);
+		navigationBlocker.proceed();
+	};
+
+	/** Going back or forward to the tab of another test opens that test in the editor. */
+	if (activeTestPath !== syncedTestPath) {
+		setSyncedTestPath(activeTestPath);
+		if (activeTestPath) {
+			openedTestTabs.openTab(activeTestPath);
+			if (activeTestPath !== editorTestPath) {
+				showFile(activeTestPath);
+			}
+		}
+	}
+
+	return (
+		<FileExplorerWorktreeProvider
+			value={{ hasUnsavedFileChanges: isViewerDirty, onRepositoryChanged: handleRepositoryChanged }}
+		>
+			<div className='flex flex-col flex-1 overflow-hidden'>
+				<ResizablePanelGroup
+					orientation='horizontal'
+					className='flex-1 min-h-0'
+					defaultLayout={defaultLayout ?? { tree: 1.1, viewer: 5 }}
+					onLayoutChanged={onLayoutChanged}
+				>
+					<ResizablePanel id='tree' minSize={180}>
+						<ContextSidebar
+							changeCount={changedFileCount}
+							viewMenu={
+								onSwitchView && (
+									<ContextHubViewMenu
+										view='files'
+										isDirty={isViewerDirty}
+										onSwitchView={(view) =>
+											onSwitchView(view, getPathKeptInView(view, shownFilePath))
+										}
+									/>
+								)
+							}
+							files={
+								fileTree.isLoading ? (
+									<div className='flex items-center justify-center h-32'>
+										<Spinner />
+									</div>
+								) : fileTree.isError ? (
+									<div className='flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2'>
+										<p>Failed to load files</p>
+										<Button variant='outline' size='sm' onClick={() => fileTree.refetch()}>
+											Retry
+										</Button>
+									</div>
+								) : (
+									<FileTree
+										changeMarks={fileChangeMarks}
+										entries={fileTree.data?.entries ?? []}
+										selectedPath={
+											historicalDiff?.path ??
+											selectedDiffPath ??
+											(selectedUpstreamDiffPath ? `/${selectedUpstreamDiffPath}` : null) ??
+											selectedPath
+										}
+										onSelectFile={handleSelectFile}
+										search={search}
+										onSearchChange={setSearch}
+										isContentSearchEnabled={isContentSearchEnabled}
+										onContentSearchEnabledChange={setIsContentSearchEnabled}
+										contentMatches={contentMatches}
+										isContentSearchPending={isContentSearchPending}
+										contentSearchFailed={shouldSearchContent && contentSearch.isError}
+										contentSearchTruncated={
+											isLiveContentSearchEligible &&
+											shouldSearchContent &&
+											!isContentSearchPending &&
+											!contentSearch.isPlaceholderData &&
+											contentSearch.data?.truncated === true
+										}
+									/>
+								)
+							}
+							changes={
+								<ContextGitPanel
+									selectedDiffPath={selectedDiffPath}
+									selectedUpstreamDiffPath={selectedUpstreamDiffPath}
+									hasUnsavedFileChanges={isViewerDirty}
+									onViewDiff={handleViewDiff}
+									onViewUpstreamDiff={handleViewUpstreamDiff}
+									onCommitted={handleChangesCommitted}
+									onDiscarded={handleLocalChangeDiscarded}
+									onDiscardAll={handleAllLocalChangesDiscarded}
+									onRepositoryChanged={handleRepositoryChanged}
+									onOpenTests={openTestSuite}
+								/>
+							}
+							footer={
+								<FileHeaderProblems
+									selectedPath={shownFilePath}
+									onOpenFile={(path) => handleSelectFile(path, { isContentMatch: false })}
+								/>
+							}
+						/>
+					</ResizablePanel>
+
+					<ResizableSeparator />
+
+					<ResizablePanel id='viewer' minSize={300}>
+						<TestDrawerLayout
+							testTabs={openedTestTabs.paths}
+							activeTestPath={activeTestPath}
+							activeTestFile={activeTestFile}
+							selectedRunId={testDrawerRun ?? null}
+							openRequestId={testDrawerOpenRequestId}
+							onSelectTab={selectTestTab}
+							onCloseTab={closeTestTab}
+							onMoveTab={openedTestTabs.moveTab}
+							onSelectRun={selectTestRun}
+							onOpenTest={(path, testRun) =>
+								requestViewerTarget({ type: 'file', path, openSource: false, testRun })
+							}
+						>
+							<div className='flex h-full flex-col bg-background'>
+								{openedFileTabs.paths.length > 0 && (
+									<TabBar label='Opened files'>
+										<SortableTabs
+											paths={openedFileTabs.paths}
+											activePath={shownFilePath}
+											unsavedPath={isViewerDirty ? shownFilePath : null}
+											getDescription={(path) => fileTabFolders.get(path)}
+											onSelect={selectFileTab}
+											onClose={(path) => closeFileTabs([path])}
+											onCloseTabs={closeFileTabs}
+											onMove={openedFileTabs.moveTab}
+										/>
+									</TabBar>
+								)}
+								{!historicalDiff && !selectedDiffPath && !selectedUpstreamDiffPath && (
+									<ContextFileRecommendations path={selectedPath} isDirty={isViewerDirty} />
+								)}
+								<div className='min-h-0 flex-1'>
+									{historicalDiff ? (
+										<ContextFileDiff
+											path={historicalDiff.path}
+											range={{ from: historicalDiff.from, to: historicalDiff.to }}
+										/>
+									) : selectedDiffPath ? (
+										<ContextFileDiff path={selectedDiffPath} />
+									) : selectedUpstreamDiffPath ? (
+										<UpstreamFileDiff path={selectedUpstreamDiffPath} />
+									) : (
+										<FileViewer
+											key={`${selectedPath ?? 'empty'}:${viewerRevision}`}
+											filePath={selectedPath}
+											content={fileContent.data?.content}
+											hash={fileContent.data?.hash}
+											isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
+											isError={fileContent.isError && !fileContent.data}
+											isEditable={fileContent.data?.isEditable === true}
+											editabilityGuidance={fileContent.data?.guidance ?? null}
+											searchQuery={shouldSearchContent ? debouncedSearch : ''}
+											sourceAutoOpenRequestId={
+												sourceAutoOpenRequest?.path === selectedPath
+													? sourceAutoOpenRequest.id
+													: null
+											}
+											onDirtyChange={setIsViewerDirty}
+											onOpenGuidancePath={(path, kind) => {
+												if (kind === 'route') {
+													void navigate({ to: path });
+													return;
+												}
+												requestViewerTarget({ type: 'file', path, openSource: false });
+											}}
+											onReload={async () => {
+												const result = await fileContent.refetch();
+												if (result.error) {
+													throw result.error;
+												}
+												return result.data;
+											}}
+											rulesPreviewGroups={rulesPreviewGroupsState}
+											onDraftChange={handleEditorDraftChange}
+										/>
+									)}
+								</div>
+							</div>
+						</TestDrawerLayout>
+					</ResizablePanel>
+				</ResizablePanelGroup>
+				<DiscardChangesDialog
+					open={pendingViewerTarget !== null}
+					onOpenChange={(open) => {
+						if (!open) {
+							setPendingViewerTarget(null);
+						}
+					}}
+					onDiscard={handleDiscardAndChangeView}
+				/>
+				<DiscardChangesDialog
+					open={navigationBlocker.status === 'blocked'}
+					onOpenChange={(open) => {
+						if (!open && navigationBlocker.status === 'blocked') {
+							navigationBlocker.reset();
+						}
+					}}
+					onDiscard={handleDiscardAndNavigate}
+				/>
+			</div>
+		</FileExplorerWorktreeProvider>
+	);
+}
+
+/**
+ * The test the Tests drawer runs: the editor's content while the editor shows it, else its saved content, so that edits
+ * discarded by opening a diff are not run.
+ */
+function resolveActiveTestFile(input: {
+	activeTestPath: string | null;
+	editorTestPath: string | null;
+	editorDraft: { path: string; content: string } | null;
+	selectedPath: string | null;
+	savedFileContent: string | undefined;
+}): { path: string; content: string } | null {
+	const { activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent } = input;
+	if (!activeTestPath) {
+		return null;
+	}
+	if (editorTestPath === activeTestPath && editorDraft?.path === activeTestPath) {
+		return editorDraft;
+	}
+	return selectedPath === activeTestPath && savedFileContent !== undefined
+		? { path: activeTestPath, content: savedFileContent }
+		: null;
+}
+
+function DiscardChangesDialog({
+	open,
+	onOpenChange,
+	onDiscard,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onDiscard: () => void;
+}) {
+	return (
+		<AlertDialog open={open} onOpenChange={onOpenChange}>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+					<AlertDialogDescription>
+						Continuing will discard the changes you made to this file.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Keep editing</AlertDialogCancel>
+					<AlertDialogAction
+						variant='destructive'
+						onClick={(event) => {
+							event.preventDefault();
+							onDiscard();
+						}}
+					>
+						Discard changes
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
+/** The doc view opens a file it does not list in the file tree, so picking the doc view leaves such a file behind. */
+function getPathKeptInView(view: ContextHubView, path: string | null): string | null {
+	return view === 'docs' && path && !isListedInContextHub(path) ? null : path;
+}

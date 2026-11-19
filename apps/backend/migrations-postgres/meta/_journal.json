@@ -726,15 +726,71 @@
     {
       "idx": 103,
       "version": "7",
-      "when": 1794489179682,
-      "tag": "0103_story_viewer_data_cache",
+      "when": 1794608573692,
+      "tag": "0103_project_menu_settings",
       "breakpoints": true
     },
     {
       "idx": 104,
       "version": "7",
-      "when": 1794495297098,
-      "tag": "0104_story_viewer_cache_revision",
+      "when": 1794665362220,
+      "tag": "0104_shared_github_access_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794824545395,
+      "tag": "0105_story_queries",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1794936825739,
+      "tag": "0106_story_transferred_from",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795005230933,
+      "tag": "0107_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795008907744,
+      "tag": "0108_sso_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795027131609,
+      "tag": "0109_agent_stream_relay",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795044833610,
+      "tag": "0110_query_result_previews",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1795079971809,
+      "tag": "0111_story_viewer_data_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1795079973306,
+      "tag": "0112_story_viewer_cache_revision",
       "breakpoints": true
     }
   ]

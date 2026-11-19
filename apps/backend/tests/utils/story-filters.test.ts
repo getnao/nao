@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
 	hasRowSecurity: vi.fn(),
+	resolveChatQueryScope: vi.fn(),
 }));
 
 vi.mock('../../src/queries/story.queries', () => ({
@@ -19,6 +20,7 @@ vi.mock('../../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
 	requiresViewerStoryData: mocks.hasRowSecurity,
+	resolveChatQueryScope: mocks.resolveChatQueryScope,
 }));
 
 import { getFilteredStoryQueryData } from '../../src/services/story-filters';
@@ -99,6 +101,11 @@ describe('getFilteredStoryQueryData', () => {
 		});
 		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { userId: 'viewer-1' } });
 		mocks.executeStoryQueries.mockResolvedValue({});
+		mocks.resolveChatQueryScope.mockResolvedValue({
+			chatId: 'chat-1',
+			ownerId: 'owner-1',
+			projectId: 'project-1',
+		});
 	});
 
 	it('executes filtered queries with the viewer context when row security is enabled', async () => {
@@ -113,7 +120,7 @@ describe('getFilteredStoryQueryData', () => {
 
 		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
 		expect(mocks.executeStoryQueries).toHaveBeenCalledWith(
-			'chat-1',
+			{ chatId: 'chat-1', ownerId: 'viewer-1', projectId: 'project-1' },
 			expect.anything(),
 			expect.objectContaining({
 				executionContext: { toolContext: { userId: 'viewer-1' } },

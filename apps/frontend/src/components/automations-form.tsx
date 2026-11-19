@@ -13,6 +13,7 @@ import GithubIcon from '@/components/icons/github-icon.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
+import { EmailRecipientsInput } from '@/components/email-recipients-input';
 import {
 	AutomationPromptResizeHandle,
 	getPromptHeightBounds,
@@ -1411,7 +1412,7 @@ function ToolRow({
 						</p>
 					)}
 					<Input
-						className='h-8'
+						className='h-8 dark:bg-transparent'
 						placeholder='Override subject'
 						value={email.subject ?? ''}
 						onChange={(event) =>
@@ -2105,48 +2106,4 @@ function parseValidationErrorMessage(message: string): string | null {
 
 function isValidationIssue(value: unknown): value is { message: string } {
 	return typeof value === 'object' && value !== null && 'message' in value && typeof value.message === 'string';
-}
-
-function EmailRecipientsInput({
-	recipients,
-	error,
-	disabled,
-	onChange,
-}: {
-	recipients: string[];
-	error: string | null;
-	disabled: boolean;
-	onChange: (recipients: string[]) => void;
-}) {
-	const [recipientsText, setRecipientsText] = useState(recipients.join(', '));
-	const isEditing = useRef(false);
-
-	useEffect(() => {
-		if (!isEditing.current) {
-			setRecipientsText(recipients.join(', '));
-		}
-	}, [recipients]);
-
-	return (
-		<Input
-			className='h-8'
-			placeholder='Additional recipients, comma separated'
-			value={recipientsText}
-			aria-invalid={Boolean(error)}
-			aria-describedby={error ? 'automation-email-recipients-error' : undefined}
-			disabled={disabled}
-			onFocus={() => {
-				isEditing.current = true;
-			}}
-			onBlur={() => {
-				isEditing.current = false;
-				setRecipientsText(recipients.join(', '));
-			}}
-			onChange={(event) => {
-				const text = event.target.value;
-				setRecipientsText(text);
-				onChange(splitCommaList(text));
-			}}
-		/>
-	);
 }

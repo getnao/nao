@@ -68,18 +68,8 @@ export function StoryVersionNav({
 	const [isOpen, setIsOpen] = useState(false);
 	const currentVersionDate = versions[currentVersion - 1]?.createdAt;
 
-	if (versions.length === 0 || (versions.length === 1 && !versions[0].change?.chat)) {
-		return currentVersionDate ? (
-			<span
-				className={cn(
-					'inline-flex items-center whitespace-nowrap text-muted-foreground',
-					VERSION_LABEL_CLASS_NAME,
-				)}
-				title={formatVersionDate(currentVersionDate)}
-			>
-				{formatCompactVersionDate(currentVersionDate)}
-			</span>
-		) : null;
+	if (versions.length === 0) {
+		return null;
 	}
 
 	return (
@@ -292,10 +282,4 @@ function formatVersionTime(date: string | Date): string {
 
 function formatVersionDate(date: string | Date): string {
 	return new Date(date).toLocaleString(undefined, VERSION_DATE_FORMAT);
-}
-
-function formatCompactVersionDate(date: string | Date): string {
-	const versionDate = new Date(date);
-	const isToday = versionDate.toDateString() === new Date().toDateString();
-	return versionDate.toLocaleString(undefined, isToday ? VERSION_TIME_FORMAT : VERSION_DAY_FORMAT);
 }

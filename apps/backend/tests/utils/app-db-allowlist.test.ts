@@ -22,6 +22,16 @@ describe.each([Dialect.Sqlite, Dialect.Postgres])('validateAppDbQuery (%s)', (di
 		expect((await validateAppDbQuery("UPDATE v_messages SET title = 'x'", dialect)).ok).toBe(false);
 	});
 
+	it.each([
+		['a string literal', "SELECT '\\' AS marker FROM v_project"],
+		['a LIKE pattern', "SELECT chat_id FROM v_messages WHERE text LIKE '%\\_%'"],
+		['a quoted identifier', 'SELECT chat_id AS "a\\b" FROM v_messages'],
+	])('rejects a backslash in %s', async (_name, sql) => {
+		const res = await validateAppDbQuery(sql, dialect);
+		expect(res.ok).toBe(false);
+		expect(res.reason).toContain('Backslashes are not supported');
+	});
+
 	it('rejects a base table (not a view)', async () => {
 		const res = await validateAppDbQuery('SELECT * FROM chat', dialect);
 		expect(res.ok).toBe(false);

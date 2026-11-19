@@ -19,6 +19,7 @@ import {
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
+	withSatisfiedFeatureDependencies,
 } from '@nao/shared';
 import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
 import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
@@ -86,6 +87,7 @@ export interface UserGroupEditorGroup {
 	projectSharing: ProjectSharingPermission;
 	shareTargets?: GroupShareTargets;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
@@ -149,6 +151,9 @@ export function UserGroupEditor({
 		existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	);
 	const [showAllSettings, setShowAllSettings] = useState(existingGroup?.showAllSettings ?? false);
+	const [advancedContextExplorer, setAdvancedContextExplorer] = useState(
+		existingGroup?.advancedContextExplorer ?? false,
+	);
 	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(
 		existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS,
 	);
@@ -202,6 +207,8 @@ export function UserGroupEditor({
 	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
 	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
 	const allUsersGroup = defaultGroup && !defaultGroup.isLocked ? defaultGroup : null;
+	const allUsersFeatureGrantsState =
+		existingGroup?.isDefault || allUsersGroup ? 'ready' : userGroupOverview.isLoading ? 'loading' : 'error';
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
 	const rowSecurityRegistry =
@@ -284,6 +291,7 @@ export function UserGroupEditor({
 			projectSharing,
 			shareTargets,
 			showAllSettings,
+			advancedContextExplorer,
 			preloadedSkills,
 			databaseAccess,
 			docsAccess,
@@ -301,6 +309,7 @@ export function UserGroupEditor({
 		setProjectSharing(existingGroup?.projectSharing ?? 'inherit');
 		setShareTargets(existingGroup?.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS);
 		setShowAllSettings(existingGroup?.showAllSettings ?? false);
+		setAdvancedContextExplorer(existingGroup?.advancedContextExplorer ?? false);
 		setPreloadedSkills(existingGroup?.preloadedSkills ?? []);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
@@ -327,6 +336,7 @@ export function UserGroupEditor({
 				projectSharing,
 				shareTargets,
 				showAllSettings,
+				advancedContextExplorer,
 				preloadedSkills,
 				databaseAccess,
 				docsAccess,
@@ -341,6 +351,7 @@ export function UserGroupEditor({
 			resetForm();
 		}
 	}, [
+		advancedContextExplorer,
 		databaseAccess,
 		docsAccess,
 		editorGroup,
@@ -425,6 +436,7 @@ export function UserGroupEditor({
 					projectSharing,
 					shareTargets,
 					showAllSettings,
+					advancedContextExplorer,
 					preloadedSkills,
 					databaseAccess,
 					docsAccess,
@@ -444,6 +456,7 @@ export function UserGroupEditor({
 					projectSharing,
 					shareTargets,
 					showAllSettings,
+					advancedContextExplorer,
 					preloadedSkills,
 					databaseAccess,
 					docsAccess,
@@ -532,6 +545,9 @@ export function UserGroupEditor({
 								featureGrants={featureGrants}
 								onFeatureGrantsChange={setFeatureGrants}
 								isDefaultGroup={existingGroup?.isDefault === true}
+								allUsersFeatureGrants={allUsersGroup?.featureGrants ?? []}
+								allUsersFeatureGrantsState={allUsersFeatureGrantsState}
+								onRetryAllUsersFeatureGrants={() => void userGroupOverview.refetch()}
 								defaultAllowsProjectSharing={isProjectSharingAllowedByDefault(
 									userGroupOverview.data?.groups,
 								)}
@@ -621,6 +637,8 @@ export function UserGroupEditor({
 							<UserGroupAdvancedSettings
 								showAllSettings={showAllSettings}
 								onShowAllSettingsChange={setShowAllSettings}
+								advancedContextExplorer={advancedContextExplorer}
+								onAdvancedContextExplorerChange={setAdvancedContextExplorer}
 								isDefaultGroup={existingGroup?.isDefault === true}
 								allUsersGroup={allUsersGroup}
 							/>
@@ -1035,6 +1053,7 @@ export function hasUserGroupEditorChanges(
 		projectSharing?: ProjectSharingPermission;
 		shareTargets?: GroupShareTargets;
 		showAllSettings?: boolean;
+		advancedContextExplorer?: boolean;
 		preloadedSkills?: string[];
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
@@ -1056,6 +1075,7 @@ export function hasUserGroupEditorChanges(
 			group.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
 		) ||
 		(values.showAllSettings ?? group.showAllSettings) !== group.showAllSettings ||
+		(values.advancedContextExplorer ?? group.advancedContextExplorer) !== group.advancedContextExplorer ||
 		!haveSameOrderedItems(values.preloadedSkills ?? group.preloadedSkills, group.preloadedSkills) ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
@@ -1148,6 +1168,9 @@ function UserGroupFeatures({
 	featureGrants,
 	onFeatureGrantsChange,
 	isDefaultGroup,
+	allUsersFeatureGrants,
+	allUsersFeatureGrantsState,
+	onRetryAllUsersFeatureGrants,
 	defaultAllowsProjectSharing,
 	projectSharing,
 	onProjectSharingChange,
@@ -1161,6 +1184,9 @@ function UserGroupFeatures({
 	featureGrants: UserGroupFeature[];
 	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
 	isDefaultGroup: boolean;
+	allUsersFeatureGrants: UserGroupFeature[];
+	allUsersFeatureGrantsState: 'loading' | 'error' | 'ready';
+	onRetryAllUsersFeatureGrants: () => void;
 	defaultAllowsProjectSharing: boolean | undefined;
 	projectSharing: ProjectSharingPermission;
 	onProjectSharingChange: (value: ProjectSharingPermission) => void;
@@ -1172,6 +1198,19 @@ function UserGroupFeatures({
 	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
 }) {
 	const offeredFeatures = useOfferedUserGroupFeatures();
+	const configuredInheritedFeatureGrants = isDefaultGroup ? [] : allUsersFeatureGrants;
+	const effectiveFeatureGrants = withSatisfiedFeatureDependencies([
+		...new Set([...featureGrants, ...configuredInheritedFeatureGrants]),
+	]);
+	const inheritedFeatureGrants = configuredInheritedFeatureGrants.filter((feature) =>
+		effectiveFeatureGrants.includes(feature),
+	);
+	const resolutionDisabledReason =
+		allUsersFeatureGrantsState === 'loading'
+			? 'Loading All Users feature access.'
+			: allUsersFeatureGrantsState === 'error'
+				? 'All Users feature access is unavailable.'
+				: undefined;
 	return (
 		<div className='flex flex-col gap-6'>
 			<div className='flex flex-col gap-3'>
@@ -1179,19 +1218,43 @@ function UserGroupFeatures({
 					<h3 className='text-sm font-medium'>Allowed features</h3>
 					<p className='text-xs text-muted-foreground'>Choose which product features this group can use.</p>
 				</div>
+				{allUsersFeatureGrantsState !== 'ready' && (
+					<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
+						<p className='text-sm text-muted-foreground'>
+							{allUsersFeatureGrantsState === 'loading'
+								? 'Loading All Users feature access...'
+								: 'Failed to load All Users feature access.'}
+						</p>
+						{allUsersFeatureGrantsState === 'error' && (
+							<Button type='button' size='sm' variant='outline' onClick={onRetryAllUsersFeatureGrants}>
+								Retry
+							</Button>
+						)}
+					</div>
+				)}
 				<div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
 					{offeredFeatures.map((feature) => (
 						<UserGroupFeatureCard
 							key={feature.key}
 							feature={feature}
 							selected={featureGrants.includes(feature.key)}
+							inherited={inheritedFeatureGrants.includes(feature.key)}
+							effectiveSelected={effectiveFeatureGrants.includes(feature.key)}
 							disabledReason={
-								featureGrants.includes(feature.key)
+								resolutionDisabledReason ??
+								(featureGrants.includes(feature.key)
 									? undefined
-									: missingPrerequisiteReason(feature, featureGrants)
+									: missingPrerequisiteReason(feature, effectiveFeatureGrants))
 							}
 							onSelectedChange={(selected) =>
-								onFeatureGrantsChange(toggleFeatureGrant(featureGrants, feature.key, selected))
+								onFeatureGrantsChange(
+									toggleFeatureGrant(
+										featureGrants,
+										feature.key,
+										selected,
+										configuredInheritedFeatureGrants,
+									),
+								)
 							}
 						/>
 					))}
@@ -1290,19 +1353,28 @@ function haveSameRowPolicies(left: UserGroupRowPolicies, right: UserGroupRowPoli
 	}
 }
 
-/** Unchecking a feature also unchecks the ones that require it, so a group never grants a dependent feature alone. */
 function toggleFeatureGrant(
 	grants: UserGroupFeature[],
 	feature: UserGroupFeature,
 	selected: boolean,
+	inheritedGrants: UserGroupFeature[] = [],
 ): UserGroupFeature[] {
 	if (selected) {
-		return [...grants, feature];
+		return [...new Set([...grants, feature])];
 	}
-	const dependents = USER_GROUP_FEATURE_DEFINITIONS.filter((definition) => definition.requires === feature).map(
-		(definition) => definition.key,
+
+	const nextGrants = grants.filter((key) => key !== feature);
+	const effectiveGrants = withSatisfiedFeatureDependencies([...new Set([...nextGrants, ...inheritedGrants])]);
+	if (effectiveGrants.includes(feature)) {
+		return nextGrants;
+	}
+
+	const dependentGrants = new Set(
+		USER_GROUP_FEATURE_DEFINITIONS.filter((definition) => definition.requires === feature).map(
+			(definition) => definition.key,
+		),
 	);
-	return grants.filter((key) => key !== feature && !dependents.includes(key));
+	return nextGrants.filter((grant) => !dependentGrants.has(grant));
 }
 
 function missingPrerequisiteReason(

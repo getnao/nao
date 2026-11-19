@@ -109,6 +109,16 @@ export type StorySubscriptionNotificationPayload = {
 	ownerName: string;
 };
 
+/** `storyId` and `storyTitle` are set when a single story was handed over. */
+export type StoryTransferNotificationPayload = {
+	kind: 'story_transfer';
+	senderName: string;
+	storyCount: number;
+	storyId: string | null;
+	storyTitle: string | null;
+	previousOwnerName: string | null;
+};
+
 export const MAX_PRELOADED_SKILLS = 50;
 
 /** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
@@ -327,7 +337,8 @@ export type FileEditabilityReason =
 	| 'rendered-template'
 	| 'synced-source'
 	| 'not-tracked'
-	| 'production-only';
+	| 'production-only'
+	| 'branch-of-others';
 
 export type FileEditabilityGuidance =
 	| {
@@ -374,13 +385,45 @@ export type ContextChangedFile = {
 	deletions: number | null;
 };
 
+/** A commit of the current branch, as listed among those not pushed yet. */
+export type ContextCommit = {
+	hash: string;
+	subject: string;
+	committedAt: string;
+};
+
 export type ContextBranchInfo = {
 	currentBranch: string | null;
 	defaultBranch: string;
 	aheadCommitCount: number;
 	unpushedCommitCount: number;
+	/** The newest commits not pushed yet, at most 20, newest first; `unpushedCommitCount` counts them all. */
+	unpushedCommits: ContextCommit[];
 	branches: string[];
 	suggestedBranch: string;
+	/** False on a branch of another user, which the File Explorer only shows: commits go to a branch of one's own. */
+	isCurrentBranchOwned: boolean;
+};
+
+/** A branch of a git repository, with who last committed to it when the git provider or git tells. */
+export type RepoBranch = {
+	name: string;
+	commit: string;
+	author: RepoBranchAuthor | null;
+	committedAt: string | null;
+	isMine: boolean;
+};
+
+export type RepoBranchAuthor = {
+	name: string;
+	/** The account on the git provider, when the commit email is linked to one. */
+	login: string | null;
+};
+
+export type RepoBranchList = {
+	branches: RepoBranch[];
+	/** Whether `isMine` is known, which needs the user's own GitHub or GitLab account. */
+	canFilterMine: boolean;
 };
 
 export type ContextBranchCreationResult = ContextBranchInfo & {
@@ -478,11 +521,18 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
+/** Markdown is rebuilt from a story's code, so only markdown stories offer it: custom stories export a rendered snapshot. */
+export type StoryDownloadFormat = DownloadFormat | 'markdown';
+export const STORY_DOWNLOAD_FORMATS = [
+	...DOWNLOAD_FORMATS,
+	'markdown',
+] as const satisfies readonly StoryDownloadFormat[];
+
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
 /** A file taken out of permanent storage is recorded under its own extension. */
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
+export type AnalyticsDownloadFormat = StoryDownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = [
 	'page_view',

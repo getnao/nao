@@ -60,6 +60,9 @@ export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferIns
 export type DBOrganization = typeof sqliteSchema.organization.$inferSelect;
 export type NewOrganization = typeof sqliteSchema.organization.$inferInsert;
 
+export type DBSsoProvider = typeof sqliteSchema.ssoProvider.$inferSelect;
+export type NewSsoProvider = typeof sqliteSchema.ssoProvider.$inferInsert;
+
 export type DBOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferSelect;
 export type NewOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferInsert;
 

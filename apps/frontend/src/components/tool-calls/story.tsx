@@ -9,6 +9,7 @@ import { TextShimmer } from '../ui/text-shimmer';
 import type { ToolCallComponentProps } from '.';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
@@ -144,6 +145,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			queryData={latestStory?.queryData as QueryDataMap | null | undefined}
 			canOpen={canOpen}
 			onOpen={handleOpen}
+			actions={latestStory && <StoryMoveToFolderButton storyId={latestStory.storyId} />}
 			status={
 				<>
 					<span className='text-xs text-muted-foreground'>{statusLabel}</span>

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useMcpProject } from '../helpers/mcp-project';
+import { builtHttpTransports, useMcpProject } from '../helpers/mcp-project';
 
 const mocks = vi.hoisted(() => ({ isCloud: false }));
 
@@ -31,6 +31,16 @@ class FakeRuntime {
 vi.mock('mcporter', () => ({
 	createRuntime: async () => new FakeRuntime(),
 }));
+
+vi.mock(
+	'@modelcontextprotocol/sdk/client/index.js',
+	async () => (await import('../helpers/mcp-project')).mcpSdkClientMock,
+);
+vi.mock(
+	'@modelcontextprotocol/sdk/client/streamableHttp.js',
+	async () => (await import('../helpers/mcp-project')).mcpSdkStreamableHttpMock,
+);
+vi.mock('@modelcontextprotocol/sdk/client/sse.js', async () => (await import('../helpers/mcp-project')).mcpSdkSseMock);
 
 vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('../../src/services/warehouse-credentials', () => ({
@@ -71,12 +81,17 @@ describe('MCP transports in cloud mode', () => {
 		await setUpProject({ isCloud: true });
 	});
 
-	it('never registers a stdio server on the runtime during discovery', async () => {
+	it('discovers HTTP servers through a client that can only reach public addresses', async () => {
 		const service = await createInitializedService();
 		await service.discover('project-1');
 
-		expect(registeredStdioServers()).toEqual([]);
-		expect(registeredDefinitions.map((definition) => definition.name).sort()).toEqual(HTTP_SERVERS.sort());
+		expect(registeredDefinitions).toEqual([]);
+		expect(new Set(builtHttpTransports.map(({ url }) => url.hostname)).size).toBe(HTTP_SERVERS.length);
+		for (const { options } of builtHttpTransports) {
+			await expect(options.fetch!('http://169.254.169.254/computeMetadata/v1/')).rejects.toThrow(
+				'private address',
+			);
+		}
 	});
 
 	it('refuses to call a tool on a stdio server', async () => {
@@ -156,6 +171,7 @@ describe('MCP transports in self-hosted mode', () => {
 
 async function setUpProject({ isCloud }: { isCloud: boolean }): Promise<void> {
 	registeredDefinitions.length = 0;
+	builtHttpTransports.length = 0;
 	mocks.isCloud = isCloud;
 	await createMcpProject(MCP_SERVERS);
 }

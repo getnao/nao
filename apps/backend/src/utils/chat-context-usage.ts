@@ -46,7 +46,9 @@ export async function getChatAsModelMessages(opts: {
 	projectId: string;
 	tools: Record<string, Tool>;
 }): Promise<ModelMessage[]> {
-	const uiMessages = markSupersededExecuteSqlParts(await chatQueries.getChatMessages(opts.chatId));
+	const uiMessages = markSupersededExecuteSqlParts(
+		await chatQueries.getChatMessages(opts.chatId, { queryResultPreviews: true }),
+	);
 	const [memories, artifacts] = await Promise.all([
 		memoryService.safeGetUserMemories(opts.userId, opts.projectId, opts.chatId),
 		safeGetChatArtifacts(opts.chatId, uiMessages, opts.projectId),

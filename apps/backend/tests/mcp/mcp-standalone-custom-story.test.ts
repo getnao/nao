@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	createCustomStoryDraft: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
 	getMcpQueryData: vi.fn(),
+	getMcpSqlQueriesByIds: vi.fn(),
 	getStandaloneStoryByUserAndSlug: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
 	getStoryById: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	renameStory: vi.fn(),
 	resolveChartChatId: vi.fn(),
 	upsertStoryDataCacheByStoryId: vi.fn(),
+	upsertStoryQueries: vi.fn(),
 }));
 
 vi.mock('../../src/db/db', () => ({ db: {} }));
@@ -30,7 +32,11 @@ vi.mock('../../src/queries/story.queries', () => ({
 	upsertStoryDataCacheByStoryId: mocks.upsertStoryDataCacheByStoryId,
 }));
 vi.mock('../../src/queries/story-file.queries', () => ({ listDraftFiles: mocks.listDraftFiles }));
-vi.mock('../../src/queries/mcp-query-data.queries', () => ({ getMcpQueryData: mocks.getMcpQueryData }));
+vi.mock('../../src/queries/mcp-query-data.queries', () => ({
+	getMcpQueryData: mocks.getMcpQueryData,
+	getMcpSqlQueriesByIds: mocks.getMcpSqlQueriesByIds,
+}));
+vi.mock('../../src/queries/story-query.queries', () => ({ upsertStoryQueries: mocks.upsertStoryQueries }));
 vi.mock('../../src/services/story-edit-lock.service', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/services/story-edit-lock.service')>()),
 	assertStoryEditable: vi.fn(async () => undefined),
@@ -75,10 +81,14 @@ describe('custom stories through MCP without a chat', () => {
 		mocks.listDraftFiles.mockResolvedValue(APP_FILES);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);
 		mocks.getMcpQueryData.mockResolvedValue({ columns: ['value'], data: [{ value: 'mcp' }] });
+		mocks.getMcpSqlQueriesByIds.mockResolvedValue({});
 		mocks.publishCustomStoryDraft.mockResolvedValue({ ok: true, version: 1, files: ['app.jsx'] });
 	});
 
 	it('creates a standalone custom story that saves the rows its app reads before publishing', async () => {
+		const mcpQuery = { sqlQuery: 'SELECT value FROM mcp', databaseId: 'warehouse', adminMode: false };
+		mocks.getMcpSqlQueriesByIds.mockResolvedValue({ query_mcp: mcpQuery });
+
 		const result = await createCustomStoryForMcp(
 			{
 				chatId: undefined,
@@ -98,13 +108,20 @@ describe('custom stories through MCP without a chat', () => {
 			files: APP_FILES,
 		});
 		expect(mocks.getMcpQueryData).toHaveBeenCalledWith('query_mcp', 'project-id', { userId: 'user-id' });
-		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', {
-			query_ask: { columns: ['value'], data: [{ value: 'ask' }] },
-			query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
-		});
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(
+			'story-id',
+			{
+				query_ask: { columns: ['value'], data: [{ value: 'ask' }] },
+				query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
+			},
+			undefined,
+			null,
+		);
 		expect(mocks.upsertStoryDataCacheByStoryId.mock.invocationCallOrder[0]).toBeLessThan(
 			mocks.publishCustomStoryDraft.mock.invocationCallOrder[0],
 		);
+		expect(mocks.getMcpSqlQueriesByIds).toHaveBeenCalledWith(new Set(['query_mcp', 'query_ask']), ctx);
+		expect(mocks.upsertStoryQueries).toHaveBeenCalledWith('story-id', { query_mcp: mcpQuery }, expect.anything());
 	});
 
 	it('refuses a title already used by a standalone story of the user', async () => {
@@ -135,10 +152,15 @@ describe('custom stories through MCP without a chat', () => {
 			ctx,
 		);
 
-		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', {
-			query_ask: rows(),
-			query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
-		});
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(
+			'story-id',
+			{
+				query_ask: rows(),
+				query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
+			},
+			undefined,
+			null,
+		);
 		expect(mocks.publishCustomStoryDraft).toHaveBeenCalled();
 	});
 
@@ -170,7 +192,12 @@ describe('custom stories through MCP without a chat', () => {
 			ctx,
 		);
 
-		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', { query_ask: rows() });
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(
+			'story-id',
+			{ query_ask: rows() },
+			undefined,
+			null,
+		);
 		expect(mocks.publishCustomStoryDraft).not.toHaveBeenCalled();
 	});
 
@@ -186,10 +213,34 @@ describe('custom stories through MCP without a chat', () => {
 		);
 
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledTimes(1);
-		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', {
-			query_ask: rows(),
-			query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
-		});
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(
+			'story-id',
+			{
+				query_ask: rows(),
+				query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
+			},
+			undefined,
+			null,
+		);
+	});
+
+	it('keeps the query sources of a live story, so its generated narratives are never taken for frozen ones', async () => {
+		const querySources = { query_ask: { fingerprint: 'abc', databaseId: null, adminMode: false } };
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_ask: rows() }, querySources });
+		mocks.publishCustomStoryDraft.mockResolvedValue({ ok: true, version: 2 });
+
+		await updateCustomStoryForMcp(
+			{ ...STANDALONE_STORY, isLive: true } as never,
+			{ title: undefined, files: APP_FILES, deletePaths: [], queryData: undefined },
+			ctx,
+		);
+
+		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(
+			'story-id',
+			expect.anything(),
+			undefined,
+			querySources,
+		);
 	});
 });
 

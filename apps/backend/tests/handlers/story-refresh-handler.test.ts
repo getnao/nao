@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
 	failActivity: vi.fn(),
 	deleteStoryViewerDataCache: vi.fn(),
 	deliverStoryOnRefresh: vi.fn(),
-	refreshStoryData: vi.fn(),
-	warmStoryFilterOptions: vi.fn(),
+	refreshStoryById: vi.fn(),
+	warmStoryFilterOptionsByStoryId: vi.fn(),
 }));
 
 vi.mock('../../src/queries/story.queries', () => ({
@@ -25,10 +25,10 @@ vi.mock('../../src/queries/activity.queries', () => ({
 	failActivity: mocks.failActivity,
 }));
 vi.mock('../../src/services/live-story', () => ({
-	refreshStoryData: mocks.refreshStoryData,
+	refreshStoryById: mocks.refreshStoryById,
 }));
 vi.mock('../../src/services/story-filter-options', () => ({
-	warmStoryFilterOptions: mocks.warmStoryFilterOptions,
+	warmStoryFilterOptionsByStoryId: mocks.warmStoryFilterOptionsByStoryId,
 }));
 vi.mock('../../src/handlers/story-delivery.handler', () => ({
 	deliverStoryOnRefresh: mocks.deliverStoryOnRefresh,
@@ -47,36 +47,44 @@ vi.mock('../../src/utils/logger', () => ({
 
 import { runScheduledStoryRefresh } from '../../src/handlers/story-refresh.handler';
 
+const LIVE_STORY = {
+	id: 'story-1',
+	chatId: 'chat-1',
+	slug: 'orders',
+	isLive: true,
+	archivedAt: null,
+	projectId: 'project-1',
+	userId: 'owner-1',
+};
+
 describe('scheduled Story refresh principal', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.getStoryById.mockResolvedValue({
-			id: 'story-1',
-			chatId: 'chat-1',
-			slug: 'orders',
-			isLive: true,
-			archivedAt: null,
-			projectId: 'project-1',
-			userId: 'owner-1',
-		});
+		mocks.getStoryById.mockResolvedValue(LIVE_STORY);
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
-		mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
 		mocks.deliverStoryOnRefresh.mockResolvedValue(undefined);
-		mocks.warmStoryFilterOptions.mockResolvedValue(undefined);
+		mocks.refreshStoryById.mockResolvedValue({ queryData: {}, queriesRefreshed: 0 });
+		mocks.warmStoryFilterOptionsByStoryId.mockResolvedValue(undefined);
 	});
 
-	it('executes warehouse queries as the Story owner', async () => {
+	it.each([
+		['in a chat', 'chat-1'],
+		['standalone', null],
+	])('refreshes a story %s with the scheduler-verified billing access', async (_case, chatId) => {
+		mocks.getStoryById.mockResolvedValue({ ...LIVE_STORY, chatId });
+
 		await runScheduledStoryRefresh('story-1');
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
+		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 0 });
 	});
 
 	it('invalidates viewer caches and delivers recipient snapshots after every refresh', async () => {
 		await runScheduledStoryRefresh('story-1');
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
 		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
@@ -86,13 +94,13 @@ describe('scheduled Story refresh principal', () => {
 	it('warms story filter options after refreshing the data', async () => {
 		await runScheduledStoryRefresh('story-1');
 
-		expect(mocks.warmStoryFilterOptions).toHaveBeenCalledWith('chat-1', 'orders', {
+		expect(mocks.warmStoryFilterOptionsByStoryId).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
 	});
 
 	it('keeps the refresh successful when warming filter options fails', async () => {
-		mocks.warmStoryFilterOptions.mockRejectedValue(new Error('warehouse timeout'));
+		mocks.warmStoryFilterOptionsByStoryId.mockRejectedValue(new Error('warehouse timeout'));
 
 		await runScheduledStoryRefresh('story-1');
 
@@ -101,7 +109,7 @@ describe('scheduled Story refresh principal', () => {
 	});
 
 	it('fails the scheduled refresh when the owner has lost project access', async () => {
-		mocks.refreshStoryData.mockRejectedValue(new Error('You do not have access to this project.'));
+		mocks.refreshStoryById.mockRejectedValue(new Error('You do not have access to this project.'));
 
 		await expect(runScheduledStoryRefresh('story-1')).rejects.toThrow('access to this project');
 		expect(mocks.failActivity).toHaveBeenCalledWith('activity-1', 'You do not have access to this project.');

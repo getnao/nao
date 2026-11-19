@@ -11,6 +11,7 @@ interface ConfirmationDialogProps {
 	confirmLabel: string;
 	onConfirm: () => void | Promise<void>;
 	isPending?: boolean;
+	isConfirmDisabled?: boolean;
 	error?: string;
 	preventCloseWhilePending?: boolean;
 	confirmVariant?: ComponentProps<typeof Button>['variant'];
@@ -24,6 +25,7 @@ export function ConfirmationDialog({
 	confirmLabel,
 	onConfirm,
 	isPending = false,
+	isConfirmDisabled = false,
 	error,
 	preventCloseWhilePending = false,
 	confirmVariant = 'destructive',
@@ -55,7 +57,7 @@ export function ConfirmationDialog({
 					<Button
 						variant={confirmVariant}
 						className='rounded-full'
-						disabled={isPending}
+						disabled={isPending || isConfirmDisabled}
 						isLoading={isPending}
 						onClick={onConfirm}
 					>

@@ -4,11 +4,16 @@ const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
+	getStoryById: vi.fn(),
+	getLatestVersionByStoryId: vi.fn(),
 	getFilterOptionsCache: vi.fn(),
 	upsertFilterOptionsCache: vi.fn(),
 	deleteFilterOptionsCacheOlderThan: vi.fn(),
 	createStoryExecutionContext: vi.fn(),
 	executeStoryQueries: vi.fn(),
+	createOwnerExecutionContext: vi.fn(),
+	resolveChatQueryScope: vi.fn(),
+	resolveStoryQueryScope: vi.fn(),
 	executeRawSql: vi.fn(),
 	hasRowSecurity: vi.fn(),
 	compileSemanticQuery: vi.fn(),
@@ -21,6 +26,8 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
 	getSqlQueriesFromCode: mocks.getSqlQueriesFromCode,
+	getStoryById: mocks.getStoryById,
+	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
 }));
 vi.mock('../../src/queries/story-filter-options-cache.queries', () => ({
 	getFilterOptionsCache: mocks.getFilterOptionsCache,
@@ -34,13 +41,16 @@ vi.mock('../../src/services/semantic-layer.service', () => ({
 vi.mock('../../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
+	createOwnerExecutionContext: mocks.createOwnerExecutionContext,
+	resolveChatQueryScope: mocks.resolveChatQueryScope,
+	resolveStoryQueryScope: mocks.resolveStoryQueryScope,
 	executeRawSql: mocks.executeRawSql,
 	requiresViewerStoryData: mocks.hasRowSecurity,
 	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
 	isCacheExpired: () => false,
 }));
 
-import { getStoryFilterOptions, warmStoryFilterOptions } from '../../src/services/story-filter-options';
+import { getStoryFilterOptions, warmStoryFilterOptionsByStoryId } from '../../src/services/story-filter-options';
 
 const STORY_CODE = [
 	'<filter id="category" type="select" table="products" column="category" />',
@@ -57,6 +67,16 @@ describe('getStoryFilterOptions', () => {
 			q1: { sqlQuery: 'SELECT 1', databaseId: 'warehouse', dialect: 'bigquery', adminMode: false },
 		});
 		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
+		mocks.resolveChatQueryScope.mockResolvedValue({
+			projectId: 'project-1',
+			ownerId: 'owner-1',
+			chatId: 'chat-1',
+		});
+		mocks.resolveStoryQueryScope.mockResolvedValue({
+			projectId: 'project-1',
+			ownerId: 'owner-1',
+			chatId: null,
+		});
 		mocks.resolveRawSqlDatabaseType.mockResolvedValue('bigquery');
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Sports' }, { value: 'Home' }], columns: ['value'] });
 		mocks.hasRowSecurity.mockResolvedValue(false);
@@ -208,7 +228,7 @@ describe('getStoryFilterOptions', () => {
 		expect(result).toEqual({ options: ['Alice', 'Charlie'], isComplete: true });
 		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
 		expect(mocks.executeStoryQueries).toHaveBeenCalledWith(
-			'chat-1',
+			expect.objectContaining({ chatId: 'chat-1' }),
 			{
 				query_customer_options: {
 					...query,
@@ -395,16 +415,20 @@ describe('getStoryFilterOptions', () => {
 	});
 });
 
-describe('warmStoryFilterOptions', () => {
+describe('warmStoryFilterOptionsByStoryId', () => {
 	it('refreshes only top-level table filters and prunes old cache entries', async () => {
 		vi.clearAllMocks();
-		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', projectId: 'project-1', cacheSchedule: null });
-		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code: STORY_CODE });
-		mocks.getSqlQueriesFromCode.mockResolvedValue({});
-		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
+		mocks.getStoryById.mockResolvedValue({
+			id: 'story-1',
+			chatId: null,
+			projectId: 'project-1',
+			cacheSchedule: null,
+		});
+		mocks.getLatestVersionByStoryId.mockResolvedValue({ code: STORY_CODE });
+		mocks.createOwnerExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Home' }], columns: ['value'] });
 
-		await warmStoryFilterOptions('chat-1', 'story');
+		await warmStoryFilterOptionsByStoryId('story-1');
 
 		expect(mocks.executeRawSql).toHaveBeenCalledTimes(1);
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain('SELECT DISTINCT category');

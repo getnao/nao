@@ -38,6 +38,7 @@
 		"db:reset": "rm db.sqlite",
 		"db:seed": "bun scripts/db.seed.ts",
 		"db:seed:cloud": "bun scripts/db.seed-cloud.ts",
+		"models:sync": "bun scripts/models-dev.sync.ts",
 		"db:check-migrations": "bun scripts/db.check-migrations.ts",
 		"format": "prettier --write .",
 		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/components/tool-outputs/"
@@ -58,6 +59,7 @@
 		"@babel/types": "^7.29.8",
 		"@better-auth/core": "1.6.30",
 		"@better-auth/oauth-provider": "~1.6.30",
+		"@better-auth/sso": "1.6.30",
 		"@chat-adapter/discord": "4.38.1",
 		"@chat-adapter/slack": "4.38.1",
 		"@chat-adapter/state-memory": "^4.29.0",

@@ -12,6 +12,7 @@ import {
 	RotateCcw,
 	Save,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import type { StoryDownloadOptions } from '@/components/story-download';
@@ -37,6 +38,7 @@ import {
 	StoryFavoritedButton,
 	StoryFeedbackButtons,
 } from '@/components/story-header-actions';
+import { StoryFolderPickerDialog, StoryMoveToFolderMenuItem } from '@/components/story-move-to-folder';
 import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +49,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useMovableStory } from '@/hooks/use-movable-story';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
 import { requestAsk } from '@/stores/ask-bar';
@@ -93,7 +96,7 @@ interface VersionControls {
 	versionDate?: string | Date | null;
 	isViewingLatest: boolean;
 	onSelectVersion: (version: number) => void;
-	onRestore: () => void;
+	onRestore?: () => void;
 	isRestoreDisabled?: boolean;
 }
 
@@ -134,6 +137,8 @@ export function StoryPageHeader({
 	versionControls,
 	elementSelection,
 }: StoryPageHeaderProps) {
+	const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
+	const movableStory = useMovableStory(storyId);
 	const liveMenu = live?.isLive && live.isInActionsMenu ? live : undefined;
 	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics || !!liveMenu;
 
@@ -193,6 +198,9 @@ export function StoryPageHeader({
 								{download && <StoryDownloadMenu {...download} />}
 								{storyId && <StoryCertifyMenuItem storyId={storyId} />}
 								{storyId && <StoryFavoriteMenuItem storyId={storyId} />}
+								{movableStory && (
+									<StoryMoveToFolderMenuItem onSelect={() => setIsFolderPickerOpen(true)} />
+								)}
 								{onOpenAnalytics && (
 									<DropdownMenuItem onSelect={onOpenAnalytics}>
 										<Info strokeWidth={2.25} />
@@ -213,6 +221,9 @@ export function StoryPageHeader({
 				<StoryRefreshFailureBanner failure={live.lastRefreshFailure} isRetrying={live.isRefreshing} />
 			)}
 			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
+			{movableStory && isFolderPickerOpen && (
+				<StoryFolderPickerDialog story={movableStory} onClose={() => setIsFolderPickerOpen(false)} />
+			)}
 		</div>
 	);
 }
@@ -340,16 +351,18 @@ function StorySubHeader({
 						{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
 					</span>
 				)}
-				<Button
-					variant='outline'
-					size='sm'
-					onClick={versionControls.onRestore}
-					disabled={versionControls.isRestoreDisabled}
-					className='gap-1.5 rounded-full'
-				>
-					<RotateCcw className='size-3' strokeWidth={2.25} />
-					<span>Restore</span>
-				</Button>
+				{versionControls.onRestore && (
+					<Button
+						variant='outline'
+						size='sm'
+						onClick={versionControls.onRestore}
+						disabled={versionControls.isRestoreDisabled}
+						className='gap-1.5 rounded-full'
+					>
+						<RotateCcw className='size-3' strokeWidth={2.25} />
+						<span>Restore</span>
+					</Button>
+				)}
 			</div>
 		);
 	}
