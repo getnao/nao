@@ -3,18 +3,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { DBStory } from '../../src/db/abstractSchema';
 
 const mocks = vi.hoisted(() => ({
-	getStoryById: vi.fn<(_storyId: string) => Promise<DBStory | undefined>>(async () => {
-		return {
-			id: 'story-id',
-			archivedAt: null,
-			chatId: 'chat-id',
-			projectId: 'project-id',
-			slug: 'story-slug',
-			userId: 'user-id',
-		} as DBStory;
-	}),
+	getStoryById: vi.fn<(_storyId: string) => Promise<DBStory | undefined>>(),
 	notifyUsers: vi.fn(),
-	refreshStoryData: vi.fn(),
+	refreshStoryById: vi.fn(),
 	refreshStoryDataForDelivery: vi.fn(),
 	hasRowSecurity: vi.fn(),
 	getUserRoleInProject: vi.fn(),
@@ -37,7 +28,7 @@ vi.mock('../../src/queries/shared-story.queries', () => ({
 }));
 vi.mock('../../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
-	getLatestVersionByChatAndSlug: vi.fn(async () => ({
+	getLatestVersionByStoryId: vi.fn(async () => ({
 		code: 'export default {}',
 		title: 'Story title',
 	})),
@@ -52,7 +43,7 @@ vi.mock('../../src/services/custom-story-export', () => ({
 	renderCustomStoryPdf: mocks.renderCustomStoryPdf,
 }));
 vi.mock('../../src/services/live-story', () => ({
-	refreshStoryData: mocks.refreshStoryData,
+	refreshStoryById: mocks.refreshStoryById,
 	refreshStoryDataForDelivery: mocks.refreshStoryDataForDelivery,
 }));
 vi.mock('../../src/services/notification.service', () => ({
@@ -92,21 +83,36 @@ import {
 } from '../../src/handlers/story-delivery.handler';
 import { NotificationChannelDeliveryError } from '../../src/services/notification.service';
 
+const STORY = {
+	id: 'story-id',
+	archivedAt: null,
+	chatId: 'chat-id',
+	projectId: 'project-id',
+	slug: 'story-slug',
+	userId: 'user-id',
+} as DBStory;
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.getStoryById.mockResolvedValue(STORY);
 	mocks.hasRowSecurity.mockResolvedValue(false);
 	mocks.getUserRoleInProject.mockResolvedValue('viewer');
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-user-id']);
-	mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
+	mocks.refreshStoryById.mockResolvedValue({ queryData: {}, queriesRefreshed: 0 });
 	mocks.buildStoryEmailHtml.mockResolvedValue(null);
 	mocks.buildStoryPdfAttachment.mockResolvedValue([]);
 	mocks.renderCustomStoryPdf.mockResolvedValue({ filename: 'story.pdf', buffer: Buffer.from('pdf') });
 });
 
-it('delivers the refreshed story with scheduler-verified billing access', async () => {
+it.each([
+	['in a chat', 'chat-id'],
+	['standalone', null],
+])('delivers the refreshed story %s with scheduler-verified billing access', async (_case, chatId) => {
+	mocks.getStoryById.mockResolvedValue({ ...STORY, chatId });
+
 	await runScheduledStoryDelivery('story-id');
 
-	expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-id', 'story-slug', {
+	expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-id', {
 		billingAccessVerifiedProjectId: 'project-id',
 	});
 	expect(mocks.notifyUsers).toHaveBeenCalledOnce();
@@ -117,11 +123,12 @@ it('delivers the refreshed story with scheduler-verified billing access', async 
 	);
 });
 
-it('renders and sends a separate snapshot with each recipient row-security context', async () => {
+it('renders and sends a separate standalone snapshot with each recipient row-security context', async () => {
+	mocks.getStoryById.mockResolvedValue({ ...STORY, chatId: null });
 	mocks.hasRowSecurity.mockResolvedValue(true);
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-1', 'recipient-2']);
 	mocks.refreshStoryDataForDelivery.mockImplementation(
-		async (_chatId: string, _slug: string, options: { viewerUserId: string }) => ({
+		async (_storyId: string, options: { viewerUserId: string }) => ({
 			queryData: { query_users: { columns: ['viewer'], data: [{ viewer: options.viewerUserId }] } },
 			narratives: {},
 			code: `code-${options.viewerUserId}`,
@@ -130,14 +137,14 @@ it('renders and sends a separate snapshot with each recipient row-security conte
 
 	await runScheduledStoryDelivery('story-id');
 
-	expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+	expect(mocks.refreshStoryById).not.toHaveBeenCalled();
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledTimes(2);
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(1, 'chat-id', 'story-slug', {
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(1, 'story-id', {
 		billingAccessVerifiedProjectId: 'project-id',
 		generateViewerCode: true,
 		viewerUserId: 'recipient-1',
 	});
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(2, 'chat-id', 'story-slug', {
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(2, 'story-id', {
 		billingAccessVerifiedProjectId: 'project-id',
 		generateViewerCode: true,
 		viewerUserId: 'recipient-2',
@@ -193,8 +200,7 @@ it('skips a removed recipient before generating their row-security snapshot', as
 	expect(mocks.hasRowSecurity).not.toHaveBeenCalledWith('project-id', 'removed-user');
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
-		'chat-id',
-		'story-slug',
+		'story-id',
 		expect.objectContaining({ viewerUserId: 'active-user' }),
 	);
 	expect(mocks.notifyUsers).toHaveBeenCalledWith(['active-user'], expect.anything(), expect.anything());
@@ -238,8 +244,7 @@ it('renders a custom story PDF with the recipient narratives', async () => {
 	await runScheduledStoryDelivery('story-id');
 
 	expect(mocks.renderCustomStoryPdf).toHaveBeenCalledWith(
-		'chat-id',
-		'story-slug',
+		'story-id',
 		{ query_users: { columns: ['viewer'], data: [{ viewer: 'recipient-user-id' }] } },
 		{ summary: 'Recipient summary' },
 	);
@@ -249,7 +254,7 @@ it('continues after a recipient failure and retries only failed recipients', asy
 	mocks.hasRowSecurity.mockResolvedValue(true);
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-failed', 'recipient-sent']);
 	mocks.refreshStoryDataForDelivery.mockImplementation(
-		async (_chatId: string, _slug: string, options: { viewerUserId: string }) => {
+		async (_storyId: string, options: { viewerUserId: string }) => {
 			if (options.viewerUserId === 'recipient-failed') {
 				throw new Error('Warehouse denied the recipient query.');
 			}
@@ -325,8 +330,7 @@ it('clears retry filters before a new recurring delivery', async () => {
 	expect(mocks.updateJobPayload).toHaveBeenCalledOnce();
 	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', { storyId: 'story-id' });
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
-		'chat-id',
-		'story-slug',
+		'story-id',
 		expect.objectContaining({ viewerUserId: 'recipient-user-id' }),
 	);
 	expect(mocks.notifyUsers).toHaveBeenCalledWith(

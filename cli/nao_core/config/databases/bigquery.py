@@ -137,13 +137,15 @@ class BigQueryDatabaseContext(DatabaseContext):
 
         cols = super().columns()
         try:
-            native_types, descriptions = self._fetch_column_metadata()
+            native_types, descriptions, nested_fields = self._fetch_column_metadata()
             for col in cols:
                 if native_type := native_types.get(col["name"]):
                     suffix = " NOT NULL" if col["type"].endswith(" NOT NULL") else ""
                     col["type"] = f"{native_type}{suffix}"
                 if desc := descriptions.get(col["name"]):
                     col["description"] = desc
+                if fields := nested_fields.get(col["name"]):
+                    col["fields"] = fields
         except Exception:
             logger.debug(
                 "Failed to fetch column metadata for %s.%s — keeping ibis types", self._schema, self._table_name
@@ -315,31 +317,38 @@ class BigQueryDatabaseContext(DatabaseContext):
             logger.debug("_fetch_safe_partition_filter failed for %s.%s", self._schema, self._table_name)
             return None
 
-    def _fetch_column_metadata(self) -> tuple[dict[str, str], dict[str, str]]:
-        """Return native BigQuery types and descriptions per column from INFORMATION_SCHEMA.
+    def _fetch_column_metadata(
+        self,
+    ) -> tuple[dict[str, str], dict[str, str], dict[str, list[dict[str, str]]]]:
+        """Return native BigQuery types, descriptions and documented nested fields per column.
 
-        Only top-level rows (``field_path = column_name``) are read; ibis normalises
-        BigQuery DATETIME/TIMESTAMP into a single timestamp type, so the native ``data_type``
-        is what the generated docs must show for the agent to write valid SQL.
+        Ibis normalises BigQuery DATETIME/TIMESTAMP into a single timestamp type, so the native
+        ``data_type`` is what the generated docs must show for the agent to write valid SQL.
+        Nested STRUCT fields are only kept when they carry a description.
         """
         table_name_literal = _bq_string_literal(self._table_name)
         column_paths = _bq_path(self._project_id, self._schema, "INFORMATION_SCHEMA", "COLUMN_FIELD_PATHS")
         query = f"""
             SELECT column_name, field_path, data_type, description
             FROM {column_paths}
-            WHERE table_name = {table_name_literal} AND field_path = column_name
+            WHERE table_name = {table_name_literal}
+                AND (field_path = column_name OR IFNULL(description, '') != '')
+            ORDER BY field_path
         """
         native_types: dict[str, str] = {}
         descriptions: dict[str, str] = {}
+        nested_fields: dict[str, list[dict[str, str]]] = {}
         for row in self._conn.raw_sql(query):  # type: ignore[union-attr]
             column_name, field_path, data_type, description = row[0], row[1], row[2], row[3]
             if field_path != column_name:
+                if description:
+                    nested_fields.setdefault(column_name, []).append(_nested_field(field_path, data_type, description))
                 continue
             if data_type:
                 native_types[column_name] = str(data_type)
             if description:
                 descriptions[column_name] = str(description)
-        return native_types, descriptions
+        return native_types, descriptions, nested_fields
 
     def _quote(self, name: str) -> str:
         return f"`{name}`"
@@ -416,6 +425,10 @@ def _coerce(val: Any) -> Any:
     if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
         return str(val)
     return val
+
+
+def _nested_field(path: object, data_type: object, description: object) -> dict[str, str]:
+    return {"path": str(path), "type": str(data_type), "description": str(description)}
 
 
 def _get_bq_partition_only_columns(conn: BaseBackend, project_id: str, schema: str, table: str) -> list[str]:
@@ -735,7 +748,8 @@ def _fetch_schema_partition_metadata(
                 c.clustering_ordinal_position,
                 c.is_hidden,
                 o.description AS table_description,
-                o.require_partition_filter
+                o.require_partition_filter,
+                n.nested_fields
             FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMNS` AS c
             LEFT JOIN `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS` AS p
                 ON c.table_catalog = p.table_catalog
@@ -743,6 +757,15 @@ def _fetch_schema_partition_metadata(
                 AND c.table_name = p.table_name
                 AND c.column_name = p.column_name
                 AND p.field_path = p.column_name
+            LEFT JOIN (
+                SELECT
+                    table_name,
+                    column_name,
+                    ARRAY_AGG(STRUCT(field_path, data_type, description) ORDER BY field_path) AS nested_fields
+                FROM `{project_id}.{schema}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+                WHERE field_path != column_name AND IFNULL(description, '') != ''
+                GROUP BY table_name, column_name
+            ) AS n ON c.table_name = n.table_name AND c.column_name = n.column_name
             LEFT JOIN (
                 SELECT
                     table_name,
@@ -770,19 +793,24 @@ def _fetch_schema_partition_metadata(
                 is_hidden,
                 table_description,
                 require_partition_filter,
+                nested_fields,
             ) = row
             column_type = str(data_type)
             table_columns = columns_map.setdefault(table_name, [])
             if is_hidden == "NO":
                 nullable = is_nullable == "YES" or column_type.upper().startswith("ARRAY<")
-                table_columns.append(
-                    {
-                        "name": column_name,
-                        "type": column_type if nullable else f"{column_type} NOT NULL",
-                        "nullable": nullable,
-                        "description": str(column_description) if column_description else None,
-                    }
-                )
+                column: dict[str, Any] = {
+                    "name": column_name,
+                    "type": column_type if nullable else f"{column_type} NOT NULL",
+                    "nullable": nullable,
+                    "description": str(column_description) if column_description else None,
+                }
+                if nested_fields:
+                    column["fields"] = [
+                        _nested_field(field["field_path"], field["data_type"], field["description"])
+                        for field in nested_fields
+                    ]
+                table_columns.append(column)
             if is_partitioning == "YES":
                 partition_columns[table_name] = (column_name, column_type)
             if clustering_position is not None:

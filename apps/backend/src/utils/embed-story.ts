@@ -5,7 +5,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getActiveThemeForProject } from '../services/custom-story';
-import { getStoryQueryData } from '../services/live-story';
+import { getStandaloneStoryLiveQueryData, getStoryQueryData } from '../services/live-story';
 import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
@@ -90,6 +90,15 @@ async function loadEmbedStoryData(
 ): Promise<{ code: string; queryData: StoryQueryDataMap | null }> {
 	if (!version) {
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
+	}
+	if (!version.chatId && version.isLive) {
+		const live = await getStandaloneStoryLiveQueryData(
+			version.storyId,
+			version.code,
+			version.isLive,
+			version.cacheSchedule,
+		);
+		return { code: live.code, queryData: live.queryData };
 	}
 	if (!version.chatId) {
 		if (viewerId && viewerId !== ownerId && (await hasEffectiveWarehouseRestrictions(projectId, viewerId))) {

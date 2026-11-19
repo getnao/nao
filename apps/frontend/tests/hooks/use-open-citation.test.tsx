@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, render, renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubScrollIntoView } from '../helpers/browser-stubs';
 import type { ReactNode } from 'react';
 import type { CitationData } from '@nao/shared/types';
@@ -24,8 +24,14 @@ vi.mock('@/hooks/use-chat-id', () => ({ useChatId: () => 'question-chat' }));
 vi.mock('@/hooks/use-mentioned-stories', () => ({ useOpenMentionedStory: () => mocks.openMentionedStory }));
 vi.mock('@/components/side-panel/story-viewer', () => ({ StoryViewer: () => null }));
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	cleanup();
+	vi.clearAllTimers();
+	vi.useRealTimers();
 	mocks.questionStory = undefined;
 	mocks.openMentionedStory.mockReset();
 });

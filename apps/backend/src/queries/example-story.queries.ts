@@ -138,6 +138,7 @@ function buildSeedStatements(executor: DBExecutor) {
 					type: 'tool-execute_sql',
 					toolCallId: `system-example-story-tool-${queryId}`,
 					toolName: 'execute_sql',
+					queryId,
 					toolState: 'output-available',
 					toolInput: {
 						sql_query: query.sql,
@@ -161,6 +162,7 @@ function buildSeedStatements(executor: DBExecutor) {
 						type: 'tool-execute_sql',
 						toolCallId: `system-example-story-tool-${queryId}`,
 						toolName: 'execute_sql',
+						queryId,
 						toolState: 'output-available',
 						toolInput: {
 							sql_query: query.sql,

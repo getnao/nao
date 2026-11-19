@@ -43,6 +43,9 @@ vi.mock('@/main', () => ({
 			createVersion: {
 				mutationOptions: () => ({}),
 			},
+			createStandaloneVersion: {
+				mutationOptions: () => ({}),
+			},
 			getLatest: {
 				queryKey: ({ chatId, storySlug }: { chatId: string; storySlug: string }) => [
 					'latest',

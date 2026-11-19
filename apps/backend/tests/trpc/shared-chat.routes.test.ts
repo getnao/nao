@@ -258,7 +258,7 @@ describe('sharedChat.getSharedChat', () => {
 			chat,
 			userRole: 'user',
 		});
-		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true });
+		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true, queryResultPreviews: true });
 	});
 });
 

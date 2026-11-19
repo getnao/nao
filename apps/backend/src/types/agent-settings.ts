@@ -1,3 +1,4 @@
+import type { SqlQueryTagConfig } from '@nao/shared/sql-query-tag';
 import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
 
 export type WebSearchMode = 'provider';
@@ -17,6 +18,8 @@ export interface AgentSettings {
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
 		enforceExcludedColumns?: boolean;
+		/** Ignored when nao_config.yaml declares a `query_tag`, which wins over the admin settings. */
+		queryTag?: SqlQueryTagConfig & { enabled: boolean };
 	};
 	webSearch?: {
 		enabled?: boolean;

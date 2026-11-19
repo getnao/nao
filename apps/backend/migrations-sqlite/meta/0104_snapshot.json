@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "92331c70-4020-4f2c-b6ba-f214c8d08538",
-  "prevId": "6ab2bb19-0f4e-4291-a618-347597b3c10a",
+  "id": "cabe6046-98ef-4609-9749-3dc9a75f239a",
+  "prevId": "ea4a79f0-75ed-41a2-bf5b-012dbeca7392",
   "tables": {
     "account": {
       "name": "account",
@@ -2199,6 +2199,13 @@
         },
         "repo_provider": {
           "name": "repo_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "encrypted_github_access_token": {
+          "name": "encrypted_github_access_token",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -6442,6 +6449,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "menu_settings": {
+          "name": "menu_settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "default_models": {
           "name": "default_models",
           "type": "text",
@@ -6455,14 +6469,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "viewer_cache_revision": {
-          "name": "viewer_cache_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -8373,14 +8379,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "viewer_cache_revision": {
-          "name": "viewer_cache_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "scheduled_job_id": {
           "name": "scheduled_job_id",
           "type": "text",
@@ -9823,143 +9821,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "story_viewer_data_cache": {
-      "name": "story_viewer_data_cache",
-      "columns": {
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "story_version_id": {
-          "name": "story_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "permission_revision": {
-          "name": "permission_revision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "code": {
-          "name": "code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "query_sources": {
-          "name": "query_sources",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "analysis_results": {
-          "name": "analysis_results",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "story_viewer_data_cache_story_id_idx": {
-          "name": "story_viewer_data_cache_story_id_idx",
-          "columns": [
-            "story_id"
-          ],
-          "isUnique": false
-        },
-        "story_viewer_data_cache_user_id_idx": {
-          "name": "story_viewer_data_cache_user_id_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "story_viewer_data_cache_story_id_story_id_fk": {
-          "name": "story_viewer_data_cache_story_id_story_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_viewer_data_cache_story_version_id_story_version_id_fk": {
-          "name": "story_viewer_data_cache_story_version_id_story_version_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "story_version",
-          "columnsFrom": [
-            "story_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_viewer_data_cache_user_id_user_id_fk": {
-          "name": "story_viewer_data_cache_user_id_user_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_viewer_data_cache_story_version_id_user_id_pk": {
-          "columns": [
-            "story_version_id",
-            "user_id"
-          ],
-          "name": "story_viewer_data_cache_story_version_id_user_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

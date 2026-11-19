@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileExtension } from '@nao/shared/attachments';
 import type { executeSql } from '@nao/shared/tools';
 
-import type { QueryResult, ToolContext } from '../types/tools';
+import type { ChatlessToolContext, QueryResult, ToolContext } from '../types/tools';
 import { filePathAccessIn, referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../utils/sql-file-paths';
 import {
 	isStoragePath,
@@ -40,7 +40,7 @@ export interface LocalQueryOutcome {
  */
 export async function runQueryOnLocalFiles(
 	sql: string,
-	context: ToolContext,
+	context: ToolContext | ChatlessToolContext,
 	saveTo?: executeSql.SaveTo,
 ): Promise<LocalQueryOutcome> {
 	const destination = saveTo ? resolveDestination(saveTo) : null;
@@ -63,7 +63,7 @@ export async function runQueryOnLocalFiles(
 	}
 }
 
-async function collectAllowedProjectFiles(sql: string, context: ToolContext): Promise<string[]> {
+async function collectAllowedProjectFiles(sql: string, context: ToolContext | ChatlessToolContext): Promise<string[]> {
 	const access = filePathAccessIn(sql);
 	if (!access.hasUnknownPath && !access.paths.some(hasGlob)) {
 		return collectExactProjectFiles(access.paths, context);
@@ -83,7 +83,10 @@ async function collectAllowedProjectFiles(sql: string, context: ToolContext): Pr
 	return [...allowedPaths];
 }
 
-async function collectExactProjectFiles(paths: string[], context: ToolContext): Promise<string[]> {
+async function collectExactProjectFiles(
+	paths: string[],
+	context: ToolContext | ChatlessToolContext,
+): Promise<string[]> {
 	const projectPaths = paths.filter((requestedPath) => !isStoragePath(requestedPath));
 	if (projectPaths.length === 0) {
 		return [];
@@ -132,7 +135,7 @@ async function collectExactProjectFiles(paths: string[], context: ToolContext): 
 async function walkAllowedProjectDirectory(
 	directory: string,
 	relativeDirectory: string,
-	context: ToolContext,
+	context: ToolContext | ChatlessToolContext,
 	allowedPaths: Set<string>,
 	visitedDirectories: Set<string>,
 ): Promise<void> {
@@ -254,7 +257,7 @@ async function stageOutputFile(destination: Destination): Promise<StagedOutput> 
 /** Checks the size against the file rather than its bytes, so an oversized result is never read in. */
 async function keepOutputFile(
 	{ filePath, relativePath }: StagedOutput,
-	context: ToolContext,
+	context: ToolContext | ChatlessToolContext,
 ): Promise<{ path: string; size: number }> {
 	assertWithinStorageSizeLimit(relativePath, (await stat(filePath)).size);
 
@@ -271,7 +274,7 @@ async function keepOutputFile(
  */
 async function openStorageFilesFor(
 	sql: string,
-	context: ToolContext,
+	context: ToolContext | ChatlessToolContext,
 ): Promise<{ sql: string; directories: string[]; release: () => Promise<void> }> {
 	const storagePaths = storagePathsIn(sql);
 
@@ -285,7 +288,10 @@ async function openStorageFilesFor(
 	return { sql: rewritten.sql, directories: [access.directory], release: access.release };
 }
 
-async function collectReferencedResults(sql: string, context: ToolContext): Promise<Map<string, QueryResult>> {
+async function collectReferencedResults(
+	sql: string,
+	context: ToolContext | ChatlessToolContext,
+): Promise<Map<string, QueryResult>> {
 	const results = new Map<string, QueryResult>();
 
 	for (const queryId of referencedQueryIds(sql)) {

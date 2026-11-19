@@ -19,6 +19,8 @@ export interface CustomStoryViewModeControls {
 export interface CustomStoryElementSelection {
 	isSelecting: boolean;
 	onSelectingChange: (isSelecting: boolean) => void;
+	/** Keeps the button in the header, so the icons beside it do not move when selecting is unavailable. */
+	disabled?: boolean;
 }
 
 const VIEW_MODES: readonly IconSegmentedToggleOption<CustomStoryViewMode>[] = [
@@ -42,7 +44,11 @@ export function CustomStoryElementSelectionToggle({ viewMode, elementSelection }
 	return <ElementSelectionToggle {...elementSelection} />;
 }
 
-export function ElementSelectionToggle({ isSelecting, onSelectingChange }: CustomStoryElementSelection) {
+export function ElementSelectionToggle({
+	isSelecting,
+	onSelectingChange,
+	disabled = false,
+}: CustomStoryElementSelection) {
 	const label = isSelecting ? 'Stop selecting elements' : 'Select an element to ask about';
 	return (
 		<Tooltip>
@@ -52,6 +58,7 @@ export function ElementSelectionToggle({ isSelecting, onSelectingChange }: Custo
 					size='icon-sm'
 					className={cn('hover:rounded-full', isSelecting && 'rounded-full bg-accent text-primary')}
 					onClick={() => onSelectingChange(!isSelecting)}
+					disabled={disabled}
 					aria-label={label}
 					aria-pressed={isSelecting}
 				>

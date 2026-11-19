@@ -2,14 +2,14 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
-import { refreshStoryData } from '../services/live-story';
+import { refreshStoryById } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
 	notifyStoryRefreshed,
 	notifyStoryRefreshFailed,
 } from '../services/notification.service';
 import { enqueueOnce } from '../services/scheduler.service';
-import { warmStoryFilterOptions } from '../services/story-filter-options';
+import { warmStoryFilterOptionsByStoryId } from '../services/story-filter-options';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
@@ -59,9 +59,6 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!story) {
 		throw new Error(`Story not found: ${storyId}`);
 	}
-	if (!story.chatId) {
-		throw new Error(`Story has no chat to refresh: ${storyId}`);
-	}
 	if (!story.isLive || story.archivedAt) {
 		return;
 	}
@@ -79,27 +76,28 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	});
 
 	try {
-		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
+		const { queryData, queriesRefreshed } = await refreshStoryById(storyId, {
 			billingAccessVerifiedProjectId: projectId,
 		});
 		await storyQueries.deleteStoryViewerDataCache(story.id);
-		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
-		await warmFilterOptionsAfterRefresh(story.chatId, story.slug, projectId, storyId);
-		await notifyStoryRefreshed({
-			projectId,
-			ownerId: userId,
-			storyId,
-			storyTitle: story.title,
-			queriesRefreshed,
-			trigger: 'schedule',
-		}).catch((notifyError) => {
-			logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
-				source: 'system',
+		await warmFilterOptionsAfterRefresh(projectId, storyId);
+		if (queriesRefreshed > 0) {
+			await notifyStoryRefreshed({
 				projectId,
-				context: { storyId },
+				ownerId: userId,
+				storyId,
+				storyTitle: story.title,
+				queriesRefreshed,
+				trigger: 'schedule',
+			}).catch((notifyError) => {
+				logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
+					source: 'system',
+					projectId,
+					context: { storyId },
+				});
 			});
-		});
+		}
 		logAnalyticsEvent({
 			projectId,
 			type: 'refresh',
@@ -107,7 +105,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 			actorUserId: userId,
 			storyId,
 			chatId: story.chatId,
-			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed: Object.keys(queryData).length },
+			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed },
 		});
 		await deliverStoryOnRefresh(storyId, story.cacheSchedule, queryData).catch(async (error) => {
 			logger.error(`Story delivery after scheduled refresh failed; enqueuing retry: ${String(error)}`, {
@@ -153,11 +151,11 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	}
 }
 
-async function warmFilterOptionsAfterRefresh(chatId: string, slug: string, projectId: string, storyId: string) {
+async function warmFilterOptionsAfterRefresh(projectId: string, storyId: string) {
 	if (!env.BETA_STORY_FILTERS_ENABLED) {
 		return;
 	}
-	await warmStoryFilterOptions(chatId, slug, { billingAccessVerifiedProjectId: projectId }).catch((error) => {
+	await warmStoryFilterOptionsByStoryId(storyId, { billingAccessVerifiedProjectId: projectId }).catch((error) => {
 		logger.warn(`Failed to warm story filter options: ${String(error)}`, {
 			source: 'system',
 			projectId,

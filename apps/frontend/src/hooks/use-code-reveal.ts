@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import type { editor } from 'monaco-editor';
 import type { MountedCodeEditor } from '@/components/code-selection-ask';
+import type { StoryCodeLines } from '@nao/shared/types';
 import type { CodeRevealRequest } from '@/stores/code-reveal';
 
 import { useStoryRequestFollower } from '@/hooks/use-story-request-follower';
 import { completeCodeReveal, useCodeRevealRequest } from '@/stores/code-reveal';
-import { isStoryRequestFor } from '@/stores/story-highlight';
+import { isStoryRequestFor, isStoryRequestFresh } from '@/stores/story-highlight';
 
-const CITED_LINES_HIGHLIGHT_MS = 2000;
+export const CITED_LINES_HIGHLIGHT_MS = 2000;
 
 /** Calls `onRequest` once for each code citation of the story opened, so its view can show the cited source. */
 export function useCodeRevealFollower(storySlug: string | undefined, onRequest: (request: CodeRevealRequest) => void) {
@@ -30,6 +31,23 @@ export function useRevealCitedLines(codeEditor: MountedCodeEditor | null, { stor
 		completeCodeReveal(request.id);
 		revealLines(codeEditor, request.lines);
 	}, [codeEditor, request, storySlug, filePath]);
+}
+
+/**
+ * Calls `reveal` with the lines asked for the file shown, for views that are not a code editor, like a rendered
+ * Markdown document. `reveal` returns false while it cannot show them yet, to be called again once it changes.
+ */
+export function useFileLinesReveal(filePath: string, reveal: (lines: StoryCodeLines) => boolean) {
+	const request = useCodeRevealRequest();
+
+	useEffect(() => {
+		if (!request || request.filePath !== filePath || !isStoryRequestFresh(request)) {
+			return;
+		}
+		if (reveal(request.lines)) {
+			completeCodeReveal(request.id);
+		}
+	}, [filePath, request, reveal]);
 }
 
 function revealLines({ editor: instance, monaco }: MountedCodeEditor, lines: CodeRevealRequest['lines']): void {

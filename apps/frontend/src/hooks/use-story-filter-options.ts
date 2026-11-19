@@ -108,7 +108,16 @@ function useRemoteFilterOptions({
 		placeholderData,
 	});
 
-	return api?.kind === 'shared' ? sharedQuery : ownedQuery;
+	const standaloneQuery = useQuery({
+		...trpc.story.getStandaloneFilterOptions.queryOptions({
+			storyId: api?.kind === 'standalone' ? api.storyId : '',
+			...request,
+		}),
+		enabled: enabled && api?.kind === 'standalone',
+		placeholderData,
+	});
+
+	return { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
 }
 
 function filterOptionsLocally(options: string[], search: string): string[] {

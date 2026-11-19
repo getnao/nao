@@ -340,6 +340,7 @@ export const userGroupRoutes = {
 				projectSharing: projectSharingSchema.default('inherit'),
 				shareTargets: shareTargetsSchema.default(DEFAULT_GROUP_SHARE_TARGETS),
 				showAllSettings: z.boolean().default(false),
+				advancedContextExplorer: z.boolean().default(false),
 				preloadedSkills: preloadedSkillsSchema.default([]),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: fileTreeAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
@@ -390,6 +391,7 @@ export const userGroupRoutes = {
 					input.preloadedSkills,
 					skillsAccess,
 					shareTargets,
+					input.advancedContextExplorer,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -407,6 +409,7 @@ export const userGroupRoutes = {
 				projectSharing: projectSharingSchema.optional(),
 				shareTargets: shareTargetsSchema.optional(),
 				showAllSettings: z.boolean().optional(),
+				advancedContextExplorer: z.boolean().optional(),
 				preloadedSkills: preloadedSkillsSchema.optional(),
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: fileTreeAccessSchema.optional(),
@@ -462,6 +465,7 @@ export const userGroupRoutes = {
 					projectSharing: input.projectSharing,
 					shareTargets,
 					showAllSettings: input.showAllSettings,
+					advancedContextExplorer: input.advancedContextExplorer,
 					preloadedSkills: input.preloadedSkills,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),

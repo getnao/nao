@@ -11,8 +11,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 type ClassicStoryHeaderProps = Extract<StoryHeaderProps, { viewMode: StoryViewMode }>;
 
-const { favoritesQuery, mentionedStories } = vi.hoisted(() => ({
+const { favoritesQuery, mentionedStories, movableStory } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	movableStory: { value: undefined as { storyId: string; isOwner: boolean } | undefined },
 	mentionedStories: {
 		value: {
 			conversationChatId: null as string | null,
@@ -61,6 +62,10 @@ vi.mock('@/hooks/use-is-mobile', () => ({
 	useIsMobile: () => false,
 }));
 
+vi.mock('@/hooks/use-movable-story', () => ({
+	useMovableStory: () => movableStory.value,
+}));
+
 vi.mock('@/hooks/use-toggle-favorite', () => ({
 	useToggleFavorite: () => ({ toggle: vi.fn(), isPending: false }),
 }));
@@ -96,6 +101,7 @@ afterEach(cleanup);
 describe('StoryHeader actions', () => {
 	beforeEach(() => {
 		favoritesQuery.data = undefined;
+		movableStory.value = undefined;
 	});
 
 	it('renders a share button that calls onShare', () => {
@@ -107,11 +113,11 @@ describe('StoryHeader actions', () => {
 		expect(onShare).toHaveBeenCalledOnce();
 	});
 
-	it('switches the share icon once the story is shared', () => {
+	it('keeps the share arrow icon and highlights it once the story is shared', () => {
 		const { container } = renderHeader({ isShared: true });
 
-		expect(container.querySelector('.lucide-globe')).not.toBeNull();
-		expect(container.querySelector('.lucide-upload')).toBeNull();
+		expect(container.querySelector('.lucide-upload.text-primary')).not.toBeNull();
+		expect(container.querySelector('.lucide-globe')).toBeNull();
 	});
 
 	it('disables share while the agent is running', () => {
@@ -136,6 +142,18 @@ describe('StoryHeader actions', () => {
 		expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Expand' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
+	});
+
+	it.each([
+		['can move the story', { storyId: 'story-1', isOwner: true }, 1],
+		['cannot move the story', undefined, 0],
+	])('offers to move the story to a folder only when the user %s', (_, story, expectedCount) => {
+		movableStory.value = story;
+		renderHeader({ storyId: 'story-1' });
+
+		openDropdownMenu('More actions');
+
+		expect(screen.queryAllByRole('menuitem', { name: 'Move to folder' })).toHaveLength(expectedCount);
 	});
 
 	it('only shows the header star once the story is favorited', () => {

@@ -84,10 +84,11 @@ export async function executeQuery(
 		projectFolder: context.projectFolder,
 		databaseId: database_id,
 		envVars: context.envVars,
-		azureAccessToken: context.azureAccessToken,
+		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
+		queryTag: context.sqlQueryTag,
 	});
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 

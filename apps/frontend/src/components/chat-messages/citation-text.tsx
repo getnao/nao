@@ -1,12 +1,13 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
-import { normalizeCitationMarkers, STORY_REFERENCE_TAG, stripAssistantTags } from '@nao/shared';
+import { CONTEXT_FILE_TAG, normalizeCitationMarkers, STORY_REFERENCE_TAG, stripAssistantTags } from '@nao/shared';
 
 import { CitationPopover } from '@/components/citation-popover';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { StoryReferenceCard, StoryReferenceLink } from '@/components/chat-messages/story-reference-card';
 import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown';
 import { ContactSupportButton } from '@/components/contact-support-dialog';
+import { ContextFileLink } from '@/components/context-file-link';
 import { FileChip } from '@/components/file-chip';
 import { isStoredFilePath } from '@/lib/attachments';
 import { markdownPlugins } from '@/lib/markdown';
@@ -22,6 +23,7 @@ const SETTLED_COMPONENTS = {
 	'contact-support': ContactSupportRenderer,
 	'citation-number': CitationNumberRenderer,
 	'saved-file': SavedFileRenderer,
+	[CONTEXT_FILE_TAG]: ContextFileRenderer,
 	[STORY_REFERENCE_TAG]: StoryReferenceRenderer,
 };
 const STREAMING_COMPONENTS = {
@@ -32,9 +34,10 @@ const ALLOWED_TAGS = {
 	'contact-support': [],
 	'citation-number': ['id', 'column'],
 	'saved-file': ['path'],
+	[CONTEXT_FILE_TAG]: ['path', 'lines'],
 	[STORY_REFERENCE_TAG]: ['id'],
 };
-const LITERAL_TAG_CONTENT = ['contact-support', 'citation-number', 'saved-file', STORY_REFERENCE_TAG];
+const LITERAL_TAG_CONTENT = ['contact-support', 'citation-number', 'saved-file', CONTEXT_FILE_TAG, STORY_REFERENCE_TAG];
 const STORY_REFERENCE_LINE_PATTERN = new RegExp(
 	`^\\s*<${STORY_REFERENCE_TAG}\\s+id\\s*=\\s*["']([^"'\\s]+)["']\\s*>([^<\\r\\n]*)</${STORY_REFERENCE_TAG}\\s*>\\s*$`,
 );
@@ -274,6 +277,10 @@ function SavedFileRenderer({ path, children }: any) {
 	}
 
 	return <FileChip path={filePath} label={label || undefined} className='mx-0.5' />;
+}
+
+function ContextFileRenderer({ path, lines, children }: any) {
+	return <ContextFileLink path={asText(path)} lines={asText(lines)} label={asText(children)} />;
 }
 
 function StoryReferenceRenderer({ id, children }: any) {

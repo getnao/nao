@@ -22,8 +22,11 @@ import {
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
+import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
+import { describeTransferredStory } from '../services/story-transfer.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	mapBoundaryKey,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -59,7 +62,10 @@ const viewerProcedure = protectedProcedure
 export const customStoryViewerRoutes = {
 	getFormat: viewerProcedure.query(async ({ ctx, input }) => {
 		const story = await storyQueries.getStoryByChatAndSlug(ctx.viewer.chatId, input.storySlug);
-		return { format: story?.format ?? null };
+		return {
+			format: story?.format ?? null,
+			movedStory: story ? null : await describeTransferredStory(ctx.viewer.chatId, input.storySlug, ctx.user.id),
+		};
 	}),
 
 	getTheme: viewerProcedure.query(({ ctx }) => getActiveThemeForProject(ctx.viewer.projectId)),
@@ -175,6 +181,10 @@ export const customStoryViewerRoutes = {
 	getChartPlugins: viewerProcedure.query(({ ctx, input }) =>
 		readCustomStoryChartPluginSources(ctx.viewer.chatId, input.storySlug),
 	),
+
+	getMapBoundary: viewerProcedure
+		.input(z.object({ key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readCustomStoryMapBoundary(ctx.viewer.chatId, input.storySlug, input.key)),
 
 	download: viewerProcedure
 		.input(z.object({ format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml, versionNumber }))

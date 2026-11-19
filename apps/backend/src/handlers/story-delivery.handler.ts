@@ -13,8 +13,9 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
-import { refreshStoryData, refreshStoryDataForDelivery } from '../services/live-story';
+import { refreshStoryById, refreshStoryDataForDelivery } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
+import { STORY_DELIVERY_JOB_NAME } from '../services/story-delivery.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
 import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import type { EmailAttachment } from '../types/email';
@@ -24,7 +25,7 @@ import { logger } from '../utils/logger';
 import { buildStoryEmailHtml, buildStoryPdfAttachment } from '../utils/story-email';
 import { storyPath } from '../utils/story-links';
 
-export const STORY_DELIVERY_JOB_NAME = 'story.deliver';
+export { STORY_DELIVERY_JOB_NAME };
 
 type StoryQueryData = Record<string, { data: unknown[]; columns: string[] }>;
 
@@ -116,7 +117,7 @@ export async function runScheduledStoryDelivery(
 			await deliverRecipientSnapshots(context, skipDeliveries);
 			return;
 		}
-		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug, {
+		const { queryData } = await refreshStoryById(storyId, {
 			billingAccessVerifiedProjectId: context.projectId,
 		});
 		await deliver(context, queryData, skipDeliveries);
@@ -167,9 +168,6 @@ async function loadDeliveryContext(
 	if (!story || story.archivedAt) {
 		return null;
 	}
-	if (!story.chatId) {
-		throw new Error(`Story ${storyId} has no chat to regenerate for delivery.`);
-	}
 
 	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(storyId));
 	if (!projectId) {
@@ -217,10 +215,10 @@ async function deliverRecipientSnapshots(
 
 		let snapshot: Awaited<ReturnType<typeof refreshStoryDataForDelivery>>;
 		try {
-			snapshot = await refreshStoryDataForDelivery(context.story.chatId!, context.story.slug, {
+			snapshot = await refreshStoryDataForDelivery(context.story.id, {
+				viewerUserId: recipientUserId,
 				billingAccessVerifiedProjectId: context.projectId,
 				generateViewerCode: true,
-				viewerUserId: recipientUserId,
 			});
 		} catch (error) {
 			failedRecipientUserIds.push(recipientUserId);
@@ -283,7 +281,7 @@ async function deliver(
 		return;
 	}
 
-	const version = await storyQueries.getLatestVersionByChatAndSlug(story.chatId!, story.slug);
+	const version = await storyQueries.getLatestVersionByStoryId(story.id);
 	if (!version) {
 		throw new Error(`Story ${story.id} has no version to deliver.`);
 	}
@@ -351,7 +349,7 @@ async function buildCustomStoryPdfAttachment(
 	narratives?: StoryNarratives,
 ): Promise<EmailAttachment[]> {
 	try {
-		const { filename, buffer } = await renderCustomStoryPdf(story.chatId!, story.slug, queryData, narratives);
+		const { filename, buffer } = await renderCustomStoryPdf(story.id, queryData, narratives);
 		return [{ filename, content: buffer, contentType: 'application/pdf' }];
 	} catch (error) {
 		logger.error(`Failed to build custom story PDF attachment: ${String(error)}`, {

@@ -16,7 +16,9 @@ import {
 	type StoryQueryDataMap,
 } from '../utils/story-query-data';
 import { createCustomStoryDraft, publishCustomStoryDraft } from './custom-story-authoring';
-import { executeLiveQuery } from './live-story';
+import { executeLiveQuery, executeStoryLiveQuery, hasOnlyFrozenQueries, type StoryQueryResult } from './live-story';
+import { updateStoryLiveSettings } from './story-refresh.service';
+import { copyStoryQueries } from './story-sql-queries';
 
 const COPY_PREFIX = 'Copy of ';
 const NUMBERED_COPY_TITLE = /^Copy of (.+?)(?: \(\d{1,3}\))?$/;
@@ -41,8 +43,9 @@ interface StorySnapshot {
 export class StoryDuplicateError extends Error {}
 
 /**
- * Copies one version of a story into a standalone story of `owner`. The copy is a frozen snapshot: it keeps the rows
- * and narratives the version shows today, and nothing else of the original (chat, shares, schedules, favorites).
+ * Copies one version of a story into a standalone story of `owner`. The copy keeps the rows and narratives the
+ * version shows today, the SQL of its queries and, for a live story, its live settings, but nothing else of the
+ * original (chat, shares, deliveries, favorites).
  */
 export async function duplicateStory(
 	source: { storyId: string; versionNumber?: number },
@@ -60,8 +63,27 @@ export async function duplicateStory(
 		story.format === 'custom'
 			? await copyCustomStory(story, version, copy)
 			: await copyClassicStory(story, version, copy);
-	await placeCopyNextToSource(copyId, story.id, owner);
+	try {
+		await placeCopyNextToSource(copyId, story.id, owner);
+		await keepLiveSettings(story, copyId);
+	} catch (error) {
+		await storyQueries.deleteStory(copyId);
+		throw error;
+	}
 	return { storyId: copyId, title };
+}
+
+/** A copy stays live like its source, unless none of its queries kept the SQL needed to rerun them. */
+async function keepLiveSettings(source: DBStory, copyId: string): Promise<void> {
+	if (!source.isLive || (await hasOnlyFrozenQueries({ id: copyId, chatId: null }))) {
+		return;
+	}
+	await updateStoryLiveSettings(copyId, {
+		isLive: true,
+		isLiveTextDynamic: source.isLiveTextDynamic,
+		cacheSchedule: source.cacheSchedule,
+		cacheScheduleDescription: source.cacheScheduleDescription,
+	});
 }
 
 async function loadSourceVersion(storyId: string, versionNumber?: number): Promise<DBStoryVersion> {
@@ -78,7 +100,8 @@ async function loadSourceVersion(storyId: string, versionNumber?: number): Promi
 }
 
 async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: StoryCopy): Promise<string> {
-	const snapshot = await loadSnapshot(source, extractQueryIds(version.code));
+	const queryIds = extractQueryIds(version.code);
+	const snapshot = await loadSnapshot(source, queryIds);
 	const created = await storyQueries.createStandaloneStory({
 		...copy.owner,
 		slug: copy.slug,
@@ -92,6 +115,7 @@ async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: 
 	}
 	try {
 		await saveSnapshot(created.id, snapshot);
+		await copyStoryQueries(source, created.id, queryIds);
 	} catch (error) {
 		await storyQueries.deleteStory(created.id);
 		throw error;
@@ -101,10 +125,12 @@ async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: 
 
 async function copyCustomStory(source: DBStory, version: DBStoryVersion, copy: StoryCopy): Promise<string> {
 	const files = await listVersionFileInputs(version.id);
-	const snapshot = await loadSnapshot(source, extractCustomStoryQueryIds(files));
+	const queryIds = extractCustomStoryQueryIds(files);
+	const snapshot = await loadSnapshot(source, queryIds);
 	const { story } = await createCustomStoryDraft({ ...copy.owner, slug: copy.slug, title: copy.title, files });
 	try {
 		await saveSnapshot(story.id, snapshot);
+		await copyStoryQueries(source, story.id, queryIds);
 		await copyAppState(source.id, story.id, copy.owner.userId);
 		const published = await publishCustomStoryDraft(story, copy.owner, {
 			source: 'user',
@@ -126,15 +152,11 @@ async function listVersionFileInputs(versionId: string): Promise<StoryFileInput[
 }
 
 /** Reads the rows the source shows today: a live story reads its cache first, a chat story the queries of its chat. */
-async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
+export async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(source.id);
 	const cached = pickQueryData((cache?.queryData as StoryQueryDataMap | null) ?? {}, queryIds);
 	if (!source.chatId) {
-		const queryData = await backfillMissingQueryDataByIds(queryIds, cached, {
-			projectId: source.projectId!,
-			userId: source.userId ?? undefined,
-		});
-		return { queryData, narratives: cache?.analysisResults ?? null };
+		return loadStandaloneSnapshot(source, queryIds, cached, cache);
 	}
 
 	const queryData = await loadChatStoryQueryData(source, source.chatId, queryIds, cached);
@@ -142,6 +164,28 @@ async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<Sto
 		queryData: Object.keys(queryData).length > 0 ? queryData : null,
 		narratives: pickShownNarratives(source, cache),
 	};
+}
+
+/**
+ * Mirrors how a standalone story is viewed: a live one rerun on every view reruns its queries, and live text
+ * that is not dynamic is hidden. Once live is off, it keeps the text that matches the rows it last showed.
+ */
+async function loadStandaloneSnapshot(
+	source: DBStory,
+	queryIds: Set<string>,
+	cached: StoryQueryDataMap,
+	cache: DBStoryDataCache | null,
+): Promise<StorySnapshot> {
+	const isRerunOnView = source.isLive && source.cacheSchedule === NO_CACHE_SCHEDULE;
+	const shown = isRerunOnView
+		? { ...cached, ...(await runLiveQueries(queryIds, (queryId) => executeStoryLiveQuery(source, queryId))) }
+		: cached;
+	const queryData = await backfillMissingQueryDataByIds(queryIds, shown, {
+		projectId: source.projectId!,
+		userId: source.userId ?? undefined,
+	});
+	const hidesNarratives = source.isLive && !source.isLiveTextDynamic;
+	return { queryData, narratives: hidesNarratives ? null : (cache?.analysisResults ?? null) };
 }
 
 /** A live story shows the text it generates, a story that is no longer live the text frozen when it was copied. */
@@ -169,14 +213,21 @@ async function loadChatStoryQueryData(
 	if (source.cacheSchedule !== NO_CACHE_SCHEDULE) {
 		return { ...fromChat, ...cached };
 	}
-	return { ...cached, ...fromChat, ...(await runLiveQueries(chatId, queryIds)) };
+	return {
+		...cached,
+		...fromChat,
+		...(await runLiveQueries(queryIds, (queryId) => executeLiveQuery(chatId, queryId))),
+	};
 }
 
-async function runLiveQueries(chatId: string, queryIds: Set<string>): Promise<StoryQueryDataMap> {
+async function runLiveQueries(
+	queryIds: Set<string>,
+	runQuery: (queryId: string) => Promise<StoryQueryResult>,
+): Promise<StoryQueryDataMap> {
 	const queryData: StoryQueryDataMap = {};
 	await Promise.all(
 		[...queryIds].map(async (queryId) => {
-			const result = await executeLiveQuery(chatId, queryId).catch(() => null);
+			const result = await runQuery(queryId).catch(() => null);
 			if (result) {
 				queryData[queryId] = result;
 			}
@@ -216,7 +267,10 @@ async function nextCopyTitle(owner: StoryOwner, sourceTitle: string): Promise<st
 }
 
 async function nextStandaloneSlug(owner: StoryOwner, title: string): Promise<string> {
-	const baseSlug = generateStorySlug(title).slice(0, MAX_SLUG_LENGTH).replace(/-+$/, '');
+	return freeStandaloneSlug(owner, generateStorySlug(title).slice(0, MAX_SLUG_LENGTH).replace(/-+$/, ''));
+}
+
+export async function freeStandaloneSlug(owner: StoryOwner, baseSlug: string): Promise<string> {
 	const taken = new Set(await storyQueries.listStandaloneSlugsStartingWith(owner.userId, owner.projectId, baseSlug));
 	return firstFreeName(baseSlug, (count) => `${baseSlug}-${count}`, taken);
 }

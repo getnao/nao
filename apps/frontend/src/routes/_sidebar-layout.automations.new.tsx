@@ -90,7 +90,7 @@ function AutomationCreationUnavailable() {
 function AutomationsBackLink() {
 	return (
 		<Button variant='ghost' size='sm' className='mb-4' asChild>
-			<Link to='/feed'>
+			<Link to='/automations'>
 				<ArrowLeft className='size-4' />
 				Automations
 			</Link>
