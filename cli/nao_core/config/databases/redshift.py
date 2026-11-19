@@ -68,10 +68,7 @@ class RedshiftDatabaseContext(DatabaseContext):
             AND table_name = '{_quote_literal(self._table_name)}'
             ORDER BY ordinal_position
         """
-        try:
-            return list(self._fetchall(self._conn.raw_sql(query)))  # type: ignore[union-attr]
-        except Exception:
-            return []
+        return list(self._fetchall(self._conn.raw_sql(query)))  # type: ignore[union-attr]
 
     def clustering_columns(self) -> list[str]:
         try:

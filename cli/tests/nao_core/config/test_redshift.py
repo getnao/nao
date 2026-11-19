@@ -3,7 +3,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nao_core.config.databases.redshift import RedshiftAuthMode, RedshiftConfig, RedshiftDatabaseContext, _RedshiftBackend
+from nao_core.config.databases.redshift import (
+    RedshiftAuthMode,
+    RedshiftConfig,
+    RedshiftDatabaseContext,
+    _RedshiftBackend,
+)
 
 
 @pytest.mark.parametrize(
@@ -160,6 +165,22 @@ class TestRedshiftDatashareColumns:
         columns = ctx.columns()
 
         assert [(col["name"], col["type"], col["description"]) for col in columns] == expected
+
+    def test_datashare_column_lookup_error_propagates(self):
+        conn = _catalog_backend({"information_schema.columns": []})
+        catalog_raw_sql = conn.raw_sql.side_effect
+
+        def raw_sql(query: str):
+            if "svv_all_columns" in query:
+                raise RuntimeError("permission denied for svv_all_columns")
+            return catalog_raw_sql(query)
+
+        conn.raw_sql.side_effect = raw_sql
+        ctx = RedshiftDatabaseContext(conn, "marts", "payments")
+
+        with pytest.raises(RuntimeError, match="permission denied for svv_all_columns"):
+            ctx.columns()
+        assert ctx.all_columns() is None
 
     def test_table_description_falls_back_to_datashare_remarks(self):
         conn = _catalog_backend({"pg_catalog.pg_description": [], "svv_all_tables": [("Payments shared by finance",)]})
