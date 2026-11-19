@@ -18,6 +18,7 @@ import {
 	formatChartValue,
 	formatCompactNumber,
 	indexBoundaries,
+	type KpiComparison,
 	labelize,
 	MAP_BOUNDARY_URLS,
 	type MapFeatureCollection,
@@ -200,10 +201,80 @@ export async function generateStoryEmailHtml(
 	customBoundaries?: CustomBoundarySet[],
 	theme?: StoryThemePair | null,
 ): Promise<StoryEmailHtml> {
+	const segments = splitCodeIntoSegments(flattenStoryTabs(story.code));
+	return generateEmailSegmentsHtml(segments, queryData, dateFormat, customBoundaries, theme);
+}
+
+/** Draws one parsed chart or map to a PNG, legend included, for exports that cannot carry the HTML around it. */
+export async function renderStoryVisualImage(
+	segment: Extract<Segment, { type: 'chart' | 'map' }>,
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	theme?: StoryThemePair | null,
+): Promise<Buffer | null> {
+	if (segment.type === 'map') {
+		const { images } = await generateEmailSegmentsHtml([segment], queryData, dateFormat, undefined, theme);
+		return images[0] ? Buffer.from(images[0].content) : null;
+	}
+	const rows = queryData?.[segment.chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!rows?.length || segment.chart.chartType === 'kpi_card') {
+		return null;
+	}
+	return generateChartImage({
+		config: toChartConfig(resolveChartKeys(segment.chart, rows)),
+		data: rows,
+		width: CHART_WIDTH,
+		height: CHART_HEIGHT,
+		margin: { top: 0, right: 0, bottom: 0, left: 0 },
+		includeLegend: true,
+		dateFormat: dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS },
+		palette: storyExportPalette(theme),
+	});
+}
+
+export interface KpiCardValue {
+	dataKey: string;
+	label: string;
+	value: string;
+	comparison: KpiComparison | null;
+}
+
+/** The latest value of each KPI series, with its change against the previous period when the chart asks for it. */
+export function kpiCardValues(chart: ParsedChartBlock, queryData: QueryDataMap | null): KpiCardValue[] {
+	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!rows?.length) {
+		return [];
+	}
+	const resolved = resolveChartKeys(chart, rows);
+	const sortedRows = [...rows].sort((a, b) => {
+		const av = a[resolved.xAxisKey];
+		const bv = b[resolved.xAxisKey];
+		if (resolved.xAxisType === 'date') {
+			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
+		}
+		return 0;
+	});
+	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
+	return resolved.series.map((s) => {
+		const raw = lastRow[s.data_key];
+		return {
+			dataKey: s.data_key,
+			label: s.label ?? s.data_key,
+			value: typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? ''),
+			comparison: computeKpiComparison(sortedRows, resolved.xAxisKey, s.data_key, resolved.comparisonMode),
+		};
+	});
+}
+
+async function generateEmailSegmentsHtml(
+	segments: Segment[],
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	customBoundaries?: CustomBoundarySet[],
+	theme?: StoryThemePair | null,
+): Promise<StoryEmailHtml> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const palette = storyExportPalette(theme);
-	const flattened = flattenStoryTabs(story.code);
-	const segments = splitCodeIntoSegments(flattened);
 	const maps = collectRenderableMaps(segments);
 	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], true);
 	const basemaps = await prefetchBasemaps(maps, queryData, inlinedBoundaries);
@@ -519,7 +590,7 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	const chart = resolveChartKeys(rawChart, rows);
 
 	if (chart.chartType === 'kpi_card') {
-		return <KpiCards chart={chart} rows={rows} />;
+		return <KpiCards values={kpiCardValues(rawChart, queryData)} />;
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
@@ -656,17 +727,8 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 	);
 }
 
-function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
+function KpiCards({ values }: { values: KpiCardValue[] }) {
 	const palette = useContext(PaletteContext);
-	const sortedRows = [...rows].sort((a, b) => {
-		const av = a[chart.xAxisKey];
-		const bv = b[chart.xAxisKey];
-		if (chart.xAxisType === 'date') {
-			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
-		}
-		return 0;
-	});
-	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
 	return (
 		<div
 			style={{
@@ -678,13 +740,9 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 				justifyContent: 'flex-start',
 			}}
 		>
-			{chart.series.map((s) => {
-				const raw = lastRow[s.data_key];
-				const value = typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? '');
-				const label = s.label ?? s.data_key;
-				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
+			{values.map(({ dataKey, label, value, comparison }) => {
 				return (
-					<div key={s.data_key} style={{ minWidth: 160 }}>
+					<div key={dataKey} style={{ minWidth: 160 }}>
 						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: palette.body }}>{label}</div>
 						<div
 							style={{
