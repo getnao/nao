@@ -2672,6 +2672,19 @@ export const storyFolderItem = sqliteTable(
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
 );
 
+export const storyFolderGroup = sqliteTable(
+	'story_folder_group',
+	{
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.folderId, t.groupId] }), index('story_folder_group_groupId_idx').on(t.groupId)],
+);
+
 export const storyFeedback = sqliteTable(
 	'story_feedback',
 	{
