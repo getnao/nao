@@ -152,7 +152,7 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			{
 				name: repo.name.trim(),
 				contextPath: `repos/${repo.name.trim()}`,
-				targets: repoTargetsFrom(repo.targets),
+				targets: repoTargetsFrom(resolveEnvReferences(repo.targets, envVars ?? {})),
 				url,
 				branch,
 				localPath,
@@ -163,7 +163,10 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 	});
 }
 
-/** Leaves out the targets `nao sync` refuses, so no path read here can lead out of the context. */
+/**
+ * Leaves out the targets `nao sync` refuses, so no path read here can lead out of the context. Their env references
+ * resolve like those `nao sync` gets, as targets hold no secret.
+ */
 function repoTargetsFrom(targets: unknown): RepoTarget[] {
 	if (!Array.isArray(targets)) {
 		return [];

@@ -69,6 +69,11 @@ class RepoConfig(BaseModel):
             raise ValueError("Only one of 'url' or 'local_path' can be specified, not both")
         if self.branch and self.local_path:
             raise ValueError("'branch' cannot be used with 'local_path'")
+        overlap = _find_overlap([target.source for target in self.targets])
+        if overlap:
+            raise ValueError(
+                f"target sources '{overlap[0]}' and '{overlap[1]}' overlap: each needs a folder of its own"
+            )
         return self
 
     @property
@@ -99,9 +104,13 @@ def normalize_relative_path(value: str, field_name: str) -> str:
 
 def find_overlapping_targets(repos: list[RepoConfig]) -> tuple[str, str] | None:
     """The first two targets of which one holds the other, as each target is replaced whole on every sync."""
-    targets = [PurePosixPath(target.target) for repo in repos for target in repo.targets]
-    for index, target in enumerate(targets):
-        for other in targets[index + 1 :]:
-            if target == other or target.is_relative_to(other) or other.is_relative_to(target):
-                return target.as_posix(), other.as_posix()
+    return _find_overlap([target.target for repo in repos for target in repo.targets])
+
+
+def _find_overlap(paths: list[str]) -> tuple[str, str] | None:
+    folders = [PurePosixPath(path) for path in paths]
+    for index, folder in enumerate(folders):
+        for other in folders[index + 1 :]:
+            if folder.is_relative_to(other) or other.is_relative_to(folder):
+                return folder.as_posix(), other.as_posix()
     return None

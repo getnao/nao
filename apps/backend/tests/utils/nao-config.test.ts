@@ -166,6 +166,22 @@ describe('extractConfiguredRepos', () => {
 		expect(extractConfiguredRepos(dir)[0]?.targets).toEqual([{ source: 'nao/tests', target: 'tests/analytics' }]);
 	});
 
+	it('resolves env references in targets like nao sync does', () => {
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'repos:',
+				'  - name: analytics',
+				'    url: https://github.com/nao/analytics.git',
+				`    targets: [{ source: nao/tests, target: "tests/{{ env('TEAM') }}" }]`,
+			],
+		});
+
+		expect(extractConfiguredRepos(dir, { TEAM: 'sales' })[0]?.targets).toEqual([
+			{ source: 'nao/tests', target: 'tests/sales' },
+		]);
+	});
+
 	it('returns repos declared in nao_config.yaml with GitLab metadata', () => {
 		const dir = createProject({
 			naoConfig: [

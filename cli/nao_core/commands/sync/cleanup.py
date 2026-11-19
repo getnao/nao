@@ -215,7 +215,7 @@ def cleanup_stale_targets(config_repos: list, base_path: Path, verbose: bool = F
     project_path = base_path.parent
     manifest = base_path / REPO_TARGETS_MANIFEST
     configured = {target.target for repo in config_repos for target in repo.targets}
-    recorded = set(manifest.read_text().split()) if manifest.is_file() else set()
+    recorded = {line for line in manifest.read_text().splitlines() if line} if manifest.is_file() else set()
 
     unclaimed = [target for target in sorted(configured - recorded) if _holds_files(project_path / target)]
     if unclaimed:
@@ -226,7 +226,7 @@ def cleanup_stale_targets(config_repos: list, base_path: Path, verbose: bool = F
 
     for stale in sorted(recorded - configured):
         folder = project_path / stale
-        if _is_valid_target(stale) and folder.is_dir() and not folder.is_symlink():
+        if _is_valid_target(stale) and folder.is_dir() and _has_no_link_on_the_way(project_path, stale):
             shutil.rmtree(folder)
             if verbose:
                 console.print(f"\n[yellow] Removed unused repo target:[/yellow] {stale}")
@@ -236,6 +236,11 @@ def cleanup_stale_targets(config_repos: list, base_path: Path, verbose: bool = F
         manifest.write_text("".join(f"{target}\n" for target in sorted(configured)))
     elif manifest.exists():
         manifest.unlink()
+
+
+def _has_no_link_on_the_way(project_path: Path, target: str) -> bool:
+    """A link anywhere on the way could lead the removal out of the project."""
+    return (project_path / target).resolve() == project_path.resolve() / target
 
 
 def _holds_files(folder: Path) -> bool:

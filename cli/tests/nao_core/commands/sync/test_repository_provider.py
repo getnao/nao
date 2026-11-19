@@ -95,6 +95,17 @@ class TestRepoConfig:
         with pytest.raises(ValueError, match="targetz"):
             RepoConfig.model_validate({"name": "test", "url": "https://github.com/test/repo", "targetz": []})
 
+    def test_rejects_overlapping_target_sources(self):
+        with pytest.raises(ValueError, match="sources 'nao/tests' and 'nao/tests/unit' overlap"):
+            RepoConfig(
+                name="test",
+                url="https://github.com/test/repo",
+                targets=[
+                    RepoTarget(source="nao/tests", target="tests/all"),
+                    RepoTarget(source="nao/tests/unit", target="tests/unit"),
+                ],
+            )
+
     def test_normalizes_target_paths(self):
         config = RepoConfig(
             name="test",

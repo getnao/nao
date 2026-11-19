@@ -353,6 +353,28 @@ class TestCleanupStaleTargets:
 
         assert (tmp_path / "tests" / "analytics" / "README.md").exists()
 
+    def test_keeps_a_recorded_target_with_spaces_in_its_path(self, tmp_path: Path):
+        repos = tmp_path / "repos"
+        repos.mkdir()
+        (repos / ".nao-targets").write_text("tests/sales analytics\n")
+        create_repo_dir(tmp_path / "tests", "sales analytics")
+
+        cleanup_stale_targets([_repo_with_target("sales", "tests/sales analytics")], repos)
+
+        assert (tmp_path / "tests" / "sales analytics" / "README.md").exists()
+
+    def test_does_not_follow_a_link_out_of_the_project(self, tmp_path: Path):
+        project = tmp_path / "project"
+        outside = create_repo_dir(tmp_path, "outside")
+        create_repo_dir(outside, "tests")
+        (project / "repos").mkdir(parents=True)
+        (project / "docs").symlink_to(outside, target_is_directory=True)
+        (project / "repos" / ".nao-targets").write_text("docs/tests\n")
+
+        cleanup_stale_targets([], project / "repos")
+
+        assert (outside / "tests" / "README.md").exists()
+
     def test_ignores_a_recorded_path_that_is_not_a_valid_target(self, tmp_path: Path):
         repos = tmp_path / "repos"
         repos.mkdir()
