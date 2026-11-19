@@ -36,6 +36,7 @@ export const customModelMetadataSchema = z.object({
 	id: z.string().min(1),
 	displayName: z.string().optional(),
 	costPerM: customModelCostSchema.optional(),
+	contextWindow: z.number().int().positive().optional(),
 });
 
 export type ModelCosts = z.infer<typeof customModelCostSchema>;

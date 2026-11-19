@@ -770,6 +770,7 @@ export const projectLlmConfig = sqliteTable(
 						inputCacheWrite?: number;
 						output?: number;
 					};
+					contextWindow?: number;
 				}[]
 			>()
 			.default([])
