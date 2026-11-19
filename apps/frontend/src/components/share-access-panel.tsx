@@ -29,7 +29,6 @@ import {
 import { cn } from '@/lib/utils';
 
 export interface ShareAccessPanelProps {
-	itemLabel: string;
 	owner: ShareOwner | null;
 	currentUserId?: string;
 	draft: ShareDraft;
@@ -46,10 +45,12 @@ export interface ShareAccessPanelProps {
 	ownerCandidates?: ShareOwner[];
 	onChangeOwner?: (owner: ShareOwner) => void;
 	roleDescriptions?: Record<ShareRole, string>;
+	children?: React.ReactNode;
 }
 
 export function ShareAccessPanel(props: ShareAccessPanelProps) {
-	const { draft, onDraftChange, canManage, withRoles } = props;
+	const { draft, onDraftChange, canManage, withRoles, children } = props;
+	const hasNotifyToggle = canManage && props.canNotify;
 
 	return (
 		<div className='flex flex-col gap-3'>
@@ -61,12 +62,13 @@ export function ShareAccessPanel(props: ShareAccessPanelProps) {
 			/>
 			{draft.visibility === 'specific' && <SpecificPeopleList {...props} />}
 			{draft.visibility === 'project' && withRoles && <ProjectMemberList {...props} />}
-			{canManage && props.canNotify && (
-				<NotifyPeopleToggle
-					checked={props.notify}
-					onCheckedChange={props.onNotifyChange}
-					itemLabel={props.itemLabel}
-				/>
+			{(hasNotifyToggle || children) && (
+				<div className='mt-1 flex flex-col gap-2'>
+					{hasNotifyToggle && (
+						<NotifyPeopleToggle checked={props.notify} onCheckedChange={props.onNotifyChange} />
+					)}
+					{children}
+				</div>
 			)}
 			{!canManage && (
 				<p className='text-xs text-muted-foreground'>Only the owner or an admin can change who has access.</p>
@@ -483,20 +485,15 @@ function RoleControl({
 function NotifyPeopleToggle({
 	checked,
 	onCheckedChange,
-	itemLabel,
 }: {
 	checked: boolean;
 	onCheckedChange: (checked: boolean) => void;
-	itemLabel: string;
 }) {
 	return (
-		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
-			<div className='flex flex-col'>
-				<label htmlFor='notify-people' className='text-md font-medium'>
-					Notify people
-				</label>
-				<p className='text-xs text-muted-foreground'>Send an email letting them know about this {itemLabel}</p>
-			</div>
+		<div className='flex min-h-8 items-center justify-between gap-3'>
+			<label htmlFor='notify-people' className='text-sm font-medium'>
+				Notify people by email
+			</label>
 			<Switch id='notify-people' checked={checked} onCheckedChange={onCheckedChange} />
 		</div>
 	);
