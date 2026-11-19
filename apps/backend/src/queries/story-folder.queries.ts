@@ -1,6 +1,6 @@
 import { SHARED_WITH_ME_FOLDER_ID } from '@nao/shared';
 import type { FolderVisibility } from '@nao/shared/types';
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, not, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
@@ -9,7 +9,7 @@ import { listLockedUserGroupIds } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 import type { ReferenceableStoryFilters } from './story-reference.queries';
 
-type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'sharedWithMeOnly'>;
+type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'excludedFolderIds' | 'sharedWithMeOnly'>;
 
 type FolderMoveTx = DBTransaction;
 
@@ -85,7 +85,7 @@ export async function listFolderTree(
 		return folders;
 	}
 
-	const sharedWithMeCount = await countSharedWithMeStories(viewer.userId, projectId);
+	const sharedWithMeCount = await countSharedWithMeStories(viewer.userId, projectId, listTeamFolderIds(folders));
 	if (sharedWithMeCount > 0) {
 		const virtual: VirtualSharedWithMeFolder = {
 			id: '__shared_with_me__',
@@ -175,7 +175,11 @@ export async function findReferencedFolder(
 	folderId: string,
 ): Promise<{ name: string; filters: FolderStoryFilters } | null> {
 	if (folderId === SHARED_WITH_ME_FOLDER_ID) {
-		return { name: 'Shared with me', filters: { sharedWithMeOnly: true } };
+		const folders = await listVisibleFolders(viewer, projectId, isNull(s.storyFolder.archivedAt));
+		return {
+			name: 'Shared with me',
+			filters: { sharedWithMeOnly: true, excludedFolderIds: listTeamFolderIds(folders) },
+		};
 	}
 	const folder = await getFolderById(folderId);
 	if (
@@ -201,16 +205,31 @@ function canSeeTeamFolder(teamGroupIds: string[], viewer: FolderViewer): boolean
 	return teamGroupIds.length === 0 || viewer.isAdmin || teamGroupIds.some((groupId) => viewer.groupIds.has(groupId));
 }
 
-async function countSharedWithMeStories(userId: string, projectId: string): Promise<number> {
+function listTeamFolderIds(folders: StoryFolderWithCount[]): string[] {
+	return folders.filter((folder) => folder.teamGroupIds.length > 0).map((folder) => folder.id);
+}
+
+/** Stories filed in a team folder the user sees are listed there, not in "Shared with me". */
+async function countSharedWithMeStories(userId: string, projectId: string, teamFolderIds: string[]): Promise<number> {
 	const lockedGroupIds = await listLockedUserGroupIds(projectId);
+	const filedInTeamFolder =
+		teamFolderIds.length > 0
+			? sql`${s.sharedStory.storyId} in (${db
+					.select({ storyId: s.storyFolderItem.storyId })
+					.from(s.storyFolderItem)
+					.where(inArray(s.storyFolderItem.folderId, teamFolderIds))})`
+			: sql`1 = 0`;
 	const [row] = await db
 		.select({ cnt: count(s.sharedStory.id) })
 		.from(s.sharedStory)
+		.innerJoin(s.story, eq(s.story.id, s.sharedStory.storyId))
 		.where(
 			and(
 				eq(s.sharedStory.projectId, projectId),
+				isNull(s.story.archivedAt),
 				eq(s.sharedStory.visibility, 'specific'),
 				sharedStoryGrantsUser(userId, lockedGroupIds),
+				not(filedInTeamFolder),
 			),
 		)
 		.execute();

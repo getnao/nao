@@ -11,6 +11,7 @@ import {
 	isNotNull,
 	isNull,
 	max,
+	not,
 	or,
 	type SQL,
 	sql,
@@ -47,6 +48,7 @@ export type ReferenceableStoryFilters = {
 	trustedOnly?: boolean;
 	storyIds?: string[];
 	folderIds?: string[];
+	excludedFolderIds?: string[];
 	sharedWithMeOnly?: boolean;
 	limit?: number;
 	offset?: number;
@@ -221,6 +223,7 @@ function isReferenceable(
 		filters.trustedOnly ? isTrusted() : undefined,
 		filters.storyIds ? inArray(s.story.id, filters.storyIds) : undefined,
 		filters.folderIds ? isInFolders(filters.folderIds) : undefined,
+		filters.excludedFolderIds?.length ? not(isInFolders(filters.excludedFolderIds)) : undefined,
 		filters.sharedWithMeOnly ? isSharedSpecificallyWith(userId, lockedGroupIds) : undefined,
 	);
 }
