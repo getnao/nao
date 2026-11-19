@@ -2,7 +2,7 @@ import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import { STORY_KIT_EDITABLE_BLOCKS } from '@nao/shared/story-app';
 import { extractQueryIds } from '@nao/shared/story-segments';
 import type { BulkStoryItem, StoryFormat, UserRole } from '@nao/shared/types';
-import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS, RECIPIENT_MODES } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS, RECIPIENT_MODES, STORY_DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -1316,7 +1316,7 @@ export const storyRoutes = {
 		.input(
 			z.object({
 				storyId: z.string(),
-				format: z.enum(DOWNLOAD_FORMATS),
+				format: z.enum(STORY_DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
 			}),
 		)
@@ -1367,7 +1367,7 @@ export const storyRoutes = {
 			z.object({
 				chatId: z.string(),
 				storySlug: z.string(),
-				format: z.enum(DOWNLOAD_FORMATS),
+				format: z.enum(STORY_DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
 			}),
 		)

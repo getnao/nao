@@ -521,11 +521,18 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
+/** Markdown is rebuilt from a story's code, so only markdown stories offer it: custom stories export a rendered snapshot. */
+export type StoryDownloadFormat = DownloadFormat | 'markdown';
+export const STORY_DOWNLOAD_FORMATS = [
+	...DOWNLOAD_FORMATS,
+	'markdown',
+] as const satisfies readonly StoryDownloadFormat[];
+
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
 /** A file taken out of permanent storage is recorded under its own extension. */
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
+export type AnalyticsDownloadFormat = StoryDownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = [
 	'page_view',
