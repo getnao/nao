@@ -128,6 +128,19 @@ describe('group shared budget resolution', () => {
 		expect(mocks.getPeriodCostsByUser).toHaveBeenCalledWith('project-id', 'month', ['user-id', 'teammate']);
 	});
 
+	it('counts the spend of the whole project for the shared budget of All Users', async () => {
+		mocks.listActiveUserGroups.mockResolvedValue([{ id: 'everyone', isDefault: true }]);
+		mocks.listGroupSharedBudgetsForMember.mockResolvedValue([
+			{ groupId: 'everyone', groupName: 'All Users', isDefault: true, limitUsd: 2000 },
+		]);
+		mocks.listGroupMemberships.mockResolvedValue([]);
+
+		await expect(resolveGroupSharedBudgetUsages('project-id', 'user-id')).resolves.toEqual([
+			expect.objectContaining({ groupId: 'everyone', spendUsd: 1419.5, ratio: 1419.5 / 2000 }),
+		]);
+		expect(mocks.getPeriodCostsByUser).toHaveBeenCalledWith('project-id', 'month', undefined);
+	});
+
 	it('ignores shared budgets of user groups locked on the free plan', async () => {
 		mocks.listGroupSharedBudgetsForMember.mockResolvedValue([
 			{ groupId: 'locked-group', groupName: 'Locked', limitUsd: 500 },

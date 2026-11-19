@@ -94,14 +94,15 @@ export async function resolveGroupSharedBudgetUsages(
 	if (sharedBudgets.length === 0) {
 		return [];
 	}
-	const groupIds = sharedBudgets.map((sharedBudget) => sharedBudget.groupId);
+	const defaultGroupId = sharedBudgets.find((sharedBudget) => sharedBudget.isDefault)?.groupId;
+	const groupIds = sharedBudgets.filter((sharedBudget) => !sharedBudget.isDefault).map(({ groupId }) => groupId);
 	const [{ period }, memberships] = await Promise.all([
 		getMemberBudgetConfig(projectId),
 		memberBudgetQueries.listGroupMemberships(groupIds),
 	]);
-	const memberIds = [...new Set(memberships.map((membership) => membership.userId))];
+	const memberIds = defaultGroupId ? undefined : [...new Set(memberships.map(({ userId }) => userId))];
 	const spendByUser = await memberBudgetQueries.getPeriodCostsByUser(projectId, period, memberIds);
-	const spendByGroup = sumSpendByGroup(memberships, spendByUser);
+	const spendByGroup = sumSpendByGroup(memberships, spendByUser, defaultGroupId);
 	const resetsAt = getNextPeriodStart(period);
 	return sharedBudgets.map(({ groupId, groupName, limitUsd }) => {
 		const spendUsd = spendByGroup[groupId] ?? 0;
@@ -109,10 +110,11 @@ export async function resolveGroupSharedBudgetUsages(
 	});
 }
 
-/** A member counts once per group, even when both added by hand and synced from SSO. */
+/** A member counts once per group, even when both added by hand and synced from SSO; All Users covers the whole project. */
 export function sumSpendByGroup(
 	memberships: Array<{ groupId: string; userId: string }>,
 	spendByUser: Record<string, number>,
+	defaultGroupId?: string,
 ): Record<string, number> {
 	const memberIdsByGroup = new Map<string, Set<string>>();
 	for (const { groupId, userId } of memberships) {
@@ -121,6 +123,9 @@ export function sumSpendByGroup(
 		memberIdsByGroup.set(groupId, memberIds);
 	}
 	const spendByGroup: Record<string, number> = {};
+	if (defaultGroupId) {
+		spendByGroup[defaultGroupId] = roundCost(Object.values(spendByUser).reduce((total, spend) => total + spend, 0));
+	}
 	for (const [groupId, memberIds] of memberIdsByGroup) {
 		spendByGroup[groupId] = roundCost([...memberIds].reduce((total, id) => total + (spendByUser[id] ?? 0), 0));
 	}
@@ -161,7 +166,7 @@ async function listActiveGroupBudgetLimits(projectId: string, userId: string): P
 async function listActiveGroupSharedBudgets(
 	projectId: string,
 	userId: string,
-): Promise<Array<{ groupId: string; groupName: string; limitUsd: number }>> {
+): Promise<Array<{ groupId: string; groupName: string; isDefault: boolean; limitUsd: number }>> {
 	const sharedBudgets = await memberBudgetQueries.listGroupSharedBudgetsForMember(projectId, userId);
 	if (sharedBudgets.length === 0) {
 		return [];

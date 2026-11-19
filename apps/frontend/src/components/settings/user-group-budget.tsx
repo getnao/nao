@@ -72,7 +72,9 @@ export function UserGroupBudget({
 			})
 		: [];
 	const isBudgetReady = !isLicensed || (!isLoading && !isError);
-	const groupMembers = groupId ? members.filter((member) => member.groupIds.includes(groupId)) : [];
+	const groupMembers = isDefaultGroup
+		? members
+		: members.filter((member) => groupId !== null && member.groupIds.includes(groupId));
 	const groupSpendUsd = groups.find((group) => group.id === groupId)?.spendUsd ?? 0;
 
 	return (
@@ -140,7 +142,7 @@ export function UserGroupBudget({
 				A member&apos;s personal budget always wins, and members in several groups get the most generous group
 				budget.
 			</p>
-			{!isDefaultGroup && isBudgetReady && (
+			{isBudgetReady && (
 				<GroupSharedBudget
 					isLicensed={isLicensed}
 					sharedLimitUsd={sharedLimitUsd}

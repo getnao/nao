@@ -185,7 +185,7 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 						<span>
 							<span className='font-medium text-foreground'>Shared budget</span>: one cap on the
 							group&apos;s combined spend. Once it&apos;s used up, every member is blocked, whatever their
-							own budget.
+							own budget. On {defaultGroupName}, it caps the whole project.
 						</span>
 					</span>
 				}
@@ -638,17 +638,13 @@ function GroupBudgetsTable({
 							)}
 						</TableCell>
 						<TableCell>
-							{group.isDefault ? (
-								<span className='text-sm text-muted-foreground'>—</span>
-							) : (
-								<BudgetCell
-									limitUsd={groupSharedBudgets[group.id] ?? 0}
-									onChange={(value) => onGroupSharedBudgetChange(group.id, value)}
-								/>
-							)}
+							<BudgetCell
+								limitUsd={groupSharedBudgets[group.id] ?? 0}
+								onChange={(value) => onGroupSharedBudgetChange(group.id, value)}
+							/>
 						</TableCell>
 						<TableCell className='tabular-nums'>
-							{group.isDefault || isLocked ? (
+							{isLocked ? (
 								<span className='text-sm text-muted-foreground'>—</span>
 							) : (
 								<GroupUsage
@@ -782,7 +778,7 @@ function buildLimitDraft(overview: MemberBudgetOverview): LimitDraft {
 		if (!group.isDefault && group.limitUsd !== null) {
 			groupBudgets[group.id] = group.limitUsd;
 		}
-		if (!group.isDefault && group.sharedLimitUsd !== null) {
+		if (group.sharedLimitUsd !== null) {
 			groupSharedBudgets[group.id] = group.sharedLimitUsd;
 		}
 	}

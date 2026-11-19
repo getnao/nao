@@ -105,11 +105,22 @@ describe('member budget spend', () => {
 		await setGroupSharedBudget(PROJECT_ID, 'analysts', 500);
 
 		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([
-			{ groupId: 'analysts', groupName: 'Analysts', limitUsd: 500 },
+			{ groupId: 'analysts', groupName: 'Analysts', isDefault: false, limitUsd: 500 },
 		]);
 
 		await setGroupSharedBudget(PROJECT_ID, 'analysts', 0);
 
 		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([]);
+	});
+
+	it('applies the shared budget of All Users to a member without group rows', async () => {
+		await db
+			.insert(s.userGroup)
+			.values({ id: 'everyone', projectId: PROJECT_ID, name: 'All Users', isDefault: true });
+		await setGroupSharedBudget(PROJECT_ID, 'everyone', 2000);
+
+		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, NAMED_PROVIDER_USER_ID)).resolves.toEqual([
+			{ groupId: 'everyone', groupName: 'All Users', isDefault: true, limitUsd: 2000 },
+		]);
 	});
 });

@@ -3,7 +3,7 @@
 import { getCurrentPeriodStart } from '@nao/shared/date';
 import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
 import type { MemberBudgetPeriod } from '@nao/shared/types';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 
 import s, {
 	DBProjectGroupBudget,
@@ -65,20 +65,33 @@ export const listGroupSharedBudgets = async (projectId: string): Promise<DBProje
 		.execute();
 };
 
+/** All Users stores no member rows, so its shared budget applies to every member. */
 export const listGroupSharedBudgetsForMember = async (
 	projectId: string,
 	userId: string,
-): Promise<Array<{ groupId: string; groupName: string; limitUsd: number }>> => {
+): Promise<Array<{ groupId: string; groupName: string; isDefault: boolean; limitUsd: number }>> => {
 	return db
 		.selectDistinct({
 			groupId: s.projectGroupSharedBudget.groupId,
 			groupName: s.userGroup.name,
+			isDefault: s.userGroup.isDefault,
 			limitUsd: s.projectGroupSharedBudget.limitUsd,
 		})
 		.from(s.projectGroupSharedBudget)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.projectGroupSharedBudget.groupId))
-		.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.projectGroupSharedBudget.groupId))
-		.where(and(eq(s.projectGroupSharedBudget.projectId, projectId), eq(s.userGroupMember.userId, userId)))
+		.leftJoin(
+			s.userGroupMember,
+			and(
+				eq(s.userGroupMember.groupId, s.projectGroupSharedBudget.groupId),
+				eq(s.userGroupMember.userId, userId),
+			),
+		)
+		.where(
+			and(
+				eq(s.projectGroupSharedBudget.projectId, projectId),
+				or(eq(s.userGroup.isDefault, true), isNotNull(s.userGroupMember.userId)),
+			),
+		)
 		.execute();
 };
 

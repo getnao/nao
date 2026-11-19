@@ -71,11 +71,13 @@ export async function getMemberSpendForPeriod(
 	projectId: string,
 	period: MemberBudgetPeriod,
 ): Promise<MemberSpendForPeriod> {
-	const [spendByUser, memberships] = await Promise.all([
+	const [spendByUser, memberships, groups] = await Promise.all([
 		memberBudgetQueries.getPeriodCostsByUser(projectId, period),
 		listProjectGroupMemberships(projectId),
+		listActiveUserGroups(projectId),
 	]);
-	return { members: spendByUser, groups: sumSpendByGroup(memberships, spendByUser) };
+	const defaultGroupId = groups.find((group) => group.isDefault)?.id;
+	return { members: spendByUser, groups: sumSpendByGroup(memberships, spendByUser, defaultGroupId) };
 }
 
 export async function getMemberBudgetOverview(projectId: string): Promise<MemberBudgetOverview> {
@@ -95,7 +97,7 @@ export async function getMemberBudgetOverview(projectId: string): Promise<Member
 	const personalLimitByUser = new Map(personalBudgets.map((budget) => [budget.userId, budget.limitUsd]));
 	const budgetByGroup = new Map(groupBudgets.map((groupBudget) => [groupBudget.groupId, groupBudget.limitUsd]));
 	const sharedBudgetByGroup = new Map(groupSharedBudgets.map((budget) => [budget.groupId, budget.limitUsd]));
-	const spendByGroup = sumSpendByGroup(memberships, spendByUser);
+	const spendByGroup = sumSpendByGroup(memberships, spendByUser, groups.find((group) => group.isDefault)?.id);
 	const groupIdsByUser = new Map<string, Set<string>>();
 	for (const membership of memberships) {
 		const groupIds = groupIdsByUser.get(membership.userId) ?? new Set<string>();
@@ -111,7 +113,7 @@ export async function getMemberBudgetOverview(projectId: string): Promise<Member
 			name,
 			isDefault,
 			limitUsd: isDefault ? config.defaultLimitUsd : (budgetByGroup.get(id) ?? null),
-			sharedLimitUsd: isDefault ? null : (sharedBudgetByGroup.get(id) ?? null),
+			sharedLimitUsd: sharedBudgetByGroup.get(id) ?? null,
 			spendUsd: spendByGroup[id] ?? 0,
 		})),
 		members: members.map((member) => ({
@@ -156,14 +158,16 @@ export async function setPersonalBudget(projectId: string, input: SetPersonalBud
 }
 
 export async function saveMemberBudgets(projectId: string, input: SetMemberBudgetsInput): Promise<void> {
-	const [members, budgetableGroupIds] = await Promise.all([
+	const [members, groups] = await Promise.all([
 		projectQueries.listUsersWithProjectAccess(projectId),
-		listBudgetableGroupIds(projectId),
+		listActiveUserGroups(projectId),
 	]);
 	const memberIds = new Set(members.map((member) => member.id));
+	const activeGroupIds = new Set(groups.map((group) => group.id));
+	const budgetableGroupIds = new Set(groups.filter((group) => !group.isDefault).map((group) => group.id));
 	const personalBudgets = input.personalBudgets.filter((budget) => memberIds.has(budget.userId));
 	const groupBudgets = input.groupBudgets.filter((budget) => budgetableGroupIds.has(budget.groupId));
-	const groupSharedBudgets = input.groupSharedBudgets.filter((budget) => budgetableGroupIds.has(budget.groupId));
+	const groupSharedBudgets = input.groupSharedBudgets.filter((budget) => activeGroupIds.has(budget.groupId));
 	await memberBudgetQueries.saveMemberBudgets(projectId, {
 		...input,
 		personalBudgets,
@@ -182,12 +186,8 @@ export async function setGroupBudget(projectId: string, groupId: string, limitUs
 	await memberBudgetQueries.setGroupBudget(projectId, groupId, limitUsd);
 }
 
-/** All Users has no shared budget: the provider budgets already cap the whole project. */
 export async function setGroupSharedBudget(projectId: string, groupId: string, limitUsd: number | null): Promise<void> {
-	const group = await getActiveGroup(projectId, groupId);
-	if (group.isDefault) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'All Users cannot have a shared budget.' });
-	}
+	await getActiveGroup(projectId, groupId);
 	await memberBudgetQueries.setGroupSharedBudget(projectId, groupId, limitUsd);
 }
 
@@ -205,9 +205,4 @@ async function listProjectGroupMemberships(projectId: string): Promise<Array<{ g
 		userGroupQueries.listUserGroupSsoMemberships(projectId),
 	]);
 	return [...memberships, ...ssoMemberships];
-}
-
-async function listBudgetableGroupIds(projectId: string): Promise<Set<string>> {
-	const groups = await listActiveUserGroups(projectId);
-	return new Set(groups.filter((group) => !group.isDefault).map((group) => group.id));
 }
