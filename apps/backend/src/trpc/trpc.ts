@@ -4,6 +4,7 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
+import { traceProcedure } from '../middleware/request-tracing';
 import { getOrganizationBilling } from '../queries/billing.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -29,6 +30,7 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
 		selectedOrganizationId: headers.get('x-nao-organization-id'),
+		requestSpan: opts.req.requestSpan,
 	};
 };
 
@@ -90,7 +92,11 @@ const withHandlerErrors = t.middleware(async ({ next }) => {
 	}
 });
 
-export const publicProcedure = t.procedure.use(withHandlerErrors);
+const withProcedureSpan = t.middleware(async ({ ctx, path, next }) => {
+	return traceProcedure(ctx.requestSpan, path, next);
+});
+
+export const publicProcedure = t.procedure.use(withProcedureSpan).use(withHandlerErrors);
 
 /** Signed in, and still reachable by members who must set up two-factor authentication first. */
 export const sessionProcedure = publicProcedure.use(async ({ ctx, next }) => {

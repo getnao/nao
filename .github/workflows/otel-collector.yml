@@ -66,6 +66,7 @@ jobs:
                       docker rm -f otel-collector 2>/dev/null || true
                       # Root reads the Docker socket and the other containers' log files, all mounted read-only.
                       docker run -d --name otel-collector --restart unless-stopped \
+                        --hostname "$(hostname)" \
                         --user 0:0 \
                         --memory 512m \
                         -e "SIGNOZ_INGESTION_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \

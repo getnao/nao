@@ -1,9 +1,11 @@
-import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { context, type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import type { FastifyInstance } from 'fastify';
 
 export const REQUEST_TRACER_NAME = 'nao-http';
-const TRPC_PREFIX = '/api/trpc/';
 const UNMATCHED_ROUTE = 'unmatched';
+const SERVER_FAILURE_CODE = 'INTERNAL_SERVER_ERROR';
+
+type ProcedureResult = { ok: true } | { ok: false; error: Error & { code: string } };
 
 declare module 'fastify' {
 	interface FastifyRequest {
@@ -33,7 +35,7 @@ export function registerRequestTracing(app: FastifyInstance, ignoredPaths: strin
 		if (!span) {
 			return;
 		}
-		const route = describeRoute(request, reply);
+		const route = request.routeOptions.url ?? UNMATCHED_ROUTE;
 		span.updateName(`${request.method} ${route}`);
 		span.setAttributes({
 			'http.request.method': request.method,
@@ -49,13 +51,28 @@ export function registerRequestTracing(app: FastifyInstance, ignoredPaths: strin
 }
 
 /**
- * tRPC serves every procedure from one wildcard route, so its endpoint is the procedure path.
- * A 404 keeps the wildcard: unknown procedures would otherwise create one endpoint per probed URL.
+ * Times one tRPC procedure inside its request span. Every procedure is served from the same
+ * wildcard route and a batched request runs several of them, so the request span alone
+ * cannot tell which procedure is slow or failing.
  */
-function describeRoute(request: FastifyRequest, reply: FastifyReply): string {
-	const path = request.url.split('?')[0];
-	if (path.startsWith(TRPC_PREFIX) && reply.statusCode !== 404) {
-		return path;
+export async function traceProcedure<Result extends ProcedureResult>(
+	requestSpan: Span | undefined,
+	path: string,
+	runProcedure: () => Promise<Result>,
+): Promise<Result> {
+	if (!requestSpan) {
+		return runProcedure();
 	}
-	return request.routeOptions.url ?? UNMATCHED_ROUTE;
+	const tracer = trace.getTracer(REQUEST_TRACER_NAME);
+	const span = tracer.startSpan(`trpc ${path}`, {}, trace.setSpan(context.active(), requestSpan));
+	try {
+		const result = await runProcedure();
+		if (!result.ok && result.error.code === SERVER_FAILURE_CODE) {
+			span.recordException(result.error);
+			span.setStatus({ code: SpanStatusCode.ERROR });
+		}
+		return result;
+	} finally {
+		span.end();
+	}
 }

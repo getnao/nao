@@ -32,6 +32,11 @@ receivers:
                         - type: container
                           format: docker
                           add_metadata_from_filepath: false
+                        # Backend logs print request URLs, whose query can hold an access token.
+                        - type: regex_replace
+                          field: body
+                          regex: '([?&][A-Za-z_]*(?:token|code|state|key|secret|password|signature)=)[^&\s"\\]+'
+                          replace_with: '$${1}REDACTED'
                         # Fastify (pino) logs JSON lines, the Python sidecar and the entrypoint log plain text.
                         - type: json_parser
                           if: body matches "^\\{"
@@ -94,6 +99,7 @@ processors:
         spike_limit_mib: 100
     resource_detection:
         detectors: [system]
+        # The deploy gives the collector container the hostname of the VM.
         system:
             hostname_sources: [os]
     # Blue and green slots of one application report as a single service, and the nao-chat
