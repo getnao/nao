@@ -1,10 +1,18 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from nao_core.config.file_references import resolve_file_references
 
 TABLES_FILE = "repos/business_context/tables.yml"
+NESTED_ALIASES = "\n".join(
+    [
+        "level_0: &level_0 [analytics.orders, analytics.orders]",
+        *(f"level_{level + 1}: &level_{level + 1} [*level_{level}, *level_{level}]" for level in range(18)),
+    ]
+)
+ALIAS_TO_ITS_OWN_PARENT = "tables: &tables [*tables]"
 
 
 def write_project_file(project_path: Path, file: str, content: str) -> None:
@@ -60,6 +68,36 @@ def test_a_missing_file_in_repos_fails_the_load_even_when_allowed(tmp_path: Path
 
     with pytest.raises(ValueError, match="must already be in the project"):
         resolve_file_references({"repos": [repo]}, tmp_path, allow_missing=True)
+
+
+@pytest.mark.parametrize(
+    ("config", "file"),
+    [
+        pytest.param(NESTED_ALIASES, "- analytics.orders\n", id="nested_aliases"),
+        pytest.param(ALIAS_TO_ITS_OWN_PARENT, "- analytics.orders\n", id="alias_to_its_own_parent"),
+        pytest.param(f"include:\n  from_file: {TABLES_FILE}\n", NESTED_ALIASES, id="file_with_nested_aliases"),
+        pytest.param(
+            f"include:\n  from_file: {TABLES_FILE}\n", ALIAS_TO_ITS_OWN_PARENT, id="file_with_alias_to_its_own_parent"
+        ),
+    ],
+)
+def test_a_config_that_aliases_expand_beyond_the_node_budget_is_refused(tmp_path: Path, config: str, file: str):
+    write_project_file(tmp_path, TABLES_FILE, file)
+
+    with pytest.raises(ValueError, match="more than 100000 values"):
+        resolve_file_references(yaml.safe_load(config), tmp_path)
+
+
+def test_aliases_within_the_node_budget_are_kept(tmp_path: Path):
+    data = yaml.safe_load("shared: &shared [analytics.orders]\ninclude: *shared\nexclude: *shared\n")
+
+    resolved, _ = resolve_file_references(data, tmp_path)
+
+    assert resolved == {
+        "shared": ["analytics.orders"],
+        "include": ["analytics.orders"],
+        "exclude": ["analytics.orders"],
+    }
 
 
 def test_restore_puts_references_back_and_reports_those_whose_value_moved(tmp_path: Path):

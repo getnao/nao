@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import yaml from 'js-yaml';
 import { describe, expect, it, vi } from 'vitest';
 
-import { resolveFileReferences } from '../../src/utils/nao-config-references';
+import { holdsFileReference, resolveFileReferences } from '../../src/utils/nao-config-references';
 import { logger } from '../helpers/logger-mock';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -11,7 +12,49 @@ vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 
 const createTemporaryFolder = useTemporaryFolders();
 
+const NESTED_ALIASES = [
+	'level_0: &level_0 [analytics.orders, analytics.orders]',
+	...Array.from(
+		{ length: 20 },
+		(_, level) => `level_${level + 1}: &level_${level + 1} [*level_${level}, *level_${level}]`,
+	),
+].join('\n');
+const ALIAS_TO_ITS_OWN_PARENT = 'tables: &tables [*tables]';
+
 describe('resolveFileReferences', () => {
+	it.each([
+		{ reason: 'nested aliases', config: yaml.load(NESTED_ALIASES), file: '- analytics.orders\n' },
+		{
+			reason: 'an alias to its own parent',
+			config: yaml.load(ALIAS_TO_ITS_OWN_PARENT),
+			file: '- analytics.orders\n',
+		},
+		{
+			reason: 'a file with nested aliases',
+			config: { include: { from_file: 'tables.yml' } },
+			file: NESTED_ALIASES,
+		},
+		{
+			reason: 'a file with an alias to its own parent',
+			config: { include: { from_file: 'tables.yml' } },
+			file: ALIAS_TO_ITS_OWN_PARENT,
+		},
+	])('refuses a config that $reason would expand beyond the node budget', ({ config, file }) => {
+		const project = createProject({ 'tables.yml': file });
+
+		expect(() => resolveFileReferences(config, project)).toThrow('more than 100000 values');
+	});
+
+	it('keeps a config whose aliases stay within the node budget', () => {
+		const config = yaml.load('shared: &shared [analytics.orders]\ninclude: *shared\nexclude: *shared\n');
+
+		expect(resolveFileReferences(config, createProject({}))).toEqual({
+			shared: ['analytics.orders'],
+			include: ['analytics.orders'],
+			exclude: ['analytics.orders'],
+		});
+	});
+
 	it('replaces a reference by the content of its file', () => {
 		const project = createProject({ 'repos/business_context/tables.yml': '- analytics.orders\n' });
 		const config = {
@@ -57,6 +100,12 @@ describe('resolveFileReferences', () => {
 
 		expect(resolved).toEqual({ name: 'warehouse' });
 		expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(warning), { source: 'system' });
+	});
+});
+
+describe('holdsFileReference', () => {
+	it('finds no reference under an alias to its own parent', () => {
+		expect(holdsFileReference(yaml.load(ALIAS_TO_ITS_OWN_PARENT))).toBe(false);
 	});
 });
 

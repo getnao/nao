@@ -21,6 +21,7 @@ import yaml
 from .repos.base import normalize_relative_path
 from .secrets import contains_secret_reference
 
+MAX_CONFIG_NODES = 100_000
 FILE_REFERENCE_KEY = "from_file"
 REPOSITORIES_SECTION = "repos"
 
@@ -55,6 +56,24 @@ class FileReferences:
         return lost
 
 
+@dataclass
+class _NodeBudget:
+    """A YAML alias is parsed into one shared object, which a walk visits again at each of its uses: a few
+    lines of nested aliases expand into billions of nodes. The config is refused before any walk that would
+    visit them all.
+    """
+
+    remaining: int = MAX_CONFIG_NODES
+
+    def spend(self, node: Any) -> None:
+        self.remaining -= _count_walked_nodes(node, {})
+        if self.remaining < 0:
+            raise ValueError(
+                f"nao_config.yaml holds more than {MAX_CONFIG_NODES} values, "
+                f"once its YAML aliases and its {FILE_REFERENCE_KEY} files are expanded"
+            )
+
+
 def resolve_file_references(
     data: Any, project_path: Path, *, allow_missing: bool = False
 ) -> tuple[Any, FileReferences]:
@@ -69,8 +88,10 @@ def resolve_file_references(
     if is_file_reference(data):
         raise ValueError(f"nao_config.yaml cannot be a single {FILE_REFERENCE_KEY} reference")
 
+    budget = _NodeBudget()
+    budget.spend(data)
     references = FileReferences()
-    resolved = _resolve_node(data, (), project_path, references)
+    resolved = _resolve_node(data, (), project_path, references, budget)
     if not references.missing or not isinstance(resolved, dict):
         return resolved, references
 
@@ -93,7 +114,9 @@ def is_file_reference(node: Any) -> bool:
     return isinstance(node, dict) and list(node) == [FILE_REFERENCE_KEY] and isinstance(node[FILE_REFERENCE_KEY], str)
 
 
-def _resolve_node(node: Any, location: Location, project_path: Path, references: FileReferences) -> Any:
+def _resolve_node(
+    node: Any, location: Location, project_path: Path, references: FileReferences, budget: _NodeBudget
+) -> Any:
     if is_file_reference(node):
         file = node[FILE_REFERENCE_KEY]
         references.files[location] = file
@@ -101,15 +124,36 @@ def _resolve_node(node: Any, location: Location, project_path: Path, references:
         if content is _MISSING:
             references.missing.add(location)
             return None
+        budget.spend(content)
         return content
 
     if isinstance(node, dict):
-        return {key: _resolve_node(child, (*location, key), project_path, references) for key, child in node.items()}
+        return {
+            key: _resolve_node(child, (*location, key), project_path, references, budget) for key, child in node.items()
+        }
 
     if isinstance(node, list):
-        return [_resolve_node(child, (*location, index), project_path, references) for index, child in enumerate(node)]
+        return [
+            _resolve_node(child, (*location, index), project_path, references, budget)
+            for index, child in enumerate(node)
+        ]
 
     return node
+
+
+def _count_walked_nodes(node: Any, counted: dict[int, int]) -> int:
+    """A node met again while it is being counted is an alias to one of its own parents, which no walk can finish."""
+    if not isinstance(node, dict | list):
+        return 1
+    if id(node) in counted:
+        return counted[id(node)]
+    over_budget = MAX_CONFIG_NODES + 1
+    counted[id(node)] = over_budget
+    count = 1
+    for child in _children_of(node):
+        count = min(count + _count_walked_nodes(child, counted), over_budget)
+    counted[id(node)] = count
+    return count
 
 
 def _read_referenced_file(project_path: Path, file: str) -> Any:
@@ -142,14 +186,19 @@ def _is_secret_reference(node: Any) -> bool:
     return isinstance(node, str) and contains_secret_reference(node)
 
 
-def _any_node(node: Any, predicate: Callable[[Any], bool]) -> bool:
+def _any_node(node: Any, predicate: Callable[[Any], bool], visited: set[int] | None = None) -> bool:
+    """Visits a node shared through YAML aliases once, whatever the number of its uses."""
     if predicate(node):
         return True
-    if isinstance(node, dict):
-        return any(_any_node(child, predicate) for item in node.items() for child in item)
-    if isinstance(node, list):
-        return any(_any_node(child, predicate) for child in node)
-    return False
+    visited = set() if visited is None else visited
+    if not isinstance(node, dict | list) or id(node) in visited:
+        return False
+    visited.add(id(node))
+    return any(_any_node(child, predicate, visited) for child in _children_of(node))
+
+
+def _children_of(node: dict | list) -> list[Any]:
+    return node if isinstance(node, list) else [child for item in node.items() for child in item]
 
 
 def _holds_key(node: Any, key: str | int) -> bool:
