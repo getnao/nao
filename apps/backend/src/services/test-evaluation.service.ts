@@ -6,6 +6,7 @@ import { evaluateTestVerdict, type TestVerification } from '../utils/test-verdic
 import type { AgentRunResult } from './agent';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
+import { buildRunSqlQueryTag } from './sql-query-tag.service';
 import { TestAgentService, testAgentService, type ToolCallResult, type VerificationResult } from './test-agent.service';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
@@ -82,6 +83,14 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		resolveProjectContextAccess(projectId, userId, projectFolder),
 		resolveReferenceSemanticLayerMode(projectId, userId, projectFolder),
 	]);
+	const sqlQueryTag = await buildRunSqlQueryTag({
+		projectFolder,
+		agentSettings: await getAgentSettings(projectId),
+		projectId,
+		userId,
+		source: 'test',
+		groupAccess: contextAccess.userRulesGroupAccess,
+	});
 	return {
 		projectFolder,
 		chatId: '',
@@ -90,6 +99,7 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		supportsCustomCharts: false,
 		agentSettings: null,
 		semanticLayerMode,
+		sqlQueryTag,
 		adminMode: false,
 		envVars,
 		warehouseAccessToken,

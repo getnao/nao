@@ -140,6 +140,7 @@ describe('test routes', () => {
 				supportsCustomCharts: false,
 				agentSettings: null,
 				semanticLayerMode: 'exclusive',
+				sqlQueryTag: null,
 				adminMode: false,
 				envVars: {
 					WAREHOUSE_HOST: 'warehouse.example.com',

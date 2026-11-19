@@ -88,6 +88,7 @@ export async function executeQuery(
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
+		queryTag: context.sqlQueryTag,
 	});
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 

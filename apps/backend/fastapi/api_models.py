@@ -96,6 +96,11 @@ RowSecurity = Annotated[
 ]
 
 
+class QueryTag(StrictRequestModel):
+    comment: str = Field(min_length=1)
+    position: Literal["start", "end"] = "start"
+
+
 class ExecuteSQLRequest(StrictRequestModel):
     sql: str
     nao_project_folder: str
@@ -105,6 +110,7 @@ class ExecuteSQLRequest(StrictRequestModel):
     env_vars: dict[str, str] | None = None
     user_access_token: str | None = None
     enforce_excluded_columns: bool = False
+    query_tag: QueryTag | None = None
 
     @field_validator("table_access", mode="before")
     @classmethod

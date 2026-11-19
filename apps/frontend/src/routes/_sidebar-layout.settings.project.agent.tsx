@@ -15,6 +15,8 @@ import { SettingsSandboxSecrets } from '@/components/settings/sandbox-secrets';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
 import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
+import { SettingsSqlQueryTag } from '@/components/settings/sql-query-tag';
+import { SettingsSqlWritePermissions } from '@/components/settings/sql-write-permissions';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 import { SubagentModelSection } from '@/components/settings/subagent-model-section';
 import { SettingsWebSearch } from '@/components/settings/web-search';
@@ -23,7 +25,7 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
-type AgentTab = 'models' | 'tools' | 'mcp-servers';
+type AgentTab = 'models' | 'tools' | 'sql' | 'mcp-servers';
 
 type AgentSearch = {
 	tab: AgentTab;
@@ -34,6 +36,7 @@ type AgentSearch = {
 const tabs: TabBarItem<AgentTab>[] = [
 	{ id: 'models', label: 'Models' },
 	{ id: 'tools', label: 'Capabilities' },
+	{ id: 'sql', label: 'SQL' },
 	{ id: 'mcp-servers', label: 'MCP servers' },
 ];
 
@@ -80,6 +83,7 @@ function ProjectAgentPage() {
 					/>
 				)}
 				{tab === 'tools' && <ToolsSettings isAdmin={isAdmin} />}
+				{tab === 'sql' && <SqlSettings isAdmin={isAdmin} />}
 				{tab === 'mcp-servers' && <McpSettings isAdmin={isAdmin} />}
 			</TabPanel>
 		</>
@@ -124,14 +128,23 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			<SavedPrompts isAdmin={isAdmin} />
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
-			<SettingsSemanticLayer isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsSandboxSecrets />
+		</>
+	);
+}
+
+function SqlSettings({ isAdmin }: { isAdmin: boolean }) {
+	return (
+		<>
+			{isAdmin && <SettingsSqlQueryTag />}
+			<SettingsSemanticLayer isAdmin={isAdmin} />
 			<SettingsExcludeColumns isAdmin={isAdmin} />
+			<SettingsSqlWritePermissions isAdmin={isAdmin} />
 		</>
 	);
 }
 
 function isAgentTab(value: unknown): value is AgentTab {
-	return value === 'models' || value === 'tools' || value === 'mcp-servers';
+	return value === 'models' || value === 'tools' || value === 'sql' || value === 'mcp-servers';
 }

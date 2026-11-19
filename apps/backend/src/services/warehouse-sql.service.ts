@@ -2,6 +2,7 @@ import type { WarehouseRowSecurity } from '@nao/shared';
 
 import { env } from '../env';
 import { assertWarehouseTableAccess, type WarehouseTableAccess } from './context-access';
+import { type RunSqlQueryTag, serializeRunSqlQueryTag } from './sql-query-tag.service';
 
 interface WarehouseSqlOptions {
 	projectFolder: string;
@@ -11,6 +12,7 @@ interface WarehouseSqlOptions {
 	enforceExcludedColumns: boolean;
 	tableAccess: WarehouseTableAccess;
 	rowSecurity: WarehouseRowSecurity;
+	queryTag?: RunSqlQueryTag | null;
 }
 
 export interface WarehouseSqlResult {
@@ -91,6 +93,7 @@ async function requestWarehouseSql<T>(
 			...(options.databaseId && { database_id: options.databaseId }),
 			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
 			...(options.warehouseAccessToken && { user_access_token: options.warehouseAccessToken }),
+			...(options.queryTag && { query_tag: serializeRunSqlQueryTag(options.queryTag, options.databaseId) }),
 		}),
 	});
 
