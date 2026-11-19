@@ -23,10 +23,17 @@ const RUN = {
 	totalAttempts: 4,
 };
 
-function result(testName: string, passed: boolean, details: { message?: string; errorMessage?: string } = {}) {
+function result(
+	testName: string,
+	passed: boolean,
+	details: { message?: string; errorMessage?: string; testPath?: string; reasoningEffort?: 'low' | 'high' } = {},
+) {
 	return {
+		testPath: details.testPath ?? `${testName}.yml`,
 		testName,
+		llmProvider: 'openai',
 		llmModelId: 'gpt-6-sol',
+		reasoningEffort: details.reasoningEffort ?? null,
 		passed,
 		message: details.message ?? (passed ? 'match' : null),
 		errorMessage: details.errorMessage ?? null,
@@ -76,6 +83,26 @@ describe('notifyScheduledTestsFailed', () => {
 				headers: ['Test', 'Model', 'Result', 'Why'],
 				rows: [
 					['stars', 'gpt-6-sol', '❌ Failed', 'Error: Warehouse SQL request denied: • api_key is required'],
+				],
+			},
+		},
+		{
+			case: 'tests of different folders that share a name, and a model run at two efforts',
+			results: [
+				result('orders', false, { testPath: 'sales/orders.yml', message: 'values differ' }),
+				result('orders', true, { testPath: 'support/orders.yml' }),
+				result('stars', false, { reasoningEffort: 'low', message: 'actual is empty' }),
+				result('stars', true, { reasoningEffort: 'high' }),
+			],
+			title: 'Scheduled tests: 2 of 3 failed',
+			body: 'Failed: sales/orders.yml, stars',
+			table: {
+				headers: ['Test', 'Model', 'Result', 'Why'],
+				rows: [
+					['sales/orders.yml', 'gpt-6-sol', '❌ Failed', 'Other values than the reference SQL'],
+					['stars', 'gpt-6-sol (low)', '❌ Failed', 'No data returned'],
+					['support/orders.yml', 'gpt-6-sol', '✅ Passed', ''],
+					['stars', 'gpt-6-sol (high)', '✅ Passed', ''],
 				],
 			},
 		},

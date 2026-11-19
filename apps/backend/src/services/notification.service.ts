@@ -191,7 +191,10 @@ type ScheduledTestRun = Pick<
 	'id' | 'projectId' | 'triggeredByUserId' | 'status' | 'errorMessage' | 'passedAttempts' | 'totalAttempts'
 >;
 
-type ScheduledTestResult = Pick<DBTestRunResult, 'testName' | 'llmModelId' | 'passed' | 'message' | 'errorMessage'>;
+type ScheduledTestResult = Pick<
+	DBTestRunResult,
+	'testPath' | 'testName' | 'llmProvider' | 'llmModelId' | 'reasoningEffort' | 'passed' | 'message' | 'errorMessage'
+>;
 
 const MAX_LISTED_FAILED_TESTS = 5;
 const MAX_FAILURE_REASON_LENGTH = 150;
@@ -226,14 +229,14 @@ function describeScheduledRunFailure(
 	}
 	const outcomes = groupResultsByTestAndModel(results);
 	const failedOutcomes = outcomes.filter((outcome) => outcome.failures.length > 0);
-	const failedTestNames = [...new Set(failedOutcomes.map((outcome) => outcome.testName))];
-	if (run.status !== 'completed' || failedTestNames.length === 0) {
+	const failedTestLabels = [...new Set(failedOutcomes.map((outcome) => outcome.testLabel))];
+	if (run.status !== 'completed' || failedTestLabels.length === 0) {
 		return null;
 	}
-	const testCount = new Set(outcomes.map((outcome) => outcome.testName)).size;
+	const testCount = new Set(outcomes.map((outcome) => outcome.testLabel)).size;
 	return {
-		title: `Scheduled tests: ${failedTestNames.length} of ${testCount} failed`,
-		body: `Failed: ${listTestNames(failedTestNames)}`,
+		title: `Scheduled tests: ${failedTestLabels.length} of ${testCount} failed`,
+		body: `Failed: ${listTestLabels(failedTestLabels)}`,
 		table: {
 			headers: SCHEDULED_TEST_TABLE_HEADERS,
 			rows: [...failedOutcomes, ...outcomes.filter((outcome) => outcome.failures.length === 0)].map(toTableRow),
@@ -241,15 +244,18 @@ function describeScheduledRunFailure(
 	};
 }
 
-type TestOutcome = { testName: string; model: string; attemptCount: number; failures: ScheduledTestResult[] };
+type TestOutcome = { testLabel: string; model: string; attemptCount: number; failures: ScheduledTestResult[] };
 
+/** One outcome per test file and model setting, as tests of different folders can share a name. */
 function groupResultsByTestAndModel(results: ScheduledTestResult[]): TestOutcome[] {
+	const testLabels = labelTests(results);
 	const outcomes = new Map<string, TestOutcome>();
 	for (const result of results) {
-		const key = `${result.testName}\u0000${result.llmModelId}`;
+		const model = describeModelSetting(result);
+		const key = [result.testPath, result.llmProvider, model].join('\u0000');
 		const outcome = outcomes.get(key) ?? {
-			testName: result.testName,
-			model: result.llmModelId,
+			testLabel: testLabels.get(result.testPath) ?? result.testName,
+			model,
 			attemptCount: 0,
 			failures: [],
 		};
@@ -262,9 +268,27 @@ function groupResultsByTestAndModel(results: ScheduledTestResult[]): TestOutcome
 	return [...outcomes.values()];
 }
 
-function listTestNames(testNames: string[]): string {
-	const listed = testNames.slice(0, MAX_LISTED_FAILED_TESTS).join(', ');
-	const unlistedCount = testNames.length - MAX_LISTED_FAILED_TESTS;
+/** A test is shown by its name, or by its path when another test file has the same name. */
+function labelTests(results: ScheduledTestResult[]): Map<string, string> {
+	const pathsByName = new Map<string, Set<string>>();
+	for (const { testName, testPath } of results) {
+		pathsByName.set(testName, (pathsByName.get(testName) ?? new Set()).add(testPath));
+	}
+	return new Map(
+		results.map(({ testName, testPath }) => [
+			testPath,
+			(pathsByName.get(testName)?.size ?? 0) > 1 ? testPath : testName,
+		]),
+	);
+}
+
+function describeModelSetting(result: ScheduledTestResult): string {
+	return result.reasoningEffort ? `${result.llmModelId} (${result.reasoningEffort})` : result.llmModelId;
+}
+
+function listTestLabels(testLabels: string[]): string {
+	const listed = testLabels.slice(0, MAX_LISTED_FAILED_TESTS).join(', ');
+	const unlistedCount = testLabels.length - MAX_LISTED_FAILED_TESTS;
 	return unlistedCount > 0 ? `${listed} and ${unlistedCount} more` : listed;
 }
 
@@ -273,7 +297,7 @@ function toTableRow(outcome: TestOutcome): string[] {
 	const verdict = outcome.failures.length > 0 ? '❌ Failed' : '✅ Passed';
 	const share = outcome.attemptCount > 1 ? ` (${passedCount}/${outcome.attemptCount})` : '';
 	const reason = outcome.failures.length > 0 ? describeFailureReason(outcome.failures[0]) : '';
-	return [outcome.testName, outcome.model, `${verdict}${share}`, reason];
+	return [outcome.testLabel, outcome.model, `${verdict}${share}`, reason];
 }
 
 function describeFailureReason(result: ScheduledTestResult): string {
