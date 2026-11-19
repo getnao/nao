@@ -327,7 +327,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
-		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : (view?.label ?? 'Root') };
+		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : (view?.label ?? 'Home') };
 		if (!currentFolderId) {
 			return [root];
 		}
@@ -855,7 +855,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 					parentName={
 						dialog.folder.parentId
 							? (folders.find((f) => f.id === dialog.folder.parentId)?.name ?? 'parent folder')
-							: 'Root'
+							: 'Home'
 					}
 					hasChildren={
 						folders.some((f) => f.parentId === dialog.folder.id) ||
