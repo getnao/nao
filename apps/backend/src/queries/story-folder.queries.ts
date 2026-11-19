@@ -426,6 +426,7 @@ export async function updateFolder(id: string, data: { name?: string }): Promise
 	await db.update(s.storyFolder).set(update).where(eq(s.storyFolder.id, id)).execute();
 }
 
+/** A deleted team folder never opens its content: subfolders keep its groups, stories go back to their owners. */
 export async function deleteFolderMovingContentsToParent(folderId: string): Promise<void> {
 	await assertNotSystemFolder(folderId);
 	const folder = await getFolderById(folderId);
@@ -434,29 +435,66 @@ export async function deleteFolderMovingContentsToParent(folderId: string): Prom
 	}
 	const newParentId = folder.parentId;
 
-	if (newParentId === null) {
-		await db.delete(s.storyFolderItem).where(eq(s.storyFolderItem.folderId, folderId)).execute();
-	} else {
-		await db
-			.update(s.storyFolderItem)
-			.set({ folderId: newParentId })
-			.where(eq(s.storyFolderItem.folderId, folderId))
+	await db.transaction(async (tx) => {
+		const groupIds = await listFolderGroupIds(folderId, tx);
+		if (groupIds.length > 0) {
+			await returnStoriesToOwners(folderId, folder.projectId, tx);
+		}
+
+		if (newParentId === null) {
+			await tx.delete(s.storyFolderItem).where(eq(s.storyFolderItem.folderId, folderId)).execute();
+		} else {
+			await tx
+				.update(s.storyFolderItem)
+				.set({ folderId: newParentId })
+				.where(eq(s.storyFolderItem.folderId, folderId))
+				.execute();
+		}
+
+		const childIds = await listChildFolderIds(folderId, tx);
+		await tx
+			.update(s.storyFolder)
+			.set({ parentId: newParentId })
+			.where(eq(s.storyFolder.parentId, folderId))
 			.execute();
-	}
+		for (const childId of childIds) {
+			await insertFolderGroups(childId, groupIds, tx);
+		}
 
-	await db.update(s.storyFolder).set({ parentId: newParentId }).where(eq(s.storyFolder.parentId, folderId)).execute();
-
-	await db.delete(s.storyFolder).where(eq(s.storyFolder.id, folderId)).execute();
+		await tx.delete(s.storyFolder).where(eq(s.storyFolder.id, folderId)).execute();
+	}, writeTransactionConfig);
 }
 
+async function returnStoriesToOwners(folderId: string, projectId: string, executor: DBExecutor): Promise<void> {
+	const stories = await executor
+		.select({ storyId: s.storyFolderItem.storyId, chatUserId: s.chat.userId, storyUserId: s.story.userId })
+		.from(s.storyFolderItem)
+		.innerJoin(s.story, eq(s.story.id, s.storyFolderItem.storyId))
+		.leftJoin(s.chat, eq(s.chat.id, s.story.chatId))
+		.where(eq(s.storyFolderItem.folderId, folderId))
+		.execute();
+	for (const { storyId, chatUserId, storyUserId } of stories) {
+		const storyOwnerId = chatUserId ?? storyUserId;
+		if (storyOwnerId) {
+			const privateFolderId = await ensurePrivateRoot(storyOwnerId, projectId, executor);
+			await placeStoryInFolder(storyId, privateFolderId, { storyOwnerId, projectId }, executor);
+		}
+	}
+}
+
+/** An archived subfolder leaves its parent, so it keeps the groups of the team folder it was in. */
 export async function archiveFolder(folderId: string, executor: DBExecutor = db): Promise<void> {
 	await assertNotSystemFolder(folderId, executor);
 	const folderIds = await listDescendantFolderIds(folderId, executor);
 	const now = new Date();
+	const teamFolder = await findTeamFolderOf(folderId, executor);
 
 	await executor.update(s.storyFolder).set({ archivedAt: now }).where(inArray(s.storyFolder.id, folderIds)).execute();
 
 	await executor.update(s.storyFolder).set({ parentId: null }).where(eq(s.storyFolder.id, folderId)).execute();
+	if (teamFolder && teamFolder.id !== folderId) {
+		await insertFolderGroups(folderId, teamFolder.groupIds, executor);
+	}
 
 	const storyIds = await getStoryIdsInFolders(folderIds, executor);
 	if (storyIds.length > 0) {
@@ -863,6 +901,15 @@ async function insertFolderGroups(folderId: string, groupIds: string[], executor
 		.values(groupIds.map((groupId) => ({ folderId, groupId })))
 		.onConflictDoNothing()
 		.execute();
+}
+
+async function listChildFolderIds(folderId: string, executor: DBExecutor = db): Promise<string[]> {
+	const rows = await executor
+		.select({ id: s.storyFolder.id })
+		.from(s.storyFolder)
+		.where(eq(s.storyFolder.parentId, folderId))
+		.execute();
+	return rows.map((row) => row.id);
 }
 
 async function resolveFolderVisibility(folderId: string | null, executor: DBExecutor = db): Promise<FolderVisibility> {
