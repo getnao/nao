@@ -83,6 +83,7 @@ const modelSchema = z.object({
 	name: z.string().optional(),
 	default: z.boolean().optional(),
 	costs: costsSchema.optional(),
+	context_window: z.number().int().positive().optional(),
 	settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -265,7 +266,7 @@ function toCustomModel(model: z.infer<typeof modelSchema>): CustomModelMetadata[
 		...(model.costs.output !== undefined && { output: model.costs.output }),
 	};
 
-	if (!model.name && !costPerM) {
+	if (!model.name && !costPerM && !model.context_window) {
 		return [];
 	}
 
@@ -274,6 +275,7 @@ function toCustomModel(model: z.infer<typeof modelSchema>): CustomModelMetadata[
 			id: model.id,
 			...(model.name && { displayName: model.name }),
 			...(costPerM && Object.keys(costPerM).length > 0 && { costPerM }),
+			...(model.context_window && { contextWindow: model.context_window }),
 		},
 	];
 }

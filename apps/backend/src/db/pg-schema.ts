@@ -733,6 +733,7 @@ export const projectLlmConfig = pgTable(
 						inputCacheWrite?: number;
 						output?: number;
 					};
+					contextWindow?: number;
 				}[]
 			>()
 			.default([])
