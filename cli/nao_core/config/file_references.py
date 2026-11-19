@@ -6,14 +6,15 @@
           from_file: repos/business_context/nao/warehouse_tables.yml
 
 The mapping is replaced by the parsed content of the file before the config is validated. The file is
-plain data: it cannot hold secret references or other `from_file` references.
+plain data: it cannot hold secret references or other `from_file` references. It cannot be a dotfile
+or sit in a dot folder either, such as `.env` or `.git/config`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 
 import yaml
@@ -158,9 +159,12 @@ def _count_walked_nodes(node: Any, counted: dict[int, int]) -> int:
 
 def _read_referenced_file(project_path: Path, file: str) -> Any:
     project_root = project_path.resolve()
-    file_path = (project_root / normalize_relative_path(file, FILE_REFERENCE_KEY)).resolve()
+    relative_file = PurePosixPath(normalize_relative_path(file, FILE_REFERENCE_KEY))
+    file_path = (project_root / relative_file).resolve()
     if not file_path.is_relative_to(project_root):
         raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' points outside the project")
+    if _is_hidden(relative_file) or _is_hidden(file_path.relative_to(project_root)):
+        raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' is a dotfile or sits in a dot folder, which cannot be read")
     if not file_path.is_file():
         return _MISSING
 
@@ -179,6 +183,11 @@ def _read_referenced_file(project_path: Path, file: str) -> Any:
             f"{FILE_REFERENCE_KEY} '{file}' holds another {FILE_REFERENCE_KEY} reference, which is not supported"
         )
     return value
+
+
+def _is_hidden(path: PurePath) -> bool:
+    """Checked on the path as written and on the file it leads to, as a link could hide a dotfile behind another name."""
+    return any(part.startswith(".") for part in path.parts)
 
 
 def _is_secret_reference(node: Any) -> bool:
