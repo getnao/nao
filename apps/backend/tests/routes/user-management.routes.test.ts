@@ -1,21 +1,21 @@
+import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/db/db', async () => {
-	const { default: Database } = await import('better-sqlite3');
-	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { generateSQLiteDrizzleJson, generateSQLiteMigration } = await import('drizzle-kit/api');
-	const sqliteSchema = await import('../../src/db/sqlite-schema');
-	const sqlite = new Database(':memory:');
-	const statements = await generateSQLiteMigration(
-		await generateSQLiteDrizzleJson({}),
-		await generateSQLiteDrizzleJson(sqliteSchema),
-	);
-	for (const statement of statements) {
-		sqlite.exec(statement);
-	}
-	sqlite.pragma('foreign_keys = ON');
-	return { db: drizzle(sqlite, { schema: sqliteSchema }) };
+	const { createInMemoryDb } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDb() };
+});
+
+vi.mock('../../src/services/license.service', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../../src/services/license.service')>();
+	return {
+		...mod,
+		hasFeature: vi.fn(
+			async (_feature: Parameters<typeof mod.hasFeature>[0], scope?: Parameters<typeof mod.hasFeature>[1]) =>
+				Boolean(scope && 'projectId' in scope),
+		),
+	};
 });
 
 vi.mock('../../src/services/email', () => ({
@@ -626,6 +626,19 @@ describe('user management API', () => {
 				.where(and(eq(s.orgMember.orgId, OTHER_ORG_ID), eq(s.orgMember.userId, invitedId)))
 				.execute(),
 		).toHaveLength(1);
+	});
+
+	it('creates a group past the free limit when the project scope is licensed', async () => {
+		for (let index = 0; index < FREE_CUSTOM_USER_GROUP_LIMIT; index += 1) {
+			await db
+				.insert(s.userGroup)
+				.values({ id: `group-free-${index}`, projectId: PROJECT_ID, name: `Free ${index}` })
+				.execute();
+		}
+
+		const created = await post(`/user-management/projects/${PROJECT_ID}/groups`, { name: 'Licensed' });
+
+		expect(created.statusCode).toBe(201);
 	});
 
 	it('manages groups and their members', async () => {

@@ -198,7 +198,7 @@ export const userManagementRoutes = async (app: App) => {
 		}
 		const created = await run(reply, async () => {
 			const project = await requireProjectInOrg(request, params.projectId);
-			const createGroup = (await hasFeature(LICENSE_FEATURES.userGroups))
+			const createGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: project.id }))
 				? userGroupQueries.createUserGroup
 				: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
 			return createGroup(project.id, body.name);
