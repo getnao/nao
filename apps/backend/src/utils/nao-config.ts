@@ -27,6 +27,7 @@ import { getTestScheduleCronError } from './cron';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
+import { resolveFileReferences } from './nao-config-references';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -546,7 +547,7 @@ function normalizeIdentifyingValue(value: unknown): string | null {
 
 function loadConfig(configPath: string): unknown {
 	try {
-		return yaml.load(fs.readFileSync(configPath, 'utf-8'));
+		return resolveFileReferences(yaml.load(fs.readFileSync(configPath, 'utf-8')), path.dirname(configPath));
 	} catch (err) {
 		logger.warn(`Failed to read or parse ${configPath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',

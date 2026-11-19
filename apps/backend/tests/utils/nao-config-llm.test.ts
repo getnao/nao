@@ -270,4 +270,15 @@ describe('readProjectConfigLlm', () => {
 
 		expect(readProjectConfigLlm(dir)?.providers[0].apiKey).toBe('sk-second');
 	});
+
+	it('picks up edits to a file the llm block reads through from_file', () => {
+		const dir = writeConfig(['llm:', '  providers:', '    from_file: providers.yml']);
+		const providersPath = path.join(dir, 'providers.yml');
+		fs.writeFileSync(providersPath, '- provider: openai\n  api_key: sk-first\n');
+		expect(readProjectConfigLlm(dir)?.providers[0].apiKey).toBe('sk-first');
+
+		fs.writeFileSync(providersPath, '- provider: openai\n  api_key: sk-second\n');
+
+		expect(readProjectConfigLlm(dir)?.providers[0].apiKey).toBe('sk-second');
+	});
 });

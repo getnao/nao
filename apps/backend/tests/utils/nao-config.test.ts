@@ -88,6 +88,13 @@ describe('resolveEnvReferences', () => {
 });
 
 describe('extractConfiguredRepos', () => {
+	it('reads the repos that nao_config.yaml takes from another file through from_file', () => {
+		const dir = createProject({ naoConfig: ['project_name: demo', 'repos:', '  from_file: repos.yml'] });
+		fs.writeFileSync(path.join(dir, 'repos.yml'), '- name: local-docs\n  local_path: ../docs\n');
+
+		expect(extractConfiguredRepos(dir).map((repo) => repo.name)).toEqual(['local-docs']);
+	});
+
 	it('returns repos declared in nao_config.yaml with GitHub metadata', () => {
 		const dir = createProject({
 			naoConfig: [

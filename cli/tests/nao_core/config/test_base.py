@@ -3,6 +3,7 @@ import warnings
 from unittest.mock import patch
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from nao_core.config.base import LLM_OVERRIDE_NOTICE, NaoConfig, annotate_llm_override, annotate_optional_templates
@@ -89,6 +90,26 @@ def test_repo_targets_must_not_overlap(first: str, second: str):
 
     with pytest.raises(ValidationError, match="overlap"):
         NaoConfig.model_validate({"project_name": "acme", "repos": repos})
+
+
+def test_from_file_value_is_loaded_then_saved_as_a_reference(tmp_path):
+    (tmp_path / "tables.yml").write_text("- analytics.orders\n")
+    (tmp_path / "nao_config.yaml").write_text(
+        "project_name: acme\n"
+        "databases:\n"
+        "  - name: warehouse\n"
+        "    type: duckdb\n"
+        "    path: warehouse.duckdb\n"
+        "    include:\n"
+        "      from_file: tables.yml\n"
+    )
+
+    config = NaoConfig.load(tmp_path)
+    config.save(tmp_path)
+
+    assert config.databases[0].include == ["analytics.orders"]
+    saved_database = yaml.safe_load((tmp_path / "nao_config.yaml").read_text())["databases"][0]
+    assert saved_database["include"] == {"from_file": "tables.yml"}
 
 
 def test_threads_must_be_positive():
