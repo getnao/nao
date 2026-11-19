@@ -173,8 +173,9 @@ export const useAgent = ({
 
 	const agentInstance = useMemo(() => {
 		let agentId = contextChatId ?? NEW_CHAT_ID;
+		const isShared = !disableNavigation || agentId !== NEW_CHAT_ID;
 
-		if (!disableNavigation) {
+		if (isShared) {
 			const existingAgent = agentService.getAgent(agentId);
 			if (existingAgent) {
 				return existingAgent;
@@ -326,7 +327,7 @@ export const useAgent = ({
 			},
 		});
 
-		if (disableNavigation) {
+		if (!isShared) {
 			return newAgent;
 		}
 

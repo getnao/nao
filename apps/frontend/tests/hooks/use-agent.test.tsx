@@ -242,6 +242,22 @@ describe('useAgent chat activity', () => {
 		await waitFor(() => expect(result.current.isRunning).toBe(true));
 		expect(chatActivityStore.getActivity('idle-chat').running).toBe(false);
 	});
+
+	it('keeps the answer of a panel running when its chat opens in full', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>(() => {})),
+		);
+		openChat('running-chat', answered);
+		const panel = renderAgent(new QueryClient(), { disableNavigation: true });
+		void panel.result.current.queueOrSendMessage({ text: 'And costs?' });
+		await waitFor(() => expect(panel.result.current.isRunning).toBe(true));
+		panel.unmount();
+
+		const { result } = renderAgent();
+
+		expect(result.current.isRunning).toBe(true);
+	});
 });
 
 function openChat(chatId: string, messages: unknown[]) {
@@ -249,8 +265,8 @@ function openChat(chatId: string, messages: unknown[]) {
 	mocks.useChatQuery.mockReturnValue({ data: { messages }, isLoading: false });
 }
 
-function renderAgent(queryClient = new QueryClient()) {
-	return renderHook(() => useAgent(), {
+function renderAgent(queryClient = new QueryClient(), options?: Parameters<typeof useAgent>[0]) {
+	return renderHook(() => useAgent(options), {
 		wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
 	});
 }
