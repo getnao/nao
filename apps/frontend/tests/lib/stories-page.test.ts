@@ -4,6 +4,7 @@ import type { FolderItem, FolderShareAudience, StoriesFilters, StoryItem } from 
 import {
 	buildCurrentLevelEntries,
 	DEFAULT_FILTERS,
+	DEFAULT_SORT,
 	filterStories,
 	listFittingFolders,
 	pickDefaultFolderId,
@@ -81,6 +82,24 @@ describe('story folder for a share', () => {
 			expect(pickDefaultFolderId(options, tree, preferred)).toBe(picked);
 		},
 	);
+
+	it('lists a story shared through a team folder in that folder, not in "Shared with me"', () => {
+		const items = [
+			buildStory({ storyId: 'in-team-folder', kind: 'shared-with-me', folderId: 'sales' }),
+			buildStory({ storyId: 'loose', kind: 'shared-with-me' }),
+		];
+		const entriesIn = (currentFolderId: string) =>
+			buildCurrentLevelEntries({
+				items,
+				folders: tree,
+				currentFolderId,
+				sort: DEFAULT_SORT,
+				currentUserName: 'Me',
+			}).entries.map((entry) => (entry.kind === 'story' ? entry.story.storyId : entry.folder.id));
+
+		expect(entriesIn('sales')).toContain('in-team-folder');
+		expect(entriesIn('__shared_with_me__')).toEqual(['loose']);
+	});
 });
 
 function buildFolder(id: string, overrides: Partial<FolderItem> = {}): FolderItem {

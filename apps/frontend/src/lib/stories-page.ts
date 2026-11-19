@@ -481,7 +481,7 @@ function createFolderScopeMatcher(folders: FolderItem[], currentFolderId: string
 		return () => true;
 	}
 	if (currentFolderId === '__shared_with_me__') {
-		return (item) => item.kind === 'shared-with-me';
+		return isInSharedWithMe;
 	}
 	const scopeFolderIds = collectFolderSubtreeIds(folders, currentFolderId);
 	return (item) => item.folderId !== null && scopeFolderIds.has(item.folderId);
@@ -543,9 +543,14 @@ function storyLink(storyId: string): StoryItem['link'] {
 
 function isAtCurrentLevel(item: StoryItem, currentFolderId: string | null): boolean {
 	if (currentFolderId === '__shared_with_me__') {
-		return item.kind === 'shared-with-me';
+		return isInSharedWithMe(item);
 	}
-	return item.folderId === currentFolderId && item.kind !== 'shared-with-me';
+	return item.folderId === currentFolderId && !isInSharedWithMe(item);
+}
+
+/** Stories shared with the user sit in "Shared with me", unless they are filed in a team folder the user sees. */
+function isInSharedWithMe(item: StoryItem): boolean {
+	return item.kind === 'shared-with-me' && item.folderId === null;
 }
 
 function systemFolderRank(folder: FolderItem): number {
