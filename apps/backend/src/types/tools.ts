@@ -4,6 +4,7 @@ import type { displayChart, displayMap, executeSemanticQuery } from '@nao/shared
 import type { LlmSelectedModel, SemanticLayerMode, StoryFormat } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
+import type { RunSqlQueryTag } from '../services/sql-query-tag.service';
 import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
@@ -61,6 +62,8 @@ export interface ToolContext {
 	 * warehouses that run queries as the signed-in user; always null in the open-source edition.
 	 */
 	warehouseAccessToken: string | null;
+	/** The comment tagging every warehouse query of the run, null (or absent) when the project tags none. */
+	sqlQueryTag?: RunSqlQueryTag | null;
 	/**
 	 * In-memory cache for query results within a single agent run.
 	 * For queries from earlier turns in the same chat, prefer

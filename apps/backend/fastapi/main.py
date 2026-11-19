@@ -35,6 +35,7 @@ from api_models import (  # noqa: E402
     ExecuteSQLResponse,
     HealthResponse,
     PredicateRowAccessTable,
+    QueryTag,
     RowSecurity,
     TableAccess,
     ValidateRowPredicateRequest,
@@ -238,6 +239,7 @@ def _execute_sql_with_guards(
     group_allowed_tables: set[tuple[str, str]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
+    query_tag: QueryTag | None,
 ) -> pd.DataFrame:
     conn = db_config.connect()
     try:
@@ -251,9 +253,27 @@ def _execute_sql_with_guards(
             row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
-        return db_config.execute_sql(validated_sql, conn=conn)
+        return db_config.execute_sql(_tag_sql(validated_sql, query_tag), conn=conn)
     finally:
         conn.disconnect()
+
+
+def _tag_sql(sql: str, query_tag: QueryTag | None) -> str:
+    """Tag the query with a comment for the warehouse's query history, once validated so no guard rewrites it away.
+
+    The text cannot close the comment or open a nested one, and the space after the opening delimiter
+    keeps it from reading as a hint or as MySQL executable code.
+    """
+    if query_tag is None:
+        return sql
+    text = query_tag.comment.replace("*/", "* /").replace("/*", "/ *")
+    comment = f"/* {text} */"
+    if query_tag.position == "start":
+        return f"{comment}\n{sql}"
+    statement = sql.rstrip()
+    if statement.endswith(";"):
+        return f"{statement[:-1]}\n{comment};"
+    return f"{statement}\n{comment}"
 
 
 def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
@@ -602,7 +622,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     database_folder,
                 )
                 df = db_config.execute_sql_with_token(
-                    validated_sql,
+                    _tag_sql(validated_sql, request.query_tag),
                     request.user_access_token,
                 )
             elif (
@@ -618,6 +638,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     group_allowed_tables,
                     row_security_policies,
                     database_folder,
+                    request.query_tag,
                 )
             else:
                 validated_sql = _validate_request(
@@ -628,7 +649,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     row_security_policies,
                     database_folder,
                 )
-                df = db_config.execute_sql(validated_sql)
+                df = db_config.execute_sql(_tag_sql(validated_sql, request.query_tag))
         except (
             AllowListedOnlyGuardError,
             ColumnAccessError,

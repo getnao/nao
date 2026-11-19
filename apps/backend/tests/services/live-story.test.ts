@@ -231,6 +231,7 @@ describe('live story SQL execution', () => {
 			projectId: 'project-1',
 			userId: 'owner-1',
 			chatId: 'chat-1',
+			querySource: 'story',
 		});
 	});
 
@@ -429,6 +430,7 @@ describe('live story SQL execution', () => {
 			projectId: 'project-1',
 			userId: 'owner-1',
 			chatId: 'chat-1',
+			querySource: 'story',
 		});
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
 			user_access_token: 'owner-token',
@@ -849,7 +851,11 @@ describe('live story SQL execution', () => {
 		});
 
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ sql: 'SELECT * FROM orders' });
-		expect(mocks.buildChatlessToolContext).toHaveBeenCalledWith({ projectId: 'project-1', userId: 'owner-1' });
+		expect(mocks.buildChatlessToolContext).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'owner-1',
+			querySource: 'story',
+		});
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 		expect(mocks.getLatestSqlQueriesByIds).not.toHaveBeenCalled();
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(

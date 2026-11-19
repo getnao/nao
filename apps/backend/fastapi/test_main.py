@@ -908,6 +908,111 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
     assert "main.users.email" in guarded.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    ("sql", "query_tag", "executed_sql"),
+    [
+        ("SELECT 1", None, "SELECT 1"),
+        ("SELECT 1", {"comment": "nao user=ada"}, "/* nao user=ada */\nSELECT 1"),
+        ("SELECT 1", {"comment": "nao user=ada", "position": "end"}, "SELECT 1\n/* nao user=ada */"),
+        ("SELECT 1;\n", {"comment": "nao user=ada", "position": "end"}, "SELECT 1\n/* nao user=ada */;"),
+        (
+            "SELECT 1",
+            {"comment": "nao */ DROP TABLE users; /* !50000 x"},
+            "/* nao * / DROP TABLE users; / * !50000 x */\nSELECT 1",
+        ),
+    ],
+)
+def test_execute_sql_tags_the_query_sent_to_the_warehouse(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sql: str,
+    query_tag: dict | None,
+    executed_sql: str,
+):
+    executed: list[str] = []
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = False
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return False
+
+        def execute_sql(self, sql: str):
+            executed.append(sql)
+            return main.pd.DataFrame({"value": [1]})
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": sql,
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            **({"query_tag": query_tag} if query_tag else {}),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert executed == [executed_sql]
+
+
+@pytest.mark.parametrize("execution_path", ["user_token", "guarded_connection"])
+def test_execute_sql_tags_the_validated_query_on_every_execution_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    execution_path: str,
+):
+    executed: list[str] = []
+    result = main.pd.DataFrame({"value": [1]})
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = True
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return execution_path == "user_token"
+
+        def connect(self):
+            return SimpleNamespace(disconnect=lambda: None)
+
+        def execute_sql(self, sql: str, conn=None):
+            executed.append(sql)
+            return result
+
+        def execute_sql_with_token(self, sql: str, access_token: str):
+            executed.append(sql)
+            return result
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+    monkeypatch.setattr(main, "_validate_sql", lambda *args, **kwargs: "SELECT 1 AS validated")
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "user_access_token": "token",
+            "query_tag": {"comment": "nao"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert executed == ["/* nao */\nSELECT 1 AS validated"]
+
+
 def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     pd = main.pd
     result = pd.DataFrame(

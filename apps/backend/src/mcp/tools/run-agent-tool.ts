@@ -20,7 +20,7 @@ export async function runAgentTool<I, O>(
 	}
 	const chatId = await resolveChartChatId(requestedChatId ?? undefined, ctx);
 	const toolContext = chatId
-		? await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId })
+		? await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId, querySource: 'mcp' })
 		: await buildMcpToolContext({ projectId: ctx.projectId, userId: ctx.userId });
 	return tool.execute(input, makeExecutionOptions(toolContext)) as Promise<O>;
 }
