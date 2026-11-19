@@ -55,6 +55,13 @@ def test_sections_holding_a_missing_file_are_left_out_when_allowed(tmp_path: Pat
     assert references.missing_files == ["repos/business_context/name.yml"]
 
 
+def test_a_missing_file_in_repos_fails_the_load_even_when_allowed(tmp_path: Path):
+    repo = {"name": "dbt", "url": "https://github.com/acme/dbt", "include": {"from_file": TABLES_FILE}}
+
+    with pytest.raises(ValueError, match="must already be in the project"):
+        resolve_file_references({"repos": [repo]}, tmp_path, allow_missing=True)
+
+
 def test_restore_puts_references_back_and_reports_those_whose_value_moved(tmp_path: Path):
     write_project_file(tmp_path, TABLES_FILE, "- analytics.orders\n")
     write_project_file(tmp_path, "endpoint.yml", "https://proxy.acme.com\n")

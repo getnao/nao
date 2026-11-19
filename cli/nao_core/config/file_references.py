@@ -22,6 +22,7 @@ from .repos.base import normalize_relative_path
 from .secrets import contains_secret_reference
 
 FILE_REFERENCE_KEY = "from_file"
+REPOSITORIES_SECTION = "repos"
 
 Location = tuple[str | int, ...]
 
@@ -40,9 +41,8 @@ class FileReferences:
         return [file for location, file in self.files.items() if location in self.missing]
 
     def restore(self, data: Any) -> list[str]:
-        """Returns the files whose value the loaded config holds elsewhere, a legacy key for instance.
-
-        Such a value cannot be traced back to its reference, so it stays written inline.
+        """A value the loaded config holds elsewhere, under a renamed legacy key for instance, cannot be
+        traced back to its reference: it stays written inline and its file is reported as lost.
         """
         lost: list[str] = []
         for location, file in self.files.items():
@@ -63,7 +63,8 @@ def resolve_file_references(
     A file that does not exist fails the load, as a value left out would fall back to its default
     and an empty `include` means every table. With allow_missing=True, each top-level section that
     holds such a value is left out whole instead: `nao sync` reads the others, `repos` first of all,
-    before the repositories holding these files are synced.
+    before the repositories holding these files are synced. `repos` itself is never left out, as
+    syncing an incomplete list would delete the repositories missing from it.
     """
     if is_file_reference(data):
         raise ValueError(f"nao_config.yaml cannot be a single {FILE_REFERENCE_KEY} reference")
@@ -72,13 +73,19 @@ def resolve_file_references(
     resolved = _resolve_node(data, (), project_path, references)
     if not references.missing or not isinstance(resolved, dict):
         return resolved, references
+
+    missing_files = ", ".join(repr(file) for file in references.missing_files)
+    unresolved_sections = {location[0] for location in references.missing}
+    if REPOSITORIES_SECTION in unresolved_sections:
+        raise ValueError(
+            f"{FILE_REFERENCE_KEY} {missing_files} does not exist. A file used in `{REPOSITORIES_SECTION}` "
+            "must already be in the project, as that section is read before any repository is synced."
+        )
     if not allow_missing:
         raise ValueError(
-            f"{FILE_REFERENCE_KEY} {', '.join(repr(file) for file in references.missing_files)} does not exist. "
+            f"{FILE_REFERENCE_KEY} {missing_files} does not exist. "
             "If it comes from a synced repository, run `nao sync -p repos` first."
         )
-
-    unresolved_sections = {location[0] for location in references.missing}
     return {key: value for key, value in resolved.items() if key not in unresolved_sections}, references
 
 
