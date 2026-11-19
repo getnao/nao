@@ -1,13 +1,24 @@
-import { ChartColumn, ChartLine, ChartPie, Code, Gauge, LayoutPanelTop, MapPin, Quote, Table } from 'lucide-react';
 import { CITATION_MENTION_TRIGGER } from '@nao/shared';
 import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
-import type { LucideIcon } from 'lucide-react';
+import type { ComponentType, SVGProps } from 'react';
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { CitationData, StoryBlockReference } from '@nao/shared/types';
 
+import ChartColumn from '@/components/icons/chart-column.svg';
+import ChartLine from '@/components/icons/chart-line.svg';
+import ChartPie from '@/components/icons/chart-pie.svg';
+import Code from '@/components/icons/code.svg';
+import Gauge from '@/components/icons/gauge.svg';
+import LayoutPanelTop from '@/components/icons/layout-panel-top.svg';
+import MapPin from '@/components/icons/map-pin.svg';
+import Quote from '@/components/icons/quote.svg';
+import Table from '@/components/icons/table.svg';
 import { formatCodeLines } from '@/lib/context-file-link';
+
+/** Plain SVGs: prompt-mentions draws pills outside of React renders, where lucide icons, which read a context, come out empty. */
+type PillIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 export { CITATION_MENTION_TRIGGER };
 
@@ -18,7 +29,7 @@ const CITATION_TOKEN = new RegExp(`${CITATION_MENTION_TRIGGER}\\[([^\\]\\s]+)\\]
 const CITATION_TOKEN_WITH_BLANKS = new RegExp(`( ?)${CITATION_TOKEN.source}( ?)`, 'g');
 const MAX_PILL_QUOTE_LENGTH = 32;
 
-const BLOCK_ICONS: Record<string, LucideIcon> = {
+const BLOCK_ICONS: Record<string, PillIcon> = {
 	kpi: Gauge,
 	'data-table': Table,
 	'point-map': MapPin,
@@ -243,7 +254,7 @@ function describeCodeSource({ title, lines }: StoryBlockReference): string {
 	return `${source} · ${formatCodeLines(lines)}`;
 }
 
-function citationIcon({ block }: CitationData): LucideIcon {
+function citationIcon({ block }: CitationData): PillIcon {
 	const kind = block?.kind ?? 'text';
 	if (kind === 'text') {
 		return Quote;
