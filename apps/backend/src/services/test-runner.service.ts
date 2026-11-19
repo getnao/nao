@@ -401,7 +401,7 @@ async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
 	try {
 		const endedRun = await testRunQueries.getRun(run.projectId, run.id);
 		if (endedRun) {
-			await notifyScheduledTestsFailed(endedRun);
+			await notifyScheduledTestsFailed(endedRun, await testRunQueries.listResultOutcomes(run.id));
 		}
 	} catch (error) {
 		logger.error(`Could not notify the outcome of scheduled test run ${run.id}: ${String(error)}`, {
