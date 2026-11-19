@@ -16,7 +16,7 @@ export function FolderTreeSelect({ tree, selectedId, onSelect, isDisabled }: Fol
 	return (
 		<div className='flex flex-col gap-0.5 max-h-64 overflow-y-auto rounded-md border p-1'>
 			<FolderTreeItem
-				label='Root'
+				label='Home'
 				icon={<Home className='size-3.5' />}
 				visibility='public'
 				selected={rootSelected}
