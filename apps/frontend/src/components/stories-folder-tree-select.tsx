@@ -49,6 +49,17 @@ export function getTargetVisibility(folderId: string | null, tree: FolderItem[])
 	return tree.find((f) => f.id === folderId)?.visibility ?? 'public';
 }
 
+type FolderAudience = 'private' | 'public' | 'team';
+
+/** Who stories filed in the folder are shared with: nobody, the entire project, or the team folder's groups. */
+export function getTargetAudience(folderId: string | null, tree: FolderItem[]): FolderAudience {
+	const folder = folderId === null ? undefined : tree.find((f) => f.id === folderId);
+	if (folder?.visibility === 'private') {
+		return 'private';
+	}
+	return folder && isTeamFolder(folder) ? 'team' : 'public';
+}
+
 function FolderTreeNode({
 	folder,
 	allFolders,
