@@ -39,6 +39,11 @@ for (const repo of config.repos) {
 		execFileSync('git', ['-C', repo.url, 'update-ref', 'refs/heads/' + repo.branch, 'main']);
 	}
 	fs.rmSync(path.join(target, '.git'), { recursive: true, force: true });
+	for (const { source, target: folder } of repo.targets ?? []) {
+		fs.rmSync(folder, { recursive: true, force: true });
+		fs.mkdirSync(path.dirname(folder), { recursive: true });
+		fs.renameSync(path.join(target, source), folder);
+	}
 }
 `;
 
@@ -312,6 +317,57 @@ describe('createUpstreamContextSnapshot links', () => {
 		const repoFolder = path.join(snapshot.folder, 'repos/business');
 		expect(fs.readFileSync(path.join(repoFolder, 'alias.md'), 'utf8')).toBe('Revenue excludes returned orders.\n');
 		expect(fs.existsSync(path.join(repoFolder, 'outside.md'))).toBe(false);
+	});
+});
+
+describe('repository targets', () => {
+	beforeEach(() => {
+		runGit(upstreamFolder, ['switch', '--quiet', 'analyst/net-revenue']);
+		writeFiles(upstreamFolder, { 'nao/tests/refunds.yml': 'prompt: How many refunds?\n' });
+		commitAll(upstreamFolder, 'refunds test');
+		runGit(upstreamFolder, ['switch', '--quiet', 'main']);
+		writeFiles(projectFolder, {
+			'nao_config.yaml': [
+				'project_name: fibi',
+				'repos:',
+				'  - name: business',
+				`    url: ${upstreamFolder}`,
+				'    branch: main',
+				'    targets: [{ source: nao/tests, target: tests/business }]',
+				'',
+			].join('\n'),
+			'tests/hand-written.yml': 'prompt: How many orders?\n',
+		});
+	});
+
+	it('lists the changes of the target folders with those of the repository', async () => {
+		const upstreamChanges = await readUpstreamChanges(netRevenueInput());
+
+		expect(upstreamChanges.changes.map(({ path: changedPath, kind }) => ({ path: changedPath, kind }))).toEqual([
+			{ path: 'repos/business/legacy.md', kind: 'deleted' },
+			{ path: 'repos/business/margin.md', kind: 'added' },
+			{ path: 'repos/business/revenue.md', kind: 'modified' },
+			{ path: 'tests/business/refunds.yml', kind: 'added' },
+		]);
+		expect(upstreamChanges.changes.at(-1)?.branchContent).toBe('prompt: How many refunds?\n');
+	});
+
+	it('swaps the target folders in the snapshot and keeps the other tests', async () => {
+		const snapshot = await createUpstreamContextSnapshot(netRevenueInput());
+
+		expect(fs.readFileSync(path.join(snapshot.folder, 'tests/business/refunds.yml'), 'utf8')).toBe(
+			'prompt: How many refunds?\n',
+		);
+		expect(fs.readFileSync(path.join(snapshot.folder, 'tests/hand-written.yml'), 'utf8')).toBe(
+			'prompt: How many orders?\n',
+		);
+		const cacheFolder = fs
+			.readdirSync(path.dirname(snapshot.folder))
+			.find((entry) => entry.startsWith('upstream-business-'));
+		expect(fs.readdirSync(path.join(path.dirname(snapshot.folder), cacheFolder!)).sort()).toEqual([
+			'repos',
+			'tests',
+		]);
 	});
 });
 

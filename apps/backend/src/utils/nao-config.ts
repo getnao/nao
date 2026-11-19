@@ -14,7 +14,7 @@ import { z } from 'zod/v4';
 import { getModelReasoningEfforts } from '../agents/provider-meta';
 import { parseGithubRemoteRepoFullName } from '../services/github';
 import { gitlabBaseUrl } from '../services/gitlab';
-import type { LinkedContextRepo } from '../types/context-recommendation';
+import type { LinkedContextRepo, RepoTarget } from '../types/context-recommendation';
 import type { ActiveEffort } from '../types/llm';
 import {
 	type ConfiguredTestSettings,
@@ -43,6 +43,8 @@ const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
 const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+/** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
+const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
 
@@ -96,6 +98,11 @@ export function extractConfiguredRepos(projectFolder: string, envVars?: Record<s
 	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
+/** The context folders `nao sync` writes for the repositories' targets, such as `tests/analytics`. */
+export function extractRepoTargetFolders(projectFolder: string): string[] {
+	return extractConfiguredRepos(projectFolder).flatMap((repo) => repo.targets.map((target) => target.target));
+}
+
 /** Returns configured database templates, falling back to the default when unavailable. */
 export function extractConfiguredTemplates(projectFolder: string): string[] {
 	return configuredTemplatesFrom(loadProjectConfig(projectFolder));
@@ -145,6 +152,7 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			{
 				name: repo.name.trim(),
 				contextPath: `repos/${repo.name.trim()}`,
+				targets: repoTargetsFrom(repo.targets),
 				url,
 				branch,
 				localPath,
@@ -153,6 +161,31 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			},
 		];
 	});
+}
+
+/** Leaves out the targets `nao sync` refuses, so no path read here can lead out of the context. */
+function repoTargetsFrom(targets: unknown): RepoTarget[] {
+	if (!Array.isArray(targets)) {
+		return [];
+	}
+	return targets.flatMap((entry) => {
+		const source = isRecord(entry) ? toRelativeFolder(entry.source) : null;
+		const target = isRecord(entry) ? toRelativeFolder(entry.target) : null;
+		const isValidTarget =
+			target !== null && target.includes('/') && !RESERVED_TARGET_FOLDERS.includes(target.split('/')[0]);
+		return source && target && isValidTarget ? [{ source, target }] : [];
+	});
+}
+
+function toRelativeFolder(value: unknown): string | null {
+	if (typeof value !== 'string' || value.includes('\\') || value.trim().startsWith('/')) {
+		return null;
+	}
+	const segments = value
+		.trim()
+		.split('/')
+		.filter((segment) => segment !== '' && segment !== '.');
+	return segments.length > 0 && !segments.includes('..') ? segments.join('/') : null;
 }
 
 function configuredTemplatesFrom(config: unknown): string[] {

@@ -105,6 +105,7 @@ describe('extractConfiguredRepos', () => {
 			{
 				branch: 'main',
 				contextPath: 'repos/dbt-models',
+				targets: [],
 				localPath: null,
 				name: 'dbt-models',
 				provider: 'github',
@@ -114,6 +115,7 @@ describe('extractConfiguredRepos', () => {
 			{
 				branch: null,
 				contextPath: 'repos/local-docs',
+				targets: [],
 				localPath: '../docs',
 				name: 'local-docs',
 				provider: null,
@@ -140,6 +142,30 @@ describe('extractConfiguredRepos', () => {
 		expect(extractConfiguredRepos(dir, envVars)[0]?.url).toBe(url);
 	});
 
+	it('keeps the targets nao sync accepts, normalized, and drops those that could leave their folder', () => {
+		const targets = [
+			{ source: './nao/tests/', target: 'tests/analytics/' },
+			{ source: 'nao/tests', target: 'tests' },
+			{ source: 'nao/tests', target: 'repos/analytics' },
+			{ source: 'nao/tests', target: 'databases/analytics' },
+			{ source: 'nao/tests', target: 'tests/../../etc' },
+			{ source: 'nao/tests', target: '/tmp/tests' },
+			{ source: '../secrets', target: 'tests/secrets' },
+			{ source: 'nao\\tests', target: 'tests/windows' },
+		];
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'repos:',
+				'  - name: analytics',
+				'    url: https://github.com/nao/analytics.git',
+				`    targets: ${JSON.stringify(targets)}`,
+			],
+		});
+
+		expect(extractConfiguredRepos(dir)[0]?.targets).toEqual([{ source: 'nao/tests', target: 'tests/analytics' }]);
+	});
+
 	it('returns repos declared in nao_config.yaml with GitLab metadata', () => {
 		const dir = createProject({
 			naoConfig: [
@@ -155,6 +181,7 @@ describe('extractConfiguredRepos', () => {
 			{
 				branch: 'main',
 				contextPath: 'repos/dbt-models',
+				targets: [],
 				localPath: null,
 				name: 'dbt-models',
 				provider: 'gitlab',
@@ -178,6 +205,7 @@ describe('extractConfiguredRepos', () => {
 			{
 				branch: null,
 				contextPath: 'repos/dbt-models',
+				targets: [],
 				localPath: null,
 				name: 'dbt-models',
 				provider: null,

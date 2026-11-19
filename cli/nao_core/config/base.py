@@ -24,7 +24,7 @@ from .metabase import MetabaseConfig
 from .notion import NotionConfig
 from .obsidian import ObsidianConfig
 from .query_tag import QueryTagConfig
-from .repos import RepoConfig
+from .repos import RepoConfig, find_overlapping_targets
 from .secrets import process_secrets
 from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
@@ -92,6 +92,13 @@ class NaoConfig(BaseModel):
         if "databases" in data and isinstance(data["databases"], list):
             data["databases"] = [parse_database_config(db) if isinstance(db, dict) else db for db in data["databases"]]
         return data
+
+    @model_validator(mode="after")
+    def validate_repo_targets(self) -> "NaoConfig":
+        overlap = find_overlapping_targets(self.repos)
+        if overlap:
+            raise ValueError(f"repo targets '{overlap[0]}' and '{overlap[1]}' overlap: each needs a folder of its own")
+        return self
 
     @classmethod
     def promptConfig(cls, project_name: str, existing: "NaoConfig | None" = None) -> "NaoConfig":

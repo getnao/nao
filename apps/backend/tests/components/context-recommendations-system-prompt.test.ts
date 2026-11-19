@@ -17,6 +17,7 @@ describe('context recommendations system prompt', () => {
 				{
 					name: 'dbt',
 					contextPath: 'repos/dbt',
+					targets: [],
 					url: null,
 					branch: null,
 					localPath: null,
