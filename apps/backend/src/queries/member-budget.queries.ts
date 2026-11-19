@@ -164,9 +164,6 @@ export const getPeriodCostsByUser = async (
 			costByUser[row.userId] = (costByUser[row.userId] ?? 0) + Number(row.totalCost ?? 0);
 		}
 	}
-	for (const userId of Object.keys(costByUser)) {
-		costByUser[userId] = roundCost(costByUser[userId]);
-	}
 	return costByUser;
 };
 

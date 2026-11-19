@@ -5,6 +5,7 @@ import type { InheritedMemberBudgetSource, MemberBudgetSource } from '@nao/share
 import type { MemberBudgetPeriod } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
+import { roundCost } from '../queries/budget.queries';
 import * as memberBudgetQueries from '../queries/member-budget.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
@@ -77,7 +78,10 @@ export async function getMemberSpendForPeriod(
 		listActiveUserGroups(projectId),
 	]);
 	const defaultGroupId = groups.find((group) => group.isDefault)?.id;
-	return { members: spendByUser, groups: sumSpendByGroup(memberships, spendByUser, defaultGroupId) };
+	const members = Object.fromEntries(
+		Object.entries(spendByUser).map(([userId, spend]) => [userId, roundCost(spend)]),
+	);
+	return { members, groups: sumSpendByGroup(memberships, spendByUser, defaultGroupId) };
 }
 
 export async function getMemberBudgetOverview(projectId: string): Promise<MemberBudgetOverview> {
@@ -120,7 +124,7 @@ export async function getMemberBudgetOverview(projectId: string): Promise<Member
 			id: member.id,
 			name: member.name,
 			email: member.email,
-			spendUsd: spendByUser[member.id] ?? 0,
+			spendUsd: roundCost(spendByUser[member.id] ?? 0),
 			personalLimitUsd: personalLimitByUser.get(member.id) ?? null,
 			groupIds: [...(groupIdsByUser.get(member.id) ?? [])],
 		})),

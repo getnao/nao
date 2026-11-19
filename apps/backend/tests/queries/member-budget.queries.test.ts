@@ -63,6 +63,15 @@ describe('member budget spend', () => {
 				outputTotalTokens: 1_000_000,
 			},
 			{
+				id: 'named-provider-sub-cent-message',
+				chatId: 'named-provider-chat',
+				role: 'assistant',
+				llmProvider: 'openaiCompatible/litellm',
+				llmModelId: 'gpt-5',
+				inputNoCacheTokens: 1_000,
+				outputTotalTokens: 0,
+			},
+			{
 				id: 'named-provider-message-last-year',
 				chatId: 'named-provider-chat',
 				role: 'assistant',
@@ -82,13 +91,13 @@ describe('member budget spend', () => {
 	it('counts spend on named providers alongside built-in ones', async () => {
 		await expect(getPeriodCostsByUser(PROJECT_ID, 'month')).resolves.toEqual({
 			[BUILT_IN_USER_ID]: 6,
-			[NAMED_PROVIDER_USER_ID]: 2,
+			[NAMED_PROVIDER_USER_ID]: 2.001,
 		});
 	});
 
-	it('only sums the spend of the requested members', async () => {
+	it('only sums the spend of the requested members, keeping sub-cent costs for group totals', async () => {
 		await expect(getPeriodCostsByUser(PROJECT_ID, 'month', [NAMED_PROVIDER_USER_ID])).resolves.toEqual({
-			[NAMED_PROVIDER_USER_ID]: 2,
+			[NAMED_PROVIDER_USER_ID]: 2.001,
 		});
 	});
 
