@@ -8,7 +8,7 @@ import type {
 	Visibility,
 } from '@nao/shared/types';
 
-import type { DBTestRun } from '../db/abstractSchema';
+import type { DBTestRun, DBTestRunResult } from '../db/abstractSchema';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
@@ -191,9 +191,18 @@ type ScheduledTestRun = Pick<
 	'id' | 'projectId' | 'triggeredByUserId' | 'status' | 'errorMessage' | 'passedAttempts' | 'totalAttempts'
 >;
 
+type ScheduledTestResult = Pick<
+	DBTestRunResult,
+	'testPath' | 'testName' | 'llmProvider' | 'llmModelId' | 'reasoningEffort' | 'passed' | 'message' | 'errorMessage'
+>;
+
+const MAX_LISTED_FAILED_TESTS = 5;
+const MAX_FAILURE_REASON_LENGTH = 150;
+const SCHEDULED_TEST_TABLE_HEADERS = ['Test', 'Model', 'Result', 'Why'];
+
 /** Tells who scheduled the tests that a scheduled run broke or did not pass, as nobody watches these runs. */
-export async function notifyScheduledTestsFailed(run: ScheduledTestRun): Promise<void> {
-	const failure = describeScheduledRunFailure(run);
+export async function notifyScheduledTestsFailed(run: ScheduledTestRun, results: ScheduledTestResult[]): Promise<void> {
+	const failure = describeScheduledRunFailure(run, results);
 	if (!run.triggeredByUserId || !failure) {
 		return;
 	}
@@ -207,22 +216,112 @@ export async function notifyScheduledTestsFailed(run: ScheduledTestRun): Promise
 	});
 }
 
-/** A run that broke is told apart from one whose answers are wrong, null for a run with nothing to report. */
-function describeScheduledRunFailure(run: ScheduledTestRun): { title: string; body: string } | null {
+/** A run that broke is told apart from one whose tests failed, tabled with why. Null for a run with nothing to report. */
+function describeScheduledRunFailure(
+	run: ScheduledTestRun,
+	results: ScheduledTestResult[],
+): Pick<NotifyInput, 'title' | 'body' | 'table'> | null {
 	if (run.status === 'failed') {
 		return {
 			title: 'Scheduled tests could not run',
 			body: run.errorMessage ?? 'The run stopped before it finished.',
 		};
 	}
-	const failedAttempts = run.totalAttempts - run.passedAttempts;
-	if (run.status !== 'completed' || failedAttempts === 0) {
+	const outcomes = groupResultsByTestAndModel(results);
+	const failedOutcomes = outcomes.filter((outcome) => outcome.failures.length > 0);
+	const failedTestLabels = [...new Set(failedOutcomes.map((outcome) => outcome.testLabel))];
+	if (run.status !== 'completed' || failedTestLabels.length === 0) {
 		return null;
 	}
+	const testCount = new Set(outcomes.map((outcome) => outcome.testLabel)).size;
 	return {
-		title: `Scheduled tests failed: ${failedAttempts} of ${run.totalAttempts} answers`,
-		body: 'The agent no longer answers these tests like their reference SQL.',
+		title: `Scheduled tests: ${failedTestLabels.length} of ${testCount} failed`,
+		body: `Failed: ${listTestLabels(failedTestLabels)}`,
+		table: {
+			headers: SCHEDULED_TEST_TABLE_HEADERS,
+			rows: [...failedOutcomes, ...outcomes.filter((outcome) => outcome.failures.length === 0)].map(toTableRow),
+		},
 	};
+}
+
+type TestOutcome = { testLabel: string; model: string; attemptCount: number; failures: ScheduledTestResult[] };
+
+/** One outcome per test file and model setting, as tests of different folders can share a name. */
+function groupResultsByTestAndModel(results: ScheduledTestResult[]): TestOutcome[] {
+	const testLabels = labelTests(results);
+	const outcomes = new Map<string, TestOutcome>();
+	for (const result of results) {
+		const model = describeModelSetting(result);
+		const key = [result.testPath, result.llmProvider, model].join('\u0000');
+		const outcome = outcomes.get(key) ?? {
+			testLabel: testLabels.get(result.testPath) ?? result.testName,
+			model,
+			attemptCount: 0,
+			failures: [],
+		};
+		outcome.attemptCount++;
+		if (!result.passed) {
+			outcome.failures.push(result);
+		}
+		outcomes.set(key, outcome);
+	}
+	return [...outcomes.values()];
+}
+
+/** A test is shown by its name, or by its path when another test file has the same name. */
+function labelTests(results: ScheduledTestResult[]): Map<string, string> {
+	const pathsByName = new Map<string, Set<string>>();
+	for (const { testName, testPath } of results) {
+		pathsByName.set(testName, (pathsByName.get(testName) ?? new Set()).add(testPath));
+	}
+	return new Map(
+		results.map(({ testName, testPath }) => [
+			testPath,
+			(pathsByName.get(testName)?.size ?? 0) > 1 ? testPath : testName,
+		]),
+	);
+}
+
+function describeModelSetting(result: ScheduledTestResult): string {
+	return result.reasoningEffort ? `${result.llmModelId} (${result.reasoningEffort})` : result.llmModelId;
+}
+
+function listTestLabels(testLabels: string[]): string {
+	const listed = testLabels.slice(0, MAX_LISTED_FAILED_TESTS).join(', ');
+	const unlistedCount = testLabels.length - MAX_LISTED_FAILED_TESTS;
+	return unlistedCount > 0 ? `${listed} and ${unlistedCount} more` : listed;
+}
+
+function toTableRow(outcome: TestOutcome): string[] {
+	const passedCount = outcome.attemptCount - outcome.failures.length;
+	const verdict = outcome.failures.length > 0 ? '❌ Failed' : '✅ Passed';
+	const share = outcome.attemptCount > 1 ? ` (${passedCount}/${outcome.attemptCount})` : '';
+	const reason = outcome.failures.length > 0 ? describeFailureReason(outcome.failures[0]) : '';
+	return [outcome.testLabel, outcome.model, `${verdict}${share}`, reason];
+}
+
+function describeFailureReason(result: ScheduledTestResult): string {
+	const reason = result.errorMessage
+		? `Error: ${result.errorMessage}`
+		: (result.message ?? 'No verdict').split('; ').map(explainVerdict).join('; ');
+	const singleLineReason = reason.replace(/\s+/g, ' ').trim();
+	return singleLineReason.length > MAX_FAILURE_REASON_LENGTH
+		? `${singleLineReason.slice(0, MAX_FAILURE_REASON_LENGTH - 1)}…`
+		: singleLineReason;
+}
+
+function explainVerdict(verdict: string): string {
+	const rowCount = verdict.match(/^row count: (\d+) vs (\d+)$/);
+	if (rowCount) {
+		return `${rowCount[1]} rows instead of ${rowCount[2]}`;
+	}
+	if (verdict === 'values differ') {
+		return 'Other values than the reference SQL';
+	}
+	if (verdict === 'actual is empty') {
+		return 'No data returned';
+	}
+	return verdict.replace(/^missing columns: /, 'Missing the columns ');
 }
 
 export class NotificationChannelDeliveryError extends Error {
@@ -420,6 +519,7 @@ async function deliverToRecipient(
 					projectId: input.projectId,
 					emailAttachments: input.emailAttachments,
 					emailBodyHtml: input.emailBodyHtml,
+					table: input.table,
 					emailOverride: input.emailOverride,
 				},
 				{ propagateErrors: options.throwOnChannelError },
