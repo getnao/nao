@@ -88,6 +88,9 @@ def test_restore_puts_references_back_and_reports_those_whose_value_moved(tmp_pa
         pytest.param("../tables.yml", "- a.b\n", "no '..'", id="parent_folder"),
         pytest.param("/etc/tables.yml", "- a.b\n", "relative path", id="absolute_path"),
         pytest.param("linked/tables.yml", "- a.b\n", "outside the project", id="symlink_out_of_the_project"),
+        pytest.param(".tables.yml", "- a.b\n", "dotfile", id="dotfile"),
+        pytest.param(".hidden/tables.yml", "- a.b\n", "dot folder", id="dot_folder"),
+        pytest.param("visible.yml", "- a.b\n", "dotfile", id="symlink_to_a_dotfile"),
         pytest.param("tables.yml", "- \"{{ env('SECRET') }}\"\n", "secret reference", id="secret_reference"),
         pytest.param(
             "tables.yml", "- \"\\u007b\\u007b env('SECRET') }}\"\n", "secret reference", id="escaped_secret_reference"
@@ -102,6 +105,9 @@ def test_unsafe_or_unreadable_files_are_refused(tmp_path: Path, file: str, conte
     write_project_file(tmp_path, "outside/tables.yml", content)
     (project_path / "linked").symlink_to(tmp_path / "outside")
     write_project_file(project_path, "tables.yml", content)
+    write_project_file(project_path, ".tables.yml", content)
+    write_project_file(project_path, ".hidden/tables.yml", content)
+    (project_path / "visible.yml").symlink_to(project_path / ".tables.yml")
 
     with pytest.raises(ValueError, match=error):
         resolve_file_references({"include": {"from_file": file}}, project_path, allow_missing=True)

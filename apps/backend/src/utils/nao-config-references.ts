@@ -7,6 +7,7 @@ import { logger } from './logger';
 
 const FILE_REFERENCE_KEY = 'from_file';
 const SECRET_REFERENCE_PATTERN = /\{\{\s*(?:env|aws|k8s)\(/;
+const HIDDEN_PATH_ERROR = 'it is a dotfile or sits in a dot folder, which cannot be read';
 const UNRESOLVED = Symbol('unresolved file reference');
 
 type FileReference = { [FILE_REFERENCE_KEY]: string };
@@ -59,8 +60,12 @@ function readReferencedFile(file: string, projectFolder: string): unknown {
 function resolveInsideProject(file: string, projectFolder: string): string {
 	const relativeFile = file.trim();
 	const isRelative = relativeFile !== '' && !relativeFile.startsWith('/') && !relativeFile.includes('\\');
-	if (!isRelative || relativeFile.split('/').includes('..')) {
+	const segments = relativeFile.split('/');
+	if (!isRelative || segments.includes('..')) {
 		throw new Error("it must be a relative path with forward slashes and no '..'");
+	}
+	if (hasHiddenSegment(segments)) {
+		throw new Error(HIDDEN_PATH_ERROR);
 	}
 
 	const projectRoot = fs.realpathSync(projectFolder);
@@ -69,7 +74,15 @@ function resolveInsideProject(file: string, projectFolder: string): string {
 	if (relativePath === '' || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
 		throw new Error('it points outside the project');
 	}
+	if (hasHiddenSegment(relativePath.split(path.sep))) {
+		throw new Error(HIDDEN_PATH_ERROR);
+	}
 	return filePath;
+}
+
+/** Checked on the path as written and on the file it leads to, as a link could hide a dotfile behind another name. */
+function hasHiddenSegment(segments: string[]): boolean {
+	return segments.some((segment) => segment.startsWith('.') && segment !== '.');
 }
 
 /** Checked on parsed strings, as a YAML escape would hide the reference from a check of the file's text. */
