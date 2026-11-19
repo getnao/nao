@@ -522,7 +522,7 @@ export function MemberRow({
 	);
 }
 
-function GroupRow({
+export function GroupRow({
 	name,
 	memberCount,
 	selected,

@@ -12,6 +12,7 @@ import {
 	Clock,
 	Columns3,
 	FileCheck,
+	FolderUsers,
 	KeyRound,
 	LifeBuoy,
 	Palette,
@@ -286,6 +287,12 @@ export const ENTERPRISE_FEATURES = [
 		label: 'MCP access per group',
 		description: 'Choose which MCP servers and tools each group can use.',
 		icon: Plug,
+	},
+	{
+		key: 'row-level-security',
+		label: 'Team folders',
+		description: 'Keep story folders visible only to the groups they belong to.',
+		icon: FolderUsers,
 	},
 	{
 		label: 'Data rights impersonation from warehouse',
