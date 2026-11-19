@@ -8,6 +8,7 @@ import type {
 	Visibility,
 } from '@nao/shared/types';
 
+import type { DBTestRun } from '../db/abstractSchema';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
@@ -183,6 +184,45 @@ export async function notifyStoryRefreshFailed(params: {
 		ctaLabel: 'Open story',
 		payload,
 	});
+}
+
+type ScheduledTestRun = Pick<
+	DBTestRun,
+	'id' | 'projectId' | 'triggeredByUserId' | 'status' | 'errorMessage' | 'passedAttempts' | 'totalAttempts'
+>;
+
+/** Tells who scheduled the tests that a scheduled run broke or did not pass, as nobody watches these runs. */
+export async function notifyScheduledTestsFailed(run: ScheduledTestRun): Promise<void> {
+	const failure = describeScheduledRunFailure(run);
+	if (!run.triggeredByUserId || !failure) {
+		return;
+	}
+	await notify({
+		userId: run.triggeredByUserId,
+		projectId: run.projectId,
+		category: 'test_run',
+		...failure,
+		linkUrl: `/context-hub?testRun=${run.id}`,
+		ctaLabel: 'Open the run',
+	});
+}
+
+/** A run that broke is told apart from one whose answers are wrong, null for a run with nothing to report. */
+function describeScheduledRunFailure(run: ScheduledTestRun): { title: string; body: string } | null {
+	if (run.status === 'failed') {
+		return {
+			title: 'Scheduled tests could not run',
+			body: run.errorMessage ?? 'The run stopped before it finished.',
+		};
+	}
+	const failedAttempts = run.totalAttempts - run.passedAttempts;
+	if (run.status !== 'completed' || failedAttempts === 0) {
+		return null;
+	}
+	return {
+		title: `Scheduled tests failed: ${failedAttempts} of ${run.totalAttempts} answers`,
+		body: 'The agent no longer answers these tests like their reference SQL.',
+	};
 }
 
 export class NotificationChannelDeliveryError extends Error {

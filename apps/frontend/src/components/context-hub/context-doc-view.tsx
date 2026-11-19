@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { ContextHubView } from '@/hooks/use-context-hub-view';
+import type { ContextExplorerSearch } from '@/lib/context-explorer-search';
 import type { ContextHubContent } from '@/lib/context-hub';
 import { ContextHubChatPanel, useContextHubChatPanelOpen } from '@/components/context-hub/context-hub-chat-panel';
 import { ContextHubNavigator } from '@/components/context-hub/context-hub-navigator';
@@ -14,6 +15,7 @@ import { NewSkillDialog } from '@/components/context-hub/new-skill-dialog';
 import { OpenEditorChatButton } from '@/components/editor-chat-panel';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
+import { TestDrawerLayout } from '@/components/settings/test-drawer';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -30,6 +32,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { FileExplorerWorktreeProvider } from '@/contexts/file-explorer-worktree';
 import { useRegisterOpenContextFileCallback } from '@/contexts/open-context-file-callback';
 import { useContextChanges } from '@/hooks/use-context-changes';
+import { useDocViewTestDrawer } from '@/hooks/use-doc-view-test-drawer';
 import {
 	buildContextHubContent,
 	findTableOfPath,
@@ -50,17 +53,19 @@ interface ShownDiff {
 }
 
 /**
- * The doc view of the Context Hub: the tables and docs the agent knows, by section, with a chat to edit them. It is
- * laid out like the file tree, so switching between them keeps the same frame.
+ * The doc view of the Context Hub: the tables and docs the agent knows, by section, with a chat to edit them and the
+ * drawer to test them. It is laid out like the file tree, so switching between them keeps the same frame.
  */
 export function ContextDocView({
-	requestedPath,
+	search: contextSearch,
 	onSwitchView,
 }: {
-	requestedPath: string | null;
+	search: ContextExplorerSearch;
 	/** Absent for people who only get the doc view. */
 	onSwitchView?: (view: ContextHubView, openPath: string | null) => void;
 }) {
+	const requestedPath = contextSearch.path ?? null;
+	const testDrawer = useDocViewTestDrawer(contextSearch);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState('');
@@ -98,7 +103,10 @@ export function ContextDocView({
 		}
 		setShownDiff(null);
 		isShowingTargetRef.current = true;
-		void navigate({ to: '.', search: target.path ? { path: target.path } : {} }).finally(() => {
+		void navigate({
+			to: '.',
+			search: ({ test, testRun }: ContextExplorerSearch) => ({ test, testRun, path: target.path ?? undefined }),
+		}).finally(() => {
 			isShowingTargetRef.current = false;
 		});
 	};
@@ -199,6 +207,7 @@ export function ContextDocView({
 									onDiscarded={refreshChanges}
 									onDiscardAll={refreshChanges}
 									onRepositoryChanged={handleRepositoryChanged}
+									onOpenTests={testDrawer.openSuite}
 								/>
 							}
 						/>
@@ -207,25 +216,27 @@ export function ContextDocView({
 					<ResizableSeparator />
 
 					<ResizablePanel id='viewer' minSize={300}>
-						<div className='h-full bg-background'>
-							{openPath || diffPath ? (
-								<ContextHubViewer
-									table={findTableOfPath(content.tables, openPath)}
-									doc={content.docs.find((doc) => doc.path === openPath) ?? null}
-									path={openPath}
-									diffPath={diffPath}
-									isDirty={isDirty}
-									onOpenFile={openFile}
-									onDirtyChange={setIsDirty}
-								/>
-							) : (
-								<ContextHubOverview
-									content={content}
-									onOpenFile={openFile}
-									onNewSkill={() => setIsNewSkillOpen(true)}
-								/>
-							)}
-						</div>
+						<TestDrawerLayout {...testDrawer.layout}>
+							<div className='h-full bg-background'>
+								{openPath || diffPath ? (
+									<ContextHubViewer
+										table={findTableOfPath(content.tables, openPath)}
+										doc={content.docs.find((doc) => doc.path === openPath) ?? null}
+										path={openPath}
+										diffPath={diffPath}
+										isDirty={isDirty}
+										onOpenFile={openFile}
+										onDirtyChange={setIsDirty}
+									/>
+								) : (
+									<ContextHubOverview
+										content={content}
+										onOpenFile={openFile}
+										onNewSkill={() => setIsNewSkillOpen(true)}
+									/>
+								)}
+							</div>
+						</TestDrawerLayout>
 					</ResizablePanel>
 				</ResizablePanelGroup>
 				<ContextHubChatPanel openPath={openPath} isOpen={isChatOpen} onOpenChange={setIsChatOpen} />

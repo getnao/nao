@@ -118,9 +118,9 @@ describe('context explorer search', () => {
 		{ search: { path: '/RULES.md' }, expected: false },
 		{ search: { path: '/RULES.md', from: 'a'.repeat(40) }, expected: false },
 		{ search: { path: '/RULES.md', from: 'a'.repeat(40), to: 'b'.repeat(40) }, expected: true },
-		{ search: { test: '/tests/revenue.yml' }, expected: true },
-		{ search: { testRun: 'run-1' }, expected: true },
-		{ search: { tests: 'open' as const }, expected: true },
+		{ search: { test: '/tests/revenue.yml' }, expected: false },
+		{ search: { testRun: 'run-1' }, expected: false },
+		{ search: { tests: 'open' as const }, expected: false },
 	])('needs the file tree for $search: $expected', ({ search, expected }) => {
 		expect(requiresFileTree(search)).toBe(expected);
 	});

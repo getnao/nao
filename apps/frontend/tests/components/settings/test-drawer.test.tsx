@@ -74,6 +74,12 @@ vi.mock('@/main', () => ({
 			},
 			getTestHistory: { queryKey: () => ['test-history'] },
 			getRun: { queryKey: () => ['test-run'] },
+			listSchedules: {
+				queryOptions: () => ({
+					queryKey: ['test-schedules'],
+					queryFn: () => ({ schedules: [], timezone: 'UTC' }),
+				}),
+			},
 		},
 		contextExplorer: {
 			getChangedFiles: { queryOptions: () => ({ queryKey: ['changed-files'], queryFn: () => [] }) },

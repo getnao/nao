@@ -37,6 +37,7 @@ import {
 	removeContextSnapshotsOlderThan,
 } from './draft-context.service';
 import { mcpService } from './mcp';
+import { notifyScheduledTestsFailed } from './notification.service';
 import { skillService } from './skill';
 import { testAgentService } from './test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluation.service';
@@ -73,6 +74,8 @@ export interface StartTestRunInput {
 	threads?: number;
 	/** Tests to run instead of the ones of the production context, such as a draft being edited. */
 	tests?: TestDefinition[];
+	/** Started by the project's test schedule rather than by the user. */
+	isScheduled?: boolean;
 }
 
 /**
@@ -129,8 +132,15 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	return createAndExecuteRun(
 		input,
 		{ ...plan, variants: ['production'], draftFolder: null, addedTestPaths: new Set() },
-		{ trigger: input.tests ? 'draft' : 'manual' },
+		{ trigger: getProductionRunTrigger(input) },
 	);
+}
+
+function getProductionRunTrigger(input: StartTestRunInput): 'draft' | 'scheduled' | 'manual' {
+	if (input.tests) {
+		return 'draft';
+	}
+	return input.isScheduled ? 'scheduled' : 'manual';
 }
 
 /**
@@ -361,6 +371,7 @@ async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>
 async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan): Promise<void> {
 	const jobs = buildAttemptJobs(plan);
 	if (!(await markRunRunningOrFail(run, jobs.length))) {
+		await notifyScheduledRunOutcome(run);
 		return;
 	}
 
@@ -379,6 +390,24 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	} finally {
 		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
+	}
+	await notifyScheduledRunOutcome(run);
+}
+
+async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
+	if (run.trigger !== 'scheduled') {
+		return;
+	}
+	try {
+		const endedRun = await testRunQueries.getRun(run.projectId, run.id);
+		if (endedRun) {
+			await notifyScheduledTestsFailed(endedRun);
+		}
+	} catch (error) {
+		logger.error(`Could not notify the outcome of scheduled test run ${run.id}: ${String(error)}`, {
+			source: 'agent',
+			projectId: run.projectId,
+		});
 	}
 }
 

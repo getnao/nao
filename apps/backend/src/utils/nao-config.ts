@@ -21,7 +21,9 @@ import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	testComparisonTolerancesSchema,
 	type TestModelSelection,
+	type TestScheduleSettings,
 } from '../types/test-run';
+import { getTestScheduleCronError } from './cron';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
@@ -394,7 +396,50 @@ export function extractConfiguredTestSettings(projectFolder: string): Configured
 		attempts: isValidAttempts ? attempts : 1,
 		threads: isValidThreads ? threads : null,
 		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
+		schedules: parseTestSchedules(testConfig.schedules, errors),
 		errors,
+	};
+}
+
+/** The valid entries of `test.schedules`, each one a cron with the tags, models and attempts it overrides. */
+function parseTestSchedules(schedules: unknown, errors: string[]): TestScheduleSettings[] {
+	if (schedules === undefined || schedules === null) {
+		return [];
+	}
+	if (!Array.isArray(schedules)) {
+		errors.push('test.schedules must be a list of { cron, tags, models, k } entries.');
+		return [];
+	}
+	return schedules.flatMap((schedule) => {
+		const scheduleErrors: string[] = [];
+		const parsed = parseTestSchedule(schedule, scheduleErrors);
+		errors.push(...scheduleErrors);
+		return scheduleErrors.length === 0 ? [parsed] : [];
+	});
+}
+
+function parseTestSchedule(schedule: unknown, errors: string[]): TestScheduleSettings {
+	const entry = isRecord(schedule) ? schedule : {};
+	const cron = typeof entry.cron === 'string' ? entry.cron.trim() : '';
+	const cronError = cron ? getTestScheduleCronError(cron) : `expected a 'cron', got ${JSON.stringify(schedule)}.`;
+	if (cronError) {
+		errors.push(`test.schedules has an invalid entry: ${cronError}`);
+	}
+	const tags = entry.tags ?? [];
+	const isValidTags = Array.isArray(tags) && tags.every((tag) => typeof tag === 'string' && tag.trim());
+	if (!isValidTags) {
+		errors.push(`test.schedules tags must be a list of tags, got ${JSON.stringify(tags)}.`);
+	}
+	const attempts = entry.k ?? null;
+	const isValidAttempts = attempts === null || isPositiveInteger(attempts);
+	if (!isValidAttempts) {
+		errors.push(`test.schedules k must be an integer of at least 1, got ${JSON.stringify(attempts)}.`);
+	}
+	return {
+		cron,
+		tags: isValidTags ? tags.map((tag: string) => tag.trim()) : [],
+		models: parseTestModels(entry.models, errors),
+		attempts: isValidAttempts ? attempts : null,
 	};
 }
 

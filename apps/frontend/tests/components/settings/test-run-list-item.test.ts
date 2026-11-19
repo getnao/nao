@@ -23,6 +23,19 @@ describe('describeRunListItem', () => {
 		});
 	});
 
+	it('marks a run the schedule started, which no user did', () => {
+		const view = describeRunListItem(
+			run({ trigger: 'scheduled', production: totals({ testCount: 3, passedTests: 3 }) }),
+			CONTEXT,
+		);
+
+		expect(view.chips).toEqual([
+			{ label: 'master', isBranch: true },
+			{ label: 'scheduled', isBranch: false, isSchedule: true },
+		]);
+		expect(view.statusTooltip.startedBy).toMatch(/^Scheduled · /);
+	});
+
 	it('names a single test and leaves its result to the icon', () => {
 		const view = describeRunListItem(
 			run({ selection: ['revenue.yml'], production: totals({ testCount: 1, passedTests: 1 }) }),
