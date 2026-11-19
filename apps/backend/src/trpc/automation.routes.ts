@@ -16,6 +16,7 @@ import { startAutomationEditChat } from '../services/automation-editor.service';
 import { canRoleReceiveChatFeedback } from '../services/automation-feedback-trigger.service';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
+import { listShareableMembers } from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
 import {
@@ -313,6 +314,11 @@ export const automationRoutes = {
 			return { cron };
 		}),
 
+	listEmailRecipients: automationProcedure.query(async ({ ctx }) => {
+		const members = await listShareableMembers(ctx.project.id, ctx.user.id);
+		return members.map((member) => ({ email: member.email, name: member.name }));
+	}),
+
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
 		return listProjectAutomationsWithOwnerAccess(ctx.project.id);
 	}),
@@ -335,6 +341,26 @@ export const automationRoutes = {
 			await assertCanOwnAutomation(ctx.project.id, input.newOwnerId);
 			await automationQueries.transferAutomationOwnership(automation.id, input.newOwnerId);
 			return { success: true as const };
+		}),
+
+	countOwnedByUser: automationAdminProcedure.input(z.object({ userId: z.string() })).query(async ({ ctx, input }) => {
+		const count = await automationQueries.countProjectAutomationsOfUser(ctx.project.id, input.userId);
+		return { count };
+	}),
+
+	transferAllFromUser: automationAdminProcedure
+		.input(z.object({ fromUserId: z.string(), recipientId: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			if (input.fromUserId === input.recipientId) {
+				return { transferredCount: 0 };
+			}
+			await assertCanOwnAutomation(ctx.project.id, input.recipientId);
+			const transferredCount = await automationQueries.transferProjectAutomationsOfUser(
+				ctx.project.id,
+				input.fromUserId,
+				input.recipientId,
+			);
+			return { transferredCount };
 		}),
 
 	deleteAsAdmin: automationAdminProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {

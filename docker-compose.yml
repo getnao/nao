@@ -45,6 +45,12 @@ services:
             LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
 
             # =================================================================
+            # Request tracing over OTLP (optional)
+            # =================================================================
+            OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+            OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+
+            # =================================================================
             # Database for nao chat history
             # =================================================================
             DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}

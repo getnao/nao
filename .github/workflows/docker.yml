@@ -224,6 +224,7 @@ jobs:
                       docker run -p "127.0.0.1:$NEW_PORT:5005" \
                         --restart unless-stopped \
                         --stop-timeout 150 \
+                        --memory 2g \
                         -v nao-chat-storage:/app/storage \
                         -e "NAO_STORAGE_LOCAL_PATH=/app/storage" \
                         -e "SHUTDOWN_DRAIN_DELAY_MS=10000" \
@@ -240,6 +241,9 @@ jobs:
                         -e "LANGFUSE_PUBLIC_KEY=${{ secrets.MOON_LANGFUSE_PUBLIC_KEY }}" \
                         -e "LANGFUSE_SECRET_KEY=${{ secrets.MOON_LANGFUSE_SECRET_KEY }}" \
                         -e "LANGFUSE_BASE_URL=${{ secrets.MOON_LANGFUSE_BASE_URL }}" \
+                        -e "OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                        -e "OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                        -e "OTEL_SERVICE_NAME=moon" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                         -e "ENABLE_USER_SIGNUP=false" \
                         -e "BETA_AUTOMATIONS_ENABLED=true" \
@@ -320,6 +324,7 @@ jobs:
                           --name "$NEW" \
                           --restart unless-stopped \
                           --stop-timeout 150 \
+                          --memory 12g \
                           --network nao-internal \
                           --network-alias "$APP" \
                           -p "127.0.0.1:$NEW_PORT:5005" \
@@ -340,6 +345,9 @@ jobs:
                           -e "LANGFUSE_PUBLIC_KEY=${{ secrets.CLOUD_LANGFUSE_PUBLIC_KEY }}" \
                           -e "LANGFUSE_SECRET_KEY=${{ secrets.CLOUD_LANGFUSE_SECRET_KEY }}" \
                           -e "LANGFUSE_BASE_URL=${{ secrets.CLOUD_LANGFUSE_BASE_URL }}" \
+                          -e "OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                          -e "OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                          -e "OTEL_SERVICE_NAME=$APP" \
                           -e "GITHUB_SSO=false" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \

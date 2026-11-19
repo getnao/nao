@@ -1,5 +1,10 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import {
+	extractStoryMapBoundaryKeys,
+	type StoryApp,
+	type StoryNarratives,
+	type StoryQueryResult,
+} from '@nao/shared/story-app';
 import { hasStoryQueryInputs, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
@@ -15,9 +20,16 @@ import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
 import type { RefreshResult } from './live-story';
-import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
+import {
+	executeLiveQuery,
+	executeStoryLiveQuery,
+	isCacheExpired,
+	refreshStoryById,
+	refreshStoryData,
+} from './live-story';
 import { assertStoryFiltersEnabled } from './story-filters';
-import { executeStoryQueryWithInputs } from './story-query-inputs';
+import { executeSavedStoryQueryWithInputs, executeStoryQueryWithInputs } from './story-query-inputs';
+import { loadStorySqlQueries } from './story-sql-queries';
 
 export interface CustomStoryVersionView {
 	storyId: string;
@@ -29,6 +41,7 @@ export interface CustomStoryVersionView {
 	styles: { path: string; content: string }[];
 	files: CustomStoryFileSummary[];
 	queryIds: string[];
+	mapBoundaryKeys: string[];
 	theme: StoryThemePair | null;
 	isLive: boolean;
 	cachedAt: Date | null;
@@ -119,30 +132,44 @@ export async function getStandaloneCustomStoryFile(
 	return readVersionFile(version.id, path);
 }
 
-/** A standalone story has no chat to run its queries in: it serves the rows saved in its data cache. */
+/** A standalone story serves the rows saved in its data cache; once live, rows refreshed from the SQL saved with it. */
 export async function getStandaloneCustomStoryQueryData(
 	storyId: string,
 	queryId: string,
 	versionNumber?: number,
-	inputs?: StoryQueryInputs,
+	options: CustomStoryDataOptions = {},
 ): Promise<StoryQueryResult> {
-	await getStandaloneCustomStory(storyId);
-	if (hasStoryQueryInputs(inputs)) {
-		throw new CustomStoryQueryExecutionError(STANDALONE_INPUTS_UNAVAILABLE);
-	}
+	const story = await getStandaloneCustomStory(storyId);
 	const version = await getStandaloneVersionRow(storyId, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
-	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
-	const result = cache?.queryData?.[queryId];
-	if (!result) {
-		throw new CustomStoryQueryNotFoundError(queryId);
+	if (options.rerun && hasStoryQueryInputs(options.rerun.inputs)) {
+		assertStoryFiltersEnabled();
+		return runSavedStoryQueryWithInputs(story, queryId, options.rerun.inputs, options.rerun.viewerId);
 	}
-	return result;
+	if (!story.isLive) {
+		return requireCachedQueryData(await storyQueries.getStoryDataCacheByStoryId(storyId), queryId);
+	}
+	return getLiveCustomStoryQueryData(story, queryId, {
+		deferRefresh: options.deferRefresh,
+		readFallback: async () => undefined,
+		runQuery: () => runSavedStoryQuery(story, queryId),
+		refresh: (cache) => refreshStandaloneStoryOnce(story, cache),
+	});
 }
 
-export async function getStandaloneCustomStoryNarratives(storyId: string): Promise<StoryNarratives> {
-	await getStandaloneCustomStory(storyId);
-	return (await storyQueries.getStoryDataCacheByStoryId(storyId))?.analysisResults ?? {};
+/**
+ * Once live is off, a standalone story keeps showing the rows of its last refresh, so it keeps the narratives
+ * written for them too; a chat story goes back to its chat's rows and drops them.
+ */
+export async function getStandaloneCustomStoryNarratives(
+	storyId: string,
+	options: CustomStoryDataOptions = {},
+): Promise<StoryNarratives> {
+	const story = await getStandaloneCustomStory(storyId);
+	if (!story.isLive) {
+		return (await storyQueries.getStoryDataCacheByStoryId(storyId))?.analysisResults ?? {};
+	}
+	return getLiveCustomStoryNarratives(story, (cache) => refreshStandaloneStoryOnce(story, cache), options);
 }
 
 async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersion): Promise<CustomStoryVersionView> {
@@ -168,6 +195,7 @@ async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersi
 			.filter((file) => isViewableStoryFile(file.path))
 			.map((file) => ({ path: file.path, size: Buffer.byteLength(file.content, 'utf8') })),
 		queryIds,
+		mapBoundaryKeys: extractStoryMapBoundaryKeys(files.map((file) => file.content)),
 		theme,
 		isLive: story.isLive,
 		cachedAt: cache?.cachedAt ?? null,
@@ -197,23 +225,44 @@ export async function getCustomStoryQueryData(
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
 	}
+	return getLiveCustomStoryQueryData(story, queryId, {
+		deferRefresh: options.deferRefresh,
+		readFallback: () => getChatQueryData(chatId, queryId),
+		runQuery: () => runStoryQuery(chatId, queryId),
+		refresh: () => refreshOnce(`${chatId}:${storySlug}`, () => refreshStoryData(chatId, storySlug)),
+	});
+}
+
+interface LiveCustomQuerySource {
+	deferRefresh?: boolean;
+	/** Rows to show when the cache has none while a background refresh is pending. */
+	readFallback: () => Promise<StoryQueryResult | undefined>;
+	runQuery: () => Promise<StoryQueryResult>;
+	refresh: (cache: DBStoryDataCache | null) => Promise<RefreshResult>;
+}
+
+async function getLiveCustomStoryQueryData(
+	story: DBStory,
+	queryId: string,
+	source: LiveCustomQuerySource,
+): Promise<StoryQueryResult> {
 	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
-		return runStoryQuery(chatId, queryId);
+		return source.runQuery();
 	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	if (isCacheFresh(story, cache)) {
-		return cache?.queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
+		return cache?.queryData?.[queryId] ?? source.runQuery();
 	}
-	if (options.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
-		const stored = cache?.queryData?.[queryId] ?? (await getChatQueryData(chatId, queryId));
-		return stored ?? runStoryQuery(chatId, queryId);
+	if (source.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
+		const stored = cache?.queryData?.[queryId] ?? (await source.readFallback());
+		return stored ?? source.runQuery();
 	}
-	const queryData = await refreshOnce(chatId, storySlug).then(
+	const queryData = await source.refresh(cache).then(
 		(result) => result.queryData,
 		() => cache?.queryData,
 	);
-	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
+	return queryData?.[queryId] ?? source.runQuery();
 }
 
 async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQueryResult | undefined> {
@@ -227,6 +276,46 @@ async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQuer
 	} catch (error) {
 		throw toQueryExecutionError(error);
 	}
+}
+
+/** A query whose SQL the standalone story did not keep serves its saved rows. */
+async function runSavedStoryQuery(story: DBStory, queryId: string): Promise<StoryQueryResult> {
+	const { [queryId]: query } = await loadStorySqlQueries(story, [queryId]);
+	if (!query) {
+		return requireCachedQueryData(await storyQueries.getStoryDataCacheByStoryId(story.id), queryId);
+	}
+	try {
+		const { data, columns } = await executeStoryLiveQuery(story, queryId);
+		return { data, columns };
+	} catch (error) {
+		throw toQueryExecutionError(error);
+	}
+}
+
+async function runSavedStoryQueryWithInputs(
+	story: DBStory,
+	queryId: string,
+	inputs: StoryQueryInputs,
+	viewerId: string,
+): Promise<StoryQueryResult> {
+	let result: Awaited<ReturnType<typeof executeSavedStoryQueryWithInputs>>;
+	try {
+		result = await executeSavedStoryQueryWithInputs(story, queryId, inputs, { viewerId });
+	} catch (error) {
+		throw toQueryExecutionError(error);
+	}
+	if (!result) {
+		throw new CustomStoryQueryExecutionError(STANDALONE_INPUTS_UNAVAILABLE);
+	}
+	return { data: result.data, columns: result.columns };
+}
+
+function requireCachedQueryData(cache: DBStoryDataCache | null, queryId: string): StoryQueryResult {
+	const result = cache?.queryData?.[queryId];
+	if (!result) {
+		throw new CustomStoryQueryNotFoundError(queryId);
+	}
+	return result;
 }
 
 /** Filtered rows are the viewer's own exploration: they are never written to the story's data cache. */
@@ -257,6 +346,18 @@ export async function getCustomStoryNarratives(
 	if (!story.isLive) {
 		return getFrozenNarratives(story.id);
 	}
+	return getLiveCustomStoryNarratives(
+		story,
+		() => refreshOnce(`${chatId}:${storySlug}`, () => refreshStoryData(chatId, storySlug)),
+		options,
+	);
+}
+
+async function getLiveCustomStoryNarratives(
+	story: DBStory,
+	refresh: (cache: DBStoryDataCache | null) => Promise<RefreshResult>,
+	options: CustomStoryDataOptions,
+): Promise<StoryNarratives> {
 	if (!story.isLiveTextDynamic) {
 		return {};
 	}
@@ -270,7 +371,7 @@ export async function getCustomStoryNarratives(
 	if (options.deferRefresh && (await isAwaitingBackgroundRefresh(story.id, cache))) {
 		return cachedNarratives;
 	}
-	return refreshOnce(chatId, storySlug).then(
+	return refresh(cache).then(
 		(result) => result.narratives,
 		() => cachedNarratives,
 	);
@@ -303,7 +404,7 @@ export async function getStoredCustomStoryNarrativesByStoryId(storyId: string): 
 	if (story.chatId && !story.isLive) {
 		return getFrozenNarratives(story.id);
 	}
-	if (story.chatId && !story.isLiveTextDynamic) {
+	if (story.isLive && !story.isLiveTextDynamic) {
 		return {};
 	}
 	return (await storyQueries.getStoryDataCacheByStoryId(story.id))?.analysisResults ?? {};
@@ -346,6 +447,21 @@ export async function getSharedCustomStoryQuerySql(
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
 	return getCustomStoryQuerySql(chatId, storySlug, queryId);
+}
+
+/** A story without a chat shows the SQL saved with it, only for queries its own sources reference. */
+export async function getStandaloneCustomStoryQuerySql(
+	storyId: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<string> {
+	const version = await getStandaloneVersionRow(storyId, versionNumber);
+	await assertQueryReferencedByVersion(version.id, queryId);
+	const { [queryId]: query } = await loadStorySqlQueries({ id: storyId, chatId: null }, [queryId]);
+	if (!query) {
+		throw new CustomStoryQueryNotFoundError(queryId);
+	}
+	return query.sqlQuery;
 }
 
 /** An editor who does not own the chat only reads the queries the story itself references, never the rest of the chat. */
@@ -481,15 +597,23 @@ async function getCustomStoryVersionRow(chatId: string, storySlug: string, versi
 }
 
 /** Every block and narrative of a story asks at once; they share one refresh instead of each starting its own. */
-function refreshOnce(chatId: string, storySlug: string): Promise<RefreshResult> {
-	const key = `${chatId}:${storySlug}`;
+function refreshOnce(key: string, refresh: () => Promise<RefreshResult>): Promise<RefreshResult> {
 	const pending = pendingRefreshes.get(key);
 	if (pending) {
 		return pending;
 	}
-	const refresh = refreshStoryData(chatId, storySlug).finally(() => pendingRefreshes.delete(key));
-	pendingRefreshes.set(key, refresh);
-	return refresh;
+	const running = refresh().finally(() => pendingRefreshes.delete(key));
+	pendingRefreshes.set(key, running);
+	return running;
+}
+
+/** A standalone story without any SQL saved has nothing to refresh, so it keeps showing its saved rows and narratives. */
+async function refreshStandaloneStoryOnce(story: DBStory, cache: DBStoryDataCache | null): Promise<RefreshResult> {
+	const result = await refreshOnce(story.id, () => refreshStoryById(story.id));
+	if (result.queriesRefreshed > 0) {
+		return result;
+	}
+	return { ...result, narratives: cache?.analysisResults ?? {} };
 }
 
 export async function getActiveThemeForStory(storyId: string): Promise<StoryThemePair | null> {

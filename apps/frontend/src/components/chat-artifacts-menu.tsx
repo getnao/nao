@@ -30,6 +30,7 @@ interface ChatArtifactsMenuProps {
 	chatId: string;
 	chatColumnRef?: RefObject<HTMLElement | null>;
 	panelClassName?: string;
+	labelClassName?: string;
 }
 
 /**
@@ -39,7 +40,7 @@ interface ChatArtifactsMenuProps {
  * otherwise it collapses to a header pill the user can expand on demand.
  * The panel is absolutely positioned, so the header rendering the menu must be positioned.
  */
-export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: ChatArtifactsMenuProps) {
+export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName, labelClassName }: ChatArtifactsMenuProps) {
 	const [density] = useToolCallDensity();
 	const { open: openSidePanel } = useSidePanel();
 	const artifacts = useAgentMessagesSelector(collectChatArtifacts, areChatArtifactsEqual);
@@ -96,7 +97,7 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 					aria-label={`Library (${count})`}
 				>
 					<Layers className='size-3' strokeWidth={2.25} />
-					<span className='text-xs'>Library</span>
+					<span className={cn('text-xs', labelClassName)}>Library</span>
 					<span className='rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums'>{count}</span>
 					<ChevronDown className={cn('size-3 transition-transform', isOpen && 'rotate-180')} />
 				</Button>

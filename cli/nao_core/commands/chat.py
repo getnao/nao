@@ -8,6 +8,7 @@ from time import sleep
 from typing import Annotated, Optional
 
 from cyclopts import Parameter
+from rich.markup import escape
 
 from nao_core import __version__, native
 from nao_core.branding import should_show_banner
@@ -358,6 +359,6 @@ def chat(
         sys.exit(0)
 
     except Exception as e:
-        console.print(f"[bold red]✗[/bold red] Failed to start servers: {e}")
+        console.print(f"[bold red]✗[/bold red] Failed to start servers: {escape(str(e))}")
         shutdown_servers()
         sys.exit(1)

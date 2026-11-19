@@ -1,7 +1,8 @@
 import type { LlmProvider } from '@nao/shared/types';
 import { and, eq, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
-import { LLM_PROVIDERS } from '../agents/providers';
+import { resolveModelPrices } from '../agents/model-prices';
+import { PROVIDER_META } from '../agents/provider-meta';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
@@ -18,7 +19,7 @@ import {
 	type UserUsageBreakdown,
 } from '../types/usage';
 import { fillMissingDates, generateDateSeries, getLookbackTimestamp } from '../utils/date';
-import { getProjectDeclaredModels } from '../utils/llm';
+import { getProjectAvailableModels, getProjectDeclaredModels } from '../utils/llm';
 
 const COST_COLS = [
 	'provider',
@@ -30,6 +31,12 @@ const COST_COLS = [
 ] as const;
 
 type UsageByUserRow = UserUsageBreakdown & { date: string };
+
+type ProjectModel = { provider: LlmProvider; modelId: string };
+
+const USED_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const usedModelsCache = new Map<string, { expiresAt: number; models: Promise<ProjectModel[]> }>();
 
 type CostLookupTuple = readonly [
 	provider: string,
@@ -149,6 +156,18 @@ export const getMessagesUsage = async (
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'web' then ${s.chatMessage.id} end)`.as(
 						'web_message_count',
 					),
+				automationEditorMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'automationEditor' then ${s.chatMessage.id} end)`.as(
+						'automation_editor_message_count',
+					),
+				contextEditorMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextEditor' then ${s.chatMessage.id} end)`.as(
+						'context_editor_message_count',
+					),
+				automationMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'automation' then ${s.chatMessage.id} end)`.as(
+						'automation_message_count',
+					),
 				slackMessageCount:
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'slack' then ${s.chatMessage.id} end)`.as(
 						'slack_message_count',
@@ -212,6 +231,9 @@ export const getMessagesUsage = async (
 				date: inferenceDateExpr.as('date'),
 				messageCount: sql<number>`0`.as('message_count'),
 				webMessageCount: sql<number>`0`.as('web_message_count'),
+				automationEditorMessageCount: sql<number>`0`.as('automation_editor_message_count'),
+				contextEditorMessageCount: sql<number>`0`.as('context_editor_message_count'),
+				automationMessageCount: sql<number>`0`.as('automation_message_count'),
 				slackMessageCount: sql<number>`0`.as('slack_message_count'),
 				teamsMessageCount: sql<number>`0`.as('teams_message_count'),
 				telegramMessageCount: sql<number>`0`.as('telegram_message_count'),
@@ -252,6 +274,9 @@ export const getMessagesUsage = async (
 			date: combinedUsage.date,
 			messageCount: sum(combinedUsage.messageCount),
 			webMessageCount: sum(combinedUsage.webMessageCount),
+			automationEditorMessageCount: sum(combinedUsage.automationEditorMessageCount),
+			contextEditorMessageCount: sum(combinedUsage.contextEditorMessageCount),
+			automationMessageCount: sum(combinedUsage.automationMessageCount),
 			slackMessageCount: sum(combinedUsage.slackMessageCount),
 			teamsMessageCount: sum(combinedUsage.teamsMessageCount),
 			telegramMessageCount: sum(combinedUsage.telegramMessageCount),
@@ -439,6 +464,9 @@ function normalizeMessageUsageRow(row: {
 	date: string;
 	messageCount: unknown;
 	webMessageCount: unknown;
+	automationEditorMessageCount: unknown;
+	contextEditorMessageCount: unknown;
+	automationMessageCount: unknown;
 	slackMessageCount: unknown;
 	teamsMessageCount: unknown;
 	telegramMessageCount: unknown;
@@ -468,6 +496,9 @@ function normalizeMessageUsageRow(row: {
 		date: row.date,
 		messageCount: Number(row.messageCount ?? 0),
 		webMessageCount: Number(row.webMessageCount ?? 0),
+		automationEditorMessageCount: Number(row.automationEditorMessageCount ?? 0),
+		contextEditorMessageCount: Number(row.contextEditorMessageCount ?? 0),
+		automationMessageCount: Number(row.automationMessageCount ?? 0),
 		slackMessageCount: Number(row.slackMessageCount ?? 0),
 		teamsMessageCount: Number(row.teamsMessageCount ?? 0),
 		telegramMessageCount: Number(row.telegramMessageCount ?? 0),
@@ -613,32 +644,91 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 }
 
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
-	const costs = new Map<string, ModelCosts>();
-
-	for (const [provider, config] of Object.entries(LLM_PROVIDERS)) {
-		for (const model of config.models) {
-			costs.set(`${provider}\u0000${model.id}`, { ...model.costPerM });
-		}
-	}
-
-	for (const { provider, models } of await getProjectDeclaredModels(projectId)) {
+	const [usedModels, availableModels, declaredSources] = await Promise.all([
+		getProjectUsedModels(projectId),
+		getProjectAvailableModels(projectId),
+		getProjectDeclaredModels(projectId),
+	]);
+	const declaredPrices = new Map<string, ModelCosts | undefined>(
+		[...getCatalogueModels(), ...usedModels, ...availableModels].map((model) => [costKey(model), undefined]),
+	);
+	for (const { provider, models } of declaredSources) {
 		for (const model of models) {
-			const key = `${provider}\u0000${model.id}`;
-			costs.set(key, { ...costs.get(key), ...model.costPerM });
+			declaredPrices.set(costKey({ provider, modelId: model.id }), model.costPerM);
 		}
 	}
 
-	return [...costs].map(([key, cost]) => {
-		const [provider, modelId] = key.split('\u0000');
-		return [
-			provider,
-			modelId,
-			cost.inputNoCache ?? 0,
-			cost.inputCacheRead ?? 0,
-			cost.inputCacheWrite ?? 0,
-			cost.output ?? 0,
-		] satisfies CostLookupTuple;
+	const tuples = [...declaredPrices].flatMap(([key, declared]) => {
+		const [provider, modelId] = key.split('\u0000') as [LlmProvider, string];
+		const prices = resolveModelPrices(provider, modelId, declared);
+		return prices ? [toCostLookupTuple(provider, modelId, prices)] : [];
 	});
+	return tuples.length > 0 ? tuples : [toCostLookupTuple('', '', {})];
+}
+
+function getCatalogueModels(): ProjectModel[] {
+	return Object.entries(PROVIDER_META).flatMap(([provider, meta]) =>
+		meta.models.map((model) => ({ provider: provider as LlmProvider, modelId: model.id })),
+	);
+}
+
+/**
+ * Cached because budget checks build the cost lookup on every message. A model is used only once it is enabled, and
+ * enabled models are read fresh, so the cache only has to remember the models used before they were disabled.
+ */
+function getProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+	const cached = usedModelsCache.get(projectId);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.models;
+	}
+	evictExpiredUsedModels();
+	const models = queryProjectUsedModels(projectId);
+	usedModelsCache.set(projectId, { expiresAt: Date.now() + USED_MODELS_CACHE_TTL_MS, models });
+	models.catch(() => usedModelsCache.delete(projectId));
+	return models;
+}
+
+function evictExpiredUsedModels(): void {
+	const now = Date.now();
+	for (const [projectId, entry] of usedModelsCache) {
+		if (entry.expiresAt <= now) {
+			usedModelsCache.delete(projectId);
+		}
+	}
+}
+
+async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+	const [messageModels, inferenceModels] = await Promise.all([
+		db
+			.selectDistinct({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmModelId)))
+			.execute(),
+		db
+			.selectDistinct({ provider: s.llmInference.llmProvider, modelId: s.llmInference.llmModelId })
+			.from(s.llmInference)
+			.where(eq(s.llmInference.projectId, projectId))
+			.execute(),
+	]);
+	return [...messageModels, ...inferenceModels].filter(
+		(model): model is ProjectModel => !!model.provider && !!model.modelId,
+	);
+}
+
+function costKey({ provider, modelId }: ProjectModel): string {
+	return `${provider}\u0000${modelId}`;
+}
+
+function toCostLookupTuple(provider: string, modelId: string, prices: ModelCosts): CostLookupTuple {
+	return [
+		provider,
+		modelId,
+		prices.inputNoCache ?? 0,
+		prices.inputCacheRead ?? 0,
+		prices.inputCacheWrite ?? 0,
+		prices.output ?? 0,
+	];
 }
 
 function tupleToValuesRow(tuple: CostLookupTuple): SQL {

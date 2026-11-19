@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type {
 	CustomStoryViewerAccess,
+	StoryMapBoundary,
 	StoryQueryResult,
 	StorySqlRequest,
 	StoryStateChange,
@@ -136,7 +137,11 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 		});
 	}
 	if (dataSource.kind === 'standalone') {
-		return trpc.standaloneCustomStory.getQuerySql.queryOptions({ storyId: dataSource.storyId, queryId });
+		return trpc.standaloneCustomStory.getQuerySql.queryOptions({
+			storyId: dataSource.storyId,
+			queryId,
+			versionNumber: dataSource.versionNumber,
+		});
 	}
 	const { chatId, storySlug, versionNumber } = dataSource;
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId, versionNumber });
@@ -177,6 +182,34 @@ function chartPluginsOptions(dataSource: CustomStoryDataSource) {
 	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryChartPlugins.queryOptions({ chatId, storySlug });
+}
+
+/** Boundary sets come from the story's own project, like its chart plugins. */
+export async function fetchMapBoundary(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	key: string,
+): Promise<StoryMapBoundary> {
+	const boundary = await queryClient.fetchQuery({ ...mapBoundaryOptions(dataSource, key), staleTime: 0 });
+	if (!boundary) {
+		throw new Error(`Map boundary "${key}" is not available.`);
+	}
+	return boundary;
+}
+
+function mapBoundaryOptions(dataSource: CustomStoryDataSource, key: string) {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpc.customStoryViewer.getMapBoundary.queryOptions({ access, storySlug, key });
+	}
+	if (dataSource.kind === 'share') {
+		return trpc.storyShare.getCustomStoryMapBoundary.queryOptions({ storyId: dataSource.storyId, key });
+	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getMapBoundary.queryOptions({ storyId: dataSource.storyId, key });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpc.story.getCustomStoryMapBoundary.queryOptions({ chatId, storySlug, key });
 }
 
 export function narrativesOptions(dataSource: CustomStoryDataSource) {

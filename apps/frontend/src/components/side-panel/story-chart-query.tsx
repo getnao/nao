@@ -26,7 +26,16 @@ export function StoryChartQueryView({ queryId, source }: { queryId: string; sour
 		enabled: source.api.kind === 'shared',
 	});
 
-	const query = source.api.kind === 'shared' ? sharedQuery : ownedQuery;
+	const standaloneQuery = useQuery({
+		...trpc.story.getStandaloneQuerySql.queryOptions({
+			storyId: source.api.kind === 'standalone' ? source.api.storyId : '',
+			queryId,
+			selections: source.selections,
+		}),
+		enabled: source.api.kind === 'standalone',
+	});
+
+	const query = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[source.api.kind];
 	const data = query.data;
 
 	if (query.isLoading) {

@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
+	resultOrStoredRows: async (_scope: unknown, queryData: Record<string, unknown>, queryId: string) => {
+		return queryData[queryId];
+	},
+	resolveChatQueryScope: async (chatId: string) => ({ projectId: 'project-1', ownerId: 'owner-1', chatId }),
 }));
 vi.mock('../../src/queries/story.queries', () => ({ getSqlQueryById: mocks.getSqlQueryById }));
 
@@ -36,6 +40,7 @@ describe('executeStoryQueryWithInputs', () => {
 
 		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
 		expect(mocks.executeStoryQueries.mock.calls[0][2].executionContext).toBe(VIEWER_CONTEXT);
+		expect(mocks.executeStoryQueries.mock.calls[0][0]).toMatchObject({ ownerId: 'viewer-1' });
 	});
 
 	it('renders the filter blocks of the saved SQL with the quoted values', async () => {

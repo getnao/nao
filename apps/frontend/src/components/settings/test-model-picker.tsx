@@ -8,9 +8,10 @@ import { useState } from 'react';
 import type { ActiveEffort, ReasoningEffort } from '@nao/backend/llm';
 import type { TestModelDefaultEffort, TestModelSelection } from '@nao/backend/test-run';
 import type { LlmSelectedModel } from '@nao/shared/types';
-import type { TestModelStats } from '@/components/settings/test-run-types';
+import type { TestDefinition, TestModelStats } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { formatUnitCost } from '@/components/settings/test-run-types';
+import { ActiveScheduleCount, TestSchedules } from '@/components/settings/test-schedules';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
@@ -30,6 +31,7 @@ import { cn } from '@/lib/utils';
 import {
 	countModelRuns,
 	countRunEfforts,
+	describeModelSelection,
 	listPickedEfforts,
 	MAX_TEST_RUN_ATTEMPTS,
 	MAX_TEST_RUN_MODELS,
@@ -42,10 +44,17 @@ interface TestModelPickerProps {
 	testCount: number;
 	/** Context variants the next run tries, 2 when it compares the user's changes with the main branch. */
 	variantCount: number;
+	schedulableTests?: TestDefinition[];
 	disabled?: boolean;
 }
 
-export function TestModelPicker({ settings, testCount, variantCount, disabled }: TestModelPickerProps) {
+export function TestModelPicker({
+	settings,
+	testCount,
+	variantCount,
+	schedulableTests,
+	disabled,
+}: TestModelPickerProps) {
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const stats = useQuery(trpc.testRun.getModelStats.queryOptions());
 	const defaultEfforts = useQuery(trpc.testRun.getDefaultReasoningEfforts.queryOptions());
@@ -72,20 +81,18 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 	return (
 		<Popover>
 			<PopoverTrigger asChild>
-				<Button
-					type='button'
-					size='sm'
-					variant='outline'
-					className='h-6 gap-1.5 px-2 text-xs'
-					disabled={disabled}
-					aria-label='Models to test'
-				>
+				<Button type='button' size='pill' variant='secondary' disabled={disabled} aria-label='Models to test'>
 					<Cpu className='size-3.5' />
-					{describeSelection(models, attempts)}
-					<ChevronDown className='size-3 text-muted-foreground' />
+					{describeModelSelection(models, attempts)}
+					{schedulableTests && <ActiveScheduleCount />}
+					<ChevronDown className='size-3.5 text-muted-foreground' />
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent align='end' className='w-96 p-0 text-xs' onInteractOutside={keepOpenInsideMenus}>
+			<PopoverContent
+				align='end'
+				className='max-h-(--radix-popover-content-available-height) w-96 overflow-y-auto p-0 text-xs'
+				onInteractOutside={keepOpenInsideMenus}
+			>
 				<div className='flex items-center justify-between px-3 pt-3 pb-1.5'>
 					<span className='text-sm font-semibold'>Models to test</span>
 					{settings.isCustom ? (
@@ -163,26 +170,21 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 					variantCount={variantCount}
 				/>
 				<CopyAsConfigButton settings={settings} />
+				{schedulableTests && <TestSchedules settings={settings} tests={schedulableTests} />}
 			</PopoverContent>
 		</Popover>
 	);
 }
 
 /**
- * The effort menus portal out of the popover and come from another copy of Radix, so the popover would take a click in
- * them for one outside and close.
+ * The effort menus and the selects of a schedule portal out of the popover and come from another copy of Radix, so the
+ * popover would take a click in them for one outside and close.
  */
 function keepOpenInsideMenus(event: Event) {
-	if (event.target instanceof Element && event.target.closest('[data-slot="dropdown-menu-content"]')) {
+	const portalledMenus = '[data-slot="dropdown-menu-content"], [data-slot="select-content"]';
+	if (event.target instanceof Element && event.target.closest(portalledMenus)) {
 		event.preventDefault();
 	}
-}
-
-function describeSelection(models: TestModelSelection[], attempts: number): string {
-	const modelLabel = models.length === 1 ? models[0].modelId : `${models.length} models`;
-	const runCount = countModelRuns(models);
-	const label = runCount > models.length ? `${modelLabel} · ${runCount} runs` : modelLabel;
-	return attempts > 1 ? `${label} · ×${attempts}` : label;
 }
 
 /**

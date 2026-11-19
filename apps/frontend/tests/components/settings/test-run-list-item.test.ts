@@ -23,6 +23,19 @@ describe('describeRunListItem', () => {
 		});
 	});
 
+	it('marks a run the schedule started, which no user did', () => {
+		const view = describeRunListItem(
+			run({ trigger: 'scheduled', production: totals({ testCount: 3, passedTests: 3 }) }),
+			CONTEXT,
+		);
+
+		expect(view.chips).toEqual([
+			{ label: 'master', isBranch: true },
+			{ label: 'scheduled', isBranch: false, isSchedule: true },
+		]);
+		expect(view.statusTooltip.startedBy).toMatch(/^Scheduled · /);
+	});
+
 	it('names a single test and leaves its result to the icon', () => {
 		const view = describeRunListItem(
 			run({ selection: ['revenue.yml'], production: totals({ testCount: 1, passedTests: 1 }) }),
@@ -101,6 +114,32 @@ describe('describeRunListItem', () => {
 			tooltip: '3 of 3 tests pass on master, 1 with your changes',
 		});
 		expect(view.chips).toEqual([{ label: 'master', isBranch: true, isComparedBranch: true }]);
+	});
+
+	it('counts the tests the changes add on their side only', () => {
+		const view = describeRunListItem(
+			run({
+				trigger: 'comparison',
+				production: totals({ testCount: 2, passedTests: 2 }),
+				draft: totals({ testCount: 3, passedTests: 3 }),
+			}),
+			CONTEXT,
+		);
+
+		expect(view.result?.tooltip).toBe('2 of 2 tests pass on master, 3 of 3 with your changes');
+	});
+
+	it('calls a single compared test the changes add new', () => {
+		const view = describeRunListItem(
+			run({
+				trigger: 'comparison',
+				selection: ['margin.yml'],
+				draft: totals({ testCount: 1, passedTests: 1 }),
+			}),
+			CONTEXT,
+		);
+
+		expect(view.result).toEqual({ label: 'new', tooltip: 'New test, not on master' });
 	});
 
 	it.each([

@@ -1,9 +1,9 @@
+import { type GeoJsonValidationResult, validateGeoJson } from '@nao/shared';
 import dns from 'dns/promises';
-import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import http from 'http';
 import https from 'https';
 import net from 'net';
-import type { Readable } from 'stream';
+import { pipeline, Readable } from 'stream';
 import zlib from 'zlib';
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -36,9 +36,16 @@ export interface SafeFetchResult {
 	url: string;
 }
 
+interface PinnedRequest {
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string | Buffer;
+}
+
 interface PinnedResponse {
 	status: number;
 	location: string | undefined;
+	headers: http.IncomingHttpHeaders;
 	body: Readable;
 }
 
@@ -161,6 +168,92 @@ export async function safeFetchWithUrl(url: string, options: SafeFetchOptions = 
 	return fetchFollowingRedirects(url, options, 0);
 }
 
+/**
+ * A `fetch` that only reaches public addresses. Each hop connects to the address it checked, so DNS
+ * cannot swap in a private one, and redirects are followed here so none can bounce onto an internal host.
+ */
+export async function fetchPublicUrl(input: string | URL, init: RequestInit = {}): Promise<Response> {
+	let url = new URL(input);
+	let hopInit = init;
+	for (let redirectCount = 0; ; redirectCount++) {
+		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+			throw new Error('Only http and https URLs are allowed.');
+		}
+		const address = await resolveSafeAddress(url.hostname);
+		const response = await requestPinnedAddress(
+			url,
+			address,
+			pinnedRequestOf(hopInit),
+			hopInit.signal ?? undefined,
+		);
+		if (response.status < 300 || response.status >= 400 || !response.location) {
+			return toWebResponse(response, hopInit.method);
+		}
+		response.body.destroy();
+		if (redirectCount >= MAX_REDIRECTS) {
+			throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}).`);
+		}
+		const nextUrl = new URL(response.location, url);
+		hopInit = redirectedInit(hopInit, response.status, nextUrl.origin !== url.origin);
+		url = nextUrl;
+	}
+}
+
+/** Mirrors what `fetch` does on a redirect: 301-303 turn into a GET, and credentials stay on their origin. */
+function redirectedInit(init: RequestInit, status: number, crossesOrigin: boolean): RequestInit {
+	const headers = new Headers(init.headers);
+	if (crossesOrigin) {
+		headers.delete('authorization');
+		headers.delete('cookie');
+	}
+	const keepsMethod = status === 307 || status === 308;
+	return keepsMethod ? { ...init, headers } : { ...init, headers, method: 'GET', body: undefined };
+}
+
+function pinnedRequestOf(init: RequestInit): PinnedRequest {
+	const headers = new Headers(init.headers);
+	const { body } = init;
+	if (body instanceof URLSearchParams && !headers.has('content-type')) {
+		headers.set('content-type', 'application/x-www-form-urlencoded;charset=UTF-8');
+	}
+	return { method: init.method, headers: Object.fromEntries(headers), body: requestBodyOf(body) };
+}
+
+function requestBodyOf(body: RequestInit['body']): string | Buffer | undefined {
+	if (body === undefined || body === null || typeof body === 'string') {
+		return body ?? undefined;
+	}
+	if (body instanceof URLSearchParams) {
+		return body.toString();
+	}
+	if (body instanceof ArrayBuffer) {
+		return Buffer.from(body);
+	}
+	if (ArrayBuffer.isView(body)) {
+		return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+	}
+	throw new Error('Unsupported request body type.');
+}
+
+function toWebResponse(response: PinnedResponse, method: string | undefined): Response {
+	const headers = new Headers();
+	const isDecoded = response.headers['content-encoding'] !== undefined;
+	for (const [name, value] of Object.entries(response.headers)) {
+		if (value === undefined || (isDecoded && (name === 'content-encoding' || name === 'content-length'))) {
+			continue;
+		}
+		for (const item of [value].flat()) {
+			headers.append(name, item);
+		}
+	}
+	const hasBody = method?.toUpperCase() !== 'HEAD' && ![204, 205, 304].includes(response.status);
+	if (!hasBody) {
+		response.body.destroy();
+	}
+	const body = hasBody ? (Readable.toWeb(response.body) as unknown as ReadableStream<Uint8Array>) : null;
+	return new Response(body, { status: response.status, headers });
+}
+
 async function fetchFollowingRedirects(
 	url: string,
 	options: SafeFetchOptions,
@@ -189,7 +282,12 @@ async function fetchFollowingRedirects(
 
 	let response: PinnedResponse;
 	try {
-		response = await requestPinnedAddress(parsed, address, options.headers, controller.signal);
+		response = await requestPinnedAddress(
+			parsed,
+			address,
+			{ headers: { ...DEFAULT_HEADERS, ...options.headers } },
+			controller.signal,
+		);
 	} catch (err) {
 		throw new Error(`Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`);
 	} finally {
@@ -219,8 +317,8 @@ async function fetchFollowingRedirects(
 function requestPinnedAddress(
 	target: URL,
 	address: string,
-	headers: Record<string, string> | undefined,
-	signal: AbortSignal,
+	{ method = 'GET', headers, body }: PinnedRequest,
+	signal: AbortSignal | undefined,
 ): Promise<PinnedResponse> {
 	const isHttps = target.protocol === 'https:';
 	const hostname = target.hostname.replace(/^\[|\]$/g, '');
@@ -231,32 +329,39 @@ function requestPinnedAddress(
 				servername: isHttps && net.isIP(hostname) === 0 ? hostname : undefined,
 				port: target.port || (isHttps ? 443 : 80),
 				path: `${target.pathname}${target.search}`,
-				method: 'GET',
-				headers: { ...DEFAULT_HEADERS, ...headers, host: target.host },
+				method,
+				headers: { ...headers, host: target.host },
 				signal,
 			},
 			(response) =>
 				resolve({
 					status: response.statusCode ?? 0,
 					location: response.headers.location,
+					headers: response.headers,
 					body: decodedBody(response),
 				}),
 		);
 		request.on('error', reject);
-		request.end();
+		request.end(body);
 	});
 }
 
+/** Ties the connection and its decoder together, so a dropped connection fails the body and closing the body closes the connection. */
 function decodedBody(response: http.IncomingMessage): Readable {
-	switch (response.headers['content-encoding']?.toLowerCase()) {
+	const decoder = decoderFor(response.headers['content-encoding']);
+	return decoder ? pipeline(response, decoder, () => undefined) : response;
+}
+
+function decoderFor(contentEncoding: string | undefined): zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress | null {
+	switch (contentEncoding?.toLowerCase()) {
 		case 'gzip':
-			return response.pipe(zlib.createGunzip());
+			return zlib.createGunzip();
 		case 'deflate':
-			return response.pipe(zlib.createInflate());
+			return zlib.createInflate();
 		case 'br':
-			return response.pipe(zlib.createBrotliDecompress());
+			return zlib.createBrotliDecompress();
 		default:
-			return response;
+			return null;
 	}
 }
 
@@ -275,12 +380,6 @@ async function readBodyText(body: Readable, maxBytes: number): Promise<string> {
 	return text + decoder.decode();
 }
 
-export interface GeoJsonValidationResult {
-	geojson: FeatureCollection;
-	propertyKeys: string[];
-	featureCount: number;
-}
-
 export function parseAndValidateGeoJson(text: string): GeoJsonValidationResult {
 	let parsed: unknown;
 	try {
@@ -288,61 +387,5 @@ export function parseAndValidateGeoJson(text: string): GeoJsonValidationResult {
 	} catch {
 		throw new Error('Response is not valid JSON.');
 	}
-
-	const geojson = normalizeToFeatureCollection(parsed);
-
-	const propertyKeySet = new Set<string>();
-	for (const feature of geojson.features) {
-		if (feature.properties) {
-			for (const key of Object.keys(feature.properties)) {
-				propertyKeySet.add(key);
-			}
-		}
-	}
-
-	return {
-		geojson,
-		propertyKeys: [...propertyKeySet].sort(),
-		featureCount: geojson.features.length,
-	};
-}
-
-function normalizeToFeatureCollection(value: unknown): FeatureCollection {
-	if (typeof value !== 'object' || value === null) {
-		throw new Error('GeoJSON must be an object.');
-	}
-	const record = value as Record<string, unknown>;
-
-	if (record.type === 'FeatureCollection') {
-		if (!Array.isArray(record.features)) {
-			throw new Error('FeatureCollection must have a features array.');
-		}
-		return value as FeatureCollection;
-	}
-
-	if (record.type === 'Feature') {
-		return { type: 'FeatureCollection', features: [value as Feature] };
-	}
-
-	if (isGeometry(record)) {
-		return {
-			type: 'FeatureCollection',
-			features: [{ type: 'Feature', geometry: value as Geometry, properties: {} }],
-		};
-	}
-
-	throw new Error('Response is not a valid GeoJSON FeatureCollection, Feature, or Geometry.');
-}
-
-function isGeometry(value: Record<string, unknown>): boolean {
-	const geometryTypes = [
-		'Point',
-		'MultiPoint',
-		'LineString',
-		'MultiLineString',
-		'Polygon',
-		'MultiPolygon',
-		'GeometryCollection',
-	];
-	return typeof value.type === 'string' && geometryTypes.includes(value.type);
+	return validateGeoJson(parsed);
 }

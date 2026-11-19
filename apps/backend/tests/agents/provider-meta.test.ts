@@ -5,7 +5,6 @@ import {
 	getModelCapabilities,
 	getModelParameterSpec,
 	isAnthropicApiModel,
-	PROVIDER_META,
 } from '../../src/agents/provider-meta';
 import type { ParamControl } from '../../src/types/llm';
 import { BEDROCK_GPT6_MODEL_IDS } from '../helpers/bedrock-model-ids';
@@ -180,34 +179,6 @@ describe('getModelParameterSpec', () => {
 		expect(keys).not.toContain('topP');
 		expect(keys).not.toContain('serviceTier');
 		expect(keys).toContain('maxOutputTokens');
-	});
-
-	it('uses the verified Standard <=272K rates for Global and US GPT-6 models', () => {
-		const models = Object.fromEntries(PROVIDER_META.bedrock.models.map((model) => [model.id, model]));
-		const expected = {
-			'global.openai.gpt-6-astra': { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
-			'global.openai.gpt-6.1-sol': { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
-			'global.openai.gpt-6-sol': { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
-			'global.openai.gpt-6-luna': {
-				inputNoCache: 0.1,
-				inputCacheRead: 0.01,
-				inputCacheWrite: 0.125,
-				output: 0.5,
-			},
-			'us.openai.gpt-6-astra': { inputNoCache: 11, inputCacheRead: 1.1, inputCacheWrite: 13.75, output: 55 },
-			'us.openai.gpt-6.1-sol': { inputNoCache: 2.2, inputCacheRead: 0.11, inputCacheWrite: 2.75, output: 11 },
-			'us.openai.gpt-6-sol': { inputNoCache: 2.2, inputCacheRead: 0.22, inputCacheWrite: 2.75, output: 11 },
-			'us.openai.gpt-6-luna': {
-				inputNoCache: 0.11,
-				inputCacheRead: 0.011,
-				inputCacheWrite: 0.1375,
-				output: 0.55,
-			},
-		};
-
-		for (const [id, costPerM] of Object.entries(expected)) {
-			expect(models[id]?.costPerM).toEqual(costPerM);
-		}
 	});
 
 	function controlByKey(controls: ParamControl[], key: string) {

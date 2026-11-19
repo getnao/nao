@@ -13,6 +13,8 @@ export interface ContextExplorerSearch extends TestDrawerSearch {
 	to?: string;
 	/** Opens the Tests drawer once, as links from outside the page do, then leaves the URL. */
 	tests?: 'open';
+	/** The recommendation whose proposed change to the file is shown when the file opens. */
+	recommendation?: string;
 }
 
 export interface HistoricalContextDiffTarget {
@@ -26,7 +28,13 @@ export function validateContextExplorerSearch(search: Record<string, unknown>): 
 		...validateFileSearch(search),
 		...validateTestDrawerSearch(search),
 		...(search.tests === 'open' && { tests: 'open' as const }),
+		...validateRecommendationSearch(search),
 	};
+}
+
+/** Links to a past diff only make sense in the file tree, while both views have the Tests drawer. */
+export function requiresFileTree(search: ContextExplorerSearch): boolean {
+	return getHistoricalContextDiffTarget(search) !== null;
 }
 
 export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): HistoricalContextDiffTarget | null {
@@ -74,10 +82,15 @@ function validateFileSearch(search: Record<string, unknown>): Pick<ContextExplor
 
 function validateTestDrawerSearch(search: Record<string, unknown>): TestDrawerSearch {
 	const test = parseContextExplorerPath(search.test);
-	const testRun = parseTestRunId(search.testRun);
+	const testRun = parseIdentifier(search.testRun);
 	return { ...(test && { test }), ...(testRun && { testRun }) };
 }
 
-function parseTestRunId(value: unknown): string | undefined {
+function validateRecommendationSearch(search: Record<string, unknown>): Pick<ContextExplorerSearch, 'recommendation'> {
+	const recommendation = parseIdentifier(search.recommendation);
+	return recommendation && parseContextExplorerPath(search.path) ? { recommendation } : {};
+}
+
+function parseIdentifier(value: unknown): string | undefined {
 	return typeof value === 'string' && /^[\w-]{1,100}$/.test(value) ? value : undefined;
 }

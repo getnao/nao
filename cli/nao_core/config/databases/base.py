@@ -269,6 +269,21 @@ class DatabaseConfig(BaseModel, ABC):
             if owns_connection:
                 conn.disconnect()
 
+    def requires_user_access_token(self) -> bool:
+        """Whether runtime queries must run as the signed-in user, with the access token of their identity provider.
+
+        The configured credentials then only serve nao sync and SQL validation.
+        """
+        return False
+
+    def has_sync_credentials(self) -> bool:
+        """Whether connect() has credentials to validate a query against the live schema."""
+        return True
+
+    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+        """Execute SQL as the end user identified by an identity provider access token."""
+        raise NotImplementedError(f"{self.type} does not support running queries with a user access token")
+
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.
 

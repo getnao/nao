@@ -4,6 +4,7 @@ import type { displayChart, displayMap, executeSemanticQuery } from '@nao/shared
 import type { LlmSelectedModel, SemanticLayerMode, StoryFormat } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
+import type { RunSqlQueryTag } from '../services/sql-query-tag.service';
 import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
@@ -57,11 +58,12 @@ export interface ToolContext {
 	/** Project skills the user's groups load in full into the system prompt. */
 	preloadedSkillNames?: string[];
 	/**
-	 * Database federation access token. Populated by the EE Microsoft/Azure AD
-	 * integration when the user signs in via Microsoft; always null in the
-	 * open-source edition.
+	 * The user's identity provider access token (Microsoft Entra ID or OIDC, EE only), forwarded to
+	 * warehouses that run queries as the signed-in user; always null in the open-source edition.
 	 */
-	azureAccessToken: string | null;
+	warehouseAccessToken: string | null;
+	/** The comment tagging every warehouse query of the run, null (or absent) when the project tags none. */
+	sqlQueryTag?: RunSqlQueryTag | null;
 	/**
 	 * In-memory cache for query results within a single agent run.
 	 * For queries from earlier turns in the same chat, prefer
@@ -79,8 +81,11 @@ export interface ToolContext {
 	linkedStory?: LinkedStory;
 }
 
-export type McpToolContext = Omit<ToolContext, 'chatId'> & {
+export type ChatlessToolContext = Omit<ToolContext, 'chatId'> & {
 	chatId: null;
+};
+
+export type McpToolContext = ChatlessToolContext & {
 	storyCreationEnabled?: boolean;
 };
 

@@ -6,6 +6,7 @@ import {
 	getHistoricalContextDiffTarget,
 	parseContextExplorerCommit,
 	parseContextExplorerPath,
+	requiresFileTree,
 	validateContextExplorerSearch,
 } from '@/lib/context-explorer-search';
 
@@ -99,5 +100,28 @@ describe('context explorer search', () => {
 
 		expect(search).toEqual({ path: '/RULES.md' });
 		expect(getHistoricalContextDiffTarget(search)).toBeNull();
+	});
+
+	it.each([
+		{
+			search: { path: '/RULES.md', recommendation: 'rec-1' },
+			expected: { path: '/RULES.md', recommendation: 'rec-1' },
+		},
+		{ search: { recommendation: 'rec-1' }, expected: {} },
+		{ search: { path: '../RULES.md', recommendation: 'rec-1' }, expected: {} },
+		{ search: { path: '/RULES.md', recommendation: 'rec 1' }, expected: { path: '/RULES.md' } },
+	])('keeps the recommendation to show over the file opened in $search', ({ search, expected }) => {
+		expect(validateContextExplorerSearch(search)).toEqual(expected);
+	});
+
+	it.each([
+		{ search: { path: '/RULES.md' }, expected: false },
+		{ search: { path: '/RULES.md', from: 'a'.repeat(40) }, expected: false },
+		{ search: { path: '/RULES.md', from: 'a'.repeat(40), to: 'b'.repeat(40) }, expected: true },
+		{ search: { test: '/tests/revenue.yml' }, expected: false },
+		{ search: { testRun: 'run-1' }, expected: false },
+		{ search: { tests: 'open' as const }, expected: false },
+	])('needs the file tree for $search: $expected', ({ search, expected }) => {
+		expect(requiresFileTree(search)).toBe(expected);
 	});
 });

@@ -1,5 +1,5 @@
 import { isTestFileName } from '@nao/shared/test-paths';
-import { GitBranch, History } from 'lucide-react';
+import { CalendarClock, GitBranch, History } from 'lucide-react';
 import type { TestModel } from '@nao/backend/test-run';
 
 import type { TestRunSummary } from '@/components/settings/test-run-types';
@@ -41,6 +41,8 @@ interface RunListChip {
 	isBranch: boolean;
 	/** Set on the branch a comparison ran against, read "vs main". */
 	isComparedBranch?: boolean;
+	/** Set on the runs the test schedule started. */
+	isSchedule?: boolean;
 }
 
 interface RunListItemView {
@@ -157,7 +159,7 @@ export function describeRunListItem(run: RunListSource, context: RunListContext)
 		chips: listRunChips(run, context.mainBranch),
 		statusTooltip: {
 			status: run.status === 'failed' && run.errorMessage ? `Error: ${run.errorMessage}` : TONE_LABELS[tone],
-			startedBy: [run.triggeredByName, getTimeAgo(new Date(run.createdAt).getTime()).humanReadable]
+			startedBy: [describeRunStarter(run), getTimeAgo(new Date(run.createdAt).getTime()).humanReadable]
 				.filter(Boolean)
 				.join(' · '),
 		},
@@ -190,6 +192,7 @@ function RunChip({ chip }: { chip: RunListChip }) {
 		<span className='inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10.5px] leading-4 text-muted-foreground'>
 			{chip.isComparedBranch && 'vs'}
 			{chip.isBranch && <GitBranch className='size-2.5' />}
+			{chip.isSchedule && <CalendarClock className='size-2.5' />}
 			<span className={cn(chip.isBranch && 'font-mono text-[10px] text-foreground')}>{chip.label}</span>
 		</span>
 	);
@@ -215,17 +218,20 @@ function describeRunResult(run: RunListSource, tone: Tone, mainBranch: string): 
 }
 
 function describeComparisonResult(run: RunListSource, mainBranch: string): RunListItemView['result'] {
-	const before = findVariant(run, 'production');
 	const after = findVariant(run, 'draft');
-	if (!before || !after) {
+	if (!after) {
 		return null;
 	}
+	const before = findVariant(run, 'production') ?? { testCount: 0, passedTests: 0 };
 	if (after.testCount === 1) {
-		return describeSingleTestChange(before.passedTests === 1, after.passedTests === 1, mainBranch);
+		return before.testCount === 0
+			? { label: 'new', tooltip: `New test, not on ${mainBranch}` }
+			: describeSingleTestChange(before.passedTests === 1, after.passedTests === 1, mainBranch);
 	}
+	const afterCount = before.testCount === after.testCount ? '' : ` of ${after.testCount}`;
 	return {
 		label: `${before.passedTests} → ${after.passedTests}`,
-		tooltip: `${before.passedTests} of ${after.testCount} tests pass on ${mainBranch}, ${after.passedTests} with your changes`,
+		tooltip: `${before.passedTests} of ${before.testCount} tests pass on ${mainBranch}, ${after.passedTests}${afterCount} with your changes`,
 	};
 }
 
@@ -294,6 +300,9 @@ function describeSingleModelResult(run: RunListSource, tone: Tone): RunListItemV
 
 function listRunChips(run: RunListSource, mainBranch: string): RunListChip[] {
 	const chips: RunListChip[] = [describeBranchChip(run, mainBranch)];
+	if (run.trigger === 'scheduled') {
+		chips.push({ label: 'scheduled', isBranch: false, isSchedule: true });
+	}
 	const distinctModels = countDistinctModels(run.models);
 	if (distinctModels > 1) {
 		chips.push({ label: `${distinctModels} models`, isBranch: false });
@@ -306,6 +315,10 @@ function listRunChips(run: RunListSource, mainBranch: string): RunListChip[] {
 		chips.push({ label: `${run.attempts}×`, isBranch: false });
 	}
 	return chips;
+}
+
+function describeRunStarter(run: RunListSource): string | null {
+	return run.trigger === 'scheduled' ? 'Scheduled' : run.triggeredByName;
 }
 
 function describeBranchChip(run: RunListSource, mainBranch: string): RunListChip {

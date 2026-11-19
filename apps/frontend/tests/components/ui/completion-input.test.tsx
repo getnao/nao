@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { stubResizeObserver } from '../../helpers/browser-stubs';
+import type { KeyboardEvent } from 'react';
 import type { CompletionOptions } from '@/components/ui/completion-input';
 import { CompletionInput } from '@/components/ui/completion-input';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -82,11 +83,33 @@ describe('CompletionInput', () => {
 
 		expect(screen.queryByRole('listbox')).toBeNull();
 	});
+
+	it.each([
+		{ key: 'Enter', typed: 'or', isForwarded: false },
+		{ key: 'Backspace', typed: 'or', isForwarded: true },
+		{ key: 'Enter', typed: 'zz', isForwarded: true },
+	])('forwards $key to onKeyDown after typing "$typed": $isForwarded', ({ key, typed, isForwarded }) => {
+		const onKeyDown = vi.fn();
+		render(<Harness onKeyDown={onKeyDown} />);
+
+		type(typed);
+		fireEvent.keyDown(input(), { key });
+
+		expect(onKeyDown).toHaveBeenCalledTimes(isForwarded ? 1 : 0);
+	});
 });
 
-function Harness() {
+function Harness({ onKeyDown }: { onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void }) {
 	const [value, setValue] = useState('');
-	return <CompletionInput aria-label='Metric' value={value} onValueChange={setValue} getCompletions={completeName} />;
+	return (
+		<CompletionInput
+			aria-label='Metric'
+			value={value}
+			onValueChange={setValue}
+			getCompletions={completeName}
+			onKeyDown={onKeyDown}
+		/>
+	);
 }
 
 function completeName(value: string, cursor: number): CompletionOptions {

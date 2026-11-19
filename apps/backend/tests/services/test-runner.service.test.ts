@@ -22,7 +22,10 @@ const mocks = vi.hoisted(() => ({
 	getProjectAvailableModels: vi.fn(),
 	resolveModelInferenceSettings: vi.fn(),
 	createDraftContextSnapshot: vi.fn(),
+	createUpstreamContextSnapshot: vi.fn(),
 	removeContextSnapshot: vi.fn(),
+	getRun: vi.fn(),
+	notifyScheduledTestsFailed: vi.fn(),
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
@@ -36,6 +39,10 @@ vi.mock('../../src/queries/test-run.queries', () => ({
 	completeRun: mocks.completeRun,
 	failRun: mocks.failRun,
 	cancelRun: mocks.cancelRun,
+	getRun: mocks.getRun,
+}));
+vi.mock('../../src/services/notification.service', () => ({
+	notifyScheduledTestsFailed: mocks.notifyScheduledTestsFailed,
 }));
 vi.mock('../../src/queries/chat.queries', () => ({ createChat: mocks.createChat, getChat: mocks.getChat }));
 vi.mock('../../src/services/test-agent.service', () => ({
@@ -57,6 +64,9 @@ vi.mock('../../src/services/draft-context.service', () => ({
 	createDraftContextSnapshot: mocks.createDraftContextSnapshot,
 	removeContextSnapshot: mocks.removeContextSnapshot,
 	removeContextSnapshotsOlderThan: vi.fn(),
+}));
+vi.mock('../../src/services/upstream-context.service', () => ({
+	createUpstreamContextSnapshot: mocks.createUpstreamContextSnapshot,
 }));
 
 import { getModelReasoningEfforts } from '../../src/agents/provider-meta';
@@ -416,6 +426,45 @@ describe('startTestRun', () => {
 		});
 	});
 
+	it('records the run the schedule starts as scheduled, and reports its outcome once completed', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		const completedRun = { id: 'run-1', status: 'completed', passedAttempts: 0, totalAttempts: 1 };
+		mocks.getRun.mockResolvedValue(completedRun);
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', isScheduled: true });
+		await vi.waitFor(() => expect(mocks.notifyScheduledTestsFailed).toHaveBeenCalledWith(completedRun));
+
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'scheduled' }));
+	});
+
+	it.each([
+		{
+			case: 'cannot start',
+			breakRun: () => mocks.markRunRunning.mockRejectedValueOnce(new Error('database down')),
+		},
+		{ case: 'breaks', breakRun: () => mocks.createChat.mockRejectedValueOnce(new Error('database down')) },
+	])('reports a scheduled run that $case', async ({ breakRun }) => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		const failedRun = { id: 'run-1', status: 'failed', errorMessage: 'database down' };
+		mocks.getRun.mockResolvedValue(failedRun);
+		mocks.recordResultWhileRunning.mockRejectedValue(new Error('database down'));
+		breakRun();
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', isScheduled: true });
+		await vi.waitFor(() => expect(mocks.notifyScheduledTestsFailed).toHaveBeenCalledWith(failedRun));
+
+		expect(mocks.failRun).toHaveBeenCalledWith('run-1', expect.any(String));
+	});
+
+	it('reports nothing for a run a user started', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.notifyScheduledTestsFailed).not.toHaveBeenCalled();
+	});
+
 	it('rejects a selection that matches no test', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 
@@ -474,6 +523,32 @@ describe('startComparisonRun', () => {
 		);
 	});
 
+	it('runs a test the changes add against the draft only, as production does not have it', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
+		mocks.createDraftContextSnapshot.mockReturnValue({
+			folder: draftFolder,
+			branch: 'add-margin-test',
+			productionBranch: 'main',
+			productionCommit: 'abc123',
+			changes: [{ path: 'tests/margin.yml', kind: 'added' }],
+			excludedChanges: [],
+			outdatedPaths: [],
+		});
+
+		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() });
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(3);
+		const variantsOf = (testPath: string) =>
+			mocks.recordResultWhileRunning.mock.calls
+				.map(([result]) => result)
+				.filter((result) => result.testPath === testPath)
+				.map((result) => result.contextVariant);
+		expect(variantsOf('margin.yml')).toEqual(['draft']);
+		expect(variantsOf('revenue.yml').sort()).toEqual(['draft', 'production']);
+	});
+
 	it('compares only the given tests, as they are in the editor', async () => {
 		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
 		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
@@ -521,6 +596,34 @@ describe('startComparisonRun', () => {
 		expect(contextFolders).toEqual([draftFolder]);
 		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
 			expect.objectContaining({ testPath: 'revenue.yml', contextVariant: 'draft' }),
+		);
+	});
+
+	it('runs the tests against production and an upstream branch synced into the context', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		mocks.createUpstreamContextSnapshot.mockResolvedValue({
+			folder: draftFolder,
+			ref: 'business:analyst/net-revenue',
+			commit: 'def456',
+			changes: [{ path: 'repos/business/revenue.md', kind: 'modified' }],
+		});
+		const upstream = { repo: 'business', branch: 'analyst/net-revenue' };
+
+		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', upstream });
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(2);
+		expect(mocks.createUpstreamContextSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-1', userId: 'user-1', upstream }),
+		);
+		expect(mocks.createDraftContextSnapshot).not.toHaveBeenCalled();
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
+			expect.objectContaining({
+				trigger: 'comparison',
+				contextRef: 'business:analyst/net-revenue',
+				contextCommit: 'def456',
+				contextChanges: [{ path: 'repos/business/revenue.md', kind: 'modified' }],
+			}),
 		);
 	});
 

@@ -27,6 +27,7 @@ export function usePermissions() {
 			canViewRecommendations: role === 'admin' || role === 'context_admin',
 			canChatWithNaoData: role === 'admin' || role === 'context_admin',
 			canManageTests: role === 'admin' || role === 'context_admin',
+			canExploreContext: role === 'admin' || role === 'context_admin',
 			canStartNewChat: role !== 'viewer' && !!role,
 			canViewSharedObjects: !!role,
 		}),

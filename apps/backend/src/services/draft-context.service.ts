@@ -107,15 +107,26 @@ export function createDraftContextSnapshot(input: {
 	projectFolder: string;
 	draft: DraftSource;
 }): DraftContextSnapshot {
-	const folder = path.join(getSnapshotsRoot(input.projectFolder, input.projectId), randomUUID());
+	const folder = copyProductionContext(input.projectId, input.projectFolder);
 	try {
-		copyContextFolder(path.resolve(input.projectFolder), folder);
 		applyChanges(input.draft, folder);
 	} catch (error) {
 		removeContextSnapshot(folder);
 		throw error;
 	}
 	return { ...input.draft.context, folder };
+}
+
+/** Copies the production context folder into a new snapshot folder that runs can change without touching production. */
+export function copyProductionContext(projectId: string, projectFolder: string): string {
+	const folder = path.join(getSnapshotsRoot(projectFolder, projectId), randomUUID());
+	try {
+		copyContextFolder(path.resolve(projectFolder), folder);
+	} catch (error) {
+		removeContextSnapshot(folder);
+		throw error;
+	}
+	return folder;
 }
 
 export function isProductionOnly(projectPath: string): boolean {
@@ -236,7 +247,8 @@ function readPathsChangedBetween(
 		});
 }
 
-function getSnapshotsRoot(projectFolder: string, projectId: string): string {
+/** Where the run snapshots of a project live, next to the project so a copy stays on the same disk. */
+export function getSnapshotsRoot(projectFolder: string, projectId: string): string {
 	if (!PROJECT_ID_PATTERN.test(projectId)) {
 		throw new Error('Invalid project id for a context snapshot path.');
 	}

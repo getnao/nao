@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import { AssistantTextWithCitation } from '@/components/chat-messages/citation-text';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+	OpenContextFileCallbackProvider,
+	useRegisterOpenContextFileCallback,
+} from '@/contexts/open-context-file-callback';
+import { completeCodeReveal, useCodeRevealRequest } from '@/stores/code-reveal';
 
 const mocks = vi.hoisted(() => ({
 	copySupportRequest: vi.fn(),
@@ -311,6 +316,41 @@ describe('AssistantTextWithCitation', () => {
 		expect(screen.queryByText(/saved-file/)).toBeNull();
 	});
 
+	it('opens a context file at its lines in the Context Hub', () => {
+		const openContextFile = vi.fn();
+		let revealRequest: ReturnType<typeof useCodeRevealRequest> = null;
+		const RevealRequestProbe = () => {
+			revealRequest = useCodeRevealRequest();
+			return null;
+		};
+		render(
+			<OpenContextFileCallbackProvider>
+				<ContextFileOpener onOpen={openContextFile} />
+				<RevealRequestProbe />
+				{answer('See <context-file path="docs/glossary.md" lines="4-8">the churn definition</context-file>.')}
+			</OpenContextFileCallbackProvider>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: /the churn definition/ }));
+
+		expect(openContextFile).toHaveBeenCalledWith('/docs/glossary.md');
+		expect(revealRequest).toMatchObject({ filePath: '/docs/glossary.md', lines: { start: 4, end: 8 } });
+		completeCodeReveal(revealRequest!.id);
+	});
+
+	it.each([false, true])(
+		'leaves a context file as its label outside the Context Hub while streaming is %s',
+		(isStreaming) => {
+			const { container } = renderAnswer(
+				'See <context-file path="docs/glossary.md" lines="4-8">the churn definition</context-file>.',
+				isStreaming,
+			);
+
+			expect(container.textContent).toBe('See the churn definition.');
+			expect(screen.queryByRole('button')).toBeNull();
+		},
+	);
+
 	it('renders a story reference on its own line as a story card between the text around it', () => {
 		const { container } = renderAnswer(
 			'This story already answers it:\n\n<story-reference id="story-1">Top customers</story-reference>\n\nWant a new version?',
@@ -363,4 +403,9 @@ function getDirection(container: HTMLElement, text: string): string | null | und
 		element.textContent?.includes(text),
 	);
 	return elements[elements.length - 1]?.getAttribute('dir');
+}
+
+function ContextFileOpener({ onOpen }: { onOpen: (path: string) => void }) {
+	useRegisterOpenContextFileCallback(onOpen, [onOpen]);
+	return null;
 }

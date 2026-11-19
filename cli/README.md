@@ -297,6 +297,22 @@ test:
         decimals: 2
 ```
 
+### Schedule the tests
+
+Once deployed, the app runs the tests on the schedules listed in `test.schedules`, against the production context, and notifies the project admin when a scheduled run fails. `nao test` ignores them. The same schedules can be added from the model picker of the Tests drawer in the Context Hub.
+
+```yaml
+test:
+    schedules:
+        - cron: "0 6 * * *" # every day at 06:00, in the server timezone
+        - cron: "0 8 * * 1" # every Monday at 08:00
+          tags: [smoke] # only the tests with one of these tags
+          models: [anthropic:claude-sonnet-4-5] # test.models by default
+          k: 3 # test.k by default
+```
+
+A schedule runs at most once an hour.
+
 ### Explore test results
 
 ```bash
