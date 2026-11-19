@@ -161,12 +161,6 @@ def _print_user_group_diff(diff: object) -> None:
     pending = data.get("pendingEmails")
     if isinstance(pending, list) and pending:
         UI.warn(f"Pending member emails: {', '.join(str(email) for email in pending)}")
-    access_changes = data.get("accessChanges")
-    if isinstance(access_changes, list) and access_changes:
-        UI.warn(f"Access changes: {', '.join(str(group) for group in access_changes)}")
-    budget_changes = data.get("budgetChanges")
-    if isinstance(budget_changes, list) and budget_changes:
-        UI.warn(f"Budget changes: {', '.join(str(group) for group in budget_changes)}")
     revocations = data.get("shareRevocations")
     if isinstance(revocations, dict):
         revocation_data = cast(dict[str, object], revocations)

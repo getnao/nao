@@ -14,6 +14,7 @@ from nao_core.commands import (  # noqa: E402
     debug,
     deploy,
     docs,
+    group,
     init,
     login,
     logout,
@@ -33,6 +34,7 @@ app.command(chat)
 app.command(debug)
 app.command(deploy)
 app.command(docs)
+app.command(group, alias="groups")
 app.command(init)
 app.command(login)
 app.command(logout)

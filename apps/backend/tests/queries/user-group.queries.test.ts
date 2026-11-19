@@ -169,7 +169,7 @@ describe('user group queries', () => {
 		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
 		await db.update(project).set({ userGroupManagementMode: 'code' }).where(eq(project.id, PROJECT_ID));
 
-		const blocked = { code: 'FORBIDDEN', message: expect.stringContaining('user_groups.yaml') };
+		const blocked = { code: 'FORBIDDEN', message: expect.stringContaining('groups.yaml') };
 		await expect(createUserGroup(PROJECT_ID, 'Finance')).rejects.toMatchObject(blocked);
 		await expect(
 			updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: ['storyCreation'] }),
@@ -1858,28 +1858,6 @@ describe('user group queries', () => {
 		await Promise.all([update, reconciliation]);
 
 		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([]);
-	});
-
-	it('resumes suspended SSO mappings only when they are explicitly reconfigured', async () => {
-		const group = await createSsoMappedGroup(PROJECT_ID, 'Finance', ssoMappings(['finance']));
-		await db
-			.update(userGroup)
-			.set({ ssoMappingsSuspendedAt: new Date() })
-			.where(eq(userGroup.id, group.id))
-			.execute();
-
-		await updateUserGroup(PROJECT_ID, group.id, { featureGrants: ['storyCreation'] });
-		expect(
-			(await db.select().from(userGroup).where(eq(userGroup.id, group.id)).execute())[0]?.ssoMappingsSuspendedAt,
-		).not.toBeNull();
-
-		await updateUserGroup(PROJECT_ID, group.id, {
-			featureGrants: ['storyCreation'],
-			ssoMappings: ssoMappings(['finance-reconfigured']),
-		});
-		expect(
-			(await db.select().from(userGroup).where(eq(userGroup.id, group.id)).execute())[0]?.ssoMappingsSuspendedAt,
-		).toBeNull();
 	});
 
 	it('invalidates only memberships for changed SSO providers', async () => {

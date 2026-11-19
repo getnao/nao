@@ -10,6 +10,7 @@ We are adding a way to define nao user groups in a YAML file kept in your projec
 - Two new commands check the file before you ship it:
     - `nao group lint` reports errors.
     - `nao group format` cleans up the file and fixes simple mistakes.
+    - `nao groups` works too.
 - An invalid or missing file is a blocking error. A bad deploy is rejected and the current setup keeps working. Because the file lives in Git, you can always roll back to a previous version.
 - To get started, a **Download YAML** button in the UI exports your current groups as a ready-to-use file.
 
@@ -23,8 +24,6 @@ flowchart LR
 ## Complete example
 
 ```yaml
-version: 1
-
 groups:
     # Optional. Overrides nao's built-in defaults for every other group, all_users included.
     # It has no members and is never shown as a group in the UI.
@@ -78,6 +77,7 @@ groups:
               mode: all
 
     - id: finance
+      name: Finance
       list_of_emails:
           - alice@example.com
           - bob@example.com # pending until bob gets project access
@@ -165,6 +165,7 @@ groups:
                 granted_columns: [salary]
 
     - id: leadership
+      name: Leadership
       list_of_emails: [ceo@example.com]
       capabilities:
           show_all_settings: true
@@ -183,7 +184,8 @@ budget: {}
 
 Each group has:
 
-- **`id`**: its name, also shown in the UI.
+- **`id`**: a stable snake_case identifier, used to reference the group elsewhere in the file.
+- **`name`**: the label shown in the UI. Optional, it defaults to the id and can be renamed freely.
 - **`list_of_emails`** and **`sso_groups`**: who is in the group. People in a matching SSO group (for example from Okta or Microsoft Entra ID) are added automatically when they log in.
 - **`capabilities`**: features, sharing, MCP servers, and skills.
 - **`access`**: which databases and files the group can use.
@@ -197,6 +199,7 @@ A group removed from the file loses its access, but its history is kept. Emails 
 
 - Editing groups in the UI once the file is in use, or having UI edits written back to the file.
 - Sensitive-table and budget settings in YAML. They will move to code in a later release and stay in the UI until then.
+- Column policies (`policies.columns`). The example shows where they will go; until column-level security ships, the list must stay empty.
 - Lenient handling of minor mistakes. Every error is blocking for now.
 
 ## Your feedback

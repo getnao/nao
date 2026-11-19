@@ -5,7 +5,7 @@ import {
 	type SsoGroupProvider,
 } from '@nao/shared';
 import type { UserRole } from '@nao/shared/types';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -216,13 +216,7 @@ function buildSsoUserGroupMappingsQuery(executor: DBExecutor, userId: string) {
 		.innerJoin(s.project, eq(s.project.id, s.userGroup.projectId))
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
 		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(
-			and(
-				eq(s.project.userGroupManagementMode, 'ui'),
-				activeUserGroupCondition,
-				isNull(s.userGroup.ssoMappingsSuspendedAt),
-			),
-		);
+		.where(activeUserGroupCondition);
 }
 
 function normalizeSsoUserGroupMappings(

@@ -59,16 +59,9 @@ import {
 	getAvailableUserGroupOverview,
 	listActiveUserGroups,
 } from '../services/user-group-availability.service';
-import { UserGroupConfigError } from '../services/user-group-config.service';
-import { diffUserGroupsConfig } from '../services/user-group-config-diff.service';
+import { USER_GROUPS_CONFIG_FILENAME } from '../services/user-group-config.service';
 import { exportUserGroupsConfig } from '../services/user-group-config-export.service';
-import {
-	disableCodeManagedUserGroups,
-	reconcileUserGroupsConfigWithinLock,
-	recordUserGroupConfigFailure,
-	withUserGroupConfigLock,
-} from '../services/user-group-config-reconciliation.service';
-import { readUserGroupsConfig, validateUserGroupsConfig } from '../services/user-group-config-validation.service';
+import { withUserGroupConfigLock } from '../services/user-group-config-reconciliation.service';
 import {
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
@@ -301,7 +294,7 @@ export const userGroupRoutes = {
 		]);
 		return {
 			mode,
-			configPath: 'user_groups.yaml',
+			configPath: USER_GROUPS_CONFIG_FILENAME,
 			pendingEmails: [...new Set(pendingAssignments.map((assignment) => assignment.email))].sort(),
 			pendingAssignments,
 			lastSuccess: activities.lastSuccess,
@@ -310,54 +303,11 @@ export const userGroupRoutes = {
 	}),
 
 	exportConfig: adminProtectedProcedure.query(async ({ ctx }) => {
+		const projectPath = requireProjectPath(ctx.project.path);
 		return {
-			filename: 'user_groups.yaml',
-			source: await handleQuery(() => exportUserGroupsConfig(ctx.project.id)),
+			filename: USER_GROUPS_CONFIG_FILENAME,
+			source: await handleQuery(() => exportUserGroupsConfig(ctx.project.id, projectPath)),
 		};
-	}),
-
-	previewCodeManagement: adminProtectedProcedure.query(async ({ ctx }) => {
-		return handleUserGroupConfigOperation(async () =>
-			withUserGroupConfigLock(ctx.project.id, async () => {
-				if ((await getUserGroupManagementMode(ctx.project.id)) !== 'ui') {
-					throw new UserGroupConfigError('User groups are already managed as code.');
-				}
-				const projectPath = requireProjectPath(ctx.project.path);
-				const config = readUserGroupsConfig(projectPath);
-				await validateUserGroupsConfig(ctx.project.id, projectPath, config);
-				return diffUserGroupsConfig(ctx.project.id, config);
-			}),
-		);
-	}),
-
-	enableCodeManagement: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		return handleUserGroupConfigOperation(async () =>
-			withUserGroupConfigLock(ctx.project.id, async () => {
-				if ((await getUserGroupManagementMode(ctx.project.id)) !== 'ui') {
-					throw new UserGroupConfigError('User groups are already managed as code.');
-				}
-				const projectPath = requireProjectPath(ctx.project.path);
-				let config;
-				try {
-					config = readUserGroupsConfig(projectPath);
-					await validateUserGroupsConfig(ctx.project.id, projectPath, config);
-				} catch (error) {
-					await recordUserGroupConfigFailure(
-						ctx.project.id,
-						ctx.user.id,
-						'enable',
-						config?.hash ?? null,
-						error,
-					);
-					throw error;
-				}
-				return reconcileUserGroupsConfigWithinLock(ctx.project.id, config, ctx.user.id);
-			}),
-		);
-	}),
-
-	disableCodeManagement: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		return handleUserGroupConfigOperation(() => disableCodeManagedUserGroups(ctx.project.id, ctx.user.id));
 	}),
 
 	effectiveOidcEnvMappings: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -764,7 +714,7 @@ async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: Pr
 			throw new TRPCError({
 				code: 'FORBIDDEN',
 				message:
-					'This registry change would modify a user_groups.yaml row policy. Remove the policy from YAML and deploy it first.',
+					'This registry change would modify a groups.yaml row policy. Remove the policy from YAML and deploy it first.',
 			});
 		}
 	}
@@ -881,20 +831,6 @@ async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {
 	try {
 		return await operation();
 	} catch (error) {
-		if (error instanceof userGroupQueries.UserGroupQueryError) {
-			throw new TRPCError({ code: error.code, message: error.message });
-		}
-		throw error;
-	}
-}
-
-async function handleUserGroupConfigOperation<T>(operation: () => Promise<T>): Promise<T> {
-	try {
-		return await operation();
-	} catch (error) {
-		if (error instanceof UserGroupConfigError) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
-		}
 		if (error instanceof userGroupQueries.UserGroupQueryError) {
 			throw new TRPCError({ code: error.code, message: error.message });
 		}

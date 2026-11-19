@@ -109,7 +109,7 @@ export class UserGroupQueryError extends Error {
 }
 
 export const CODE_MANAGED_USER_GROUPS_MESSAGE =
-	'User groups are managed by user_groups.yaml. Deploy an updated file to change them.';
+	'User groups are managed by groups.yaml. Deploy an updated file to change them.';
 
 export const getUserGroupOverview = async (projectId: string): Promise<UserGroupOverview> => {
 	const [users, groups, manualMemberships, ssoMemberships] = await Promise.all([
@@ -490,9 +490,7 @@ export const updateUserGroup = async (
 						skillsAccess: data.skillsAccess ?? currentContext.skillsAccess,
 					}),
 				}),
-		...(serializedSsoMappings === undefined
-			? {}
-			: { ssoMappings: serializedSsoMappings, ssoMappingsSuspendedAt: null }),
+		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
 		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
@@ -847,7 +845,7 @@ function assertRowPoliciesRegistryCurrent(expected: ProjectRowSecurity, current:
 	}
 }
 
-function getChangedSsoProviders(
+export function getChangedSsoProviders(
 	currentMappings: DBUserGroup['ssoMappings'],
 	nextMappings: ReturnType<typeof serializeUserGroupSsoMappings>,
 ): SsoGroupProvider[] {
@@ -936,7 +934,6 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		configKey: group.configKey,
 		archivedAt: group.archivedAt,
 		archivedName: group.archivedName,
-		ssoMappingsSuspendedAt: group.ssoMappingsSuspendedAt,
 		createdAt: group.createdAt,
 		updatedAt: group.updatedAt,
 		featureGrants: config.features,

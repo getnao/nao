@@ -642,7 +642,6 @@ export const userGroup = pgTable(
 		configKey: text('config_key'),
 		archivedAt: timestamp('archived_at'),
 		archivedName: text('archived_name'),
-		ssoMappingsSuspendedAt: timestamp('sso_mappings_suspended_at'),
 		featureGrants: jsonb('feature_grants')
 			.$type<StoredUserGroupConfig>()
 			.notNull()
@@ -829,7 +828,6 @@ export const projectGroupBudget = pgTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		limitUsd: integer('limit_usd').notNull(),
-		active: boolean('active').default(true).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

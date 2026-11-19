@@ -20,6 +20,13 @@ import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
 import * as accountQueries from './queries/account.queries';
 import * as userQueries from './queries/user.queries';
+import {
+	parseUserGroupsConfig,
+	USER_GROUPS_CONFIG_FILENAME,
+	UserGroupConfigError,
+} from './services/user-group-config.service';
+import { formatUserGroupsConfig } from './services/user-group-config-format.service';
+import { lintUserGroupsConfig } from './services/user-group-config-validation.service';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
@@ -121,6 +128,8 @@ COMMANDS:
     serve           Run migrations and start the chat server (default)
     migrate         Run database migrations only
     reset-password  Reset a user's password directly in the local database
+    groups lint     Validate groups.yaml against the local project
+    groups format   Rewrite groups.yaml with the standard key order and indentation
 
 OPTIONS:
     -h, --help  Show this help message
@@ -131,6 +140,10 @@ SERVE OPTIONS:
 
 RESET-PASSWORD OPTIONS:
     --email <email>   Email of the user whose password should be reset
+
+GROUPS OPTIONS:
+    --path <path>     Project folder (default: current directory)
+    --check           With format: fail instead of rewriting an unformatted file
 
 ENVIRONMENT VARIABLES:
     DB_URI              Database connection URI
@@ -150,9 +163,10 @@ EXAMPLES:
 `);
 }
 
-function parseArgs(args: string[]): { command: string; options: Record<string, string> } {
+function parseArgs(args: string[]): { command: string; subcommand?: string; options: Record<string, string> } {
 	const options: Record<string, string> = {};
 	let command = 'serve'; // default command
+	let subcommand: string | undefined;
 
 	let i = 0;
 	while (i < args.length) {
@@ -173,8 +187,10 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 			}
 		} else if (!arg.startsWith('-')) {
 			// First non-flag argument is the command
-			if (command === 'serve' && (arg === 'migrate' || arg === 'serve' || arg === 'reset-password')) {
+			if (command === 'serve' && ['migrate', 'serve', 'reset-password', 'groups'].includes(arg)) {
 				command = arg;
+			} else if (command === 'groups' && subcommand === undefined) {
+				subcommand = arg;
 			}
 			i++;
 		} else {
@@ -182,7 +198,7 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 		}
 	}
 
-	return { command, options };
+	return { command, subcommand, options };
 }
 
 async function runServe(options: Record<string, string>): Promise<void> {
@@ -253,6 +269,45 @@ async function runResetPassword(options: Record<string, string>): Promise<void> 
 	process.exit(0);
 }
 
+/** Runs offline: the checks that need the database only run on the server. */
+function runGroups(subcommand: string | undefined, options: Record<string, string>): never {
+	const projectPath = path.resolve(options['path'] || process.cwd());
+	const configPath = path.join(projectPath, USER_GROUPS_CONFIG_FILENAME);
+	try {
+		if (!fs.existsSync(configPath)) {
+			throw new UserGroupConfigError(`${USER_GROUPS_CONFIG_FILENAME} not found in ${projectPath}.`);
+		}
+		const source = fs.readFileSync(configPath, 'utf8');
+		if (subcommand === 'lint') {
+			lintUserGroupsConfig(projectPath, parseUserGroupsConfig(source, configPath));
+			console.log(`✓ ${USER_GROUPS_CONFIG_FILENAME} is valid`);
+			process.exit(0);
+		}
+		if (subcommand === 'format') {
+			const formatted = formatUserGroupsConfig(source);
+			if (formatted === source) {
+				console.log(`✓ ${USER_GROUPS_CONFIG_FILENAME} is already formatted`);
+				process.exit(0);
+			}
+			if (options['check']) {
+				console.error(`✗ ${USER_GROUPS_CONFIG_FILENAME} is not formatted. Run nao group format.`);
+				process.exit(1);
+			}
+			fs.writeFileSync(configPath, formatted);
+			console.log(`✓ Formatted ${USER_GROUPS_CONFIG_FILENAME}`);
+			process.exit(0);
+		}
+		console.error('Usage: nao-chat-server groups <lint|format> [--path <project>] [--check]');
+		process.exit(2);
+	} catch (error) {
+		if (!(error instanceof UserGroupConfigError)) {
+			throw error;
+		}
+		console.error(`✗ ${USER_GROUPS_CONFIG_FILENAME} is invalid:\n${error.message}`);
+		process.exit(1);
+	}
+}
+
 async function runMigrateCommand(): Promise<void> {
 	const migrationsPath = getMigrationsPath(dbConfig.dialect);
 
@@ -269,11 +324,15 @@ async function runMigrateCommand(): Promise<void> {
 
 async function main(): Promise<void> {
 	const args = process.argv.slice(2);
-	const { command, options } = parseArgs(args);
+	const { command, subcommand, options } = parseArgs(args);
 
 	if (options['help']) {
 		printHelp();
 		process.exit(0);
+	}
+
+	if (command === 'groups') {
+		runGroups(subcommand, options);
 	}
 
 	// Ensure auth secret is available before any command that needs the database

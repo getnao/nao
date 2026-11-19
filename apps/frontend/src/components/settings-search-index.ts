@@ -1052,7 +1052,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/user-groups',
 		pageLabel: 'Users & Groups',
 		title: 'User group management',
-		description: 'Export user_groups.yaml or switch between UI-managed and code-managed groups.',
+		description: 'Download the current groups as groups.yaml and see the status of code-managed groups.',
 		keywords: ['yaml', 'groups as code', 'download groups', 'code managed', 'dry run'],
 		adminOnly: true,
 	},

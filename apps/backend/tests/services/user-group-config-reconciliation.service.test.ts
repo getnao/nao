@@ -1,10 +1,28 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { and, eq } from 'drizzle-orm';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({ isCloud: false }));
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
 	return { db: createInMemoryDb() };
 });
+
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return mocks.isCloud;
+	},
+}));
+
+vi.mock('../../src/services/license.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/license.service')>()),
+	hasFeature: async () => true,
+}));
 
 vi.mock('../../src/utils/open-projects', () => ({
 	isOpenProject: (projectId: string) => projectId === 'groups-as-code-project',
@@ -12,106 +30,49 @@ vi.mock('../../src/utils/open-projects', () => ({
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { listUsersWithProjectAccessDetails } from '../../src/queries/project.queries';
 import { parseUserGroupsConfig } from '../../src/services/user-group-config.service';
 import {
-	disableCodeManagedUserGroups,
 	reconcileUserGroupsConfig,
+	reconcileUserGroupsConfigsAtStartup,
 } from '../../src/services/user-group-config-reconciliation.service';
 
 const PROJECT_ID = 'groups-as-code-project';
 const ACTOR_ID = 'groups-as-code-admin';
 const IMPLICIT_USER_ID = 'groups-as-code-implicit-user';
 const GROUP_ID = 'finance-group';
-
-async function setup() {
-	await db.insert(s.user).values([
-		{
-			id: ACTOR_ID,
-			name: 'Admin',
-			email: 'admin@example.com',
-		},
-		{
-			id: IMPLICIT_USER_ID,
-			name: 'Implicit user',
-			email: 'implicit@example.com',
-		},
-	]);
-	await db.insert(s.project).values({
-		id: PROJECT_ID,
-		name: 'Groups as code',
-		type: 'local',
-		path: '/tmp/groups-as-code',
-	});
-	await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: ACTOR_ID, role: 'admin' });
-	await db.insert(s.userGroup).values([
-		{ id: 'all-users-group', projectId: PROJECT_ID, name: 'All Users', isDefault: true },
-		{ id: GROUP_ID, projectId: PROJECT_ID, name: 'Finance' },
-	]);
-	await db.insert(s.userGroupMember).values([
-		{ groupId: 'all-users-group', userId: ACTOR_ID, provider: 'manual', active: true },
-		{ groupId: GROUP_ID, userId: ACTOR_ID, provider: 'manual', active: true },
-	]);
-	await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: IMPLICIT_USER_ID, role: 'user' });
-	await db.insert(s.chat).values({ id: 'project-wide-chat', projectId: PROJECT_ID, userId: IMPLICIT_USER_ID });
-	await db.insert(s.sharedChat).values({ chatId: 'project-wide-chat', visibility: 'project' });
-}
+const LEGACY_GROUP_ID = 'legacy-group';
+const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-groups-as-code-'));
 
 describe('user group config reconciliation', () => {
-	it('adopts, idempotently reapplies, archives, reactivates, and returns ownership to the UI', async () => {
-		await setup();
+	beforeAll(setup);
+	afterAll(() => fs.rmSync(projectPath, { recursive: true, force: true }));
+
+	it('adopts on the first apply, archives unlisted groups, reapplies idempotently, and reactivates', async () => {
 		const configured = parseUserGroupsConfig(configSource(true));
-		expect(await listUsersWithProjectAccessDetails(PROJECT_ID)).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ id: ACTOR_ID, emailVerified: false }),
-				expect.objectContaining({ id: IMPLICIT_USER_ID, emailVerified: false }),
-			]),
-		);
+
 		const enabled = await reconcileUserGroupsConfig(PROJECT_ID, configured, ACTOR_ID);
 
-		expect(enabled.summary.adopted).toBe(1);
+		expect(enabled.summary).toMatchObject({ adopted: 1, archived: 1 });
 		expect(enabled.pendingEmails).toEqual([]);
-		expect(enabled.allUsersChanged).toBe(true);
-		expect(enabled.accessChanges).toContain('finance');
-		expect(enabled.budgetChanges).toEqual(['all_users']);
 		expect(enabled.shareRevocations).toEqual({ chats: 1, stories: 0 });
 		expect(await db.select().from(s.sharedChat)).toEqual([]);
 		expect(await projectMode()).toBe('code');
 		expect(await storedGroup()).toMatchObject({
-			id: GROUP_ID,
+			name: 'Finance team',
 			configKey: 'finance',
 			archivedAt: null,
 			featureGrants: { advancedContextExplorer: true },
 		});
-		expect(
-			await db
-				.select({ featureGrants: s.userGroup.featureGrants })
-				.from(s.userGroup)
-				.where(eq(s.userGroup.id, 'all-users-group')),
-		).toEqual([{ featureGrants: expect.objectContaining({ advancedContextExplorer: false }) }]);
+		expect((await storedGroup(LEGACY_GROUP_ID)).archivedAt).not.toBeNull();
 		expect(await memberships(IMPLICIT_USER_ID)).toEqual([{ provider: 'config', active: true }]);
 		expect(await memberships()).toEqual([
 			{ provider: 'config', active: true },
 			{ provider: 'manual', active: false },
 		]);
-		expect(
-			await db
-				.select({ active: s.userGroupMember.active })
-				.from(s.userGroupMember)
-				.where(eq(s.userGroupMember.groupId, 'all-users-group')),
-		).toEqual([{ active: true }]);
-		expect(
-			await db
-				.select({ limitUsd: s.projectMemberBudgetSettings.defaultLimitUsd })
-				.from(s.projectMemberBudgetSettings)
-				.where(eq(s.projectMemberBudgetSettings.projectId, PROJECT_ID)),
-		).toEqual([{ limitUsd: 25 }]);
 
 		const repeated = await reconcileUserGroupsConfig(PROJECT_ID, configured, ACTOR_ID, 'deploy-id');
 		expect(repeated.summary.unchanged).toBe(1);
 		expect(repeated.allUsersChanged).toBe(false);
-		expect(repeated.accessChanges).toEqual([]);
-		expect(repeated.budgetChanges).toEqual([]);
 		const [deployActivity] = await db
 			.select({ status: s.activity.status, payload: s.activity.payload })
 			.from(s.activity)
@@ -131,21 +92,50 @@ describe('user group config reconciliation', () => {
 
 		const reactivated = await reconcileUserGroupsConfig(PROJECT_ID, configured, ACTOR_ID);
 		expect(reactivated.summary.reactivated).toBe(1);
-		expect(await storedGroup()).toMatchObject({ id: GROUP_ID, name: 'Finance', archivedAt: null });
+		expect(await storedGroup()).toMatchObject({ name: 'Finance team', archivedAt: null });
+	});
 
-		await disableCodeManagedUserGroups(PROJECT_ID, ACTOR_ID);
-		expect(await projectMode()).toBe('ui');
-		expect(await memberships()).toEqual([
-			{ provider: 'config', active: false },
-			{ provider: 'manual', active: true },
+	it('refuses to start self-hosted, skips an applied file, and only records the failure on Cloud', async () => {
+		await expect(reconcileUserGroupsConfigsAtStartup()).rejects.toThrow('groups.yaml is missing');
+		expect(await failedActivities()).toEqual([
+			{ userId: null, trigger: 'system', errorMessage: expect.stringContaining('groups.yaml is missing') },
 		]);
-		const [assignment] = await db
-			.select({ active: s.userGroupConfigMember.active })
-			.from(s.userGroupConfigMember)
-			.where(eq(s.userGroupConfigMember.groupId, GROUP_ID));
-		expect(assignment?.active).toBe(false);
+
+		fs.writeFileSync(path.join(projectPath, 'groups.yaml'), configSource(true));
+		const activityCount = (await db.select().from(s.activity)).length;
+		await expect(reconcileUserGroupsConfigsAtStartup()).resolves.toBeUndefined();
+		expect(await db.select().from(s.activity)).toHaveLength(activityCount);
+
+		mocks.isCloud = true;
+		fs.writeFileSync(path.join(projectPath, 'groups.yaml'), 'version: 2\ngroups: []\n');
+		await expect(reconcileUserGroupsConfigsAtStartup()).resolves.toBeUndefined();
+		expect((await failedActivities())[1]).toMatchObject({ errorMessage: expect.stringContaining('version') });
+		mocks.isCloud = false;
 	});
 });
+
+async function setup() {
+	await db.insert(s.user).values([
+		{ id: ACTOR_ID, name: 'Admin', email: 'admin@example.com' },
+		{ id: IMPLICIT_USER_ID, name: 'Implicit user', email: 'implicit@example.com' },
+	]);
+	await db.insert(s.project).values({ id: PROJECT_ID, name: 'Groups as code', type: 'local', path: projectPath });
+	await db.insert(s.projectMember).values([
+		{ projectId: PROJECT_ID, userId: ACTOR_ID, role: 'admin' },
+		{ projectId: PROJECT_ID, userId: IMPLICIT_USER_ID, role: 'user' },
+	]);
+	await db.insert(s.userGroup).values([
+		{ id: 'all-users-group', projectId: PROJECT_ID, name: 'All Users', isDefault: true },
+		{ id: GROUP_ID, projectId: PROJECT_ID, name: 'Finance' },
+		{ id: LEGACY_GROUP_ID, projectId: PROJECT_ID, name: 'Legacy' },
+	]);
+	await db.insert(s.userGroupMember).values([
+		{ groupId: 'all-users-group', userId: ACTOR_ID, provider: 'manual', active: true },
+		{ groupId: GROUP_ID, userId: ACTOR_ID, provider: 'manual', active: true },
+	]);
+	await db.insert(s.chat).values({ id: 'project-wide-chat', projectId: PROJECT_ID, userId: IMPLICIT_USER_ID });
+	await db.insert(s.sharedChat).values({ chatId: 'project-wide-chat', visibility: 'project' });
+}
 
 async function projectMode() {
 	const [project] = await db
@@ -155,8 +145,8 @@ async function projectMode() {
 	return project!.mode;
 }
 
-async function storedGroup() {
-	const [group] = await db.select().from(s.userGroup).where(eq(s.userGroup.id, GROUP_ID));
+async function storedGroup(groupId = GROUP_ID) {
+	const [group] = await db.select().from(s.userGroup).where(eq(s.userGroup.id, groupId));
 	return group!;
 }
 
@@ -168,27 +158,25 @@ async function memberships(userId = ACTOR_ID) {
 		.orderBy(s.userGroupMember.provider);
 }
 
+async function failedActivities() {
+	return db
+		.select({ userId: s.activity.userId, trigger: s.activity.trigger, errorMessage: s.activity.errorMessage })
+		.from(s.activity)
+		.where(and(eq(s.activity.projectId, PROJECT_ID), eq(s.activity.status, 'failed')));
+}
+
 function configSource(withFinance: boolean): string {
 	return `
-version: 1
-defaults:
-  features: []
-  tool_call_density: { default_density: detailed, can_change: true }
-  show_all_settings: false
-  advanced_context_explorer: false
-  project_sharing: blocked
-  share_targets: { include_own_group: true, group_keys: [] }
-  preloaded_skills: []
-  budget_limit_usd: null
-  database_access: { mode: all, strict: true }
-  docs_access: { mode: all }
-  files_access: { mode: all }
-  mcp_access: { mode: all }
-  skills_access: { mode: all }
-  row_policies: { version: 1, policies: [] }
-all_users:
-  budget_limit_usd: 25
 groups:
-${withFinance ? '  - key: finance\n    name: Finance\n    members: [admin@example.com, implicit@example.com]\n    advanced_context_explorer: true' : '  []'}
+    - id: default
+      capabilities:
+          project_sharing: blocked
+          mcp: {mode: all}
+          skills: {mode: all}
+      access:
+          databases: {mode: all, strict: true}
+          files: {mode: all}
+    - id: all_users
+${withFinance ? '    - id: finance\n      name: Finance team\n      list_of_emails: [admin@example.com, implicit@example.com]\n      capabilities:\n          advanced_context_explorer: true' : ''}
 `;
 }

@@ -75,7 +75,7 @@ function UserGroupDetailPage() {
 			{isCodeManaged && (
 				<div className='rounded-md border bg-muted/40 p-3 text-sm'>
 					<p>
-						Managed in <code>user_groups.yaml</code>. Deploy an updated file to change this group.
+						Managed in <code>groups.yaml</code>. Deploy an updated file to change this group.
 					</p>
 					{pendingEmails.length > 0 && (
 						<p className='mt-1 text-amber-700 dark:text-amber-400'>

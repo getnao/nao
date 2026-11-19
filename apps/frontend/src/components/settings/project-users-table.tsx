@@ -292,7 +292,7 @@ function ManagedProjectUsersTable({
 				description={
 					canManageGroups
 						? 'Add members to the project and assign them to groups.'
-						: 'Add members to the project. Group memberships are managed by user_groups.yaml.'
+						: 'Add members to the project. Group memberships are managed by groups.yaml.'
 				}
 				flush
 				className='gap-0'
@@ -779,5 +779,5 @@ function toGroupToken(
 	}
 	return setGroupMembership
 		? { key: group.id, name: group.name, onRemove: () => setGroupMembership(group.id, false) }
-		: { key: group.id, name: group.name, title: 'Managed by user_groups.yaml' };
+		: { key: group.id, name: group.name, title: 'Managed by groups.yaml' };
 }

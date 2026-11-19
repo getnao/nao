@@ -1,118 +1,74 @@
-import {
-	type DatabaseContextAccess,
-	EMPTY_DATABASE_CONTEXT_ACCESS,
-	EMPTY_DOCS_CONTEXT_ACCESS,
-	EMPTY_FILES_CONTEXT_ACCESS,
-	EMPTY_MCP_ACCESS,
-	EMPTY_SKILLS_ACCESS,
-	EMPTY_USER_GROUP_ROW_POLICIES,
-	type FileTreeAccess,
-	type UserGroupRowPolicies,
-} from '@nao/shared';
-import { and, eq } from 'drizzle-orm';
+import type { DatabaseContextAccess, FileTreeAccess, McpAccess, SkillsAccess, UserGroupRowPolicies } from '@nao/shared';
 import yaml from 'js-yaml';
 
-import s from '../db/abstractSchema';
-import { db } from '../db/db';
-import * as memberBudgetQueries from '../queries/member-budget.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
-import type { NormalizedUserGroupSettings } from './user-group-config.service';
+import { getFilesContextCatalog } from './file-tree-catalog.service';
+import {
+	ALL_USERS_GROUP_ID,
+	DEFAULT_GROUP_ID,
+	DOCS_ROOT,
+	HIDDEN_DEFAULTS,
+	toSnakeCase,
+} from './user-group-config.service';
+import { listPendingUserGroupConfigAssignments } from './user-group-management.service';
 
-const EXPORT_DEFAULTS: NormalizedUserGroupSettings = {
-	features: [],
-	toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
-	showAllSettings: false,
-	advancedContextExplorer: false,
-	projectSharing: 'inherit',
-	shareTargets: { includeOwnGroup: true, groupKeys: [] },
-	preloadedSkills: [],
-	budgetLimitUsd: null,
-	databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
-	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
-	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
-	mcpAccess: EMPTY_MCP_ACCESS,
-	skillsAccess: EMPTY_SKILLS_ACCESS,
-	rowPolicies: EMPTY_USER_GROUP_ROW_POLICIES,
-};
+type ExportedSection = Record<string, unknown>;
 
-export async function exportUserGroupsConfig(projectId: string): Promise<string> {
-	const [overview, budgets, defaultBudgetSettings, storedKeys, desiredMembers] = await Promise.all([
-		userGroupQueries.getUserGroupOverview(projectId),
-		memberBudgetQueries.listGroupBudgets(projectId),
-		memberBudgetQueries.getMemberBudgetSettings(projectId),
-		db
-			.select({ id: s.userGroup.id, configKey: s.userGroup.configKey })
-			.from(s.userGroup)
-			.where(eq(s.userGroup.projectId, projectId))
-			.execute(),
-		db
-			.select({
-				groupId: s.userGroupConfigMember.groupId,
-				normalizedEmail: s.userGroupConfigMember.normalizedEmail,
-			})
-			.from(s.userGroupConfigMember)
-			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupConfigMember.groupId))
-			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupConfigMember.active, true)))
-			.execute(),
+export async function exportUserGroupsConfig(projectId: string, projectPath: string): Promise<string> {
+	const [groups, memberships, users, pendingAssignments] = await Promise.all([
+		userGroupQueries.listUserGroups(projectId),
+		userGroupQueries.listUserGroupMemberships(projectId),
+		userGroupQueries.getUserGroupOverview(projectId).then((overview) => overview.users),
+		listPendingUserGroupConfigAssignments(projectId),
 	]);
-	const defaultGroup = overview.groups.find((group) => group.isDefault);
+	const defaultGroup = groups.find((group) => group.isDefault);
 	if (!defaultGroup) {
 		throw new userGroupQueries.UserGroupQueryError('NOT_FOUND', 'The All Users group is missing.');
 	}
-	const customGroups = overview.groups.filter((group) => !group.isDefault);
-	const keysByGroupId = assignCandidateKeys(
-		customGroups,
-		new Set(storedKeys.flatMap((group) => (group.configKey ? [group.configKey] : []))),
-	);
-	const usersById = new Map(overview.users.map((user) => [user.id, user]));
-	const memberIdsByGroup = new Map<string, Set<string>>();
-	for (const membership of overview.memberships) {
-		const members = memberIdsByGroup.get(membership.groupId) ?? new Set<string>();
-		members.add(membership.userId);
-		memberIdsByGroup.set(membership.groupId, members);
+	const customGroups = groups.filter((group) => !group.isDefault);
+	const keysByGroupId = assignUserGroupConfigKeys(customGroups);
+	const emailsByUserId = new Map(users.map((user) => [user.id, user.email.trim().toLowerCase()]));
+	const emailsByGroupId = new Map<string, Set<string>>();
+	const addEmail = (groupId: string, email: string | undefined) => {
+		if (email) {
+			emailsByGroupId.set(groupId, (emailsByGroupId.get(groupId) ?? new Set()).add(email));
+		}
+	};
+	for (const membership of memberships) {
+		addEmail(membership.groupId, emailsByUserId.get(membership.userId));
 	}
-	const budgetsByGroupId = new Map(budgets.map((budget) => [budget.groupId, budget.limitUsd]));
-	const desiredEmailsByGroup = new Map<string, string[]>();
-	for (const member of desiredMembers) {
-		const emails = desiredEmailsByGroup.get(member.groupId) ?? [];
-		emails.push(member.normalizedEmail);
-		desiredEmailsByGroup.set(member.groupId, emails);
+	for (const assignment of pendingAssignments) {
+		addEmail(assignment.groupId, assignment.email);
 	}
+	const topLevelFileGrants = getFilesContextCatalog(projectPath)
+		.entries.filter((entry) => !entry.path.includes('/'))
+		.map((entry) => ({ kind: entry.kind, path: entry.path }));
+	const exportGroup = (group: userGroupQueries.UserGroup, key: string) => ({
+		id: key,
+		...(group.isDefault || group.name === key ? {} : { name: group.name }),
+		...(group.isDefault ? {} : membershipSection(group, emailsByGroupId.get(group.id))),
+		...settingsSections(group, keysByGroupId, topLevelFileGrants),
+	});
 
 	return yaml.dump(
 		{
-			version: 1,
-			defaults: serializeSettings(EXPORT_DEFAULTS),
-			all_users: serializeSettings(
-				toSettings(defaultGroup, defaultBudgetSettings?.defaultLimitUsd || null),
-				keysByGroupId,
-			),
-			groups: customGroups
-				.map((group) => ({
-					key: keysByGroupId.get(group.id)!,
-					name: group.name,
-					members:
-						desiredEmailsByGroup.get(group.id)?.sort() ??
-						[...(memberIdsByGroup.get(group.id) ?? [])]
-							.flatMap((userId) => {
-								const email = usersById.get(userId)?.email;
-								return email ? [email.trim().toLowerCase()] : [];
-							})
-							.sort(),
-					...serializeSettings(toSettings(group, budgetsByGroupId.get(group.id) ?? null), keysByGroupId),
-				}))
-				.sort((left, right) => left.key.localeCompare(right.key)),
+			groups: [
+				exportGroup(defaultGroup, ALL_USERS_GROUP_ID),
+				...customGroups
+					.map((group) => exportGroup(group, keysByGroupId.get(group.id)!))
+					.sort((left, right) => left.id.localeCompare(right.id)),
+			],
 		},
-		{ noRefs: true, lineWidth: -1, noCompatMode: true },
+		{ noRefs: true, lineWidth: -1, noCompatMode: true, indent: 4 },
 	);
 }
 
-function assignCandidateKeys(
-	groups: userGroupQueries.UserGroup[],
-	reservedKeys: ReadonlySet<string>,
+/** The id each custom group gets in `groups.yaml`. The first apply adopts UI groups through these same ids. */
+export function assignUserGroupConfigKeys(
+	groups: ReadonlyArray<{ id: string; name: string; configKey: string | null }>,
 ): Map<string, string> {
 	const result = new Map<string, string>();
-	const used = new Set(reservedKeys);
+	const used = new Set([DEFAULT_GROUP_ID, ALL_USERS_GROUP_ID, ...groups.flatMap((group) => group.configKey ?? [])]);
 	for (const group of [...groups].sort(
 		(left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
 	)) {
@@ -120,12 +76,10 @@ function assignCandidateKeys(
 			result.set(group.id, group.configKey);
 			continue;
 		}
-		const base = keyFromName(group.name);
+		const base = groupIdFromName(group.name);
 		let candidate = base;
-		let suffix = 2;
-		while (used.has(candidate)) {
-			candidate = `${base}-${suffix}`;
-			suffix += 1;
+		for (let suffix = 2; used.has(candidate); suffix += 1) {
+			candidate = `${base}_${suffix}`;
 		}
 		used.add(candidate);
 		result.set(group.id, candidate);
@@ -133,93 +87,159 @@ function assignCandidateKeys(
 	return result;
 }
 
-function keyFromName(name: string): string {
+export function groupIdFromName(name: string): string {
 	const slug = name
 		.normalize('NFKD')
 		.replaceAll(/[\u0300-\u036f]/g, '')
 		.toLowerCase()
-		.replaceAll(/[^a-z0-9_-]+/g, '-')
-		.replaceAll(/^-+|-+$/g, '')
+		.replaceAll(/[^a-z0-9]+/g, '_')
+		.replaceAll(/^_+|_+$/g, '')
 		.slice(0, 70);
 	if (!slug) {
 		return 'group';
 	}
-	return /^[a-z]/.test(slug) ? slug : `group-${slug}`;
+	return /^[a-z]/.test(slug) ? slug : `group_${slug}`;
 }
 
-function toSettings(group: userGroupQueries.UserGroup, budgetLimitUsd: number | null): NormalizedUserGroupSettings {
+function membershipSection(
+	group: userGroupQueries.UserGroup,
+	emails: ReadonlySet<string> | undefined,
+): ExportedSection {
+	const { oidc, microsoft } = group.ssoMappings.providers;
+	const hasSsoGroups = oidc.length > 0 || microsoft.length > 0 || group.ssoMappings.defaultProjectRole;
 	return {
-		features: group.featureGrants,
-		toolCallDensityPolicy: group.toolCallDensityPolicy,
-		showAllSettings: group.showAllSettings,
-		advancedContextExplorer: group.advancedContextExplorer,
-		projectSharing: group.projectSharing,
-		shareTargets: { includeOwnGroup: group.shareTargets.includeOwnGroup, groupKeys: group.shareTargets.groupIds },
-		preloadedSkills: group.preloadedSkills,
-		budgetLimitUsd,
-		databaseAccess: group.databaseAccess,
-		docsAccess: group.docsAccess,
-		filesAccess: group.filesAccess,
-		mcpAccess: group.mcpAccess,
-		skillsAccess: group.skillsAccess,
-		rowPolicies: group.rowPolicies,
+		list_of_emails: [...(emails ?? [])].sort(),
+		...(hasSsoGroups
+			? {
+					sso_groups: {
+						oidc,
+						microsoft,
+						...(group.ssoMappings.defaultProjectRole
+							? { default_project_role: group.ssoMappings.defaultProjectRole }
+							: {}),
+					},
+				}
+			: {}),
 	};
 }
 
-function serializeSettings(
-	settings: NormalizedUserGroupSettings,
-	keysByGroupId: ReadonlyMap<string, string> = new Map(),
-): Record<string, unknown> {
-	return {
-		features: settings.features,
-		tool_call_density: {
-			default_density: settings.toolCallDensityPolicy.defaultDensity,
-			can_change: settings.toolCallDensityPolicy.canChange,
-		},
-		show_all_settings: settings.showAllSettings,
-		advanced_context_explorer: settings.advancedContextExplorer,
-		project_sharing: settings.projectSharing,
-		share_targets: {
-			include_own_group: settings.shareTargets.includeOwnGroup,
-			group_keys: settings.shareTargets.groupKeys.flatMap((id) => {
-				const key = keysByGroupId.get(id);
-				return key ? [key] : [];
-			}),
-		},
-		preloaded_skills: settings.preloadedSkills,
-		budget_limit_usd: settings.budgetLimitUsd,
-		database_access: serializeDatabaseAccess(settings.databaseAccess),
-		docs_access: serializeFileTreeAccess(settings.docsAccess),
-		files_access: serializeFileTreeAccess(settings.filesAccess),
-		mcp_access: settings.mcpAccess,
-		skills_access: settings.skillsAccess,
-		row_policies: serializeRowPolicies(settings.rowPolicies),
+function settingsSections(
+	group: userGroupQueries.UserGroup,
+	keysByGroupId: ReadonlyMap<string, string>,
+	topLevelFileGrants: Array<{ kind: 'folder' | 'file'; path: string }>,
+): ExportedSection {
+	const sections = {
+		capabilities: withoutHiddenDefaults(HIDDEN_DEFAULTS.capabilities, {
+			features: group.featureGrants.map(toSnakeCase),
+			tool_call_density: {
+				default_density: group.toolCallDensityPolicy.defaultDensity,
+				can_change: group.toolCallDensityPolicy.canChange,
+			},
+			show_all_settings: group.showAllSettings,
+			advanced_context_explorer: group.advancedContextExplorer,
+			project_sharing: group.projectSharing,
+			share_targets: {
+				include_own_group: group.shareTargets.includeOwnGroup,
+				group_ids: group.shareTargets.groupIds.flatMap((id) => keysByGroupId.get(id) ?? []).sort(),
+			},
+			mcp: exportMcpAccess(group.mcpAccess),
+			skills: exportSkillsAccess(group.skillsAccess, group.preloadedSkills),
+		}),
+		access: withoutHiddenDefaults(HIDDEN_DEFAULTS.access, {
+			databases: exportDatabaseAccess(group.databaseAccess),
+			files: exportFileAccess(group.docsAccess, group.filesAccess, topLevelFileGrants),
+		}),
+		policies: withoutHiddenDefaults(HIDDEN_DEFAULTS.policies, {
+			rows: exportRowPolicies(group.rowPolicies),
+			columns: [],
+		}),
 	};
+	return Object.fromEntries(Object.entries(sections).filter(([, section]) => Object.keys(section).length > 0));
 }
 
-function serializeDatabaseAccess(access: DatabaseContextAccess): Record<string, unknown> {
+function withoutHiddenDefaults(defaults: object, section: ExportedSection): ExportedSection {
+	const hidden = defaults as ExportedSection;
+	return Object.fromEntries(
+		Object.entries(section).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(hidden[key])),
+	);
+}
+
+function exportMcpAccess(access: McpAccess): ExportedSection {
+	return access.mode === 'all' ? { mode: 'all' } : { mode: 'restricted', grants: access.grants };
+}
+
+function exportSkillsAccess(access: SkillsAccess, preloaded: string[]): ExportedSection {
+	return access.mode === 'all'
+		? { mode: 'all', preloaded }
+		: { mode: 'restricted', allowed: access.skills, preloaded };
+}
+
+function exportDatabaseAccess(access: DatabaseContextAccess): ExportedSection {
 	if (access.mode === 'all') {
-		return access;
+		return { mode: 'all', strict: access.strict };
 	}
 	return {
-		...access,
-		grants: access.grants.map((grant) => {
-			const { databaseType: database_type, ...rest } = grant;
-			return { ...rest, database_type };
-		}),
+		mode: 'restricted',
+		strict: access.strict,
+		grants: access.grants.map(({ kind, databaseType: database_type, ...grant }) => ({
+			kind,
+			database_type,
+			...grant,
+		})),
+		patterns: access.patterns,
 	};
 }
 
-function serializeFileTreeAccess(access: FileTreeAccess): FileTreeAccess {
-	return access;
-}
-
-function serializeRowPolicies(rowPolicies: UserGroupRowPolicies): Record<string, unknown> {
+/**
+ * Docs and project files are merged under `access.files`. Full project-file access next to restricted docs has no
+ * restricted form, so it is exported as the project's current top-level entries.
+ */
+function exportFileAccess(
+	docsAccess: FileTreeAccess,
+	filesAccess: FileTreeAccess,
+	topLevelFileGrants: Array<{ kind: 'folder' | 'file'; path: string }>,
+): ExportedSection {
+	if (docsAccess.mode === 'all' && filesAccess.mode === 'all') {
+		return { mode: 'all' };
+	}
+	const docsGrants =
+		docsAccess.mode === 'all'
+			? [{ kind: 'folder' as const, path: DOCS_ROOT }]
+			: docsAccess.grants.map((grant) => ({ kind: grant.kind, path: `${DOCS_ROOT}/${grant.path}` }));
 	return {
-		version: 1,
-		policies: rowPolicies.policies.map((policy) => {
-			const { databaseType: database_type, ...rest } = policy;
-			return { ...rest, database_type };
-		}),
+		mode: 'restricted',
+		grants: [...docsGrants, ...(filesAccess.mode === 'all' ? topLevelFileGrants : filesAccess.grants)],
 	};
+}
+
+function exportRowPolicies(rowPolicies: UserGroupRowPolicies): ExportedSection[] {
+	return rowPolicies.policies.map((row) => {
+		const { databaseType: database_type, database, schema, table } = row;
+		const identity = { database_type, database, schema, table };
+		if (row.access === 'full') {
+			return { ...identity, access: 'full' };
+		}
+		if (row.mode === 'sql') {
+			return { ...identity, access: 'predicate', mode: 'sql', predicate: row.predicate };
+		}
+		return {
+			...identity,
+			access: 'predicate',
+			mode: 'guided',
+			combinator: row.combinator,
+			conditions: row.conditions.map((condition) => {
+				const operator = toSnakeCase(condition.operator);
+				if (condition.operator === 'is-one-of' || condition.operator === 'is-not-one-of') {
+					return {
+						column: condition.column,
+						operator,
+						values: (condition.value ?? '').split(',').map((value) => value.trim()),
+					};
+				}
+				return condition.value === undefined
+					? { column: condition.column, operator }
+					: { column: condition.column, operator, value: condition.value };
+			}),
+		};
+	});
 }

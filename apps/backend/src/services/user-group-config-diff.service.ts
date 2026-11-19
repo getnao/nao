@@ -1,12 +1,17 @@
-import { count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 
+import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import * as memberBudgetQueries from '../queries/member-budget.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { previewProjectWideShareRevocationForConfig } from './project-sharing.service';
-import type { NormalizedConfiguredUserGroup, NormalizedUserGroupsConfig } from './user-group-config.service';
+import type {
+	NormalizedConfiguredUserGroup,
+	NormalizedUserGroupsConfig,
+	NormalizedUserGroupSettings,
+} from './user-group-config.service';
 import { UserGroupConfigError } from './user-group-config.service';
+import { assignUserGroupConfigKeys } from './user-group-config-export.service';
 import { listUsersEligibleForUserGroupConfig } from './user-group-config-membership.service';
 import { getUserGroupManagementMode } from './user-group-management.service';
 
@@ -15,7 +20,6 @@ export type UserGroupConfigAction = 'created' | 'adopted' | 'updated' | 'archive
 export interface UserGroupConfigChange {
 	action: UserGroupConfigAction;
 	key: string;
-	name: string;
 	groupId: string | null;
 }
 
@@ -26,8 +30,6 @@ export interface UserGroupConfigDiff {
 	groups: UserGroupConfigChange[];
 	pendingEmails: string[];
 	shareRevocations: { chats: number; stories: number };
-	accessChanges: string[];
-	budgetChanges: string[];
 	summary: Record<UserGroupConfigAction, number>;
 }
 
@@ -35,95 +37,59 @@ export async function diffUserGroupsConfig(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
 ): Promise<UserGroupConfigDiff> {
-	const configuredEmails = config.groups.flatMap((group) => group.members);
-	const [mode, overview, budgets, defaultBudgetSettings, storedGroups, configMembers, eligibleUsers] =
-		await Promise.all([
-			getUserGroupManagementMode(projectId),
-			userGroupQueries.getUserGroupOverview(projectId),
-			memberBudgetQueries.listGroupBudgets(projectId),
-			memberBudgetQueries.getMemberBudgetSettings(projectId),
-			db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
-			db.select().from(s.userGroupConfigMember).where(eq(s.userGroupConfigMember.active, true)).execute(),
-			listUsersEligibleForUserGroupConfig(projectId, configuredEmails),
-		]);
-	const defaultGroup = overview.groups.find((group) => group.isDefault);
+	const [mode, groups, storedGroups, configMembers, eligibleUsers] = await Promise.all([
+		getUserGroupManagementMode(projectId),
+		userGroupQueries.listUserGroups(projectId),
+		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
+		db
+			.select({ groupId: s.userGroupConfigMember.groupId, email: s.userGroupConfigMember.normalizedEmail })
+			.from(s.userGroupConfigMember)
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupConfigMember.groupId))
+			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupConfigMember.active, true)))
+			.execute(),
+		listUsersEligibleForUserGroupConfig(
+			projectId,
+			config.groups.flatMap((group) => group.members),
+		),
+	]);
+	const defaultGroup = groups.find((group) => group.isDefault);
 	if (!defaultGroup) {
 		throw new UserGroupConfigError('The All Users group is missing.');
 	}
-	const activeCustomGroups = overview.groups.filter((group) => !group.isDefault);
-	const groupsByKey = new Map(storedGroups.flatMap((group) => (group.configKey ? [[group.configKey, group]] : [])));
-	const groupsByName = new Map(activeCustomGroups.map((group) => [group.name, group]));
-	if (mode === 'ui') {
-		const desiredNames = new Set(config.groups.map((group) => group.name));
-		const missingAdoptions = activeCustomGroups.filter((group) => !desiredNames.has(group.name));
-		if (missingAdoptions.length > 0) {
-			throw new UserGroupConfigError(
-				`Every active custom group must be adopted by name. Missing: ${missingAdoptions.map((group) => group.name).join(', ')}.`,
-			);
-		}
-		for (const desired of config.groups) {
-			const keyOwner = groupsByKey.get(desired.key);
-			const adopted = groupsByName.get(desired.name);
-			if (keyOwner && keyOwner.id !== adopted?.id) {
-				throw new UserGroupConfigError(`Group key "${desired.key}" is already reserved by another group.`);
-			}
-		}
+	const activeGroupsById = new Map(groups.map((group) => [group.id, group]));
+	const storedByKey = matchStoredUserGroups(storedGroups);
+	const keysByGroupId = new Map([...storedByKey].map(([key, group]) => [group.id, key]));
+	const currentEmails = new Map<string, string[]>();
+	for (const member of configMembers) {
+		currentEmails.set(member.groupId, [...(currentEmails.get(member.groupId) ?? []), member.email]);
 	}
-	const usersById = new Map(overview.users.map((user) => [user.id, user]));
-	const usersByEmail = groupUsersByNormalizedEmail(eligibleUsers);
-	const currentMemberEmails = new Map<string, string[]>();
-	for (const membership of overview.memberships) {
-		const email = usersById.get(membership.userId)?.email.trim().toLowerCase();
-		if (email) {
-			currentMemberEmails.set(membership.groupId, [
-				...(currentMemberEmails.get(membership.groupId) ?? []),
-				email,
-			]);
+	const changes: UserGroupConfigChange[] = config.groups.map((desired) => {
+		const stored = storedByKey.get(desired.key);
+		if (!stored) {
+			return { action: 'created', key: desired.key, groupId: null };
 		}
-	}
-	if (mode === 'code') {
-		for (const assignment of configMembers) {
-			if (storedGroups.some((group) => group.id === assignment.groupId && group.projectId === projectId)) {
-				currentMemberEmails.set(assignment.groupId, [
-					...(currentMemberEmails.get(assignment.groupId) ?? []),
-					assignment.normalizedEmail,
-				]);
-			}
+		if (stored.archivedAt) {
+			return { action: 'reactivated', key: desired.key, groupId: stored.id };
 		}
-	}
-	const budgetsByGroupId = new Map(budgets.map((budget) => [budget.groupId, budget.limitUsd]));
-	const defaultBudgetLimitUsd = defaultBudgetSettings?.defaultLimitUsd || null;
-	const keysByGroupId = new Map<string, string>();
-	for (const desired of config.groups) {
-		const stored = mode === 'ui' ? groupsByName.get(desired.name) : groupsByKey.get(desired.key);
-		if (stored) {
-			keysByGroupId.set(stored.id, desired.key);
+		if (!stored.configKey) {
+			return { action: 'adopted', key: desired.key, groupId: stored.id };
 		}
-	}
+		const active = activeGroupsById.get(stored.id);
+		const unchanged =
+			active &&
+			active.name === desired.name &&
+			sameGroup(active, desired, keysByGroupId) &&
+			sameStrings(currentEmails.get(active.id) ?? [], desired.members);
+		return { action: unchanged ? 'unchanged' : 'updated', key: desired.key, groupId: stored.id };
+	});
 	const desiredKeys = new Set(config.groups.map((group) => group.key));
-	const changes = config.groups.map((desired) =>
-		diffDesiredGroup(
-			mode,
-			desired,
-			groupsByName,
-			groupsByKey,
-			activeCustomGroups,
-			currentMemberEmails,
-			budgetsByGroupId,
-			keysByGroupId,
-		),
-	);
-	for (const group of activeCustomGroups) {
-		if (mode === 'code' && group.configKey && !desiredKeys.has(group.configKey)) {
-			changes.push({ action: 'archived', key: group.configKey, name: group.name, groupId: group.id });
+	for (const [key, group] of storedByKey) {
+		if (!group.archivedAt && !desiredKeys.has(key)) {
+			changes.push({ action: 'archived', key, groupId: group.id });
 		}
 	}
-	const pendingEmails = [
-		...new Set(config.groups.flatMap((group) => group.members).filter((email) => !usersByEmail.has(email))),
-	].sort();
-	const archivedGroupIds = changes.flatMap((change) =>
-		change.action === 'archived' && change.groupId ? [change.groupId] : [],
-	);
+	const usersByEmail = groupUsersByNormalizedEmail(eligibleUsers);
+	const archivedGroupIds = changes.flatMap((change) => (change.action === 'archived' ? [change.groupId!] : []));
 	const [groupShareRevocations, projectShareRevocations] = await Promise.all([
 		countShareRevocations(archivedGroupIds),
 		previewProjectWideShareRevocationForConfig(projectId, {
@@ -134,242 +100,91 @@ export async function diffUserGroupsConfig(
 			})),
 		}),
 	]);
-	const shareRevocations = {
-		chats: groupShareRevocations.chats + projectShareRevocations.chatCount,
-		stories: groupShareRevocations.stories + projectShareRevocations.storyCount,
-	};
-	const accessChanges = getAccessChanges(
-		config,
-		defaultGroup,
-		activeCustomGroups,
-		groupsByName,
-		groupsByKey,
-		keysByGroupId,
-		currentMemberEmails,
-		changes,
-		mode,
-	);
-	const budgetChanges = getBudgetChanges(
-		config,
-		defaultBudgetLimitUsd,
-		activeCustomGroups,
-		groupsByName,
-		groupsByKey,
-		budgetsByGroupId,
-		changes,
-		mode,
-	);
-	const summary = Object.fromEntries(
-		(['created', 'adopted', 'updated', 'archived', 'reactivated', 'unchanged'] as const).map((action) => [
-			action,
-			changes.filter((change) => change.action === action).length,
-		]),
-	) as Record<UserGroupConfigAction, number>;
 
 	return {
 		hash: config.hash,
 		mode,
-		allUsersChanged: !sameGroupSettings(defaultGroup, config.allUsers, defaultBudgetLimitUsd, keysByGroupId),
+		allUsersChanged: !sameSettings(defaultGroup, config.allUsers, keysByGroupId),
 		groups: changes.sort((left, right) => left.key.localeCompare(right.key)),
-		pendingEmails,
-		shareRevocations,
-		accessChanges,
-		budgetChanges,
-		summary,
+		pendingEmails: [
+			...new Set(config.groups.flatMap((group) => group.members).filter((email) => !usersByEmail.has(email))),
+		].sort(),
+		shareRevocations: {
+			chats: groupShareRevocations.chats + projectShareRevocations.chatCount,
+			stories: groupShareRevocations.stories + projectShareRevocations.storyCount,
+		},
+		summary: Object.fromEntries(
+			(['created', 'adopted', 'updated', 'archived', 'reactivated', 'unchanged'] as const).map((action) => [
+				action,
+				changes.filter((change) => change.action === action).length,
+			]),
+		) as Record<UserGroupConfigAction, number>,
 	};
 }
 
-function getAccessChanges(
-	config: NormalizedUserGroupsConfig,
-	defaultGroup: userGroupQueries.UserGroup,
-	activeGroups: userGroupQueries.UserGroup[],
-	groupsByName: ReadonlyMap<string, userGroupQueries.UserGroup>,
-	groupsByKey: ReadonlyMap<string, typeof s.userGroup.$inferSelect>,
-	keysByGroupId: ReadonlyMap<string, string>,
-	currentMemberEmails: ReadonlyMap<string, string[]>,
-	changes: UserGroupConfigChange[],
-	mode: 'ui' | 'code',
-): string[] {
-	const changed = new Set<string>();
-	if (!sameAccessSettings(defaultGroup, config.allUsers, keysByGroupId)) {
-		changed.add('all_users');
-	}
-	for (const desired of config.groups) {
-		const stored = mode === 'ui' ? groupsByName.get(desired.name) : groupsByKey.get(desired.key);
-		const active = stored ? activeGroups.find((group) => group.id === stored.id) : undefined;
-		if (
-			!active ||
-			!sameAccessSettings(active, desired, keysByGroupId) ||
-			!sameStrings(currentMemberEmails.get(active.id) ?? [], desired.members)
-		) {
-			changed.add(desired.key);
+/** Active custom groups match by their exported id, archived ones by the id they had when archived. */
+export function matchStoredUserGroups(storedGroups: DBUserGroup[]): Map<string, DBUserGroup> {
+	const activeGroups = storedGroups.filter((group) => !group.isDefault && !group.archivedAt);
+	const keysByGroupId = assignUserGroupConfigKeys(activeGroups);
+	const matches = new Map(activeGroups.map((group) => [keysByGroupId.get(group.id)!, group]));
+	for (const group of storedGroups) {
+		if (group.archivedAt && group.configKey && !matches.has(group.configKey)) {
+			matches.set(group.configKey, group);
 		}
 	}
-	for (const change of changes) {
-		if (change.action === 'archived') {
-			changed.add(change.key);
-		}
-	}
-	return [...changed].sort();
+	return matches;
 }
 
-function getBudgetChanges(
-	config: NormalizedUserGroupsConfig,
-	defaultBudgetLimitUsd: number | null,
-	activeGroups: userGroupQueries.UserGroup[],
-	groupsByName: ReadonlyMap<string, userGroupQueries.UserGroup>,
-	groupsByKey: ReadonlyMap<string, typeof s.userGroup.$inferSelect>,
-	budgetsByGroupId: ReadonlyMap<string, number>,
-	changes: UserGroupConfigChange[],
-	mode: 'ui' | 'code',
-): string[] {
-	const changed = new Set<string>();
-	if (defaultBudgetLimitUsd !== config.allUsers.budgetLimitUsd) {
-		changed.add('all_users');
-	}
-	for (const desired of config.groups) {
-		const stored = mode === 'ui' ? groupsByName.get(desired.name) : groupsByKey.get(desired.key);
-		const active = stored ? activeGroups.find((group) => group.id === stored.id) : undefined;
-		if ((active ? (budgetsByGroupId.get(active.id) ?? null) : null) !== desired.budgetLimitUsd) {
-			changed.add(desired.key);
-		}
-	}
-	for (const change of changes) {
-		if (change.action === 'archived' && change.groupId && budgetsByGroupId.has(change.groupId)) {
-			changed.add(change.key);
-		}
-	}
-	return [...changed].sort();
-}
-
-function diffDesiredGroup(
-	mode: 'ui' | 'code',
+function sameGroup(
+	current: userGroupQueries.UserGroup,
 	desired: NormalizedConfiguredUserGroup,
-	groupsByName: ReadonlyMap<string, userGroupQueries.UserGroup>,
-	groupsByKey: ReadonlyMap<string, typeof s.userGroup.$inferSelect>,
-	activeGroups: userGroupQueries.UserGroup[],
-	currentMemberEmails: ReadonlyMap<string, string[]>,
-	budgetsByGroupId: ReadonlyMap<string, number>,
 	keysByGroupId: ReadonlyMap<string, string>,
-): UserGroupConfigChange {
-	if (mode === 'ui') {
-		const adopted = groupsByName.get(desired.name);
-		return adopted
-			? { action: 'adopted', key: desired.key, name: desired.name, groupId: adopted.id }
-			: { action: 'created', key: desired.key, name: desired.name, groupId: null };
-	}
-	const stored = groupsByKey.get(desired.key);
-	if (!stored) {
-		return { action: 'created', key: desired.key, name: desired.name, groupId: null };
-	}
-	if (stored.archivedAt) {
-		return { action: 'reactivated', key: desired.key, name: desired.name, groupId: stored.id };
-	}
-	const active = activeGroups.find((group) => group.id === stored.id);
-	const unchanged =
-		active &&
-		sameGroupSettings(active, desired, budgetsByGroupId.get(active.id) ?? null, keysByGroupId) &&
-		sameStrings(currentMemberEmails.get(active.id) ?? [], desired.members) &&
-		active.name === desired.name;
-	return {
-		action: unchanged ? 'unchanged' : 'updated',
-		key: desired.key,
-		name: desired.name,
-		groupId: stored.id,
+): boolean {
+	return (
+		sameSettings(current, desired, keysByGroupId) &&
+		JSON.stringify(current.ssoMappings) === JSON.stringify(desired.ssoMappings)
+	);
+}
+
+function sameSettings(
+	current: userGroupQueries.UserGroup,
+	desired: NormalizedUserGroupSettings,
+	keysByGroupId: ReadonlyMap<string, string>,
+): boolean {
+	const stored: NormalizedUserGroupSettings = {
+		features: current.featureGrants,
+		toolCallDensityPolicy: current.toolCallDensityPolicy,
+		showAllSettings: current.showAllSettings,
+		advancedContextExplorer: current.advancedContextExplorer,
+		projectSharing: current.projectSharing,
+		shareTargets: {
+			includeOwnGroup: current.shareTargets.includeOwnGroup,
+			groupKeys: current.shareTargets.groupIds.flatMap((id) => keysByGroupId.get(id) ?? []).sort(),
+		},
+		preloadedSkills: current.preloadedSkills,
+		databaseAccess: current.databaseAccess,
+		docsAccess: current.docsAccess,
+		filesAccess: current.filesAccess,
+		mcpAccess: current.mcpAccess,
+		skillsAccess: current.skillsAccess,
+		rowPolicies: current.rowPolicies,
 	};
-}
-
-function sameGroupSettings(
-	current: userGroupQueries.UserGroup,
-	desired: Omit<NormalizedConfiguredUserGroup, 'key' | 'name' | 'members'>,
-	budgetLimitUsd: number | null,
-	keysByGroupId: ReadonlyMap<string, string>,
-): boolean {
-	return (
-		JSON.stringify({
-			features: current.featureGrants,
-			toolCallDensityPolicy: current.toolCallDensityPolicy,
-			showAllSettings: current.showAllSettings,
-			advancedContextExplorer: current.advancedContextExplorer,
-			projectSharing: current.projectSharing,
-			shareTargets: {
-				includeOwnGroup: current.shareTargets.includeOwnGroup,
-				groupKeys: current.shareTargets.groupIds
-					.flatMap((id) => {
-						const key = keysByGroupId.get(id);
-						return key ? [key] : [];
-					})
-					.sort(),
-			},
-			preloadedSkills: current.preloadedSkills,
-			budgetLimitUsd,
-			databaseAccess: current.databaseAccess,
-			docsAccess: current.docsAccess,
-			filesAccess: current.filesAccess,
-			mcpAccess: current.mcpAccess,
-			skillsAccess: current.skillsAccess,
-			rowPolicies: current.rowPolicies,
-		}) ===
-		JSON.stringify({
-			features: desired.features,
-			toolCallDensityPolicy: desired.toolCallDensityPolicy,
-			showAllSettings: desired.showAllSettings,
-			advancedContextExplorer: desired.advancedContextExplorer,
-			projectSharing: desired.projectSharing,
-			shareTargets: desired.shareTargets,
-			preloadedSkills: desired.preloadedSkills,
-			budgetLimitUsd: desired.budgetLimitUsd,
-			databaseAccess: desired.databaseAccess,
-			docsAccess: desired.docsAccess,
-			filesAccess: desired.filesAccess,
-			mcpAccess: desired.mcpAccess,
-			skillsAccess: desired.skillsAccess,
-			rowPolicies: desired.rowPolicies,
-		})
-	);
-}
-
-function sameAccessSettings(
-	current: userGroupQueries.UserGroup,
-	desired: Omit<NormalizedConfiguredUserGroup, 'key' | 'name' | 'members'>,
-	keysByGroupId: ReadonlyMap<string, string>,
-): boolean {
-	return (
-		JSON.stringify({
-			features: current.featureGrants,
-			advancedContextExplorer: current.advancedContextExplorer,
-			projectSharing: current.projectSharing,
-			shareTargets: {
-				includeOwnGroup: current.shareTargets.includeOwnGroup,
-				groupKeys: current.shareTargets.groupIds
-					.flatMap((id) => {
-						const key = keysByGroupId.get(id);
-						return key ? [key] : [];
-					})
-					.sort(),
-			},
-			preloadedSkills: current.preloadedSkills,
-			databaseAccess: current.databaseAccess,
-			docsAccess: current.docsAccess,
-			filesAccess: current.filesAccess,
-			mcpAccess: current.mcpAccess,
-			skillsAccess: current.skillsAccess,
-			rowPolicies: current.rowPolicies,
-		}) ===
-		JSON.stringify({
-			features: desired.features,
-			advancedContextExplorer: desired.advancedContextExplorer,
-			projectSharing: desired.projectSharing,
-			shareTargets: desired.shareTargets,
-			preloadedSkills: desired.preloadedSkills,
-			databaseAccess: desired.databaseAccess,
-			docsAccess: desired.docsAccess,
-			filesAccess: desired.filesAccess,
-			mcpAccess: desired.mcpAccess,
-			skillsAccess: desired.skillsAccess,
-			rowPolicies: desired.rowPolicies,
-		})
-	);
+	const comparable: NormalizedUserGroupSettings = {
+		features: desired.features,
+		toolCallDensityPolicy: desired.toolCallDensityPolicy,
+		showAllSettings: desired.showAllSettings,
+		advancedContextExplorer: desired.advancedContextExplorer,
+		projectSharing: desired.projectSharing,
+		shareTargets: desired.shareTargets,
+		preloadedSkills: desired.preloadedSkills,
+		databaseAccess: desired.databaseAccess,
+		docsAccess: desired.docsAccess,
+		filesAccess: desired.filesAccess,
+		mcpAccess: desired.mcpAccess,
+		skillsAccess: desired.skillsAccess,
+		rowPolicies: desired.rowPolicies,
+	};
+	return JSON.stringify(stored) === JSON.stringify(comparable);
 }
 
 function groupUsersByNormalizedEmail(

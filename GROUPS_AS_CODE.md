@@ -14,7 +14,7 @@ Customers want to manage user groups in YAML. This is the first step of a broade
 - **Direction**: UI → code only. The UI never writes back to the file, and there is no way back to UI management in this PR.
 - **Activation**: the first valid `groups.yaml` switches the project to code management. There is no UI toggle. The UI keeps a **Download YAML** button that exports the current state as a starting file.
 - **Read-only**: everything defined in the file becomes read-only in the UI and is rejected by the mutation APIs. Anything the file does not define keeps its current ownership.
-- **Invalid file blocks**: an invalid file stops the server at startup and is rejected by `nao deploy`. Making minor issues non-blocking warnings is a later topic.
+- **Invalid file blocks**: an invalid file stops the server at startup and is rejected by `nao deploy`. On nao Cloud, where one server hosts many customers, startup skips that project instead: it keeps its last applied state, and the failure is logged and shown as "Last attempt failed" in the project's user group settings. Making minor issues non-blocking warnings is a later topic.
 - **Missing file blocks too**: once a project is code-managed, a missing `groups.yaml` is treated like an invalid file. Customers recover by restoring an earlier version from Git. Deleting the file never falls back to UI management.
 - **When changes apply**: `nao deploy` applies the file to the running server without a restart. Customers who mount or sync the project folder without `nao deploy` get changes on the next startup.
 - **Unlisted groups**: a custom group that exists in the database but not in the file is archived. Its access is revoked and its records are kept.
@@ -22,9 +22,9 @@ Customers want to manage user groups in YAML. This is the first step of a broade
 ## File shape
 
 ```yaml
-version: 1
 groups: # list of groups, each identified by an id
     - id: default | all_users | <custom id> # all_users is required
+      name: Finance # custom groups only, shown in the UI, defaults to the id
       list_of_emails: [] # custom groups only
       sso_groups: {} # custom groups only
       capabilities: {} # features, UI settings, sharing, MCP, skills
@@ -39,12 +39,14 @@ The complete annotated example is in the [appendix](#appendix-complete-example).
 Key rules:
 
 - `groups` is the first top-level key. `protected_tables` and `budget` sit beside it because each will move to its own file later.
-- `id` replaces `key` and `name`. It is the stable identifier, the label shown in the UI, and the value used in `share_targets.group_ids`. It must be unique and snake_case.
+- There is no `version` key. The file has no older shape to tell apart, and `nao group format` removes the key from files written before this change.
+- `id` replaces `key`. It is the stable identifier and the value used in `share_targets.group_ids`. It must be unique and snake_case. Changing an id archives the old group and creates a new one.
+- `name` is the label shown in the UI. It is optional and defaults to the id, must be unique, and can change freely without affecting the group's identity. `All Users` is reserved, and `default` and `all_users` cannot declare a name.
 - `list_of_emails` replaces `members`. An email with no matching project user yet stays pending and is activated when that user gets project access. The file never sends invitations.
 - `default` and `all_users` are entries in `groups` with reserved ids. `default` is optional and only provides values for other groups to inherit; it has no members. `all_users` is required, so a file without it is invalid. It always contains every project user, so it cannot declare `list_of_emails` or `sso_groups`. Its settings can still be omitted and inherited.
 - Docs access and files access are merged into `access.files`, with paths relative to the project root.
 - MCP and skills access are not part of the context tree (`access`). They live under `capabilities` and are still fully managed by the file.
-- `policies.rows` holds the current row policies and `policies.columns` holds the column policies from [#2346](https://github.com/getnao/nao/pull/2346). Both grant access against the tables registered in `protected_tables`.
+- `policies.rows` holds the current row policies and grants access against the tables registered in the Row security settings. `policies.columns` is reserved for the column policies from [#2346](https://github.com/getnao/nao/pull/2346): an empty list is accepted and anything else is rejected until that PR lands.
 
 ### Inheritance
 
@@ -72,7 +74,7 @@ flowchart LR
     CodeManaged{"Already<br/>code-managed?"}
     Valid{"Valid?"}
     Apply["Reconcile groups,<br/>archive unlisted,<br/>lock UI fields"]
-    Stop["Refuse to start<br/>with the lint errors"]
+    Stop["Refuse to start with the lint errors<br/>(Cloud: skip the project, keep its<br/>last state, record the failure)"]
     UI["UI management"]
 
     Edit --> Lint --> Deploy
@@ -94,9 +96,12 @@ flowchart LR
 Some customers never run `nao deploy`, so validation must also work without it:
 
 - `nao group lint` works offline. It checks the schema and the references inside the local project: that files exist, tables exist in the synced databases, and `group_ids` and skills resolve.
-- `nao group format` rewrites the file with a standard key order and indentation. It also fixes mechanical issues such as camelCase values or old key names (`key`, `name`, `members`, `docs_access`).
+- `nao group format` rewrites the file with a standard key order and indentation. It also fixes mechanical issues such as camelCase values, old key names (`key`, `members`, `docs_access`), a leftover `version`, or a group with a `name` but no `id`.
+- `nao groups` is an alias of `nao group`.
 
-Both commands and server startup use the same rules, so a file that passes `lint` also passes at startup. Checks that need the database, such as email matching, only run on the server.
+Both commands and server startup use the same rules, so a file that passes `lint` also passes at startup. Checks that need the database, such as licenses, email matching, and row policies against the protected tables, only run on the server.
+
+The commands are implemented once in TypeScript, as `nao-chat-server groups lint|format`. The Python CLI calls the server binary already bundled in the `nao-core` package, with an in-memory database, so the rules cannot drift between the CLI and the server.
 
 ## Impact on the branch
 
@@ -118,8 +123,6 @@ Both commands and server startup use the same rules, so a file that passes `lint
 ## Appendix: complete example
 
 ```yaml
-version: 1
-
 groups:
     # Optional. Overrides nao's hidden defaults for every other group, all_users included.
     # It has no members and is never shown as a group in the UI.
@@ -173,6 +176,7 @@ groups:
               mode: all
 
     - id: finance
+      name: Finance
       list_of_emails:
           - alice@example.com
           - bob@example.com # pending until bob gets project access
@@ -252,14 +256,15 @@ groups:
                 schema: finance
                 table: budgets
                 access: full
-          columns:
-              - database_type: postgres # reveals columns hidden in protected_tables
-                database: warehouse
-                schema: finance
-                table: employees
-                granted_columns: [salary]
+          columns: [] # reserved and must stay empty until #2346 lands, then for example:
+          # - database_type: postgres # reveals columns hidden in protected_tables
+          #   database: warehouse
+          #   schema: finance
+          #   table: employees
+          #   granted_columns: [salary]
 
     - id: leadership
+      name: Leadership
       list_of_emails: [ceo@example.com]
       capabilities:
           show_all_settings: true

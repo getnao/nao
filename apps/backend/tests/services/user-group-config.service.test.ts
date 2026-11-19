@@ -1,148 +1,123 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
 import { parseUserGroupsConfig, UserGroupConfigError } from '../../src/services/user-group-config.service';
 
-const COMPLETE_CONFIG = `
-version: 1
-defaults:
-  features: []
-  tool_call_density:
-    default_density: detailed
-    can_change: true
-  show_all_settings: false
-  advanced_context_explorer: false
-  project_sharing: inherit
-  share_targets:
-    include_own_group: true
-    group_keys: []
-  preloaded_skills: []
-  budget_limit_usd: null
-  database_access:
-    mode: restricted
-    strict: false
-    grants: []
-    patterns: []
-  docs_access:
-    mode: restricted
-    grants: []
-  files_access:
-    mode: restricted
-    grants: []
-  mcp_access:
-    mode: restricted
-    grants: []
-  skills_access:
-    mode: restricted
-    skills: []
-  row_policies:
-    version: 1
-    policies: []
-all_users:
-  show_all_settings: true
-  database_access:
-    mode: all
-    strict: false
-  docs_access:
-    mode: all
-  files_access:
-    mode: all
-  mcp_access:
-    mode: all
-  skills_access:
-    mode: all
+const CONFIG = `
 groups:
-  - key: finance
-    name: Finance
-    members:
-      - BOB@example.com
-      - alice@example.com
-      - bob@example.com
-    features:
-      - storyCreation
-    database_access:
-      mode: restricted
-      strict: true
-      grants:
-        - kind: schema
-          database_type: postgres
-          database: warehouse
-          schema: finance
-      patterns: []
+    - id: default
+      capabilities:
+          show_all_settings: true
+          tool_call_density:
+              default_density: compact
+              can_change: false
+      access:
+          files:
+              mode: restricted
+              grants:
+                  - kind: folder
+                    path: docs
+    - id: all_users
+    - id: finance
+      name: Finance team
+      list_of_emails: [BOB@example.com, alice@example.com, bob@example.com]
+      sso_groups:
+          oidc: [finance-team]
+      capabilities:
+          features: [story_creation]
+          tool_call_density:
+              default_density: detailed
+      access:
+          databases:
+              mode: restricted
+              grants:
+                  - kind: schema
+                    database_type: postgres
+                    database: warehouse
+                    schema: finance
+          files:
+              mode: restricted
+              grants:
+                  - kind: folder
+                    path: docs/finance
+                  - kind: file
+                    path: semantics/revenue.yaml
+      policies:
+          rows:
+              - database_type: postgres
+                database: warehouse
+                schema: finance
+                table: invoices
+                access: predicate
+                mode: guided
+                conditions:
+                    - column: region
+                      operator: is_one_of
+                      values: [emea, apac]
+protected_tables:
+    rows: []
 `;
 
 describe('parseUserGroupsConfig', () => {
-	it('strictly parses, inherits, normalizes, and hashes the complete file', () => {
-		const parsed = parseUserGroupsConfig(COMPLETE_CONFIG);
+	it('inherits leaves from default, splits docs out of files, and hashes the result', () => {
+		const parsed = parseUserGroupsConfig(CONFIG);
 
-		expect(parsed.allUsers.showAllSettings).toBe(true);
-		expect(parsed.allUsers.advancedContextExplorer).toBe(false);
-		expect(parsed.allUsers.databaseAccess).toEqual({ mode: 'all', strict: false });
+		expect(parsed.allUsers).toMatchObject({
+			showAllSettings: true,
+			toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+			docsAccess: { mode: 'all' },
+			filesAccess: { mode: 'restricted', grants: [] },
+			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
+		});
 		expect(parsed.groups).toHaveLength(1);
 		expect(parsed.groups[0]).toMatchObject({
 			key: 'finance',
-			name: 'Finance',
+			name: 'Finance team',
 			members: ['alice@example.com', 'bob@example.com'],
+			ssoMappings: { providers: { oidc: ['finance-team'] } },
 			features: ['storyCreation'],
+			showAllSettings: true,
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
-			databaseAccess: {
-				mode: 'restricted',
-				strict: true,
-				grants: [
-					{
-						kind: 'schema',
-						databaseType: 'postgres',
-						database: 'warehouse',
-						schema: 'finance',
-					},
-				],
-				patterns: [],
+			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			filesAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'semantics/revenue.yaml' }] },
+			rowPolicies: {
+				policies: [{ table: 'invoices', conditions: [{ operator: 'is-one-of', value: 'emea,apac' }] }],
 			},
 		});
 		expect(parsed.hash).toMatch(/^[a-f0-9]{64}$/);
-		expect(parseUserGroupsConfig(COMPLETE_CONFIG.replace('BOB@example.com', 'bob@example.com')).hash).toBe(
-			parsed.hash,
-		);
+		expect(parseUserGroupsConfig(CONFIG.replace('BOB@example.com', 'bob@example.com')).hash).toBe(parsed.hash);
 	});
 
-	it('normalizes an All Users zero budget to the unlimited null representation', () => {
-		const unlimited = parseUserGroupsConfig(COMPLETE_CONFIG);
-		const zero = parseUserGroupsConfig(COMPLETE_CONFIG.replace('all_users:', 'all_users:\n  budget_limit_usd: 0'));
+	it.each([
+		['a leftover version key', ['groups:', 'version: 1\ngroups:'], 'version'],
+		['a missing all_users group', ['    - id: all_users\n', ''], 'The "all_users" group is required.'],
+		['a duplicate id', ['    - id: all_users\n', '    - id: all_users\n    - id: finance\n'], 'Duplicate group id'],
+		[
+			'a name on a reserved group',
+			['    - id: all_users\n', '    - id: all_users\n      name: Everyone\n'],
+			'cannot declare',
+		],
+		[
+			'a name already in use',
+			['name: Finance team', 'name: All Users'],
+			'name "All Users" is already used by "all_users"',
+		],
+		['a non-snake_case id', ['id: finance', 'id: Finance'], '"Finance": id: Group ids must be snake_case'],
+		[
+			'a share target to an unknown group',
+			['features: [story_creation]', 'share_targets: {group_ids: [missing]}'],
+			'unknown group "missing"',
+		],
+		[
+			'a column policy',
+			['          rows:', '          columns: [{table: t}]\n          rows:'],
+			'not supported yet',
+		],
+		['a comma in a list value', ['values: [emea, apac]', 'values: ["emea,apac"]'], 'cannot contain commas'],
+	])('rejects %s', (_label, [search, replacement], message) => {
+		const source = CONFIG.replace(search, replacement);
 
-		expect(zero.allUsers.budgetLimitUsd).toBeNull();
-		expect(zero.hash).toBe(unlimited.hash);
-	});
-
-	it('rejects unknown fields and incomplete defaults', () => {
-		expect(() => parseUserGroupsConfig(COMPLETE_CONFIG.replace('version: 1', 'version: 1\nunknown: true'))).toThrow(
-			UserGroupConfigError,
-		);
-		expect(() => parseUserGroupsConfig(COMPLETE_CONFIG.replace('  features: []\n', ''))).toThrow(
-			UserGroupConfigError,
-		);
-	});
-
-	it('rejects duplicate keys and unknown share targets', () => {
-		expect(() =>
-			parseUserGroupsConfig(
-				COMPLETE_CONFIG.replace('groups:\n', 'groups:\n  - key: finance\n    name: Another\n    members: []\n'),
-			),
-		).toThrow('Duplicate group key');
-		expect(() =>
-			parseUserGroupsConfig(COMPLETE_CONFIG.replace('    group_keys: []', '    group_keys: [missing]')),
-		).toThrow('unknown share target');
-	});
-
-	it('parses the complete administrator guide example', () => {
-		const guide = fs.readFileSync(
-			path.resolve(import.meta.dirname, '../../../../USER_GROUPS_AS_CODE_ADMIN_GUIDE.md'),
-			'utf8',
-		);
-		const example = guide.match(/<!-- validated-example:start -->\s*```yaml\n([\s\S]*?)\n```/)?.[1];
-
-		expect(example).toBeDefined();
-		expect(parseUserGroupsConfig(example!)).toMatchObject({ version: 1 });
+		expect(source).not.toBe(CONFIG);
+		expect(() => parseUserGroupsConfig(source)).toThrow(UserGroupConfigError);
+		expect(() => parseUserGroupsConfig(source)).toThrow(message);
 	});
 });

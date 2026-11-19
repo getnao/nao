@@ -13,20 +13,29 @@ import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
 import { createProject, recordProjectDeployment } from '../services/project.service';
 import { revokeUnauthorizedProjectWideShares } from '../services/project-sharing.service';
-import { parseUserGroupsConfig } from '../services/user-group-config.service';
+import {
+	type NormalizedUserGroupsConfig,
+	parseUserGroupsConfig,
+	USER_GROUPS_CONFIG_FILENAME,
+	UserGroupConfigError,
+} from '../services/user-group-config.service';
 import { diffUserGroupsConfig, type UserGroupConfigDiff } from '../services/user-group-config-diff.service';
 import { exportUserGroupsConfig } from '../services/user-group-config-export.service';
 import {
+	reconcileUserGroupsConfig,
 	reconcileUserGroupsConfigWithinLock,
 	recordUserGroupConfigFailure,
 	withUserGroupConfigLock,
 } from '../services/user-group-config-reconciliation.service';
-import { readUserGroupsConfig, validateUserGroupsConfig } from '../services/user-group-config-validation.service';
+import {
+	readUserGroupsConfig,
+	requireUserGroupsConfig,
+	validateUserGroupsConfig,
+} from '../services/user-group-config-validation.service';
 import { getUserGroupManagementMode } from '../services/user-group-management.service';
 import { logger, serializeError } from '../utils/logger';
 
 export const deployRoutes = async (app: App) => {
-	await recoverInterruptedDeploys();
 	app.post('/deploy', async (request, reply) => {
 		const authHeader = request.headers.authorization;
 		if (!authHeader?.startsWith('Bearer ')) {
@@ -90,8 +99,10 @@ export const deployRoutes = async (app: App) => {
 				}
 				const result = await withUserGroupConfigLock(projectId, async () => {
 					const mode = await getUserGroupManagementMode(projectId);
-					const evaluatesGroups = dryRun || mode === 'code';
-					if (!evaluatesGroups) {
+					if (mode === 'ui' && !fs.existsSync(path.join(extractDir, USER_GROUPS_CONFIG_FILENAME))) {
+						if (dryRun) {
+							return { diff: null, applied: false };
+						}
 						await replaceProjectDirectory(projectId, extractDir, projectPath, () =>
 							recordProjectDeployment(projectId),
 						);
@@ -104,20 +115,17 @@ export const deployRoutes = async (app: App) => {
 							'The API key creator must still be a project admin to deploy code-managed user groups.',
 						);
 					}
-					let config;
+					let config: NormalizedUserGroupsConfig | undefined;
 					try {
-						config = readUserGroupsConfig(extractDir);
+						config = requireUserGroupsConfig(extractDir);
 						const currentConfig =
-							mode === 'code'
-								? parseUserGroupsConfig(await exportUserGroupsConfig(projectId))
-								: undefined;
-						await validateUserGroupsConfig(projectId, extractDir, config, currentConfig);
+							mode === 'code' ? await readCurrentUserGroupsConfig(projectId, projectPath) : undefined;
+						await validateUserGroupsConfig({ projectId }, extractDir, config, currentConfig);
 					} catch (error) {
-						if (!dryRun && mode === 'code') {
+						if (!dryRun) {
 							await recordUserGroupConfigFailure(
 								projectId,
 								apiKey.createdBy,
-								'apply',
 								config?.hash ?? null,
 								error,
 							);
@@ -157,6 +165,10 @@ export const deployRoutes = async (app: App) => {
 				if (dryRun) {
 					throw new DeployError(400, 'Dry run requires an existing target project.');
 				}
+				const userGroupsConfig = readUserGroupsConfig(extractDir);
+				if (userGroupsConfig) {
+					await validateUserGroupsConfig({ orgId: org.id }, extractDir, userGroupsConfig);
+				}
 				const projectId_ = crypto.randomUUID();
 				const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId_);
 				fs.mkdirSync(projectDir, { recursive: true });
@@ -173,6 +185,10 @@ export const deployRoutes = async (app: App) => {
 				status = 'created';
 
 				await ensureContextRecommendationsScheduleForNewProject(projectId);
+				if (userGroupsConfig) {
+					const userGroups = await reconcileUserGroupsConfig(projectId, userGroupsConfig, apiKey.createdBy);
+					return reply.send({ projectId, projectName, status, userGroups });
+				}
 			}
 
 			return reply.send({ projectId, projectName, status });
@@ -186,7 +202,7 @@ export const deployRoutes = async (app: App) => {
 	});
 };
 
-async function recoverInterruptedDeploys(): Promise<void> {
+export async function recoverInterruptedDeploys(): Promise<void> {
 	for (const project of await projectQueries.listProjectDeploymentPaths()) {
 		const parent = path.dirname(project.path);
 		const backup = path.join(parent, `.${project.id}.deploy-backup`);
@@ -198,6 +214,21 @@ async function recoverInterruptedDeploys(): Promise<void> {
 		await withUserGroupConfigLock(project.id, () =>
 			recoverInterruptedDeploy(project.id, project.path, backup, next, marker),
 		);
+	}
+}
+
+/** Only used to tell which licensed settings change, so a state the file schema cannot express skips that shortcut. */
+async function readCurrentUserGroupsConfig(
+	projectId: string,
+	projectPath: string,
+): Promise<NormalizedUserGroupsConfig | undefined> {
+	try {
+		return parseUserGroupsConfig(await exportUserGroupsConfig(projectId, projectPath));
+	} catch (error) {
+		if (error instanceof UserGroupConfigError) {
+			return undefined;
+		}
+		throw error;
 	}
 }
 

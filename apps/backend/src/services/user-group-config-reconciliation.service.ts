@@ -1,38 +1,59 @@
-import { serializeUserGroupConfig, serializeUserGroupContextAccess, serializeUserGroupRowPolicies } from '@nao/shared';
-import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import {
+	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
+	serializeUserGroupRowPolicies,
+	serializeUserGroupSsoMappings,
+	type SsoGroupProvider,
+} from '@nao/shared';
+import { and, eq, inArray } from 'drizzle-orm';
 
-import type { NewUserGroup } from '../db/abstractSchema';
+import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { createActivity } from '../queries/activity.queries';
+import { isCloud } from '../env';
+import * as activityQueries from '../queries/activity.queries';
+import * as projectQueries from '../queries/project.queries';
+import { getChangedSsoProviders } from '../queries/user-group.queries';
+import { logger } from '../utils/logger';
 import { revokeUnauthorizedProjectWideShares } from './project-sharing.service';
 import type {
 	NormalizedConfiguredUserGroup,
 	NormalizedUserGroupsConfig,
 	NormalizedUserGroupSettings,
 } from './user-group-config.service';
-import { UserGroupConfigError } from './user-group-config.service';
+import { USER_GROUPS_CONFIG_FILENAME, UserGroupConfigError } from './user-group-config.service';
 import type { UserGroupConfigDiff } from './user-group-config-diff.service';
-import { diffUserGroupsConfig } from './user-group-config-diff.service';
+import { diffUserGroupsConfig, matchStoredUserGroups } from './user-group-config-diff.service';
 import { withUserGroupConfigLock } from './user-group-config-lock.service';
 import { listUsersEligibleForUserGroupConfig } from './user-group-config-membership.service';
+import {
+	readUserGroupsConfig,
+	requireUserGroupsConfig,
+	validateUserGroupsConfig,
+} from './user-group-config-validation.service';
 import { getUserGroupManagementMode } from './user-group-management.service';
 
 export { withUserGroupConfigLock } from './user-group-config-lock.service';
 
-type ReconciliationKind = 'enable' | 'apply' | 'disable';
+type ReconciliationKind = 'enable' | 'apply';
 
 interface DatabaseOperation {
 	sqlite(transaction: DBTransaction): void;
 	postgres(transaction: DBTransaction): Promise<void>;
 }
 
+interface DesiredGroup {
+	desired: NormalizedConfiguredUserGroup;
+	id: string;
+	existing: DBUserGroup | undefined;
+}
+
+/** `actorUserId` is null when the server applies the file on its own, at startup. */
 export async function reconcileUserGroupsConfig(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
-	actorUserId: string,
+	actorUserId: string | null,
 	deployId?: string,
 ): Promise<UserGroupConfigDiff> {
 	return withUserGroupConfigLock(projectId, () =>
@@ -43,7 +64,7 @@ export async function reconcileUserGroupsConfig(
 export async function reconcileUserGroupsConfigWithinLock(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
-	actorUserId: string,
+	actorUserId: string | null,
 	deployId?: string,
 ): Promise<UserGroupConfigDiff> {
 	const mode = await getUserGroupManagementMode(projectId);
@@ -54,108 +75,72 @@ export async function reconcileUserGroupsConfigWithinLock(
 		await revokeUnauthorizedProjectWideShares(projectId);
 		return diff;
 	} catch (error) {
-		await recordUserGroupConfigFailure(projectId, actorUserId, kind, config.hash, error);
+		await recordUserGroupConfigFailure(projectId, actorUserId, config.hash, error);
 		throw error;
 	}
 }
 
-export async function disableCodeManagedUserGroups(projectId: string, actorUserId: string): Promise<void> {
-	await withUserGroupConfigLock(projectId, async () => {
+/**
+ * Self-hosted servers refuse to start on an invalid or missing file. On Cloud one customer's file must not take the
+ * others down, so the failure is only recorded and shown in that project's settings, and its last state is kept.
+ */
+export async function reconcileUserGroupsConfigsAtStartup(): Promise<void> {
+	const failures: string[] = [];
+	for (const project of await projectQueries.listProjectDeploymentPaths()) {
 		try {
-			if ((await getUserGroupManagementMode(projectId)) !== 'code') {
-				throw new UserGroupConfigError('User groups are already managed in the UI.');
-			}
-			const groups = await db
-				.select({ id: s.userGroup.id })
-				.from(s.userGroup)
-				.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
-				.execute();
-			const groupIds = groups.map((group) => group.id);
-			const configMemberships =
-				groupIds.length === 0
-					? []
-					: await db
-							.select({ groupId: s.userGroupMember.groupId, userId: s.userGroupMember.userId })
-							.from(s.userGroupMember)
-							.where(
-								and(
-									inArray(s.userGroupMember.groupId, groupIds),
-									eq(s.userGroupMember.provider, 'config'),
-									eq(s.userGroupMember.active, true),
-								),
-							)
-							.execute();
-			const operations: DatabaseOperation[] = [];
-			const actor = await getActorSnapshot(actorUserId);
-			if (groupIds.length > 0) {
-				operations.push(
-					updateOperation((transaction) =>
-						transaction
-							.update(s.userGroupMember)
-							.set({ active: false })
-							.where(
-								and(
-									inArray(s.userGroupMember.groupId, groupIds),
-									eq(s.userGroupMember.provider, 'config'),
-								),
-							),
-					),
-					updateOperation((transaction) =>
-						transaction
-							.update(s.userGroupConfigMember)
-							.set({ active: false, updatedAt: new Date() })
-							.where(inArray(s.userGroupConfigMember.groupId, groupIds)),
-					),
-				);
-			}
-			for (const membership of configMemberships) {
-				operations.push(
-					insertOperation((transaction) =>
-						transaction
-							.insert(s.userGroupMember)
-							.values({ ...membership, provider: 'manual', active: true })
-							.onConflictDoUpdate({
-								target: [
-									s.userGroupMember.groupId,
-									s.userGroupMember.userId,
-									s.userGroupMember.provider,
-								],
-								set: { active: true, createdAt: new Date() },
-							}),
-					),
-				);
-			}
-			operations.push(
-				updateOperation((transaction) =>
-					transaction
-						.update(s.project)
-						.set({ userGroupManagementMode: 'ui', updatedAt: new Date() })
-						.where(eq(s.project.id, projectId)),
-				),
-				auditOperation(projectId, actorUserId, actor, 'disable', null, {
-					reactivatedManualMemberships: configMemberships.length,
-				}),
-			);
-			await executeOperations(operations);
+			await withUserGroupConfigLock(project.id, () => reconcileProjectAtStartup(project.id, project.path));
 		} catch (error) {
-			await recordUserGroupConfigFailure(projectId, actorUserId, 'disable', null, error);
-			throw error;
+			failures.push(`${project.name}: ${error instanceof Error ? error.message : String(error)}`);
 		}
-	});
+	}
+	if (failures.length === 0) {
+		return;
+	}
+	if (!isCloud) {
+		throw new UserGroupConfigError(`${USER_GROUPS_CONFIG_FILENAME} could not be applied.\n${failures.join('\n')}`);
+	}
+	for (const failure of failures) {
+		logger.error(`${USER_GROUPS_CONFIG_FILENAME} could not be applied at startup. ${failure}`, {
+			source: 'system',
+		});
+	}
+}
+
+async function reconcileProjectAtStartup(projectId: string, projectPath: string): Promise<void> {
+	const mode = await getUserGroupManagementMode(projectId);
+	let config: NormalizedUserGroupsConfig | null = null;
+	try {
+		config = mode === 'code' ? requireUserGroupsConfig(projectPath) : readUserGroupsConfig(projectPath);
+		if (!config || (await isLastAppliedUserGroupsConfig(projectId, config.hash))) {
+			return;
+		}
+		await validateUserGroupsConfig({ projectId }, projectPath, config);
+	} catch (error) {
+		await recordUserGroupConfigFailure(projectId, null, config?.hash ?? null, error);
+		throw error;
+	}
+	await reconcileUserGroupsConfigWithinLock(projectId, config, null);
+}
+
+async function isLastAppliedUserGroupsConfig(projectId: string, hash: string): Promise<boolean> {
+	const { lastSuccess } = await activityQueries.listLatestUserGroupConfigActivities(projectId);
+	return (lastSuccess?.payload as { hash?: string } | null)?.hash === hash;
 }
 
 async function applyConfig(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
-	actorUserId: string,
+	actorUserId: string | null,
 	diff: UserGroupConfigDiff,
-	kind: Exclude<ReconciliationKind, 'disable'>,
+	kind: ReconciliationKind,
 	deployId?: string,
 ): Promise<void> {
-	const configuredEmails = config.groups.flatMap((group) => group.members);
 	const [storedGroups, users, actor] = await Promise.all([
 		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
-		listUsersEligibleForUserGroupConfig(projectId, configuredEmails),
+		listUsersEligibleForUserGroupConfig(
+			projectId,
+			config.groups.flatMap((group) => group.members),
+		),
 		getActorSnapshot(actorUserId),
 	]);
 	const defaultGroup = storedGroups.find((group) => group.isDefault);
@@ -163,28 +148,22 @@ async function applyConfig(
 		throw new UserGroupConfigError('The All Users group is missing.');
 	}
 	const now = new Date();
-	const activeCustomGroups = storedGroups.filter((group) => !group.isDefault && !group.archivedAt);
-	const groupsByKey = new Map(storedGroups.flatMap((group) => (group.configKey ? [[group.configKey, group]] : [])));
-	const groupsByName = new Map(activeCustomGroups.map((group) => [group.name, group]));
-	const desiredGroups = config.groups.map((desired) => {
-		const existing = kind === 'enable' ? groupsByName.get(desired.name) : groupsByKey.get(desired.key);
+	const storedByKey = matchStoredUserGroups(storedGroups);
+	const desiredGroups: DesiredGroup[] = config.groups.map((desired) => {
+		const existing = storedByKey.get(desired.key);
 		return { desired, id: existing?.id ?? crypto.randomUUID(), existing };
 	});
 	const idsByKey = new Map(desiredGroups.map((group) => [group.desired.key, group.id]));
-	const desiredKeys = new Set(config.groups.map((group) => group.key));
-	const archivedGroups =
-		kind === 'apply'
-			? activeCustomGroups.filter((group) => group.configKey && !desiredKeys.has(group.configKey))
-			: [];
-	const changedExistingIds = new Set(
-		diff.groups.flatMap((change) => (change.groupId && change.action !== 'unchanged' ? [change.groupId] : [])),
+	const actions = new Map(diff.groups.map((change) => [change.key, change.action]));
+	const archivedGroups = diff.groups.flatMap((change) =>
+		change.action === 'archived' ? [storedByKey.get(change.key)!] : [],
+	);
+	const renamedGroups = desiredGroups.filter(
+		(group) => group.existing && !group.existing.archivedAt && actions.get(group.desired.key) !== 'unchanged',
 	);
 	const operations: DatabaseOperation[] = [];
 
-	for (const group of [
-		...archivedGroups,
-		...activeCustomGroups.filter((group) => changedExistingIds.has(group.id)),
-	]) {
+	for (const group of [...archivedGroups, ...renamedGroups.map((renamed) => renamed.existing!)]) {
 		operations.push(
 			updateOperation((transaction) =>
 				transaction
@@ -195,54 +174,10 @@ async function applyConfig(
 		);
 	}
 	for (const group of archivedGroups) {
-		operations.push(
-			updateOperation((transaction) =>
-				transaction
-					.update(s.userGroup)
-					.set({
-						archivedAt: now,
-						archivedName: group.name,
-						updatedAt: now,
-					})
-					.where(eq(s.userGroup.id, group.id)),
-			),
-			updateOperation((transaction) =>
-				transaction
-					.update(s.userGroupMember)
-					.set({ active: false })
-					.where(eq(s.userGroupMember.groupId, group.id)),
-			),
-			updateOperation((transaction) =>
-				transaction
-					.update(s.userGroupConfigMember)
-					.set({ active: false, updatedAt: now })
-					.where(eq(s.userGroupConfigMember.groupId, group.id)),
-			),
-			updateOperation((transaction) =>
-				transaction
-					.update(s.projectGroupBudget)
-					.set({ active: false, updatedAt: now })
-					.where(eq(s.projectGroupBudget.groupId, group.id)),
-			),
-		);
+		operations.push(...archiveOperations(group, now));
 	}
 	if (kind === 'enable') {
-		const customGroupIds = storedGroups.filter((group) => !group.isDefault).map((group) => group.id);
-		if (customGroupIds.length > 0) {
-			operations.push(
-				updateOperation((transaction) =>
-					transaction
-						.update(s.userGroupMember)
-						.set({ active: false })
-						.where(
-							and(
-								inArray(s.userGroupMember.groupId, customGroupIds),
-								ne(s.userGroupMember.provider, 'config'),
-							),
-						),
-				),
-			);
-		}
+		operations.push(...deactivateManualMembershipOperations(storedGroups));
 	}
 	if (diff.allUsersChanged || kind === 'enable') {
 		operations.push(
@@ -252,45 +187,14 @@ async function applyConfig(
 					.set({ ...storedSettings(config.allUsers, idsByKey), updatedAt: now })
 					.where(eq(s.userGroup.id, defaultGroup.id)),
 			),
-			defaultBudgetOperation(projectId, config.allUsers.budgetLimitUsd, now),
 		);
 	}
 	for (const group of desiredGroups) {
-		const action = diff.groups.find((change) => change.key === group.desired.key)?.action;
-		if (!group.existing) {
-			const values: NewUserGroup = {
-				id: group.id,
-				projectId,
-				name: tombstoneName(group.id),
-				isDefault: false,
-				configKey: group.desired.key,
-				...storedSettings(group.desired, idsByKey),
-				ssoMappingsSuspendedAt: kind === 'enable' ? now : null,
-			};
-			operations.push(insertOperation((transaction) => transaction.insert(s.userGroup).values(values)));
+		if (actions.get(group.desired.key) === 'unchanged') {
+			continue;
 		}
-		if (kind === 'enable' || action !== 'unchanged') {
-			operations.push(
-				updateOperation((transaction) =>
-					transaction
-						.update(s.userGroup)
-						.set({
-							name: group.desired.name,
-							configKey: group.desired.key,
-							archivedAt: null,
-							archivedName: null,
-							...(kind === 'enable' ? { ssoMappingsSuspendedAt: now } : {}),
-							...storedSettings(group.desired, idsByKey),
-							updatedAt: now,
-						})
-						.where(eq(s.userGroup.id, group.id)),
-				),
-			);
-		}
-		if (kind === 'enable' || action !== 'unchanged') {
-			operations.push(...membershipOperations(group, users, now));
-			operations.push(groupBudgetOperation(projectId, group.id, group.desired.budgetLimitUsd, now));
-		}
+		operations.push(...upsertGroupOperations(projectId, group, idsByKey, now));
+		operations.push(...membershipOperations(group, users, now));
 	}
 	if (kind === 'enable') {
 		operations.push(
@@ -303,30 +207,108 @@ async function applyConfig(
 		);
 	}
 	operations.push(
-		auditOperation(
-			projectId,
-			actorUserId,
-			actor,
+		auditOperation(projectId, actorUserId, actor, {
+			status: 'completed',
 			kind,
-			config.hash,
-			{
+			hash: config.hash,
+			deployId,
+			summary: {
 				...diff.summary,
 				allUsersChanged: diff.allUsersChanged,
 				pendingEmails: diff.pendingEmails.length,
 				chatShareRevocations: diff.shareRevocations.chats,
 				storyShareRevocations: diff.shareRevocations.stories,
 			},
-			deployId,
-		),
+		}),
 	);
 	await executeOperations(operations);
 }
 
+function archiveOperations(group: DBUserGroup, now: Date): DatabaseOperation[] {
+	return [
+		updateOperation((transaction) =>
+			transaction
+				.update(s.userGroup)
+				.set({ archivedAt: now, archivedName: group.name, updatedAt: now })
+				.where(eq(s.userGroup.id, group.id)),
+		),
+		updateOperation((transaction) =>
+			transaction.update(s.userGroupMember).set({ active: false }).where(eq(s.userGroupMember.groupId, group.id)),
+		),
+		updateOperation((transaction) =>
+			transaction
+				.update(s.userGroupConfigMember)
+				.set({ active: false, updatedAt: now })
+				.where(eq(s.userGroupConfigMember.groupId, group.id)),
+		),
+	];
+}
+
+/** From the first apply on, `list_of_emails` replaces the members picked in the UI. SSO members are kept. */
+function deactivateManualMembershipOperations(storedGroups: DBUserGroup[]): DatabaseOperation[] {
+	const customGroupIds = storedGroups.filter((group) => !group.isDefault).map((group) => group.id);
+	if (customGroupIds.length === 0) {
+		return [];
+	}
+	return [
+		updateOperation((transaction) =>
+			transaction
+				.update(s.userGroupMember)
+				.set({ active: false })
+				.where(
+					and(inArray(s.userGroupMember.groupId, customGroupIds), eq(s.userGroupMember.provider, 'manual')),
+				),
+		),
+	];
+}
+
+function upsertGroupOperations(
+	projectId: string,
+	group: DesiredGroup,
+	idsByKey: ReadonlyMap<string, string>,
+	now: Date,
+): DatabaseOperation[] {
+	const values = {
+		name: group.desired.name,
+		configKey: group.desired.key,
+		archivedAt: null,
+		archivedName: null,
+		ssoMappings: serializeUserGroupSsoMappings(group.desired.ssoMappings),
+		...storedSettings(group.desired, idsByKey),
+	};
+	if (!group.existing) {
+		const inserted: NewUserGroup = { id: group.id, projectId, isDefault: false, ...values };
+		return [insertOperation((transaction) => transaction.insert(s.userGroup).values(inserted))];
+	}
+	const changedProviders = getChangedSsoProviders(group.existing.ssoMappings, values.ssoMappings);
+	return [
+		updateOperation((transaction) =>
+			transaction
+				.update(s.userGroup)
+				.set({ ...values, updatedAt: now })
+				.where(eq(s.userGroup.id, group.id)),
+		),
+		...deactivateSsoMembershipOperations(group.id, changedProviders),
+	];
+}
+
+/** Members of a changed SSO mapping are dropped and re-evaluated at their next login. */
+function deactivateSsoMembershipOperations(groupId: string, providers: SsoGroupProvider[]): DatabaseOperation[] {
+	if (providers.length === 0) {
+		return [];
+	}
+	return [
+		updateOperation((transaction) =>
+			transaction
+				.update(s.userGroupMember)
+				.set({ active: false })
+				.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers))),
+		),
+	];
+}
+
 function membershipOperations(
-	group: {
-		desired: NormalizedConfiguredUserGroup;
-		id: string;
-	},
+	group: DesiredGroup,
 	users: Array<{ id: string; email: string }>,
 	now: Date,
 ): DatabaseOperation[] {
@@ -373,47 +355,6 @@ function membershipOperations(
 		}
 	}
 	return operations;
-}
-
-function groupBudgetOperation(
-	projectId: string,
-	groupId: string,
-	limitUsd: number | null,
-	now: Date,
-): DatabaseOperation {
-	if (limitUsd === null) {
-		return updateOperation((transaction) =>
-			transaction
-				.update(s.projectGroupBudget)
-				.set({ active: false, updatedAt: now })
-				.where(and(eq(s.projectGroupBudget.projectId, projectId), eq(s.projectGroupBudget.groupId, groupId))),
-		);
-	}
-	return insertOperation((transaction) =>
-		transaction
-			.insert(s.projectGroupBudget)
-			.values({ projectId, groupId, limitUsd, active: true })
-			.onConflictDoUpdate({
-				target: s.projectGroupBudget.groupId,
-				set: { limitUsd, active: true, updatedAt: now },
-			}),
-	);
-}
-
-function defaultBudgetOperation(projectId: string, limitUsd: number | null, now: Date): DatabaseOperation {
-	return insertOperation((transaction) =>
-		transaction
-			.insert(s.projectMemberBudgetSettings)
-			.values({
-				projectId,
-				period: DEFAULT_MEMBER_BUDGET_PERIOD,
-				defaultLimitUsd: limitUsd ?? 0,
-			})
-			.onConflictDoUpdate({
-				target: s.projectMemberBudgetSettings.projectId,
-				set: { defaultLimitUsd: limitUsd ?? 0, updatedAt: now },
-			}),
-	);
 }
 
 function storedSettings(
@@ -475,27 +416,30 @@ function insertOperation(
 
 function auditOperation(
 	projectId: string,
-	actorUserId: string,
+	actorUserId: string | null,
 	actor: { name: string; email: string } | null,
-	kind: ReconciliationKind,
-	hash: string | null,
-	summary: Record<string, unknown>,
-	deployId?: string,
+	entry: {
+		status: 'completed';
+		kind: ReconciliationKind;
+		hash: string;
+		deployId?: string;
+		summary: Record<string, unknown>;
+	},
 ): DatabaseOperation {
 	return insertOperation((transaction) =>
 		transaction.insert(s.activity).values({
-			...(deployId ? { id: deployId } : {}),
+			...(entry.deployId ? { id: entry.deployId } : {}),
 			projectId,
 			userId: actorUserId,
 			type: 'user-groups.config',
-			status: 'completed',
-			trigger: 'manual',
+			status: entry.status,
+			trigger: actorUserId ? 'manual' : 'system',
 			payload: {
-				kind,
-				hash,
-				...(deployId ? { deployId } : {}),
-				actor: actor ? { id: actorUserId, ...actor } : { id: actorUserId },
-				summary,
+				kind: entry.kind,
+				hash: entry.hash,
+				...(entry.deployId ? { deployId: entry.deployId } : {}),
+				actor: actorSnapshot(actorUserId, actor),
+				summary: entry.summary,
 			},
 			completedAt: new Date(),
 		}),
@@ -523,19 +467,18 @@ async function executeOperations(operations: DatabaseOperation[]): Promise<void>
 
 export async function recordUserGroupConfigFailure(
 	projectId: string,
-	actorUserId: string,
-	kind: ReconciliationKind,
+	actorUserId: string | null,
 	hash: string | null,
 	error: unknown,
 ): Promise<void> {
 	const actor = await getActorSnapshot(actorUserId);
-	const activity = await createActivity({
+	const activity = await activityQueries.createActivity({
 		projectId,
 		userId: actorUserId,
 		type: 'user-groups.config',
-		trigger: 'manual',
+		trigger: actorUserId ? 'manual' : 'system',
 		status: 'failed',
-		payload: { kind, hash, actor: actor ? { id: actorUserId, ...actor } : { id: actorUserId } },
+		payload: { kind: 'apply', hash, actor: actorSnapshot(actorUserId, actor) },
 	});
 	const message = error instanceof Error ? error.message : String(error);
 	await db
@@ -545,7 +488,20 @@ export async function recordUserGroupConfigFailure(
 		.execute();
 }
 
-async function getActorSnapshot(actorUserId: string): Promise<{ name: string; email: string } | null> {
+function actorSnapshot(
+	actorUserId: string | null,
+	actor: { name: string; email: string } | null,
+): Record<string, unknown> | null {
+	if (!actorUserId) {
+		return null;
+	}
+	return actor ? { id: actorUserId, ...actor } : { id: actorUserId };
+}
+
+async function getActorSnapshot(actorUserId: string | null): Promise<{ name: string; email: string } | null> {
+	if (!actorUserId) {
+		return null;
+	}
 	const [actor] = await db
 		.select({ name: s.user.name, email: s.user.email })
 		.from(s.user)

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dd7ab5fd-ffa6-4ac0-b6bd-de6826cd25e2",
+  "id": "7314f666-96cc-4b3a-befb-82ae79347728",
   "prevId": "cabe6046-98ef-4609-9749-3dc9a75f239a",
   "tables": {
     "account": {
@@ -6649,14 +6649,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "active": {
-          "name": "active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -10495,13 +10487,6 @@
         "archived_name": {
           "name": "archived_name",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sso_mappings_suspended_at": {
-          "name": "sso_mappings_suspended_at",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

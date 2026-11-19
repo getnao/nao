@@ -79,13 +79,13 @@ export const getProjectByOrgAndName = async (orgId: string, name: string): Promi
 	return project ?? null;
 };
 
-export const listProjectDeploymentPaths = async (): Promise<{ id: string; path: string }[]> => {
+export const listProjectDeploymentPaths = async (): Promise<{ id: string; name: string; path: string }[]> => {
 	const projects = await db
-		.select({ id: s.project.id, path: s.project.path })
+		.select({ id: s.project.id, name: s.project.name, path: s.project.path })
 		.from(s.project)
 		.where(isNotNull(s.project.path))
 		.execute();
-	return projects.flatMap((project) => (project.path ? [{ id: project.id, path: project.path }] : []));
+	return projects.flatMap((project) => (project.path ? [{ ...project, path: project.path }] : []));
 };
 
 export const organizationHasProjects = async (orgId: string): Promise<boolean> => {

@@ -1,5 +1,5 @@
 {
-  "id": "4a6e9aff-a92d-4cb3-b2bc-7d66e0e4cd57",
+  "id": "52378ee2-bbb3-4986-b4ea-e0c38ac9b092",
   "prevId": "0cb21762-d6ba-4068-8eb1-68fb120a9c6c",
   "version": "7",
   "dialect": "postgresql",
@@ -7206,13 +7206,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -11274,12 +11267,6 @@
         "archived_name": {
           "name": "archived_name",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sso_mappings_suspended_at": {
-          "name": "sso_mappings_suspended_at",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },

@@ -675,7 +675,6 @@ export const userGroup = sqliteTable(
 		configKey: text('config_key'),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		archivedName: text('archived_name'),
-		ssoMappingsSuspendedAt: integer('sso_mappings_suspended_at', { mode: 'timestamp_ms' }),
 		featureGrants: text('feature_grants', { mode: 'json' })
 			.$type<StoredUserGroupConfig>()
 			.notNull()
@@ -878,7 +877,6 @@ export const projectGroupBudget = sqliteTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		limitUsd: integer('limit_usd').notNull(),
-		active: integer('active', { mode: 'boolean' }).default(true).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

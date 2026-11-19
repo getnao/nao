@@ -64,7 +64,7 @@ import { backofficeRoutes } from './routes/backoffice';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { cliAuthRoutes } from './routes/cli-auth';
-import { deployRoutes } from './routes/deploy';
+import { deployRoutes, recoverInterruptedDeploys } from './routes/deploy';
 import { discordRoutes } from './routes/discord';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
@@ -96,6 +96,7 @@ import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './s
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
+import { reconcileUserGroupsConfigsAtStartup } from './services/user-group-config-reconciliation.service';
 import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -528,6 +529,8 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	}
 	await logLicenseStatus();
 	await reconcileOrganizationSetupGrants();
+	await recoverInterruptedDeploys();
+	await reconcileUserGroupsConfigsAtStartup();
 
 	void runLogCleanup().catch((err) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });

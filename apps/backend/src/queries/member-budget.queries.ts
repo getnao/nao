@@ -43,19 +43,12 @@ export const listGroupBudgets = async (projectId: string): Promise<DBProjectGrou
 			groupId: s.projectGroupBudget.groupId,
 			projectId: s.projectGroupBudget.projectId,
 			limitUsd: s.projectGroupBudget.limitUsd,
-			active: s.projectGroupBudget.active,
 			createdAt: s.projectGroupBudget.createdAt,
 			updatedAt: s.projectGroupBudget.updatedAt,
 		})
 		.from(s.projectGroupBudget)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.projectGroupBudget.groupId))
-		.where(
-			and(
-				eq(s.projectGroupBudget.projectId, projectId),
-				eq(s.projectGroupBudget.active, true),
-				activeUserGroupCondition,
-			),
-		)
+		.where(and(eq(s.projectGroupBudget.projectId, projectId), activeUserGroupCondition))
 		.execute();
 };
 
@@ -71,7 +64,6 @@ export const listGroupBudgetsForMember = async (
 		.where(
 			and(
 				eq(s.projectGroupBudget.projectId, projectId),
-				eq(s.projectGroupBudget.active, true),
 				eq(s.userGroupMember.userId, userId),
 				activeUserGroupCondition,
 				activeUserGroupMembershipCondition,
@@ -207,12 +199,11 @@ function writePersonalBudget(executor: DBExecutor, projectId: string, userId: st
 		});
 }
 
-/** Upserts the budget, or deactivates it when `limitUsd` is null. */
+/** Upserts the budget, or deletes it when `limitUsd` is null. */
 function writeGroupBudget(executor: DBExecutor, projectId: string, groupId: string, limitUsd: number | null) {
 	if (limitUsd === null) {
 		return executor
-			.update(s.projectGroupBudget)
-			.set({ active: false, updatedAt: new Date() })
+			.delete(s.projectGroupBudget)
 			.where(and(eq(s.projectGroupBudget.projectId, projectId), eq(s.projectGroupBudget.groupId, groupId)));
 	}
 	return executor
@@ -220,7 +211,7 @@ function writeGroupBudget(executor: DBExecutor, projectId: string, groupId: stri
 		.values({ projectId, groupId, limitUsd })
 		.onConflictDoUpdate({
 			target: s.projectGroupBudget.groupId,
-			set: { limitUsd, active: true, updatedAt: new Date() },
+			set: { limitUsd, updatedAt: new Date() },
 		});
 }
 
