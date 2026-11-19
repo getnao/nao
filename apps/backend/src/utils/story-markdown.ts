@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import type { KpiComparison } from '@nao/shared';
 import type { DateFormatSettings } from '@nao/shared/date';
 import {
 	type ParsedChartBlock,
@@ -25,6 +26,7 @@ interface MarkdownContext {
 }
 
 const IMAGE_KEY_PREFIX = 'story-markdown:';
+const CHANGE_SIGNS: Record<KpiComparison['direction'], string> = { up: '+', down: '-', flat: '' };
 
 /** Charts and maps become PNGs served from public URLs, so the Markdown survives an import into tools like Notion. */
 export async function generateStoryMarkdown(
@@ -77,8 +79,10 @@ function tableToMarkdown(table: ParsedTableBlock, { queryData, dateFormat }: Mar
 function kpiToMarkdown(chart: ParsedChartBlock, context: MarkdownContext): string {
 	const values = kpiCardValues(chart, context.queryData);
 	const lines = values.map(({ label, value, comparison }) => {
-		const change = comparison ? ` (${comparison.valueText} vs. ${comparison.periodLabel})` : '';
-		return `- **${singleLine(label)}**: ${value}${change}`;
+		const change = comparison
+			? ` (${CHANGE_SIGNS[comparison.direction]}${comparison.valueText} vs. ${comparison.periodLabel})`
+			: '';
+		return `- **${escapeText(label)}**: ${escapeText(value)}${change}`;
 	});
 	return joinBlocks(formatSectionTitle(chart.title), lines.join('\n') || '_Chart unavailable._');
 }
@@ -87,7 +91,7 @@ async function visualToMarkdown(segment: VisualSegment, context: MarkdownContext
 	const title = segment.type === 'chart' ? segment.chart.title : segment.map.title;
 	const imageUrl = await renderVisualImage(segment, context);
 	const image = imageUrl
-		? `![${escapeImageAlt(title || segment.type)}](${imageUrl})`
+		? `![${escapeText(title || segment.type)}](${imageUrl})`
 		: `_${segment.type === 'chart' ? 'Chart' : 'Map'} unavailable._`;
 	return joinBlocks(formatSectionTitle(title), image);
 }
@@ -115,7 +119,12 @@ function markdownTableRow(values: string[]): string {
 }
 
 function escapeTableCell(value: string): string {
-	return singleLine(value).replace(/\|/g, '\\|');
+	return escapeText(value).replace(/\|/g, '\\|');
+}
+
+/** Query values and labels are literal text: their asterisks, brackets or tags must not turn into formatting. */
+function escapeText(value: string): string {
+	return singleLine(value).replace(/[\\`*_[\]<>~]/g, '\\$&');
 }
 
 function formatHeading(title: string): string {
@@ -126,10 +135,6 @@ function formatHeading(title: string): string {
 function formatSectionTitle(title: string | undefined): string {
 	const text = singleLine(title ?? '');
 	return text ? `**${text}**` : '';
-}
-
-function escapeImageAlt(value: string): string {
-	return singleLine(value).replace(/[[\]\\]/g, '\\$&');
 }
 
 function singleLine(value: string): string {

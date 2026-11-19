@@ -29,7 +29,7 @@ describe('generateStoryMarkdown', () => {
 				title: 'Quarterly report',
 				code: '<tab title="Overview">\nIntro\n\n<table query_id="q2" title="Results" />\n</tab>',
 			},
-			{ q2: { columns: ['name', 'notes'], data: [{ name: 'A | B', notes: 'first\nsecond' }] } },
+			{ q2: { columns: ['name', 'notes'], data: [{ name: 'A | B', notes: '*first*\nsecond' }] } },
 		);
 
 		expect(markdown).toBe(
@@ -38,7 +38,7 @@ describe('generateStoryMarkdown', () => {
 				'## Overview',
 				'Intro',
 				'**Results**',
-				'| Name | Notes |\n| --- | --- |\n| A \\| B | first second |',
+				'| Name | Notes |\n| --- | --- |\n| A \\| B | \\*first\\* second |',
 			].join('\n\n'),
 		);
 	});
@@ -75,10 +75,10 @@ describe('generateStoryMarkdown', () => {
 	});
 
 	it('writes KPI cards as text', async () => {
-		const kpi = `<chart query_id="q1" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue"}]' title="Sales" />`;
+		const kpi = `<chart query_id="q1" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue"}]' comparison_mode="percentage" title="Sales" />`;
 
 		const markdown = await generateStoryMarkdown({ title: '', code: kpi }, QUERY_DATA);
 
-		expect(markdown).toBe('**Sales**\n\n- **Revenue**: 20');
+		expect(markdown).toBe('**Sales**\n\n- **Revenue**: 20 (+100% vs. previous period)');
 	});
 });
