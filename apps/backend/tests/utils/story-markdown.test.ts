@@ -61,4 +61,24 @@ describe('generateStoryMarkdown', () => {
 		expect(first?.[1]).toBeDefined();
 		expect(second?.[1]).toBe(first?.[1]);
 	});
+
+	it('renders charts with their story parameters resolved', async () => {
+		const parameter = `<parameter id="metric" type="metric" options='[{"value":"revenue"}]' default="revenue" />`;
+		const parameterizedChart = CHART.replace('"data_key":"revenue"', '"data_key":"{{ params.metric }}"');
+
+		const plain = (await generateStoryMarkdown({ title: '', code: CHART }, QUERY_DATA)).match(IMAGE_PATTERN);
+		const parameterized = (
+			await generateStoryMarkdown({ title: '', code: `${parameter}\n${parameterizedChart}` }, QUERY_DATA)
+		).match(IMAGE_PATTERN);
+
+		expect(parameterized?.[1]).toBe(plain?.[1]);
+	});
+
+	it('writes KPI cards as text', async () => {
+		const kpi = `<chart query_id="q1" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue"}]' title="Sales" />`;
+
+		const markdown = await generateStoryMarkdown({ title: '', code: kpi }, QUERY_DATA);
+
+		expect(markdown).toBe('**Sales**\n\n- **Revenue**: 20');
+	});
 });

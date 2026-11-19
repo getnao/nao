@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 
 import type { DateFormatSettings } from '@nao/shared/date';
-import { type ParsedTableBlock, type Segment, splitCodeIntoSegments } from '@nao/shared/story-segments';
+import {
+	type ParsedChartBlock,
+	type ParsedTableBlock,
+	type Segment,
+	splitCodeIntoSegments,
+} from '@nao/shared/story-segments';
 import { formatCellValue, formatColumnLabel } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
@@ -9,7 +14,7 @@ import type { StoryThemePair } from '@nao/shared/story-theme';
 import { env } from '../env';
 import { saveChart } from '../queries/chart-image';
 import type { QueryDataMap, StoryInput } from './story-download';
-import { generateStoryEmailHtml } from './story-html';
+import { kpiCardValues, renderStoryVisualImage } from './story-html';
 
 type VisualSegment = Extract<Segment, { type: 'chart' | 'map' }>;
 
@@ -41,6 +46,9 @@ async function segmentToMarkdown(segment: Segment, context: MarkdownContext): Pr
 		case 'table':
 			return [tableToMarkdown(segment.table, context)];
 		case 'chart':
+			return segment.chart.chartType === 'kpi_card'
+				? [kpiToMarkdown(segment.chart, context)]
+				: [await visualToMarkdown(segment, context)];
 		case 'map':
 			return [await visualToMarkdown(segment, context)];
 		case 'grid': {
@@ -66,37 +74,37 @@ function tableToMarkdown(table: ParsedTableBlock, { queryData, dateFormat }: Mar
 	return joinBlocks(formatSectionTitle(table.title), lines.join('\n'));
 }
 
-async function visualToMarkdown(segment: VisualSegment, context: MarkdownContext): Promise<string> {
-	const block = segment.type === 'chart' ? segment.chart : segment.map;
-	const imageUrl = await renderVisualImage(block.rawTag, context);
-	const image = imageUrl
-		? `![${escapeImageAlt(block.title || segment.type)}](${imageUrl})`
-		: `_${segment.type === 'chart' ? 'Chart' : 'Map'} unavailable._`;
-	return joinBlocks(formatSectionTitle(block.title), image);
+function kpiToMarkdown(chart: ParsedChartBlock, context: MarkdownContext): string {
+	const values = kpiCardValues(chart, context.queryData);
+	const lines = values.map(({ label, value, comparison }) => {
+		const change = comparison ? ` (${comparison.valueText} vs. ${comparison.periodLabel})` : '';
+		return `- **${singleLine(label)}**: ${value}${change}`;
+	});
+	return joinBlocks(formatSectionTitle(chart.title), lines.join('\n') || '_Chart unavailable._');
 }
 
-/** Reuses the email renderer, which draws a single chart or map to a PNG without a headless browser. */
-async function renderVisualImage(code: string | undefined, context: MarkdownContext): Promise<string | null> {
-	if (!code) {
-		return null;
-	}
+async function visualToMarkdown(segment: VisualSegment, context: MarkdownContext): Promise<string> {
+	const title = segment.type === 'chart' ? segment.chart.title : segment.map.title;
+	const imageUrl = await renderVisualImage(segment, context);
+	const image = imageUrl
+		? `![${escapeImageAlt(title || segment.type)}](${imageUrl})`
+		: `_${segment.type === 'chart' ? 'Chart' : 'Map'} unavailable._`;
+	return joinBlocks(formatSectionTitle(title), image);
+}
+
+/** Renders the parsed block rather than its raw tag, so story parameters stay resolved. */
+async function renderVisualImage(segment: VisualSegment, context: MarkdownContext): Promise<string | null> {
 	try {
-		const { images } = await generateStoryEmailHtml(
-			{ title: '', code },
-			context.queryData,
-			context.dateFormat,
-			undefined,
-			context.theme,
-		);
-		return images[0] ? await publishImage(images[0].content) : null;
+		const png = await renderStoryVisualImage(segment, context.queryData, context.dateFormat, context.theme);
+		return png ? await publishImage(png) : null;
 	} catch {
 		return null;
 	}
 }
 
 /** Images are keyed by their content, so exporting the same story again reuses the stored ones. */
-async function publishImage(png: Buffer | string): Promise<string> {
-	const data = Buffer.from(png).toString('base64');
+async function publishImage(png: Buffer): Promise<string> {
+	const data = png.toString('base64');
 	const hash = createHash('sha256').update(data).digest('hex');
 	const imageId = await saveChart(`${IMAGE_KEY_PREFIX}${hash}`, data);
 	return new URL(`/c/story/${imageId}.png`, env.BETTER_AUTH_URL).toString();
