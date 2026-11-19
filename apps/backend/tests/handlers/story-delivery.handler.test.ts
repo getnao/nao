@@ -123,11 +123,12 @@ it.each([
 	);
 });
 
-it('renders and sends a separate snapshot with each recipient row-security context', async () => {
+it('renders and sends a separate standalone snapshot with each recipient row-security context', async () => {
+	mocks.getStoryById.mockResolvedValue({ ...STORY, chatId: null });
 	mocks.hasRowSecurity.mockResolvedValue(true);
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-1', 'recipient-2']);
 	mocks.refreshStoryDataForDelivery.mockImplementation(
-		async (_chatId: string, _slug: string, options: { viewerUserId: string }) => ({
+		async (_storyId: string, options: { viewerUserId: string }) => ({
 			queryData: { query_users: { columns: ['viewer'], data: [{ viewer: options.viewerUserId }] } },
 			narratives: {},
 			code: `code-${options.viewerUserId}`,
@@ -138,12 +139,12 @@ it('renders and sends a separate snapshot with each recipient row-security conte
 
 	expect(mocks.refreshStoryById).not.toHaveBeenCalled();
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledTimes(2);
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(1, 'chat-id', 'story-slug', {
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(1, 'story-id', {
 		billingAccessVerifiedProjectId: 'project-id',
 		generateViewerCode: true,
 		viewerUserId: 'recipient-1',
 	});
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(2, 'chat-id', 'story-slug', {
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(2, 'story-id', {
 		billingAccessVerifiedProjectId: 'project-id',
 		generateViewerCode: true,
 		viewerUserId: 'recipient-2',
@@ -199,8 +200,7 @@ it('skips a removed recipient before generating their row-security snapshot', as
 	expect(mocks.hasRowSecurity).not.toHaveBeenCalledWith('project-id', 'removed-user');
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
-		'chat-id',
-		'story-slug',
+		'story-id',
 		expect.objectContaining({ viewerUserId: 'active-user' }),
 	);
 	expect(mocks.notifyUsers).toHaveBeenCalledWith(['active-user'], expect.anything(), expect.anything());
@@ -254,7 +254,7 @@ it('continues after a recipient failure and retries only failed recipients', asy
 	mocks.hasRowSecurity.mockResolvedValue(true);
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-failed', 'recipient-sent']);
 	mocks.refreshStoryDataForDelivery.mockImplementation(
-		async (_chatId: string, _slug: string, options: { viewerUserId: string }) => {
+		async (_storyId: string, options: { viewerUserId: string }) => {
 			if (options.viewerUserId === 'recipient-failed') {
 				throw new Error('Warehouse denied the recipient query.');
 			}
@@ -330,8 +330,7 @@ it('clears retry filters before a new recurring delivery', async () => {
 	expect(mocks.updateJobPayload).toHaveBeenCalledOnce();
 	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', { storyId: 'story-id' });
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
-		'chat-id',
-		'story-slug',
+		'story-id',
 		expect.objectContaining({ viewerUserId: 'recipient-user-id' }),
 	);
 	expect(mocks.notifyUsers).toHaveBeenCalledWith(
