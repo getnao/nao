@@ -243,13 +243,9 @@ export const AgentRequestUserMessageSchema = z.object({
 	citations: z.array(CitationDataSchema).max(MAX_CITATIONS_PER_MESSAGE).optional(),
 });
 
-const StoryFilterValueSchema = z.string().max(1_000);
 const ShownStoryFiltersSchema = z.object({
 	storyId: z.string().max(100),
-	selections: z.record(
-		z.string().max(100),
-		z.union([StoryFilterValueSchema, z.array(StoryFilterValueSchema).max(200)]),
-	),
+	selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
 });
 export type ShownStoryFilters = z.infer<typeof ShownStoryFiltersSchema>;
 
