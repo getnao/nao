@@ -11,6 +11,7 @@ plain data: it cannot hold secret references or other `from_file` references.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,17 +39,20 @@ class FileReferences:
     def missing_files(self) -> list[str]:
         return [file for location, file in self.files.items() if location in self.missing]
 
-    def restore(self, data: Any) -> None:
+    def restore(self, data: Any) -> list[str]:
+        """Returns the files whose value the loaded config holds elsewhere, a legacy key for instance.
+
+        Such a value cannot be traced back to its reference, so it stays written inline.
+        """
+        lost: list[str] = []
         for location, file in self.files.items():
             parent = _node_at(data, location[:-1])
             key = location[-1]
-            reference = {FILE_REFERENCE_KEY: file}
-            if isinstance(parent, dict):
-                parent[key] = reference
-            elif isinstance(parent, list) and isinstance(key, int) and location in self.missing:
-                parent.insert(key, reference)
-            elif isinstance(parent, list) and isinstance(key, int) and key < len(parent):
-                parent[key] = reference
+            if _holds_key(parent, key):
+                parent[key] = {FILE_REFERENCE_KEY: file}
+            else:
+                lost.append(file)
+        return lost
 
 
 def resolve_file_references(
@@ -57,20 +61,25 @@ def resolve_file_references(
     """Replaces every reference found in *data* by the content of its file.
 
     A file that does not exist fails the load, as a value left out would fall back to its default
-    and an empty `include` means every table. With allow_missing=True the value is left out instead,
-    for the commands that run before the repositories holding these files are synced.
+    and an empty `include` means every table. With allow_missing=True, each top-level section that
+    holds such a value is left out whole instead: `nao sync` reads the others, `repos` first of all,
+    before the repositories holding these files are synced.
     """
     if is_file_reference(data):
         raise ValueError(f"nao_config.yaml cannot be a single {FILE_REFERENCE_KEY} reference")
 
     references = FileReferences()
     resolved = _resolve_node(data, (), project_path, references)
-    if references.missing and not allow_missing:
+    if not references.missing or not isinstance(resolved, dict):
+        return resolved, references
+    if not allow_missing:
         raise ValueError(
             f"{FILE_REFERENCE_KEY} {', '.join(repr(file) for file in references.missing_files)} does not exist. "
             "If it comes from a synced repository, run `nao sync -p repos` first."
         )
-    return resolved, references
+
+    unresolved_sections = {location[0] for location in references.missing}
+    return {key: value for key, value in resolved.items() if key not in unresolved_sections}, references
 
 
 def is_file_reference(node: Any) -> bool:
@@ -84,19 +93,14 @@ def _resolve_node(node: Any, location: Location, project_path: Path, references:
         content = _read_referenced_file(project_path, file)
         if content is _MISSING:
             references.missing.add(location)
+            return None
         return content
 
     if isinstance(node, dict):
-        resolved = {
-            key: _resolve_node(child, (*location, key), project_path, references) for key, child in node.items()
-        }
-        return {key: child for key, child in resolved.items() if child is not _MISSING}
+        return {key: _resolve_node(child, (*location, key), project_path, references) for key, child in node.items()}
 
     if isinstance(node, list):
-        children = [
-            _resolve_node(child, (*location, index), project_path, references) for index, child in enumerate(node)
-        ]
-        return [child for child in children if child is not _MISSING]
+        return [_resolve_node(child, (*location, index), project_path, references) for index, child in enumerate(node)]
 
     return node
 
@@ -109,30 +113,42 @@ def _read_referenced_file(project_path: Path, file: str) -> Any:
     if not file_path.is_file():
         return _MISSING
 
-    content = file_path.read_text()
-    if contains_secret_reference(content):
+    try:
+        value = yaml.safe_load(file_path.read_text())
+    except yaml.YAMLError as error:
+        raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' is not valid YAML: {error}") from error
+
+    if _any_node(value, _is_secret_reference):
         raise ValueError(
             f"{FILE_REFERENCE_KEY} '{file}' holds a secret reference such as {{{{ env('NAME') }}}}, "
             "which only nao_config.yaml itself can use"
         )
-
-    try:
-        value = yaml.safe_load(content)
-    except yaml.YAMLError as error:
-        raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' is not valid YAML: {error}") from error
-
-    if _holds_file_reference(value):
+    if _any_node(value, is_file_reference):
         raise ValueError(
             f"{FILE_REFERENCE_KEY} '{file}' holds another {FILE_REFERENCE_KEY} reference, which is not supported"
         )
     return value
 
 
-def _holds_file_reference(node: Any) -> bool:
-    if is_file_reference(node):
+def _is_secret_reference(node: Any) -> bool:
+    """Checked on parsed strings, as a YAML escape would hide the reference from a check of the file's text."""
+    return isinstance(node, str) and contains_secret_reference(node)
+
+
+def _any_node(node: Any, predicate: Callable[[Any], bool]) -> bool:
+    if predicate(node):
         return True
-    children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
-    return any(_holds_file_reference(child) for child in children)
+    if isinstance(node, dict):
+        return any(_any_node(child, predicate) for item in node.items() for child in item)
+    if isinstance(node, list):
+        return any(_any_node(child, predicate) for child in node)
+    return False
+
+
+def _holds_key(node: Any, key: str | int) -> bool:
+    if isinstance(node, dict):
+        return key in node
+    return isinstance(node, list) and isinstance(key, int) and key < len(node)
 
 
 def _node_at(data: Any, location: Location) -> Any:

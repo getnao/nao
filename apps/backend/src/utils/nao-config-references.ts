@@ -22,13 +22,7 @@ export function resolveFileReferences(node: unknown, projectFolder: string): unk
 }
 
 export function holdsFileReference(node: unknown): boolean {
-	if (isFileReference(node)) {
-		return true;
-	}
-	if (Array.isArray(node)) {
-		return node.some(holdsFileReference);
-	}
-	return isPlainRecord(node) && Object.values(node).some(holdsFileReference);
+	return someNode(node, isFileReference);
 }
 
 function resolveNode(node: unknown, projectFolder: string): unknown {
@@ -47,11 +41,10 @@ function resolveNode(node: unknown, projectFolder: string): unknown {
 
 function readReferencedFile(file: string, projectFolder: string): unknown {
 	try {
-		const content = fs.readFileSync(resolveInsideProject(file, projectFolder), 'utf-8');
-		if (SECRET_REFERENCE_PATTERN.test(content)) {
+		const value = yaml.load(fs.readFileSync(resolveInsideProject(file, projectFolder), 'utf-8'));
+		if (someNode(value, isSecretReference)) {
 			throw new Error('it holds a secret reference, which only nao_config.yaml itself can use');
 		}
-		const value = yaml.load(content);
 		if (holdsFileReference(value)) {
 			throw new Error(`it holds another ${FILE_REFERENCE_KEY} reference, which is not supported`);
 		}
@@ -64,13 +57,39 @@ function readReferencedFile(file: string, projectFolder: string): unknown {
 }
 
 function resolveInsideProject(file: string, projectFolder: string): string {
+	const relativeFile = file.trim();
+	const isRelative = relativeFile !== '' && !relativeFile.startsWith('/') && !relativeFile.includes('\\');
+	if (!isRelative || relativeFile.split('/').includes('..')) {
+		throw new Error("it must be a relative path with forward slashes and no '..'");
+	}
+
 	const projectRoot = fs.realpathSync(projectFolder);
-	const filePath = fs.realpathSync(path.resolve(projectRoot, file));
+	const filePath = fs.realpathSync(path.resolve(projectRoot, relativeFile));
 	const relativePath = path.relative(projectRoot, filePath);
 	if (relativePath === '' || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
 		throw new Error('it points outside the project');
 	}
 	return filePath;
+}
+
+/** Checked on parsed strings, as a YAML escape would hide the reference from a check of the file's text. */
+function isSecretReference(node: unknown): boolean {
+	return typeof node === 'string' && SECRET_REFERENCE_PATTERN.test(node);
+}
+
+function someNode(node: unknown, predicate: (node: unknown) => boolean): boolean {
+	if (predicate(node)) {
+		return true;
+	}
+	if (Array.isArray(node)) {
+		return node.some((child) => someNode(child, predicate));
+	}
+	return (
+		isPlainRecord(node) &&
+		Object.entries(node)
+			.flat()
+			.some((child) => someNode(child, predicate))
+	);
 }
 
 function isFileReference(node: unknown): node is FileReference {

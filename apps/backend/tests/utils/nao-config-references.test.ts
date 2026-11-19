@@ -25,17 +25,32 @@ describe('resolveFileReferences', () => {
 		});
 	});
 
+	it('trims the path of a reference, as the CLI does', () => {
+		const project = createProject({ 'tables.yml': '- analytics.orders\n' });
+
+		expect(resolveFileReferences({ include: { from_file: ' tables.yml ' } }, project)).toEqual({
+			include: ['analytics.orders'],
+		});
+	});
+
 	it.each([
 		{ reason: 'does not exist', file: 'missing.yml', warning: 'ENOENT' },
-		{ reason: 'sits outside the project', file: '../outside.yml', warning: 'outside the project' },
+		{ reason: 'is reached through a parent folder', file: 'folder/../tables.yml', warning: "no '..'" },
+		{ reason: 'is given as an absolute path', file: '/tables.yml', warning: 'relative path' },
+		{ reason: 'is linked from outside the project', file: 'linked/outside.yml', warning: 'outside the project' },
 		{ reason: 'holds a secret reference', file: 'secret.yml', warning: 'secret reference' },
+		{ reason: 'holds an escaped secret reference', file: 'escaped.yml', warning: 'secret reference' },
 		{ reason: 'holds another reference', file: 'nested.yml', warning: 'another from_file' },
 	])('leaves out a reference whose file $reason', ({ file, warning }) => {
 		const project = createProject({
 			'../outside.yml': '- analytics.orders\n',
+			'tables.yml': '- analytics.orders\n',
+			'folder/tables.yml': '- analytics.orders\n',
 			'secret.yml': '- "{{ env(\'SECRET\') }}"\n',
+			'escaped.yml': '- "\\u007b\\u007b env(\'SECRET\') }}"\n',
 			'nested.yml': '- from_file: tables.yml\n',
 		});
+		fs.symlinkSync(path.dirname(project), path.join(project, 'linked'));
 		logger.warn.mockClear();
 
 		const resolved = resolveFileReferences({ name: 'warehouse', include: { from_file: file } }, project);

@@ -41,23 +41,38 @@ def test_a_missing_file_fails_the_load(tmp_path: Path):
         resolve_file_references(data, tmp_path)
 
 
-def test_a_missing_file_is_left_out_when_allowed_and_restored_on_save(tmp_path: Path):
-    write_project_file(tmp_path, "exclude.yml", "- tmp.*\n")
+def test_sections_holding_a_missing_file_are_left_out_when_allowed(tmp_path: Path):
+    repos = [{"name": "business_context", "url": "https://github.com/acme/business_context"}]
     data = {
-        "databases": [
-            {"from_file": "databases/extra.yml"},
-            {"name": "warehouse", "include": {"from_file": TABLES_FILE}, "exclude": {"from_file": "exclude.yml"}},
-        ]
+        "project_name": "acme",
+        "repos": repos,
+        "databases": [{"name": {"from_file": "repos/business_context/name.yml"}, "type": "duckdb"}],
     }
 
     resolved, references = resolve_file_references(data, tmp_path, allow_missing=True)
 
-    assert resolved == {"databases": [{"name": "warehouse", "exclude": ["tmp.*"]}]}
-    assert references.missing_files == ["databases/extra.yml", TABLES_FILE]
+    assert resolved == {"project_name": "acme", "repos": repos}
+    assert references.missing_files == ["repos/business_context/name.yml"]
 
-    references.restore(resolved)
 
-    assert resolved == data
+def test_restore_puts_references_back_and_reports_those_whose_value_moved(tmp_path: Path):
+    write_project_file(tmp_path, TABLES_FILE, "- analytics.orders\n")
+    write_project_file(tmp_path, "endpoint.yml", "https://proxy.acme.com\n")
+    data = {
+        "databases": [{"name": "warehouse", "include": {"from_file": TABLES_FILE}}],
+        "llm": {"provider": "openai", "base_url": {"from_file": "endpoint.yml"}},
+    }
+    _, references = resolve_file_references(data, tmp_path)
+    saved = {
+        "databases": [{"name": "warehouse", "include": ["analytics.orders"]}],
+        "llm": {"providers": [{"provider": "openai", "base_url": "https://proxy.acme.com"}]},
+    }
+
+    lost = references.restore(saved)
+
+    assert saved["databases"] == data["databases"]
+    assert saved["llm"] == {"providers": [{"provider": "openai", "base_url": "https://proxy.acme.com"}]}
+    assert lost == ["endpoint.yml"]
 
 
 @pytest.mark.parametrize(
@@ -67,6 +82,9 @@ def test_a_missing_file_is_left_out_when_allowed_and_restored_on_save(tmp_path: 
         pytest.param("/etc/tables.yml", "- a.b\n", "relative path", id="absolute_path"),
         pytest.param("linked/tables.yml", "- a.b\n", "outside the project", id="symlink_out_of_the_project"),
         pytest.param("tables.yml", "- \"{{ env('SECRET') }}\"\n", "secret reference", id="secret_reference"),
+        pytest.param(
+            "tables.yml", "- \"\\u007b\\u007b env('SECRET') }}\"\n", "secret reference", id="escaped_secret_reference"
+        ),
         pytest.param("tables.yml", "- from_file: other.yml\n", "another from_file", id="nested_reference"),
         pytest.param("tables.yml", "- [unclosed\n", "not valid YAML", id="invalid_yaml"),
     ],

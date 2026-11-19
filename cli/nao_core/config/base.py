@@ -227,7 +227,11 @@ class NaoConfig(BaseModel):
         serialized_config = self.model_dump(mode="json", by_alias=True, exclude_none=True)
         if self.metabase is not None:
             serialized_config["metabase"]["api_key"] = self.metabase.api_key.get_secret_value()
-        self._file_references.restore(serialized_config)
+        for file in self._file_references.restore(serialized_config):
+            UI.warn(
+                f"The value read with `from_file: {file}` is now written in nao_config.yaml itself: "
+                "nao moved it when loading the config, so the reference could not be kept."
+            )
         with config_file.open("w") as f:
             # Documentation Link
             f.write("# Configuration documentation:\n")
@@ -258,8 +262,8 @@ class NaoConfig(BaseModel):
 
         With process_env=False, env references resolve from extra_env only.
 
-        With allow_missing_file_references=True, a `from_file` value whose file does not exist
-        yet is left out instead of failing the load.
+        With allow_missing_file_references=True, the sections holding a `from_file` value whose
+        file does not exist yet are left out instead of failing the load.
         """
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
@@ -348,8 +352,8 @@ class NaoConfig(BaseModel):
                 nulled with a warning instead of failing the load (see `load`).
             process_env: If False, env references resolve from extra_env only. A server that loads
                 a tenant's config sets it, so its own environment never leaks into that config.
-            allow_missing_file_references: If True, a `from_file` value whose file does not exist
-                yet is left out instead of failing the load (see `load`).
+            allow_missing_file_references: If True, the sections holding a `from_file` value whose
+                file does not exist yet are left out instead of failing the load (see `load`).
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
