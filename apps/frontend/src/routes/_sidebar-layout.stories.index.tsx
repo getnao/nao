@@ -53,6 +53,7 @@ import {
 	getStoredSetting,
 	isSystemFolder,
 	isTeamFolder,
+	ownsTeamGroups,
 	readStoredSort,
 	STORIES_DISPLAY_KEY,
 	writeStoredSort,
@@ -863,6 +864,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 						folders.some((f) => f.parentId === dialog.folder.id) ||
 						(folderItems.data ?? []).some((i) => i.folderId === dialog.folder.id)
 					}
+					teamGroupNames={ownsTeamGroups(dialog.folder, folders) ? dialog.folder.teamGroupNames : []}
 				/>
 			)}
 

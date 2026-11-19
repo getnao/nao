@@ -9,7 +9,9 @@ import { canUserAccessStory } from '../../src/queries/story.queries';
 import type { FolderViewer } from '../../src/queries/story-folder.queries';
 import {
 	createFolder,
+	deleteFolderMovingContentsToParent,
 	ensurePrivateRoot,
+	getStoryFolderItem,
 	listFolderTree,
 	moveFolder,
 	moveStoryToFolder,
@@ -70,6 +72,25 @@ describe('team folders', () => {
 		expect(await visibleFolderNames(viewerOf(MEMBER_ID, [GROUP_ID]))).toEqual(['EMEA', 'Sales']);
 		expect(await visibleFolderNames(viewerOf(ADMIN_ID, [], true))).toEqual(['EMEA', 'Sales']);
 		expect(await visibleFolderNames(viewerOf(OWNER_ID))).toEqual([]);
+		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
+	});
+
+	it('gives the stories of a deleted team folder back to their owners and keeps its subfolders for its groups', async () => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'EMEA', parentId: sales.id });
+		const privateRoot = await ensurePrivateRoot(OWNER_ID, PROJECT_ID);
+		await moveStoryToFolder(STORY_ID, sales.id, { storyOwnerId: OWNER_ID, projectId: PROJECT_ID });
+
+		await deleteFolderMovingContentsToParent(sales.id);
+
+		expect(await getStoryFolderItem(STORY_ID)).toEqual({ folderId: privateRoot });
+		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toBeNull();
+		expect(await visibleFolderNames(viewerOf(MEMBER_ID, [GROUP_ID]))).toEqual(['EMEA']);
 		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
 	});
 
