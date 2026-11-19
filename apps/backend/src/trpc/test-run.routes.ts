@@ -25,6 +25,14 @@ import {
 	TestRunInputError,
 } from '../services/test-runner.service';
 import {
+	createTestSchedule,
+	deleteTestSchedule,
+	InvalidTestScheduleError,
+	listTestSchedules,
+	setTestScheduleEnabled,
+	updateTestSchedule,
+} from '../services/test-schedule.service';
+import {
 	discoverTests,
 	isInvalidTestFile,
 	newTestFilePaths,
@@ -63,6 +71,16 @@ const draftTestFileSchema = z.object({
 	}),
 });
 
+const runModelsSchema = z
+	.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
+	.max(MAX_TEST_RUN_MODELS);
+
+const runAttemptsSchema = z
+	.number()
+	.int()
+	.min(1)
+	.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` });
+
 /**
  * `production` runs against the production context, `changes` against it with the user's changes, and `compare`
  * against both side by side. The changes are those of the user's File Explorer, or of `upstream`, a branch of a
@@ -75,19 +93,20 @@ const startRunSchema = z.object({
 		z.object({ testFile: draftTestFileSchema }),
 		z.object({ paths: z.array(z.string()).optional() }).strict(),
 	]),
-	models: z
-		.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
-		.max(MAX_TEST_RUN_MODELS)
-		.optional(),
-	attempts: z
-		.number()
-		.int()
-		.min(1)
-		.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` })
-		.optional(),
+	models: runModelsSchema.optional(),
+	attempts: runAttemptsSchema.optional(),
 	threads: z.number().int().min(1).max(MAX_TEST_RUN_THREADS).optional(),
 	upstream: upstreamBranchSchema.optional(),
 });
+
+const scheduleSchema = z.object({
+	cron: z.string().trim().min(1).max(100),
+	tags: z.array(z.string().trim().min(1).max(50)).max(50),
+	models: runModelsSchema.min(1),
+	attempts: runAttemptsSchema,
+});
+
+const scheduleIdSchema = z.object({ id: z.string().min(1).max(100) });
 
 export const testRunRoutes = {
 	listTests: contextAdminProtectedProcedure.query(async ({ ctx }) => {
@@ -114,6 +133,48 @@ export const testRunRoutes = {
 					user: ctx.user,
 				},
 			});
+		} catch (error) {
+			throw toTestRunTrpcError(error, ctx.project.id);
+		}
+	}),
+
+	listSchedules: contextAdminProtectedProcedure.query(async ({ ctx }) => ({
+		schedules: await listTestSchedules(ctx.project.id, requireProjectPath(ctx.project.path)),
+		/** Crons are evaluated in the timezone of the server, which the schedule form names. */
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+	})),
+
+	createSchedule: cloudBillingContextAdminProcedure.input(scheduleSchema).mutation(async ({ ctx, input }) => {
+		try {
+			await createTestSchedule({ projectId: ctx.project.id, userId: ctx.user.id }, input);
+		} catch (error) {
+			throw toTestRunTrpcError(error, ctx.project.id);
+		}
+	}),
+
+	updateSchedule: cloudBillingContextAdminProcedure
+		.input(scheduleSchema.extend(scheduleIdSchema.shape))
+		.mutation(async ({ ctx, input: { id, ...settings } }) => {
+			try {
+				await updateTestSchedule(ctx.project.id, id, settings);
+			} catch (error) {
+				throw toTestRunTrpcError(error, ctx.project.id);
+			}
+		}),
+
+	setScheduleEnabled: cloudBillingContextAdminProcedure
+		.input(scheduleIdSchema.extend({ isEnabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				await setTestScheduleEnabled(ctx.project.id, input.id, input.isEnabled);
+			} catch (error) {
+				throw toTestRunTrpcError(error, ctx.project.id);
+			}
+		}),
+
+	deleteSchedule: contextAdminProtectedProcedure.input(scheduleIdSchema).mutation(async ({ ctx, input }) => {
+		try {
+			await deleteTestSchedule(ctx.project.id, input.id);
 		} catch (error) {
 			throw toTestRunTrpcError(error, ctx.project.id);
 		}
@@ -296,7 +357,8 @@ function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
 	if (
 		error instanceof TestRunInputError ||
 		error instanceof UpstreamContextError ||
-		error instanceof MissingDraftError
+		error instanceof MissingDraftError ||
+		error instanceof InvalidTestScheduleError
 	) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}

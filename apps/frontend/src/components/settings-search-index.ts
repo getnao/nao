@@ -14,8 +14,6 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
-	/** Hidden from context admins whose groups do not grant the file tree view of the Context Hub. */
-	requiresAdvancedContextExplorer?: boolean;
 	/** Hidden unless the current project role can view usage analytics. */
 	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
@@ -1770,10 +1768,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Tests',
-		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
+		description: 'Run the context tests from the Tests drawer of the Context Hub and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
+	},
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'Context Hub',
+		search: { tests: 'open' },
+		title: 'Schedule the tests',
+		description: 'Run the tests on production every hour, day or week, and get notified when they fail.',
+		keywords: ['schedule', 'scheduled runs', 'cron', 'nightly', 'daily', 'recurring', 'monitoring', 'drift'],
+		adminOrContextAdmin: true,
 	},
 	{
 		page: '/settings/context-explorer',
@@ -1792,7 +1798,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'leaderboard',
 		],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
@@ -1813,6 +1818,5 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'branch',
 		],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
 	},
 ];

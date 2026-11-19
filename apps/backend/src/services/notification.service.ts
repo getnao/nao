@@ -8,6 +8,7 @@ import type {
 	Visibility,
 } from '@nao/shared/types';
 
+import type { DBTestRun } from '../db/abstractSchema';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
@@ -182,6 +183,25 @@ export async function notifyStoryRefreshFailed(params: {
 		linkUrl: storyPath(params.storyId),
 		ctaLabel: 'Open story',
 		payload,
+	});
+}
+
+/** Tells who scheduled the tests that a scheduled run did not pass, as nobody watches these runs. */
+export async function notifyScheduledTestsFailed(
+	run: Pick<DBTestRun, 'id' | 'projectId' | 'triggeredByUserId' | 'passedAttempts' | 'totalAttempts'>,
+): Promise<void> {
+	const failedAttempts = run.totalAttempts - run.passedAttempts;
+	if (!run.triggeredByUserId || failedAttempts === 0) {
+		return;
+	}
+	await notify({
+		userId: run.triggeredByUserId,
+		projectId: run.projectId,
+		category: 'test_run',
+		title: `Scheduled tests failed: ${failedAttempts} of ${run.totalAttempts} answers`,
+		body: 'The agent no longer answers these tests like their reference SQL.',
+		linkUrl: `/context-hub?testRun=${run.id}`,
+		ctaLabel: 'Open the run',
 	});
 }
 

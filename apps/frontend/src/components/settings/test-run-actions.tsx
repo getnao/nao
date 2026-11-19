@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, FilePen, GitCompareArrows, Play, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
+import type { DraftContext, TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { ContextRunMode } from '@/hooks/use-test-run-start';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
@@ -57,8 +57,13 @@ export function SuiteRunActions({
 	draft,
 	activeRun,
 	scope,
+	tests,
 	onRunStarted,
-}: RunActionsBaseProps & { scope: SuiteRunScope }) {
+}: RunActionsBaseProps & {
+	scope: SuiteRunScope;
+	/** The tests of the suite, given where its runs can also be scheduled. */
+	tests?: TestDefinition[];
+}) {
 	const testRun = useTestRunStart({
 		target: { paths: scope.paths },
 		blockedReason: scope.testCount === 0 ? `Add a test to the ${TESTS_FOLDER}/ folder first.` : null,
@@ -81,6 +86,7 @@ export function SuiteRunActions({
 						settings={settings}
 						testCount={scope.testCount}
 						variantCount={testRun.mode === 'compare' ? 2 : 1}
+						schedulableTests={tests}
 						disabled={!!activeRun}
 					/>
 				</>

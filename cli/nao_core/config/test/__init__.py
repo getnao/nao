@@ -35,6 +35,35 @@ class TestModelConfig(BaseModel):
         return validate_model_name(model)
 
 
+class TestScheduleConfig(BaseModel):
+    """A schedule of `test.schedules`, on which the deployed app runs the tests against the production context."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+    cron: str = Field(description="When to run the tests, as a 5-field cron expression in the server timezone")
+    tags: list[str] = Field(default_factory=list, description="Run only the tests with one of these tags")
+    models: list[str | TestModelConfig] | None = Field(
+        default=None, description="The models to run the tests against, `test.models` by default"
+    )
+    k: int | None = Field(default=None, ge=1, description="Number of times to run each test case, `test.k` by default")
+
+    @field_validator("cron")
+    @classmethod
+    def validate_cron(cls, cron: str) -> str:
+        if len(cron.split()) != 5:
+            raise ValueError(f"invalid cron '{cron}', expected 5 fields such as '0 6 * * *'")
+        return cron.strip()
+
+    @field_validator("models")
+    @classmethod
+    def validate_models(cls, models: list[str | TestModelConfig] | None) -> list[str | TestModelConfig] | None:
+        for model in models or []:
+            if isinstance(model, str):
+                validate_model_name(model)
+        return models
+
+
 class TestConfig(BaseModel):
     """Defaults for `nao test`, each one overridable by the matching command line flag."""
 
@@ -55,6 +84,10 @@ class TestConfig(BaseModel):
     )
     comparison: ComparisonConfig = Field(
         default_factory=ComparisonConfig, description="Tolerances used when comparing results to the expected data"
+    )
+    schedules: list[TestScheduleConfig] = Field(
+        default_factory=list,
+        description="Schedules on which the deployed app runs the tests, ignored by `nao test`",
     )
 
     @field_validator("models")
