@@ -29,6 +29,7 @@ export function StoriesExplorer({
 	onDeleteFolder,
 	onArchiveFolder,
 	onRestoreFolder,
+	onShowFolderAccess,
 	onNewFolder,
 	selectedStoryIds,
 	selectedFolderIds,
@@ -49,6 +50,7 @@ export function StoriesExplorer({
 	onDeleteFolder: (folder: FolderItem) => void;
 	onArchiveFolder: (folder: FolderItem) => void;
 	onRestoreFolder: (folder: FolderItem) => void;
+	onShowFolderAccess: (folder: FolderItem) => void;
 	onNewFolder: () => void;
 	selectedStoryIds: Set<string>;
 	selectedFolderIds: Set<string>;
@@ -112,6 +114,7 @@ export function StoriesExplorer({
 									onDelete={onDeleteFolder}
 									onArchive={onArchiveFolder}
 									onRestore={onRestoreFolder}
+									onShowAccess={onShowFolderAccess}
 									selected={selectedFolderIds.has(entry.folder.id)}
 									selectionActive={selectionActive}
 									onToggleSelect={onToggleFolder}
@@ -156,6 +159,7 @@ export function StoriesExplorer({
 								onDelete={onDeleteFolder}
 								onArchive={onArchiveFolder}
 								onRestore={onRestoreFolder}
+								onShowAccess={onShowFolderAccess}
 								selected={selectedFolderIds.has(entry.folder.id)}
 								selectionActive={selectionActive}
 								onToggleSelect={onToggleFolder}

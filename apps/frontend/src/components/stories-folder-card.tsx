@@ -50,6 +50,7 @@ export function FolderCard({
 	onDelete,
 	onArchive,
 	onRestore,
+	onShowAccess,
 	selected = false,
 	selectionActive = false,
 	onToggleSelect,
@@ -57,6 +58,7 @@ export function FolderCard({
 	folder: FolderItem;
 	displayMode: FolderDisplayMode;
 	currentUserName: string;
+	onShowAccess: (folder: FolderItem) => void;
 	onModify: (folder: FolderItem) => void;
 	onMove: (folder: FolderItem) => void;
 	onDelete: (folder: FolderItem) => void;
@@ -71,6 +73,8 @@ export function FolderCard({
 	const isFolderFavorited = useToggleFavorite('folder').isFavorited(folder.id);
 	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
+	const hasMenu = !isViewer && (canManage || isTeamFolder(folder));
+	const showFavoriteButton = isFolderFavorited || !hasMenu;
 	const isVirtual = folder.id === '__shared_with_me__';
 	const draggableId = `drag-folder-${displayMode}-${folder.id}`;
 	const droppableId = `drop-folder-${displayMode}-${folder.id}`;
@@ -186,6 +190,7 @@ export function FolderCard({
 									<FolderKebab
 										folder={folder}
 										canManage={canManage}
+										onShowAccess={onShowAccess}
 										onModify={onModify}
 										onMove={onMove}
 										onDelete={onDelete}
@@ -194,17 +199,18 @@ export function FolderCard({
 									/>
 								</div>
 							)}
-							<div
-								className={cn(
-									'absolute top-1/2 right-0 -translate-y-1/2 z-10 transition-transform duration-150',
-									!isViewer &&
-										canManage &&
-										'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
-								)}
-								onPointerDown={(e) => e.stopPropagation()}
-							>
-								<FolderFavoriteButton folder={folder} />
-							</div>
+							{showFavoriteButton && (
+								<div
+									className={cn(
+										'absolute top-1/2 right-0 -translate-y-1/2 z-10 transition-transform duration-150',
+										hasMenu &&
+											'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
+									)}
+									onPointerDown={(e) => e.stopPropagation()}
+								>
+									<FolderFavoriteButton folder={folder} />
+								</div>
+							)}
 						</>
 					)}
 				</div>
@@ -283,6 +289,7 @@ export function FolderCard({
 								<FolderKebab
 									folder={folder}
 									canManage={canManage}
+									onShowAccess={onShowAccess}
 									onModify={onModify}
 									onMove={onMove}
 									onDelete={onDelete}
@@ -301,7 +308,12 @@ export function FolderCard({
 	const contentRightPadding =
 		selectionActive || isSystemFolder(folder)
 			? 'pr-3'
-			: cn(isFolderFavorited ? 'pr-7.5' : 'pr-3', 'group-hover:pr-12.5 group-has-data-[state=open]:pr-12.5');
+			: cn(
+					isFolderFavorited ? 'pr-7.5' : 'pr-3',
+					isFolderFavorited && hasMenu
+						? 'group-hover:pr-12.5 group-has-data-[state=open]:pr-12.5'
+						: 'group-hover:pr-7.5 group-has-data-[state=open]:pr-7.5',
+				);
 
 	return (
 		<div
@@ -363,6 +375,7 @@ export function FolderCard({
 									<FolderKebab
 										folder={folder}
 										canManage={canManage}
+										onShowAccess={onShowAccess}
 										onModify={onModify}
 										onMove={onMove}
 										onDelete={onDelete}
@@ -371,16 +384,18 @@ export function FolderCard({
 									/>
 								</div>
 							)}
-							<div
-								className={cn(
-									'absolute top-1/2 right-1.5 -translate-y-1/2 z-20 transition-transform duration-150',
-									!isViewer &&
-										'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
-								)}
-								onPointerDown={(e) => e.stopPropagation()}
-							>
-								<FolderFavoriteButton folder={folder} />
-							</div>
+							{showFavoriteButton && (
+								<div
+									className={cn(
+										'absolute top-1/2 right-1.5 -translate-y-1/2 z-20 transition-transform duration-150',
+										hasMenu &&
+											'group-hover:-translate-x-5 group-has-data-[state=open]:-translate-x-5',
+									)}
+									onPointerDown={(e) => e.stopPropagation()}
+								>
+									<FolderFavoriteButton folder={folder} />
+								</div>
+							)}
 						</>
 					)}
 				</>
@@ -485,9 +500,11 @@ function FolderKebab({
 	onDelete,
 	onArchive,
 	onRestore,
+	onShowAccess,
 }: {
 	folder: FolderItem;
 	canManage: boolean;
+	onShowAccess: (folder: FolderItem) => void;
 	onModify: (folder: FolderItem) => void;
 	onMove: (folder: FolderItem) => void;
 	onDelete: (folder: FolderItem) => void;
@@ -495,8 +512,10 @@ function FolderKebab({
 	onRestore: (folder: FolderItem) => void;
 }) {
 	const isArchived = folder.archivedAt !== null;
+	const isTeam = isTeamFolder(folder);
+	const favorite = useToggleFavorite('folder');
 
-	if (!canManage) {
+	if (!canManage && !isTeam) {
 		return null;
 	}
 
@@ -519,7 +538,17 @@ function FolderKebab({
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' onClick={stop}>
-				{isArchived ? (
+				<DropdownMenuItem onClick={() => favorite.toggle(folder.id)} disabled={favorite.isPending}>
+					<Star />
+					{favorite.isFavorited(folder.id) ? 'Remove from favorites' : 'Add to favorites'}
+				</DropdownMenuItem>
+				{isTeam && !isArchived && (
+					<DropdownMenuItem onClick={() => onShowAccess(folder)}>
+						<Users />
+						See who has access
+					</DropdownMenuItem>
+				)}
+				{!canManage ? null : isArchived ? (
 					<DropdownMenuItem onClick={() => onRestore(folder)}>
 						<ArchiveRestore />
 						Restore folder
