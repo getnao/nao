@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubScrollIntoView } from '../helpers/browser-stubs';
 import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -54,6 +55,7 @@ vi.mock('@/hooks/use-chat-activity', () => ({ useChatActivity: () => ({ running:
 describe('StoryMoveToFolderButton', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		stubScrollIntoView();
 		mocks.permissions = { isAdmin: false, isViewer: false };
 		mocks.isAgentRunning = false;
 		mocks.areFoldersLoaded = true;
@@ -87,9 +89,9 @@ describe('StoryMoveToFolderButton', () => {
 		renderButton();
 
 		fireEvent.click(screen.getByRole('button', { name: 'Move to folder' }));
-		expect(screen.getByText('Moving here will make the story public.')).toBeTruthy();
-
 		fireEvent.click(screen.getByRole('button', { name: /Team/ }));
+		expect(screen.getByText('Moving here will make this story public.')).toBeTruthy();
+
 		fireEvent.click(screen.getByRole('button', { name: 'Move here' }));
 
 		expect(mocks.moveStory).toHaveBeenCalledWith({ storyId: 'story-1', folderId: 'team' });
