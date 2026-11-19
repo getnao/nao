@@ -7,6 +7,7 @@ import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
+import { getShownStoryFiltersRequestBody } from '@/stores/shown-story-filters';
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -60,6 +61,7 @@ export function StoryAskBar({
 			isAsking={askMutation.isPending}
 			hasAskFailed={askMutation.isError}
 			resumedQuestion={handedOverQuestion}
+			getRequestBody={getShownStoryFiltersRequestBody}
 			onAsk={askStory}
 			onEnd={endQuestion}
 		>

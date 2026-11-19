@@ -243,6 +243,16 @@ export const AgentRequestUserMessageSchema = z.object({
 	citations: z.array(CitationDataSchema).max(MAX_CITATIONS_PER_MESSAGE).optional(),
 });
 
+const StoryFilterValueSchema = z.string().max(1_000);
+const ShownStoryFiltersSchema = z.object({
+	storyId: z.string().max(100),
+	selections: z.record(
+		z.string().max(100),
+		z.union([StoryFilterValueSchema, z.array(StoryFilterValueSchema).max(200)]),
+	),
+});
+export type ShownStoryFilters = z.infer<typeof ShownStoryFiltersSchema>;
+
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
@@ -258,6 +268,8 @@ export const AgentRequestSchema = z.object({
 	automationDraft: automationDraftSchema.optional(),
 	/** Sent by the chat beside the Context Hub, with the context file the user has open there. */
 	contextHub: z.object({ openPath: z.string().max(2_000).nullable() }).optional(),
+	/** The story on screen beside the chat or above a quick question, with the filters it is shown with. */
+	storyFilters: ShownStoryFiltersSchema.optional(),
 });
 
 export interface StoryOriginTurn {
