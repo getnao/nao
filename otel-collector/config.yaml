@@ -1,0 +1,130 @@
+# Telemetry agent for the GCP VM hosting moon, licenses, app and labs.
+# Ships container logs, host and container metrics and health checks to SigNoz Cloud.
+# Deployed by .github/workflows/otel-collector.yml.
+
+extensions:
+    docker_observer:
+        endpoint: unix:///var/run/docker.sock
+        excluded_images: ['otel/opentelemetry-collector-contrib*']
+    # Remembers how far each log file was read, so a collector restart neither skips nor resends lines.
+    file_storage:
+        directory: /var/lib/otelcol
+
+receivers:
+    # One log receiver per running container: a new blue/green slot is read from its first line.
+    receiver_creator/container_logs:
+        watch_observers: [docker_observer]
+        receivers:
+            file_log:
+                rule: type == "container"
+                resource_attributes:
+                    container.id: '`container_id`'
+                    container.name: '`name`'
+                    container.image.name: '`image`'
+                config:
+                    include:
+                        - /var/lib/docker/containers/`container_id`/`container_id`-json.log
+                    include_file_path: false
+                    include_file_name: false
+                    start_at: beginning
+                    storage: file_storage
+                    operators:
+                        - type: container
+                          format: docker
+                          add_metadata_from_filepath: false
+                        # Fastify (pino) logs JSON lines, the Python sidecar and the entrypoint log plain text.
+                        - type: json_parser
+                          if: body matches "^\\{"
+                          on_error: send_quiet
+                          severity:
+                              parse_from: attributes.level
+                              mapping:
+                                  trace: 10
+                                  debug: 20
+                                  info: 30
+                                  warn: 40
+                                  error: 50
+                                  fatal: 60
+
+    # The Docker observer only sees containers that publish a port. Caddy runs on the host
+    # network, so it writes its access log to its data volume, mounted here read-only.
+    file_log/caddy:
+        include: [/var/lib/caddy/logs/access.log]
+        start_at: beginning
+        storage: file_storage
+        include_file_name: false
+        resource:
+            service.name: caddy
+        operators:
+            - type: json_parser
+              timestamp:
+                  parse_from: attributes.ts
+                  layout_type: epoch
+                  layout: s.ns
+              severity:
+                  parse_from: attributes.level
+
+    host_metrics:
+        root_path: /hostfs
+        collection_interval: 60s
+        scrapers:
+            cpu:
+            load:
+            memory:
+            disk:
+            filesystem:
+            network:
+
+    docker_stats:
+        endpoint: unix:///var/run/docker.sock
+        collection_interval: 60s
+
+    http_check:
+        collection_interval: 60s
+        targets:
+            - endpoint: https://moon.getnao.io/api/health
+            - endpoint: https://app.getnao.io/api/health
+            - endpoint: https://labs.getnao.io/api/health
+            - endpoint: https://licenses.getnao.io/health
+
+processors:
+    memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+    resource_detection:
+        detectors: [system]
+        system:
+            hostname_sources: [os]
+    # Blue and green slots of one application report as a single service, and the nao-chat
+    # containers under the name of the instance they serve.
+    transform/service_name:
+        error_mode: ignore
+        log_statements:
+            - context: resource
+              conditions:
+                  - resource.attributes["container.name"] != nil
+              statements:
+                  - set(resource.attributes["service.name"], resource.attributes["container.name"])
+                  - replace_pattern(resource.attributes["service.name"], "-(blue|green)$", "")
+                  - set(resource.attributes["service.name"], "moon") where resource.attributes["service.name"] == "nao-chat"
+    batch:
+        timeout: 10s
+
+exporters:
+    otlp_http:
+        endpoint: ${env:SIGNOZ_INGESTION_ENDPOINT}
+        headers:
+            signoz-ingestion-key: ${env:SIGNOZ_INGESTION_KEY}
+
+service:
+    extensions: [docker_observer, file_storage]
+    pipelines:
+        logs:
+            receivers: [receiver_creator/container_logs, file_log/caddy]
+            processors: [memory_limiter, resource_detection, transform/service_name, batch]
+            exporters: [otlp_http]
+        metrics:
+            receivers: [host_metrics, docker_stats, http_check]
+            processors: [memory_limiter, resource_detection, batch]
+            exporters: [otlp_http]

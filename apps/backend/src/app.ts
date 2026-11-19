@@ -50,8 +50,9 @@ import {
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
-import { flushTelemetry } from './instrumentation';
+import { flushTelemetry, requestTracingEnabled } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { registerRequestTracing } from './middleware/request-tracing';
 import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
@@ -177,6 +178,10 @@ app.setErrorHandler((error, request, reply) => {
 	}
 	throw error;
 });
+
+if (requestTracingEnabled) {
+	registerRequestTracing(app, [HEALTH_PATH]);
+}
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
