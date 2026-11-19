@@ -52,6 +52,7 @@ import {
 	getFolderSubtreeIds,
 	getStoredSetting,
 	isSystemFolder,
+	isTeamFolder,
 	readStoredSort,
 	STORIES_DISPLAY_KEY,
 	writeStoredSort,
@@ -343,6 +344,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 				id: folder.id,
 				name: folder.name,
 				isPrivate: folder.visibility === 'private' || folder.systemType === 'shared_with_me',
+				isTeam: isTeamFolder(folder),
 			});
 			id = 'parentId' in folder ? (folder.parentId ?? null) : null;
 		}
