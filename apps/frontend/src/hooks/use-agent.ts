@@ -321,6 +321,7 @@ export const useAgent = ({
 						chatActivityStore.setUnread(agentId, true);
 						agentService.disposeAgent(agentId);
 					}
+					releaseUnviewedAgent(agentId, newAgent);
 				}
 			},
 			onError: () => {
@@ -336,6 +337,7 @@ export const useAgent = ({
 	}, [contextChatId, disableNavigation, navigate, setChat, queryClient]);
 
 	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef, requestBodyRef });
+	useSharedAgent(agentInstance, contextChatId);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,
@@ -684,6 +686,35 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
 };
+
+/** How many mounted screens show each shared agent. */
+const agentViewerCounts = new WeakMap<Agent<UIMessage>, number>();
+
+/**
+ * Keeps the agent of a saved chat shared while a screen shows it, so another screen of the chat, like the full
+ * chat opened from a panel, takes over its running answer. Once no screen shows it, it is released when idle.
+ */
+function useSharedAgent(agent: Agent<UIMessage>, chatId: string | undefined) {
+	useEffect(() => {
+		if (!chatId) {
+			return;
+		}
+		agentViewerCounts.set(agent, (agentViewerCounts.get(agent) ?? 0) + 1);
+		agentService.registerAgent(chatId, agent);
+		return () => {
+			agentViewerCounts.set(agent, (agentViewerCounts.get(agent) ?? 1) - 1);
+			if (!checkIsAgentRunning(agent)) {
+				releaseUnviewedAgent(chatId, agent);
+			}
+		};
+	}, [agent, chatId]);
+}
+
+function releaseUnviewedAgent(chatId: string, agent: Agent<UIMessage>) {
+	if (agentViewerCounts.get(agent) === 0 && agentService.getAgent(chatId) === agent) {
+		agentService.disposeAgent(chatId);
+	}
+}
 
 /** Agents that already read their chat's stream, by sending a message or by resuming, so they never resume again. */
 const agentsReadingServerStream = new WeakSet<Agent<UIMessage>>();

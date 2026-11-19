@@ -281,6 +281,24 @@ describe('useAgent chat activity', () => {
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 		expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).mentions).toEqual([mention]);
 	});
+
+	it('releases the agent of a closed panel once its answer ends', async () => {
+		const answer = deferred<Response>();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => answer.promise),
+		);
+		openChat('running-chat', answered);
+		const panel = renderAgent(new QueryClient(), { disableNavigation: true });
+		void panel.result.current.queueOrSendMessage({ text: 'And costs?' });
+		await waitFor(() => expect(panel.result.current.isRunning).toBe(true));
+		panel.unmount();
+		expect(agentService.getAgent('running-chat')).toBeDefined();
+
+		answer.resolve(toEventStreamResponse([{ type: 'start', messageId: 'costs-answer' }, { type: 'finish' }]));
+
+		await waitFor(() => expect(agentService.getAgent('running-chat')).toBeUndefined());
+	});
 });
 
 function openChat(chatId: string, messages: unknown[]) {
