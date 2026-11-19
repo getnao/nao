@@ -307,7 +307,8 @@ export const useAgent = ({
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
-					mentionsRef.current = next.mentions;
+					const activeMentionsRef = agentSendRefsStore.get(newAgent)?.mentionsRef ?? mentionsRef;
+					activeMentionsRef.current = next.mentions;
 					agentCitationStore.set(newAgent, next.citations);
 					const files = attachmentsToFileUIParts(next);
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });

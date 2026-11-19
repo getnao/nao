@@ -258,6 +258,29 @@ describe('useAgent chat activity', () => {
 
 		expect(result.current.isRunning).toBe(true);
 	});
+
+	it('sends the mentions of a message queued in a panel once its chat opens in full', async () => {
+		const firstAnswer = deferred<Response>();
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockReturnValueOnce(firstAnswer.promise)
+			.mockReturnValue(new Promise<Response>(() => {}));
+		vi.stubGlobal('fetch', fetchMock);
+		openChat('running-chat', answered);
+		const panel = renderAgent(new QueryClient(), { disableNavigation: true });
+		void panel.result.current.queueOrSendMessage({ text: 'And costs?' });
+		await waitFor(() => expect(panel.result.current.isRunning).toBe(true));
+		const mention = { id: 'orders', label: 'orders' };
+		panel.result.current.setMentions([mention]);
+		await panel.result.current.queueOrSendMessage({ text: 'And margins?' });
+		panel.unmount();
+		renderAgent();
+
+		firstAnswer.resolve(toEventStreamResponse([{ type: 'start', messageId: 'costs-answer' }, { type: 'finish' }]));
+
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+		expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).mentions).toEqual([mention]);
+	});
 });
 
 function openChat(chatId: string, messages: unknown[]) {
