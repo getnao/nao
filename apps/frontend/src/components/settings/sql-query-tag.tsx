@@ -62,7 +62,8 @@ export function SettingsSqlQueryTag() {
 	const configFile = tagSettings.data?.configFile ?? null;
 	const saved = agentSettings.data?.sql?.queryTag ?? DEFAULT_SETTINGS;
 	const settings = configFile ? { ...configFile, enabled: true } : (draft ?? saved);
-	const isReadOnly = configFile !== null || agentSettings.isPending || tagSettings.isPending;
+	const isReadOnly =
+		configFile !== null || agentSettings.isPending || tagSettings.isPending || updateAgentSettings.isPending;
 	const isTemplateMissing = settings.enabled && settings.template.trim() === '';
 	const unknownVariables = findUnknownSqlQueryTagVariables(settings.template);
 
@@ -174,7 +175,12 @@ export function SettingsSqlQueryTag() {
 
 			{!configFile && (
 				<div className='flex justify-end gap-2'>
-					<Button variant='ghost' size='sm' onClick={() => setDraft(null)} disabled={!draft}>
+					<Button
+						variant='ghost'
+						size='sm'
+						onClick={() => setDraft(null)}
+						disabled={!draft || updateAgentSettings.isPending}
+					>
 						Discard
 					</Button>
 					<Button

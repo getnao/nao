@@ -3,6 +3,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { deferred } from '../../helpers/deferred';
 import { createTestQueryClient } from '../../helpers/query-client';
 import { SettingsSqlQueryTag } from '@/components/settings/sql-query-tag';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -49,7 +50,7 @@ describe('SettingsSqlQueryTag', () => {
 
 	afterEach(cleanup);
 
-	it('previews the comment being written with the values of the admin, and saves it', async () => {
+	it('previews the comment being written with the values of the admin, and locks the form while it saves', async () => {
 		renderCard();
 		const template = await screen.findByLabelText('Comment');
 		await waitFor(() => expect(template.hasAttribute('disabled')).toBe(false));
@@ -59,12 +60,17 @@ describe('SettingsSqlQueryTag', () => {
 
 		expect(screen.getByText('/* by ada@example.com from web */')).toBeTruthy();
 
+		const save = deferred<object>();
+		mocks.updateAgentSettings.mockReturnValue(save.promise);
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-		await waitFor(() => expect(mocks.updateAgentSettings).toHaveBeenCalled());
+		await waitFor(() => expect(template.hasAttribute('disabled')).toBe(true));
 		expect(mocks.updateAgentSettings.mock.calls[0][0]).toEqual({
 			sql: { queryTag: { enabled: true, template: 'by {{ user_email }} from {{ source }}', position: 'start' } },
 		});
+
+		save.resolve({});
+		await waitFor(() => expect(template.hasAttribute('disabled')).toBe(false));
 	});
 
 	it('shows the tag of nao_config.yaml without letting the admin change it', async () => {
