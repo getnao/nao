@@ -132,6 +132,13 @@ def test_schedules_are_loaded_from_config(tmp_path):
     "schedule",
     [
         {"cron": "every morning"},
+        {"cron": "99 99 * * *"},
+        {"cron": "0 25 * * *"},
+        {"cron": "0 6 * * 9"},
+        {"cron": "0 6 5-1 * *"},
+        {"cron": "0 6 * */0 *"},
+        {"cron": "*/5 * * * *"},
+        {"cron": "0,30 6 * * *"},
         {"cron": "0 6 * * *", "k": 0},
         {"cron": "0 6 * * *", "models": ["gpt-4.1"]},
         {"cron": "0 6 * * *", "tag": ["smoke"]},
@@ -140,3 +147,11 @@ def test_schedules_are_loaded_from_config(tmp_path):
 def test_schedules_are_validated(schedule):
     with pytest.raises(ValidationError):
         TestConfig(schedules=[schedule])
+
+
+@pytest.mark.parametrize(
+    "cron",
+    ["0 * * * *", "30 8 * * 1-5", "0 6 * * mon-fri", "0 6 1,15 */2 *", "15 0-23/6 * JAN-JUN 7"],
+)
+def test_schedules_accept_the_crons_the_app_runs(cron):
+    assert TestScheduleConfig(cron=f"  {cron}  ").cron == cron

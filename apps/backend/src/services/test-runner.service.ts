@@ -371,6 +371,7 @@ async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>
 async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan): Promise<void> {
 	const jobs = buildAttemptJobs(plan);
 	if (!(await markRunRunningOrFail(run, jobs.length))) {
+		await notifyScheduledRunOutcome(run);
 		return;
 	}
 
@@ -384,13 +385,13 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
 		);
 		await testRunQueries.completeRun(run.id);
-		await notifyScheduledRunOutcome(run);
 	} catch (error) {
 		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
 	} finally {
 		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
 	}
+	await notifyScheduledRunOutcome(run);
 }
 
 async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
@@ -398,9 +399,9 @@ async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
 		return;
 	}
 	try {
-		const completedRun = await testRunQueries.getRun(run.projectId, run.id);
-		if (completedRun?.status === 'completed') {
-			await notifyScheduledTestsFailed(completedRun);
+		const endedRun = await testRunQueries.getRun(run.projectId, run.id);
+		if (endedRun) {
+			await notifyScheduledTestsFailed(endedRun);
 		}
 	} catch (error) {
 		logger.error(`Could not notify the outcome of scheduled test run ${run.id}: ${String(error)}`, {

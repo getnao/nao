@@ -38,6 +38,9 @@ vi.mock('../../src/services/test-runner.service', () => ({
 	TestRunInputError: mocks.TestRunInputError,
 }));
 vi.mock('../../src/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn() } }));
+vi.mock('../../src/utils/keyed-lock', () => ({
+	withKeyedLock: (_key: string, run: () => Promise<unknown>) => run(),
+}));
 
 import {
 	createTestSchedule,
@@ -87,7 +90,7 @@ describe('test schedules', () => {
 			name: 'test.scheduled-run',
 			cron: '0 * * * *',
 			uniqueKey: expect.stringMatching(/^test-schedule:project-1:[\w-]{36}$/),
-			payload: { ...OWNER, ...RUN },
+			payload: { ...OWNER, ...RUN, isPaused: false },
 			runAt: new Date(2026, 8, 28, 11, 0),
 			status: 'pending',
 			resetRunAtOnConflict: true,
@@ -154,7 +157,7 @@ describe('test schedules', () => {
 			expect.objectContaining({
 				cron: '0 3 * * *',
 				uniqueKey: expect.stringMatching(/^test-schedule:project-1:config-[0-9a-f]{16}$/),
-				payload: { projectId: 'project-1', tags: ['smoke'], models: null, attempts: null },
+				payload: { projectId: 'project-1', tags: ['smoke'], models: null, attempts: null, isPaused: false },
 			}),
 		);
 	});
@@ -183,7 +186,7 @@ describe('test schedules', () => {
 			expect.objectContaining({
 				uniqueKey: 'test-schedule:project-1:schedule-1',
 				cron: '0 6 * * *',
-				payload: { ...OWNER, ...RUN },
+				payload: { ...OWNER, ...RUN, isPaused: !isEnabled },
 				runAt: new Date(2026, 8, 29, 6, 0),
 				status,
 			}),
@@ -191,10 +194,15 @@ describe('test schedules', () => {
 	});
 
 	it.each([
-		{ status: 'pending', expectedStatus: 'pending' },
-		{ status: 'paused', expectedStatus: 'paused' },
-	])('edits a $status schedule of the app, which keeps its owner and stays $expectedStatus', async (job) => {
-		mocks.getJobByUniqueKey.mockResolvedValue({ ...APP_JOB, status: job.status });
+		{ case: 'running', status: 'pending', isPaused: false, expectedStatus: 'pending' },
+		{ case: 'paused', status: 'paused', isPaused: true, expectedStatus: 'paused' },
+		{ case: 'paused while its job ran', status: 'pending', isPaused: true, expectedStatus: 'paused' },
+	])('edits a schedule of the app $case, which keeps its owner and stays $expectedStatus', async (job) => {
+		mocks.getJobByUniqueKey.mockResolvedValue({
+			...APP_JOB,
+			status: job.status,
+			payload: { ...APP_JOB.payload, isPaused: job.isPaused },
+		});
 
 		await updateTestSchedule('project-1', 'schedule-1', {
 			cron: '30 8 * * 1',
@@ -207,7 +215,7 @@ describe('test schedules', () => {
 			expect.objectContaining({
 				uniqueKey: 'test-schedule:project-1:schedule-1',
 				cron: '30 8 * * 1',
-				payload: { ...OWNER, tags: [], models: null, attempts: 3 },
+				payload: { ...OWNER, tags: [], models: null, attempts: 3, isPaused: job.isPaused },
 				runAt: new Date(2026, 9, 5, 8, 30),
 				status: job.expectedStatus,
 			}),
@@ -264,6 +272,18 @@ describe('test schedules', () => {
 			attempts: undefined,
 			isScheduled: true,
 		});
+	});
+
+	it('lists as paused, and does not run, a schedule paused while the scheduler was running its job', async () => {
+		const pausedPayload = { ...OWNER, ...RUN, isPaused: true };
+		mocks.listJobsByUniqueKeyPrefix.mockResolvedValue([{ ...APP_JOB, status: 'pending', payload: pausedPayload }]);
+
+		await expect(listTestSchedules('project-1', projectFolder)).resolves.toEqual([
+			expect.objectContaining({ id: 'schedule-1', isEnabled: false, nextRunAt: null }),
+		]);
+		await runScheduledTests(pausedPayload);
+
+		expect(mocks.startTestRun).not.toHaveBeenCalled();
 	});
 
 	it('waits for the next tick when the schedule matches no valid test', async () => {

@@ -6,6 +6,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import type { TestSchedule, TestScheduleSettings } from '../types/test-run';
 import { getTestScheduleCronError } from '../utils/cron';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { nextCronTick } from './scheduler.service';
@@ -21,6 +22,11 @@ interface TestScheduleJobPayload extends Omit<TestScheduleSettings, 'cron'> {
 	projectId: string;
 	/** Who saved the schedule in the app, in whose name its runs start. A schedule of nao_config.yaml has none. */
 	userId?: string;
+	/**
+	 * Kept with the schedule as well as in the status of its job, as the scheduler sets a job it is running back to
+	 * pending whatever was asked meanwhile.
+	 */
+	isPaused?: boolean;
 }
 
 export class InvalidTestScheduleError extends Error {}
@@ -39,15 +45,17 @@ export async function createTestSchedule(
 	owner: { projectId: string; userId: string },
 	settings: TestScheduleSettings,
 ): Promise<void> {
-	const jobs = await listScheduleJobs(owner.projectId);
-	if (jobs.filter((job) => !isConfiguredSchedule(owner.projectId, job)).length >= MAX_APP_SCHEDULES) {
-		throw new InvalidTestScheduleError(`A project has at most ${MAX_APP_SCHEDULES} schedules.`);
-	}
 	const cronError = getTestScheduleCronError(settings.cron);
 	if (cronError) {
 		throw new InvalidTestScheduleError(cronError);
 	}
-	await saveScheduleJob(crypto.randomUUID(), { ...owner, ...settings });
+	await withKeyedLock(`test-schedules:${owner.projectId}`, async () => {
+		const jobs = await listScheduleJobs(owner.projectId);
+		if (jobs.filter((job) => !isConfiguredSchedule(owner.projectId, job)).length >= MAX_APP_SCHEDULES) {
+			throw new InvalidTestScheduleError(`A project has at most ${MAX_APP_SCHEDULES} schedules.`);
+		}
+		await saveScheduleJob(crypto.randomUUID(), { ...owner, ...settings });
+	});
 }
 
 /** Changes when a schedule of the app runs and what it runs. It stays paused if it was, and keeps its owner. */
@@ -61,7 +69,7 @@ export async function updateTestSchedule(
 	if (cronError) {
 		throw new InvalidTestScheduleError(cronError);
 	}
-	await saveScheduleJob(scheduleId, { ...readPayload(job), ...settings }, job.status !== 'paused');
+	await saveScheduleJob(scheduleId, { ...readPayload(job), ...settings }, isScheduleEnabled(job));
 }
 
 /** Pausing keeps the schedule, and resuming it waits for its next tick. */
@@ -78,10 +86,14 @@ export async function deleteTestSchedule(projectId: string, scheduleId: string):
 }
 
 /**
- * Starts the scheduled run on the production context. A run already in progress fails the job, which the scheduler
- * retries a little later, while a schedule that matches no valid test waits for its next tick.
+ * Starts the scheduled run on the production context, unless the schedule was paused while its job was running. A run
+ * already in progress fails the job, which the scheduler retries a little later, while a schedule that matches no valid
+ * test waits for its next tick.
  */
 export async function runScheduledTests(payload: TestScheduleJobPayload): Promise<void> {
+	if (payload.isPaused) {
+		return;
+	}
 	const { projectId, tags, models, attempts } = payload;
 	const userId = await resolveScheduleRunner(payload);
 	try {
@@ -168,7 +180,7 @@ async function saveScheduleJob(
 		name: TEST_SCHEDULE_JOB_NAME,
 		cron,
 		uniqueKey: scheduleJobKey(payload.projectId, scheduleId),
-		payload,
+		payload: { ...payload, isPaused: !isEnabled },
 		runAt,
 		status: isEnabled ? 'pending' : 'paused',
 		resetRunAtOnConflict: true,
@@ -182,7 +194,7 @@ async function listScheduleJobs(projectId: string): Promise<DBScheduledJob[]> {
 
 function toTestSchedule(projectId: string, job: DBScheduledJob): TestSchedule {
 	const { tags, models, attempts } = readPayload(job);
-	const isEnabled = job.status !== 'paused';
+	const isEnabled = isScheduleEnabled(job);
 	return {
 		id: toScheduleId(projectId, job.uniqueKey ?? ''),
 		source: isConfiguredSchedule(projectId, job) ? 'config' : 'app',
@@ -193,6 +205,10 @@ function toTestSchedule(projectId: string, job: DBScheduledJob): TestSchedule {
 		attempts,
 		nextRunAt: isEnabled ? job.runAt : null,
 	};
+}
+
+function isScheduleEnabled(job: DBScheduledJob): boolean {
+	return job.status !== 'paused' && !readPayload(job).isPaused;
 }
 
 function readPayload(job: DBScheduledJob): TestScheduleJobPayload {

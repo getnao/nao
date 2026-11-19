@@ -61,7 +61,6 @@ export function SuiteRunActions({
 	onRunStarted,
 }: RunActionsBaseProps & {
 	scope: SuiteRunScope;
-	/** The tests of the suite, given where its runs can also be scheduled. */
 	tests?: TestDefinition[];
 }) {
 	const testRun = useTestRunStart({

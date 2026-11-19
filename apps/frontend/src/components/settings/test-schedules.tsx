@@ -42,7 +42,6 @@ interface ScheduledModels {
 }
 
 interface TestSchedulesProps {
-	/** The models and attempts picked above, which a new schedule runs with. */
 	settings: TestRunSettings;
 	tests: TestDefinition[];
 }

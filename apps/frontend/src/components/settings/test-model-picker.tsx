@@ -44,7 +44,6 @@ interface TestModelPickerProps {
 	testCount: number;
 	/** Context variants the next run tries, 2 when it compares the user's changes with the main branch. */
 	variantCount: number;
-	/** The tests of the suite, for the picker that can also run it on a schedule. */
 	schedulableTests?: TestDefinition[];
 	disabled?: boolean;
 }

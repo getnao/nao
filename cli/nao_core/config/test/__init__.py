@@ -1,12 +1,29 @@
 """Test configuration module."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DEFAULT_TEST_MODELS = ["openai:gpt-4.1"]
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high", "max"]
+
+
+class CronField(NamedTuple):
+    lowest: int
+    highest: int
+    names: dict[str, int]
+
+
+MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+WEEKDAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+CRON_FIELDS = [
+    CronField(0, 59, {}),
+    CronField(0, 23, {}),
+    CronField(1, 31, {}),
+    CronField(1, 12, {name: month for month, name in enumerate(MONTH_NAMES, start=1)}),
+    CronField(0, 7, {name: weekday for weekday, name in enumerate(WEEKDAY_NAMES)}),
+]
 
 
 class ComparisonConfig(BaseModel):
@@ -51,9 +68,7 @@ class TestScheduleConfig(BaseModel):
     @field_validator("cron")
     @classmethod
     def validate_cron(cls, cron: str) -> str:
-        if len(cron.split()) != 5:
-            raise ValueError(f"invalid cron '{cron}', expected 5 fields such as '0 6 * * *'")
-        return cron.strip()
+        return validate_schedule_cron(cron)
 
     @field_validator("models")
     @classmethod
@@ -97,6 +112,32 @@ class TestConfig(BaseModel):
             if isinstance(model, str):
                 validate_model_name(model)
         return models
+
+
+def validate_schedule_cron(cron: str) -> str:
+    """Rejects what the deployed app rejects: an invalid expression, or one that runs more than once an hour."""
+    fields = cron.split()
+    if len(fields) != len(CRON_FIELDS) or not all(
+        is_valid_cron_part(part, field) for value, field in zip(fields, CRON_FIELDS) for part in value.split(",")
+    ):
+        raise ValueError(f"invalid cron '{cron}', expected 5 fields such as '0 6 * * *'")
+    if not fields[0].isdigit():
+        raise ValueError(f"invalid cron '{cron}': a schedule runs at most once an hour, so its minute is one number")
+    return " ".join(fields)
+
+
+def is_valid_cron_part(part: str, field: CronField) -> bool:
+    """A value, a range or `*`, each with an optional step, such as `MON-FRI` or `*/2`."""
+    span, has_step, step = part.partition("/")
+    if has_step and not (step.isdigit() and int(step) >= 1):
+        return False
+    if span == "*":
+        return True
+    bounds = [field.names.get(bound.upper(), bound) for bound in span.split("-")]
+    if len(bounds) > 2 or not all(str(bound).isdigit() for bound in bounds):
+        return False
+    values = [int(bound) for bound in bounds]
+    return values == sorted(values) and field.lowest <= values[0] and values[-1] <= field.highest
 
 
 def validate_model_name(model: str) -> str:
