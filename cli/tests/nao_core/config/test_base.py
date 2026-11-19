@@ -74,6 +74,23 @@ def test_save_preserves_metabase_api_key(tmp_path):
     assert saved_config.metabase.api_key.get_secret_value() == "secret-key"
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param("tests/analytics", "tests/analytics", id="same_folder"),
+        pytest.param("tests/analytics", "tests/analytics/finance", id="nested_folder"),
+    ],
+)
+def test_repo_targets_must_not_overlap(first: str, second: str):
+    repos = [
+        {"name": name, "url": f"https://github.com/acme/{name}", "targets": [{"source": "tests", "target": target}]}
+        for name, target in (("analytics", first), ("finance", second))
+    ]
+
+    with pytest.raises(ValidationError, match="overlap"):
+        NaoConfig.model_validate({"project_name": "acme", "repos": repos})
+
+
 def test_threads_must_be_positive():
     with pytest.raises(ValidationError):
         NaoConfig.model_validate({"project_name": "test-project", "threads": 0})
