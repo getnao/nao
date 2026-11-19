@@ -24,7 +24,7 @@ import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-a
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { ShareSource, StoryFormat } from '@nao/shared/types';
-import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
+import type { CustomStoryViewerAccess, StoryElementAsk } from '@nao/shared/story-app';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import type { CodeSelection } from '@/stores/ask-bar';
@@ -48,6 +48,8 @@ import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
 import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
 import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
+import { StoryElementPicker } from '@/components/story-element-picker';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
@@ -359,6 +361,18 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		},
 		[citingChatId, resolvedStorySlug, chatId],
 	);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const canSelectElements = !isReadonlyMode && viewMode === 'preview';
+	const handleAskAboutElement = useCallback(
+		(ask: StoryElementAsk) => {
+			chatPendingCitationStore.addStoryElement(
+				citingChatId,
+				{ chatId, slug: resolvedStorySlug },
+				{ ...ask, intent: 'ask' },
+			);
+		},
+		[citingChatId, chatId, resolvedStorySlug],
+	);
 	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
 	const handleBeforeAgentSend = useCallback(async () => {
 		if (!isDirty) {
@@ -491,6 +505,15 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onSwitchStory={switchStory}
 				viewMode={viewMode}
 				onViewModeChange={transitions.requestViewMode}
+				elementSelection={
+					isReadonlyMode
+						? undefined
+						: {
+								isSelecting: canSelectElements && isSelectingElements,
+								onSelectingChange: setIsSelectingElements,
+								disabled: !canSelectElements,
+							}
+				}
 				currentVersion={currentVersionNumber}
 				versions={versions}
 				versionNumber={currentVersion?.version}
@@ -554,23 +577,31 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						isContentLoading ? (
 							<StoryContentLoading />
 						) : (
-							<StoryPreview
-								code={
-									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
-								}
-								fullCode={storyCode}
-								cacheSchedule={cacheSchedule}
-								queryData={versionQueryData}
-								chatId={chatId}
-								storyId={storyId}
+							<StoryElementPicker
+								isPicking={canSelectElements && isSelectingElements}
 								storySlug={resolvedStorySlug}
-								versionKey={isViewingLatest ? undefined : currentVersionNumber}
-								filtersEnabled={isViewingLatest && !isStoryUpdating}
-								isStreaming={isStoryStreaming}
-								isDataPending={isVersionQueryDataPending}
-								isViewingLatest={isViewingLatest}
-								theme={storyTheme}
-							/>
+								onPick={handleAskAboutElement}
+							>
+								<StoryPreview
+									code={
+										isTabbedStory && tabs
+											? tabs[activeTab].innerCode
+											: stripStoryTabsMarkup(storyCode)
+									}
+									fullCode={storyCode}
+									cacheSchedule={cacheSchedule}
+									queryData={versionQueryData}
+									chatId={chatId}
+									storyId={storyId}
+									storySlug={resolvedStorySlug}
+									versionKey={isViewingLatest ? undefined : currentVersionNumber}
+									filtersEnabled={isViewingLatest && !isStoryUpdating}
+									isStreaming={isStoryStreaming}
+									isDataPending={isVersionQueryDataPending}
+									isViewingLatest={isViewingLatest}
+									theme={storyTheme}
+								/>
+							</StoryElementPicker>
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={versionQueryData}>

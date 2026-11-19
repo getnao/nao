@@ -22,7 +22,6 @@ import {
 } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
-import { useCitedElementHighlight } from '@/hooks/use-cited-element-highlight';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
@@ -59,8 +58,6 @@ export const StoryPreview = memo(function StoryPreview({
 	isViewingLatest = true,
 	theme,
 }: StoryPreviewProps) {
-	const contentRef = useRef<HTMLDivElement>(null);
-	useCitedElementHighlight(contentRef, storySlug);
 	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
 	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
@@ -183,12 +180,7 @@ export const StoryPreview = memo(function StoryPreview({
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
-				<div
-					ref={contentRef}
-					data-story-content
-					data-story-chat-id={chatId}
-					className='p-6 flex flex-col gap-4'
-				>
+				<div data-story-content data-story-chat-id={chatId} className='p-6 flex flex-col gap-4'>
 					<StoryFilterBar
 						filters={storyFilters.filters}
 						parameters={storyFilters.parameters}
