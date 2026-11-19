@@ -165,7 +165,6 @@ function ShareDialogBody({
 				<DialogDescription>{description}</DialogDescription>
 			</DialogHeader>
 			<ShareAccessPanel
-				itemLabel={model.itemLabel}
 				owner={model.owner}
 				currentUserId={session?.user?.id}
 				draft={draft}
