@@ -879,6 +879,95 @@ export async function listFolderItemsForProject(
 		.execute();
 }
 
+/**
+ * Makes the given public folders the team folders of a group, then reshares the stories of every folder whose
+ * audience changed. A team folder cannot sit inside, or contain, another one.
+ */
+export async function setGroupTeamFolders(
+	projectId: string,
+	groupId: string,
+	folderIds: string[],
+	actorId: string,
+): Promise<void> {
+	await db.transaction(async (tx) => {
+		await serializeFolderMovesInProject(tx, projectId);
+		const currentFolderIds = await listGroupFolderIds(groupId, tx);
+		const wantedFolderIds = [...new Set(folderIds)];
+		const addedFolderIds = wantedFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
+		const removedFolderIds = currentFolderIds.filter((folderId) => !wantedFolderIds.includes(folderId));
+		const affectedFolderIds = (
+			await Promise.all(
+				[...addedFolderIds, ...removedFolderIds].map((folderId) => listDescendantFolderIds(folderId, tx)),
+			)
+		).flat();
+		const previousAudiences = await resolveFolderAudiences(affectedFolderIds, tx);
+
+		if (removedFolderIds.length > 0) {
+			await tx
+				.delete(s.storyFolderGroup)
+				.where(
+					and(
+						eq(s.storyFolderGroup.groupId, groupId),
+						inArray(s.storyFolderGroup.folderId, removedFolderIds),
+					),
+				)
+				.execute();
+		}
+		for (const folderId of addedFolderIds) {
+			await assertCanBecomeTeamFolder(folderId, projectId, tx);
+			await insertFolderGroups(folderId, [groupId], tx);
+		}
+
+		await propagateFolderAudienceChanges(previousAudiences, projectId, actorId, tx);
+	}, writeTransactionConfig);
+}
+
+/** Archived team folders are left out: the group editor does not list them, so a save must not take them away. */
+export async function listGroupFolderIds(groupId: string, executor: DBExecutor = db): Promise<string[]> {
+	const rows = await executor
+		.select({ folderId: s.storyFolderGroup.folderId })
+		.from(s.storyFolderGroup)
+		.innerJoin(s.storyFolder, eq(s.storyFolder.id, s.storyFolderGroup.folderId))
+		.where(and(eq(s.storyFolderGroup.groupId, groupId), isNull(s.storyFolder.archivedAt)))
+		.execute();
+	return rows.map((row) => row.folderId);
+}
+
+/** The team folders that would be left without any group if the group were deleted. */
+export async function listFolderNamesOnlyOwnedByGroup(groupId: string): Promise<string[]> {
+	const rows = await db
+		.select({ name: s.storyFolder.name, archivedAt: s.storyFolder.archivedAt })
+		.from(s.storyFolderGroup)
+		.innerJoin(s.storyFolder, eq(s.storyFolder.id, s.storyFolderGroup.folderId))
+		.where(
+			and(
+				eq(s.storyFolderGroup.groupId, groupId),
+				sql`(select count(*) from ${s.storyFolderGroup} as other where other.folder_id = ${s.storyFolderGroup.folderId}) = 1`,
+			),
+		)
+		.orderBy(asc(s.storyFolder.name))
+		.execute();
+	return rows.map((row) => (row.archivedAt ? `${row.name} (archived)` : row.name));
+}
+
+async function assertCanBecomeTeamFolder(folderId: string, projectId: string, executor: DBExecutor): Promise<void> {
+	const folder = await getFolderById(folderId, executor);
+	if (!folder || folder.projectId !== projectId) {
+		throw new TeamFolderError('Folder not found.');
+	}
+	if (folder.visibility !== 'public' || folder.systemType !== null || folder.archivedAt !== null) {
+		throw new TeamFolderError('Only active public folders can be team folders.');
+	}
+	const teamFolder = await findTeamFolderOf(folderId, executor);
+	if (teamFolder && teamFolder.id !== folderId) {
+		throw new TeamFolderError(`"${folder.name}" is already inside a team folder.`);
+	}
+	const descendantIds = (await listDescendantFolderIds(folderId, executor)).filter((id) => id !== folderId);
+	if (await holdsTeamFolder(descendantIds, executor)) {
+		throw new TeamFolderError(`"${folder.name}" already contains a team folder.`);
+	}
+}
+
 async function holdsTeamFolder(folderIds: string[], executor: DBExecutor): Promise<boolean> {
 	if (folderIds.length === 0) {
 		return false;
