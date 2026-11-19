@@ -1,4 +1,10 @@
-import { MAX_PRELOADED_SKILLS, type ToolCallDensity, type UserRole } from './types';
+import {
+	MAX_PRELOADED_SKILLS,
+	SEMANTIC_LAYER_MODES,
+	type SemanticLayerMode,
+	type ToolCallDensity,
+	type UserRole,
+} from './types';
 
 export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'automationCreation'] as const;
 
@@ -29,6 +35,7 @@ export interface UserGroupConfig {
 	shareTargets: GroupShareTargets;
 	preloadedSkills: string[];
 	advancedContextExplorer: boolean;
+	semanticLayerMode: SemanticLayerMode | null;
 }
 
 export type StoredUserGroupConfig =
@@ -42,6 +49,7 @@ export type StoredUserGroupConfig =
 			shareTargets?: GroupShareTargets;
 			preloadedSkills?: string[];
 			advancedContextExplorer?: boolean;
+			semanticLayerMode?: SemanticLayerMode | null;
 	  };
 
 export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
@@ -203,6 +211,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			showAllSettings: isDefault,
 			preloadedSkills: [],
 			advancedContextExplorer: isDefault,
+			semanticLayerMode: null,
 		};
 	}
 
@@ -215,6 +224,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			showAllSettings: isDefault,
 			preloadedSkills: [],
 			advancedContextExplorer: isDefault,
+			semanticLayerMode: null,
 		};
 	}
 
@@ -235,6 +245,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 		preloadedSkills: Array.isArray(value.preloadedSkills) ? normalizePreloadedSkills(value.preloadedSkills) : [],
 		advancedContextExplorer:
 			typeof value.advancedContextExplorer === 'boolean' ? value.advancedContextExplorer : isDefault,
+		semanticLayerMode: parseSemanticLayerMode(value.semanticLayerMode),
 	};
 }
 
@@ -246,6 +257,7 @@ export function serializeUserGroupConfig(
 	preloadedSkills: readonly string[] = [],
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	advancedContextExplorer?: boolean,
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): StoredUserGroupConfig {
 	return {
 		version: 2,
@@ -259,7 +271,24 @@ export function serializeUserGroupConfig(
 		showAllSettings,
 		preloadedSkills: normalizePreloadedSkills(preloadedSkills),
 		...(advancedContextExplorer === undefined ? {} : { advancedContextExplorer }),
+		...(semanticLayerMode === null ? {} : { semanticLayerMode }),
 	};
+}
+
+export function resolveSemanticLayerModeOverride(
+	modes: readonly (SemanticLayerMode | null)[],
+): SemanticLayerMode | null {
+	const explicitModes = modes.filter((mode): mode is SemanticLayerMode => mode !== null);
+	if (explicitModes.length === 0) {
+		return null;
+	}
+	if (explicitModes.every((mode) => mode === 'exclusive')) {
+		return 'exclusive';
+	}
+	if (explicitModes.every((mode) => mode === 'disabled')) {
+		return 'disabled';
+	}
+	return 'prioritized';
 }
 
 export function normalizeGroupShareTargets(value: unknown): GroupShareTargets {
@@ -287,6 +316,10 @@ function parseProjectSharingPermission(value: unknown): ProjectSharingPermission
 	return PROJECT_SHARING_PERMISSIONS.includes(value as ProjectSharingPermission)
 		? (value as ProjectSharingPermission)
 		: 'inherit';
+}
+
+function parseSemanticLayerMode(value: unknown): SemanticLayerMode | null {
+	return SEMANTIC_LAYER_MODES.includes(value as SemanticLayerMode) ? (value as SemanticLayerMode) : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

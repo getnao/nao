@@ -22,12 +22,14 @@ import {
 	type ProjectRowSecurity,
 	type ProjectSharingPermission,
 	resolvePreloadedSkills,
+	resolveSemanticLayerModeOverride,
 	serializeProjectRowSecurity,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
 	serializeUserGroupRowPolicies,
 	serializeUserGroupSsoMappings,
 	type SkillsAccess,
+	type SemanticLayerMode,
 	type SsoGroupProvider,
 	type StoredProjectRowSecurity,
 	type ToolCallDensityPolicy,
@@ -74,6 +76,7 @@ export interface UserGroup extends Omit<
 	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
 	rowPolicies: UserGroupRowPolicies;
+	semanticLayerMode: SemanticLayerMode | null;
 }
 
 export interface UserGroupOverview {
@@ -96,6 +99,7 @@ export interface EffectiveUserGroupAccess {
 	skillsAccess: SkillsAccess;
 	rowPolicies: UserGroupRowPolicies[];
 	preloadedSkills: string[];
+	semanticLayerModeOverride: SemanticLayerMode | null;
 }
 
 export class UserGroupQueryError extends Error {
@@ -212,6 +216,9 @@ export const resolveUserGroupAccess = async (
 				preloadedSkills: config.preloadedSkills.filter((skill) => isSkillGranted(skillsAccess, skill)),
 			})),
 		),
+		semanticLayerModeOverride: resolveSemanticLayerModeOverride(
+			applicableGroups.map((group) => group.config.semanticLayerMode),
+		),
 	};
 };
 
@@ -276,6 +283,7 @@ export const createUserGroup = async (
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	advancedContextExplorer = false,
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -294,6 +302,7 @@ export const createUserGroup = async (
 		skillsAccess,
 		shareTargets,
 		advancedContextExplorer,
+		semanticLayerMode,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -334,6 +343,7 @@ export const createUserGroupWithinLimit = async (
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	advancedContextExplorer = false,
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -352,6 +362,7 @@ export const createUserGroupWithinLimit = async (
 		skillsAccess,
 		shareTargets,
 		advancedContextExplorer,
+		semanticLayerMode,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -406,6 +417,7 @@ export const updateUserGroup = async (
 		projectSharing?: ProjectSharingPermission;
 		shareTargets?: GroupShareTargets;
 		preloadedSkills?: string[];
+		semanticLayerMode?: SemanticLayerMode | null;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -444,6 +456,7 @@ export const updateUserGroup = async (
 			data.preloadedSkills ?? currentConfig.preloadedSkills,
 			data.shareTargets ?? currentConfig.shareTargets,
 			data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
+			data.semanticLayerMode === undefined ? currentConfig.semanticLayerMode : data.semanticLayerMode,
 		),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
@@ -714,6 +727,7 @@ function createUserGroupValues(
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	advancedContextExplorer = false,
+	semanticLayerMode: SemanticLayerMode | null = null,
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
@@ -727,6 +741,7 @@ function createUserGroupValues(
 			preloadedSkills,
 			shareTargets,
 			advancedContextExplorer,
+			semanticLayerMode,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess,
@@ -871,6 +886,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		showAllSettings: config.showAllSettings,
 		advancedContextExplorer: config.advancedContextExplorer,
 		preloadedSkills: config.preloadedSkills,
+		semanticLayerMode: config.semanticLayerMode,
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,
 		filesAccess: contextAccess.filesAccess,

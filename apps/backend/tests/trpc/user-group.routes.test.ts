@@ -318,6 +318,32 @@ describe('user group routes', () => {
 		);
 	});
 
+	it('passes semantic layer overrides through group updates and accepts project default', async () => {
+		const update = (semanticLayerMode: 'exclusive' | null) =>
+			caller.update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: DETAILED_DENSITY_POLICY,
+				semanticLayerMode,
+			});
+
+		await update('exclusive');
+		await update(null);
+
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			1,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ semanticLayerMode: 'exclusive' }),
+		);
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			2,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ semanticLayerMode: null }),
+		);
+	});
+
 	it('allows group edits after a registry update prunes removed-table policies', async () => {
 		const customersPolicy = { ...ORDERS_POLICY_TABLE, table: 'customers', access: 'full' as const };
 		let storedPolicies = {

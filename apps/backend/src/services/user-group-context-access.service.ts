@@ -6,6 +6,7 @@ import {
 	type ProjectRowSecurity,
 	resolveWarehouseRowSecurity,
 	type SkillsAccess,
+	type SemanticLayerMode,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 	type UserRole,
@@ -45,6 +46,7 @@ export async function resolveProjectContextAccess(
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	preloadedSkillNames: string[];
+	semanticLayerModeOverride: SemanticLayerMode | null;
 }> {
 	if (!(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
@@ -67,6 +69,7 @@ export async function resolveProjectContextAccess(
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 		preloadedSkillNames: effectiveAccess.preloadedSkills,
+		semanticLayerModeOverride: effectiveAccess.semanticLayerModeOverride,
 	};
 }
 

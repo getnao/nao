@@ -10,6 +10,7 @@ import {
 	resolveGroupShareTargetIds,
 	resolvePreloadedSkills,
 	resolveProjectSharingPermission,
+	resolveSemanticLayerModeOverride,
 	serializeUserGroupConfig,
 	USER_GROUP_FEATURES,
 } from '../src/user-group-features';
@@ -136,7 +137,31 @@ describe('user group configuration', () => {
 			showAllSettings: true,
 			preloadedSkills: [],
 			advancedContextExplorer: false,
+			semanticLayerMode: null,
 		});
+	});
+
+	it('round-trips a semantic layer override and treats missing or invalid values as project default', () => {
+		const stored = serializeUserGroupConfig(
+			[],
+			DEFAULT_TOOL_CALL_DENSITY_POLICY,
+			'inherit',
+			false,
+			[],
+			DEFAULT_GROUP_SHARE_TARGETS,
+			undefined,
+			'exclusive',
+		);
+
+		expect(stored).toMatchObject({ semanticLayerMode: 'exclusive' });
+		expect(parseStoredUserGroupConfig(stored).semanticLayerMode).toBe('exclusive');
+		expect(parseStoredUserGroupConfig(DEFAULT_USER_GROUP_CONFIG).semanticLayerMode).toBeNull();
+		expect(
+			parseStoredUserGroupConfig({
+				...DEFAULT_USER_GROUP_CONFIG,
+				semanticLayerMode: 'unknown',
+			}).semanticLayerMode,
+		).toBeNull();
 	});
 
 	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
@@ -201,6 +226,7 @@ describe('user group configuration', () => {
 			showAllSettings: false,
 			preloadedSkills: [],
 			advancedContextExplorer: false,
+			semanticLayerMode: null,
 		});
 	});
 
@@ -216,6 +242,7 @@ describe('user group configuration', () => {
 			showAllSettings: false,
 			preloadedSkills: [],
 			advancedContextExplorer: false,
+			semanticLayerMode: null,
 		});
 	});
 
@@ -236,6 +263,7 @@ describe('user group configuration', () => {
 			showAllSettings: false,
 			preloadedSkills: [],
 			advancedContextExplorer: false,
+			semanticLayerMode: null,
 		});
 	});
 
@@ -251,7 +279,22 @@ describe('user group configuration', () => {
 			showAllSettings: false,
 			preloadedSkills: [],
 			advancedContextExplorer: false,
+			semanticLayerMode: null,
 		});
+	});
+});
+
+describe('resolveSemanticLayerModeOverride', () => {
+	it.each([
+		{ modes: [], expected: null },
+		{ modes: [null, null], expected: null },
+		{ modes: ['exclusive', 'exclusive'], expected: 'exclusive' },
+		{ modes: ['disabled', 'disabled'], expected: 'disabled' },
+		{ modes: ['prioritized'], expected: 'prioritized' },
+		{ modes: ['exclusive', 'disabled'], expected: 'prioritized' },
+		{ modes: ['exclusive', 'prioritized'], expected: 'prioritized' },
+	] as const)('resolves $modes to $expected', ({ modes, expected }) => {
+		expect(resolveSemanticLayerModeOverride(modes)).toBe(expected);
 	});
 });
 

@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { stubClipboard, stubScrollIntoView } from '../../helpers/browser-stubs';
 import type { UserRole } from '@nao/shared/types';
-import { ConditionalRulesHelp, DefaultProjectRole } from '@/components/settings/user-group-editor';
+import {
+	ConditionalRulesHelp,
+	DefaultProjectRole,
+	UserGroupSemanticLayerMode,
+} from '@/components/settings/user-group-editor';
 
 const writeText = vi.fn();
 
@@ -68,6 +72,70 @@ describe('DefaultProjectRole', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Reset role' }));
 		expect(screen.getByText('Use organization role')).toBeTruthy();
+	});
+});
+
+describe('UserGroupSemanticLayerMode', () => {
+	it('selects an override and keeps the unavailable control visible but disabled', async () => {
+		const onChange = vi.fn();
+		const { rerender } = render(
+			<UserGroupSemanticLayerMode
+				value={null}
+				projectMode='prioritized'
+				isConfigured
+				disabled={false}
+				onChange={onChange}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('combobox', { name: 'Semantic layer' }));
+		fireEvent.click(await screen.findByRole('option', { name: 'Semantics only' }));
+		expect(onChange).toHaveBeenCalledWith('exclusive');
+
+		rerender(
+			<UserGroupSemanticLayerMode
+				value={null}
+				projectMode='prioritized'
+				isConfigured={false}
+				disabled
+				onChange={onChange}
+			/>,
+		);
+		expect(screen.getByRole('combobox', { name: 'Semantic layer' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getByText('No semantic layer is configured for this project.')).toBeTruthy();
+	});
+
+	it('explains the All Users baseline and previews combined custom-group access', () => {
+		const onChange = vi.fn();
+		const { rerender } = render(
+			<UserGroupSemanticLayerMode
+				value={null}
+				projectMode='disabled'
+				isDefaultGroup
+				isConfigured
+				disabled={false}
+				onChange={onChange}
+			/>,
+		);
+
+		expect(screen.getByText(/Applies to everyone/)).toBeTruthy();
+		expect(screen.getByText(/Keep Project default/)).toBeTruthy();
+
+		rerender(
+			<UserGroupSemanticLayerMode
+				value='disabled'
+				projectMode='disabled'
+				allUsersMode='exclusive'
+				isConfigured
+				disabled={false}
+				onChange={onChange}
+			/>,
+		);
+
+		expect(screen.getByText(/Baseline for members of this group/).textContent).toContain('Semantics first');
+		expect(screen.getByText(/Semantic queries:/).textContent).toContain(
+			'Semantic queries: Allowed · Warehouse SQL: Allowed',
+		);
 	});
 });
 

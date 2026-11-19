@@ -61,6 +61,7 @@ describe('test routes', () => {
 			mcpAccess: { mode: 'all' },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
+			semanticLayerModeOverride: null,
 		});
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.getAgentSettings.mockResolvedValue({ semanticLayer: { mode: 'exclusive' } });
@@ -163,9 +164,13 @@ describe('test routes', () => {
 	it('keeps the reference SQL of users within the semantic layer mode of the project', async () => {
 		await runExpectedQuery();
 
-		expect(mocks.resolveSemanticLayerMode).toHaveBeenCalledWith('/project', {
-			semanticLayer: { mode: 'exclusive' },
-		});
+		expect(mocks.resolveSemanticLayerMode).toHaveBeenCalledWith(
+			'/project',
+			{
+				semanticLayer: { mode: 'exclusive' },
+			},
+			null,
+		);
 		expect(mocks.executeQuery).toHaveBeenCalledWith(
 			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
 			expect.objectContaining({ semanticLayerMode: 'exclusive' }),

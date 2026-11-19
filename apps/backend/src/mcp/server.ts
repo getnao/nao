@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getCustomBoundaries, getProjectById } from '../queries/project.queries';
 import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { isCustomStoriesEnabled } from '../services/story-mount';
-import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
+import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
 import type { McpEndpointSettings, McpUserRole } from '../types/mcp-endpoint';
 import { extractConfiguredDatabases } from '../utils/nao-config';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
@@ -28,11 +28,10 @@ export async function createMcpServer(
 			instructions: chartDataMode ? DATA_MODE_SERVER_INSTRUCTIONS : BASE_SERVER_INSTRUCTIONS,
 		},
 	);
-	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'storyCreation');
+	const userGroupAccess = await resolveAvailableUserGroupAccess(projectId, userId);
+	const storyCreationEnabled = userGroupAccess.features.includes('storyCreation');
 	const customStoryCreationEnabled =
-		storyCreationEnabled &&
-		isCustomStoriesEnabled() &&
-		(await hasUserGroupFeature(projectId, userId, 'customStoryCreation'));
+		storyCreationEnabled && isCustomStoriesEnabled() && userGroupAccess.features.includes('customStoryCreation');
 	const ctx = { userId, projectId, role, settings, chartDataMode, storyCreationEnabled, customStoryCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {
@@ -41,7 +40,9 @@ export async function createMcpServer(
 	if (settings.contextLayerModeEnabled) {
 		const project = await getProjectById(projectId);
 		const configuredDatabases = project?.path ? extractConfiguredDatabases(project.path) : [];
-		const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, project.agentSettings) : null;
+		const semanticLayerMode = project?.path
+			? resolveSemanticLayerMode(project.path, project.agentSettings, userGroupAccess.semanticLayerModeOverride)
+			: null;
 		registerContextLayerTools(server, ctx, configuredDatabases, semanticLayerMode);
 	}
 

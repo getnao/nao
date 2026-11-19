@@ -1,4 +1,5 @@
 import { EMPTY_PROJECT_ROW_SECURITY, normalizeProjectRowSecurity } from '@nao/shared';
+import { DEFAULT_SEMANTIC_LAYER_MODE } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
@@ -27,6 +28,7 @@ function UserGroupUserDetailPage() {
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const filesContextCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
+	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const overviewData = overview.data;
 	const user = overviewData?.users.find((candidate) => candidate.id === userId);
 	const targetUserMissing = effectiveAccess.error?.data?.code === 'NOT_FOUND';
@@ -41,15 +43,21 @@ function UserGroupUserDetailPage() {
 		}
 	}, [navigate, overviewData, targetUserMissing, user]);
 
-	if (overview.isLoading || effectiveAccess.isLoading) {
+	if (overview.isLoading || effectiveAccess.isLoading || agentSettings.isLoading) {
 		return <div className='text-sm text-muted-foreground'>Loading user access...</div>;
 	}
-	if (overview.isError || effectiveAccess.isError) {
+	if (overview.isError || effectiveAccess.isError || agentSettings.isError) {
 		return <div className='text-sm text-destructive'>Failed to load user access.</div>;
 	}
-	if (!overviewData || !user || !effectiveAccess.data) {
+	if (!overviewData || !user || !effectiveAccess.data || !agentSettings.data) {
 		return null;
 	}
+	const semanticLayerMode =
+		agentSettings.data.capabilities?.semanticLayer === true
+			? (effectiveAccess.data.semanticLayerModeOverride ??
+				agentSettings.data.semanticLayer?.mode ??
+				DEFAULT_SEMANTIC_LAYER_MODE)
+			: null;
 
 	return (
 		<div className='flex flex-col gap-6'>
@@ -85,6 +93,7 @@ function UserGroupUserDetailPage() {
 				projectRowSecurity={normalizeProjectRowSecurity(rowSecurity.data ?? EMPTY_PROJECT_ROW_SECURITY)}
 				securityState={rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready'}
 				onRetrySecurity={() => void rowSecurity.refetch()}
+				semanticLayerMode={semanticLayerMode}
 				activeTab={tab}
 				onTabChange={(nextTab) => {
 					void navigate({

@@ -18,10 +18,11 @@ import {
 	normalizeSkillsAccess,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
+	resolveSemanticLayerModeOverride,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
 import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
-import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
+import { DEFAULT_SEMANTIC_LAYER_MODE, SEMANTIC_LAYER_MODES, USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,7 +39,7 @@ import type {
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
 } from '@nao/shared';
-import type { ToolCallDensity, UserRole } from '@nao/shared/types';
+import type { SemanticLayerMode, ToolCallDensity, UserRole } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
@@ -58,10 +59,16 @@ import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
+import {
+	isSemanticLayerMode,
+	SEMANTIC_LAYER_MODE_CAPABILITIES,
+	SEMANTIC_LAYER_MODE_DETAILS,
+} from '@/lib/semantic-layer';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -95,6 +102,7 @@ export interface UserGroupEditorGroup {
 	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
 	rowPolicies?: UserGroupRowPolicies;
+	semanticLayerMode: SemanticLayerMode | null;
 }
 
 export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'skills' | 'security' | 'budget' | 'advanced' | 'sso';
@@ -175,6 +183,9 @@ export function UserGroupEditor({
 	);
 	const [preloadedSkills, setPreloadedSkills] = useState<string[]>(existingGroup?.preloadedSkills ?? []);
 	const [skillsAccess, setSkillsAccess] = useState<SkillsAccess>(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
+	const [semanticLayerMode, setSemanticLayerMode] = useState<SemanticLayerMode | null>(
+		existingGroup?.semanticLayerMode ?? null,
+	);
 	const [shareRevocation, setShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
 	const [isShareRevocationOpen, setIsShareRevocationOpen] = useState(false);
 	const [isRevokingShares, setIsRevokingShares] = useState(false);
@@ -195,6 +206,7 @@ export function UserGroupEditor({
 		enabled: hasMemberBudget,
 	});
 	const userGroupOverview = useQuery(trpc.userGroup.overview.queryOptions());
+	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const groupBudgetMembers = useMemo(
 		() => buildGroupBudgetMembers(memberBudgetOverview.data?.members ?? [], userGroupOverview.data),
 		[memberBudgetOverview.data?.members, userGroupOverview.data],
@@ -297,6 +309,7 @@ export function UserGroupEditor({
 			skillsAccess,
 			ssoMappings,
 			rowPolicies,
+			semanticLayerMode,
 		});
 
 	const resetForm = useCallback(() => {
@@ -315,6 +328,7 @@ export function UserGroupEditor({
 		setSkillsAccess(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setRowPolicies(existingRowPolicies);
+		setSemanticLayerMode(existingGroup?.semanticLayerMode ?? null);
 		setFormError(null);
 		setShowRowPolicyValidationErrors(false);
 		setConfirmDelete(false);
@@ -342,6 +356,7 @@ export function UserGroupEditor({
 				skillsAccess,
 				ssoMappings,
 				rowPolicies,
+				semanticLayerMode,
 			});
 
 		if (switchedGroups || previousGroupWasClean) {
@@ -360,6 +375,7 @@ export function UserGroupEditor({
 		projectSharing,
 		resetForm,
 		rowPolicies,
+		semanticLayerMode,
 		shareTargets,
 		showAllSettings,
 		skillsAccess,
@@ -441,6 +457,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
+					semanticLayerMode,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -461,6 +478,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
+					semanticLayerMode,
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -560,6 +578,19 @@ export function UserGroupEditor({
 						)}
 						{activeTab === 'context' && (
 							<div className='flex flex-col gap-5'>
+								<UserGroupSemanticLayerMode
+									value={semanticLayerMode}
+									projectMode={agentSettings.data?.semanticLayer?.mode ?? DEFAULT_SEMANTIC_LAYER_MODE}
+									allUsersMode={allUsersGroup?.semanticLayerMode ?? null}
+									isDefaultGroup={existingGroup?.isDefault === true}
+									isConfigured={agentSettings.data?.capabilities?.semanticLayer === true}
+									disabled={
+										agentSettings.isLoading ||
+										agentSettings.isError ||
+										agentSettings.data?.capabilities?.semanticLayer !== true
+									}
+									onChange={setSemanticLayerMode}
+								/>
 								<UserGroupContextAccess
 									databaseAccess={databaseAccess}
 									docsAccess={docsAccess}
@@ -1038,6 +1069,92 @@ export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
 	);
 }
 
+export function UserGroupSemanticLayerMode({
+	value,
+	projectMode,
+	allUsersMode = null,
+	isDefaultGroup = false,
+	isConfigured,
+	disabled,
+	onChange,
+}: {
+	value: SemanticLayerMode | null;
+	projectMode: SemanticLayerMode;
+	allUsersMode?: SemanticLayerMode | null;
+	isDefaultGroup?: boolean;
+	isConfigured: boolean;
+	disabled: boolean;
+	onChange: (mode: SemanticLayerMode | null) => void;
+}) {
+	const selectId = 'user-group-semantic-layer-mode';
+	const combinedMode = resolveSemanticLayerModeOverride([allUsersMode, value]) ?? projectMode;
+	const capabilities = SEMANTIC_LAYER_MODE_CAPABILITIES[combinedMode];
+	const description = !isConfigured
+		? 'No semantic layer is configured for this project.'
+		: value === null
+			? `Use the project setting: ${SEMANTIC_LAYER_MODE_DETAILS[projectMode].label}.`
+			: SEMANTIC_LAYER_MODE_DETAILS[value].description;
+
+	return (
+		<div className='flex flex-col gap-2'>
+			<SettingsControlRow
+				id={selectId}
+				label='Semantic layer'
+				description={description}
+				className='flex-col items-stretch gap-3 rounded-lg border p-4 sm:flex-row sm:items-center'
+				control={
+					<Select
+						value={value ?? 'project-default'}
+						onValueChange={(nextValue) => {
+							if (nextValue === 'project-default') {
+								onChange(null);
+							} else if (isSemanticLayerMode(nextValue)) {
+								onChange(nextValue);
+							}
+						}}
+						disabled={disabled}
+					>
+						<SelectTrigger id={selectId} className='w-full sm:w-56'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='project-default'>
+								Project default ({SEMANTIC_LAYER_MODE_DETAILS[projectMode].label})
+							</SelectItem>
+							{SEMANTIC_LAYER_MODES.map((mode) => (
+								<SelectItem key={mode} value={mode}>
+									{SEMANTIC_LAYER_MODE_DETAILS[mode].label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				}
+			/>
+			{isConfigured &&
+				(isDefaultGroup ? (
+					<p className='rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground'>
+						Applies to everyone. Access explicitly enabled here cannot be removed by another group. Keep
+						Project default to let custom groups control semantic access.
+					</p>
+				) : (
+					<div className='rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground' aria-live='polite'>
+						<p>
+							Baseline for members of this group:{' '}
+							<span className='font-medium text-foreground'>
+								{SEMANTIC_LAYER_MODE_DETAILS[combinedMode].label}
+							</span>
+							. Other group memberships can broaden this access.
+						</p>
+						<p className='mt-1'>
+							Semantic queries: {capabilities.semanticQueries ? 'Allowed' : 'Blocked'} · Warehouse SQL:{' '}
+							{capabilities.warehouseSql ? 'Allowed' : 'Blocked'}
+						</p>
+					</div>
+				))}
+		</div>
+	);
+}
+
 export function hasUserGroupEditorChanges(
 	group: UserGroupEditorGroup,
 	values: {
@@ -1056,6 +1173,7 @@ export function hasUserGroupEditorChanges(
 		skillsAccess?: SkillsAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		rowPolicies?: UserGroupRowPolicies;
+		semanticLayerMode?: SemanticLayerMode | null;
 	},
 ): boolean {
 	return (
@@ -1077,6 +1195,8 @@ export function hasUserGroupEditorChanges(
 		!haveSameMcpAccess(values.mcpAccess ?? group.mcpAccess, group.mcpAccess) ||
 		!haveSameSkillsAccess(values.skillsAccess ?? group.skillsAccess, group.skillsAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
+		(values.semanticLayerMode === undefined ? group.semanticLayerMode : values.semanticLayerMode) !==
+			group.semanticLayerMode ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
 			group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,

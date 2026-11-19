@@ -32,11 +32,12 @@ const catalogCache = new Map<string, { expiresAt: number; catalog: Promise<execu
 export function resolveSemanticLayerMode(
 	projectFolder: string,
 	agentSettings: AgentSettings | null,
+	groupOverride: SemanticLayerMode | null = null,
 ): SemanticLayerMode | null {
 	if (!extractConfiguredSemanticLayer(projectFolder)) {
 		return null;
 	}
-	return agentSettings?.semanticLayer?.mode ?? DEFAULT_SEMANTIC_LAYER_MODE;
+	return groupOverride ?? agentSettings?.semanticLayer?.mode ?? DEFAULT_SEMANTIC_LAYER_MODE;
 }
 
 /** `execute_semantic_query` is only exposed when the layer exists and the admin lets the agent query it. */

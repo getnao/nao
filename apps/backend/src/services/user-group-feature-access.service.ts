@@ -11,7 +11,7 @@ import {
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
-import type { UserRole } from '@nao/shared/types';
+import type { SemanticLayerMode, UserRole } from '@nao/shared/types';
 
 import { env } from '../env';
 import { HandlerError } from '../utils/error';
@@ -34,6 +34,7 @@ export interface EffectiveUserGroupAccess {
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
 	skillsAccess: SkillsAccess;
+	semanticLayerModeOverride: SemanticLayerMode | null;
 }
 
 export interface EffectiveUserGroupAccessForUserDetail extends EffectiveUserGroupAccess {
@@ -158,6 +159,7 @@ function formatEffectiveUserGroupAccess(
 		filesAccess: access.filesAccess,
 		mcpAccess: access.mcpAccess,
 		skillsAccess: access.skillsAccess,
+		semanticLayerModeOverride: access.semanticLayerModeOverride,
 	};
 }
 

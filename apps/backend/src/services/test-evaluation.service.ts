@@ -1,3 +1,5 @@
+import type { SemanticLayerMode } from '@nao/shared/types';
+
 import { executeQuery } from '../agents/tools/execute-sql';
 import { getAgentSettings, getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
 import type { TestAssertion, TestComparisonTolerances, TestModel, TestVerdict } from '../types/test-run';
@@ -76,12 +78,17 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 	if (!projectFolder) {
 		throw new Error('Project path does not exist.');
 	}
-	const [envVars, warehouseAccessToken, contextAccess, semanticLayerMode] = await Promise.all([
+	const [envVars, warehouseAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(projectId),
 		getWarehouseAccessTokenForUser(userId),
 		resolveProjectContextAccess(projectId, userId, projectFolder),
-		resolveReferenceSemanticLayerMode(projectId, userId, projectFolder),
 	]);
+	const semanticLayerMode = await resolveReferenceSemanticLayerMode(
+		projectId,
+		userId,
+		projectFolder,
+		contextAccess.semanticLayerModeOverride,
+	);
 	return {
 		projectFolder,
 		chatId: '',
@@ -110,10 +117,15 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
  * Admins and context admins write the reference SQL of tests, including the SQL compiled from semantic queries, so it
  * reaches the warehouse for them even when the project only allows the semantic layer.
  */
-async function resolveReferenceSemanticLayerMode(projectId: string, userId: string, projectFolder: string) {
+async function resolveReferenceSemanticLayerMode(
+	projectId: string,
+	userId: string,
+	projectFolder: string,
+	groupOverride: SemanticLayerMode | null,
+) {
 	const role = await getUserRoleInProject(projectId, userId);
 	if (role === 'admin' || role === 'context_admin') {
 		return null;
 	}
-	return resolveSemanticLayerMode(projectFolder, await getAgentSettings(projectId));
+	return resolveSemanticLayerMode(projectFolder, await getAgentSettings(projectId), groupOverride);
 }
