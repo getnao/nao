@@ -1,0 +1,4191 @@
+{
+	"$defs": {
+		"AthenaConfig": {
+			"description": "Athena-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "athena",
+					"default": "athena",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"s3_staging_dir": {
+					"description": "S3 staging directory for query results",
+					"title": "S3 Staging Dir",
+					"type": "string"
+				},
+				"region_name": {
+					"description": "AWS region name",
+					"title": "Region Name",
+					"type": "string"
+				},
+				"aws_access_key_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS access key ID",
+					"title": "Aws Access Key Id"
+				},
+				"aws_secret_access_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS secret access key",
+					"title": "Aws Secret Access Key"
+				},
+				"aws_session_token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS session token",
+					"title": "Aws Session Token"
+				},
+				"profile_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS profile name",
+					"title": "Profile Name"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Athena schema name",
+					"title": "Schema Name"
+				},
+				"work_group": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": "primary",
+					"description": "Athena workgroup",
+					"title": "Work Group"
+				}
+			},
+			"required": ["name", "s3_staging_dir", "region_name"],
+			"title": "AthenaConfig",
+			"type": "object"
+		},
+		"BigQueryConfig": {
+			"description": "BigQuery-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "bigquery",
+					"default": "bigquery",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"project_id": {
+					"description": "GCP project ID",
+					"title": "Project Id",
+					"type": "string"
+				},
+				"dataset_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default BigQuery dataset",
+					"title": "Dataset Id"
+				},
+				"credentials_path": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Path to service account JSON file. If not provided, uses Application Default Credentials (ADC)",
+					"title": "Credentials Path"
+				},
+				"credentials_json": {
+					"anyOf": [
+						{
+							"additionalProperties": true,
+							"type": "object"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Service account credentials as a dict or JSON string. Takes precedence over credentials_path if both are provided",
+					"title": "Credentials Json"
+				},
+				"sso": {
+					"default": false,
+					"description": "Use Single Sign-On (SSO) for authentication",
+					"title": "Sso",
+					"type": "boolean"
+				},
+				"location": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "BigQuery location",
+					"title": "Location"
+				},
+				"partition_filters": {
+					"additionalProperties": {
+						"type": "string"
+					},
+					"default": {},
+					"description": "Custom partition filter expressions per table name, used when previewing tables that require a partition filter. Overrides the automatic last-partition detection. Example: {\"events\": \"event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)\"}",
+					"title": "Partition Filters",
+					"type": "object"
+				},
+				"max_query_size": {
+					"anyOf": [
+						{
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Maximum query size in GB. If set, a dry run is performed before executing SQL and an error is raised if the estimated bytes processed exceeds this limit.",
+					"title": "Max Query Size"
+				}
+			},
+			"required": ["name", "project_id"],
+			"title": "BigQueryConfig",
+			"type": "object"
+		},
+		"BudgetConfig": {
+			"description": "A spend limit for a provider, enforced by the chat app and shown in its budgets page.",
+			"properties": {
+				"limit": {
+					"anyOf": [
+						{
+							"minimum": 0,
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Project-wide spend limit in US dollars for the period",
+					"title": "Limit"
+				},
+				"per_user_limit": {
+					"anyOf": [
+						{
+							"minimum": 0,
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Spend limit in US dollars per user for the period",
+					"title": "Per User Limit"
+				},
+				"period": {
+					"$ref": "#/$defs/BudgetPeriod",
+					"default": "month",
+					"description": "How often the limit resets"
+				}
+			},
+			"title": "BudgetConfig",
+			"type": "object"
+		},
+		"BudgetPeriod": {
+			"description": "How often a provider's spend limit resets.",
+			"enum": ["day", "week", "month"],
+			"title": "BudgetPeriod",
+			"type": "string"
+		},
+		"ClickHouseConfig": {
+			"description": "ClickHouse-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "clickhouse",
+					"default": "clickhouse",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "ClickHouse server host",
+					"title": "Host",
+					"type": "string"
+				},
+				"protocol": {
+					"default": "http",
+					"description": "Wire protocol to use: 'http' (default, port 8123/8443 via clickhouse-connect/Ibis) or 'native' (TCP, port 9000/9440 via clickhouse-driver). Use 'native' for ClickHouse instances that do not expose the HTTP interface.",
+					"enum": ["http", "native"],
+					"title": "Protocol",
+					"type": "string"
+				},
+				"port": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Server port. Defaults to 8123 (HTTP) / 8443 (HTTPS) for protocol='http' and 9000 (TCP) / 9440 (TCP+TLS) for protocol='native'.",
+					"title": "Port"
+				},
+				"database": {
+					"description": "Database name",
+					"title": "Database",
+					"type": "string"
+				},
+				"user": {
+					"description": "Username",
+					"title": "User",
+					"type": "string"
+				},
+				"password": {
+					"default": "",
+					"description": "Password",
+					"title": "Password",
+					"type": "string"
+				},
+				"secure": {
+					"default": false,
+					"description": "Use HTTPS for protocol='http' or TLS over TCP for protocol='native'",
+					"title": "Secure",
+					"type": "boolean"
+				},
+				"connect_timeout": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Connection timeout in seconds (passed to the underlying ClickHouse client).",
+					"title": "Connect Timeout"
+				},
+				"send_receive_timeout": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Send/receive timeout in seconds (passed to the underlying ClickHouse client).",
+					"title": "Send Receive Timeout"
+				},
+				"verify": {
+					"default": true,
+					"description": "Verify TLS certificates when using protocol='native' with secure=True.",
+					"title": "Verify",
+					"type": "boolean"
+				},
+				"tolerate_unreadable_system_tables": {
+					"default": false,
+					"description": "Work with a credential that cannot read the system database. Needed for Tinybird, which serves system tables to ADMIN tokens only, so a token scoped to a few tables cannot connect at all. Connection tolerates an unreadable system.settings, and schema/table discovery falls back to the tables named outright in `include` \u2014 wildcard patterns cannot be expanded without a table listing, so list each table. Query settings are then validated by the server rather than by the client.",
+					"title": "Tolerate Unreadable System Tables",
+					"type": "boolean"
+				},
+				"accessors": {
+					"description": "Which default templates to render per table. Defaults to all.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Accessors",
+					"type": "array"
+				}
+			},
+			"required": ["name", "host", "database", "user"],
+			"title": "ClickHouseConfig",
+			"type": "object"
+		},
+		"ComparisonConfig": {
+			"description": "Tolerances applied when comparing the agent result to the expected data.",
+			"properties": {
+				"rtol": {
+					"default": 1e-5,
+					"description": "Relative tolerance used to compare numeric values",
+					"minimum": 0,
+					"title": "Rtol",
+					"type": "number"
+				},
+				"atol": {
+					"default": 1e-8,
+					"description": "Absolute tolerance used to compare numeric values",
+					"minimum": 0,
+					"title": "Atol",
+					"type": "number"
+				},
+				"decimals": {
+					"default": 2,
+					"description": "Decimals kept when rounding float values before comparing",
+					"minimum": 0,
+					"title": "Decimals",
+					"type": "integer"
+				}
+			},
+			"title": "ComparisonConfig",
+			"type": "object"
+		},
+		"ConfluenceConfig": {
+			"description": "Confluence configuration.",
+			"properties": {
+				"base_url": {
+					"description": "The Confluence base URL, e.g. https://acme.atlassian.net/wiki (Cloud) or https://confluence.acme.com (Data Center/Server)",
+					"title": "Base Url",
+					"type": "string"
+				},
+				"deployment": {
+					"default": "cloud",
+					"description": "Which Confluence flavour to talk to: 'cloud' or 'server' (Data Center/Server)",
+					"enum": ["cloud", "server"],
+					"title": "Deployment",
+					"type": "string"
+				},
+				"email": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Account email for Confluence Cloud (Basic auth username)",
+					"title": "Email"
+				},
+				"api_token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "API token for Confluence Cloud (Basic auth password)",
+					"title": "Api Token"
+				},
+				"personal_access_token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Personal access token for Confluence Data Center/Server (Bearer auth)",
+					"title": "Personal Access Token"
+				},
+				"username": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Username for Data Center/Server Basic auth",
+					"title": "Username"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Password for Data Center/Server Basic auth",
+					"title": "Password"
+				},
+				"pages": {
+					"description": "The pages to sync, as numeric page IDs or URLs that carry one",
+					"items": {
+						"type": "string"
+					},
+					"title": "Pages",
+					"type": "array"
+				},
+				"page_trees": {
+					"description": "Pages whose whole subtree to sync (the page and all its descendants), as IDs or URLs",
+					"items": {
+						"type": "string"
+					},
+					"title": "Page Trees",
+					"type": "array"
+				},
+				"labels": {
+					"description": "Labels to sync; every page carrying one is pulled. Scope to a space with 'SPACE:label'",
+					"items": {
+						"type": "string"
+					},
+					"title": "Labels",
+					"type": "array"
+				},
+				"spaces": {
+					"description": "The space keys to sync in full, e.g. 'ENG' or 'DATA'",
+					"items": {
+						"type": "string"
+					},
+					"title": "Spaces",
+					"type": "array"
+				}
+			},
+			"required": ["base_url"],
+			"title": "ConfluenceConfig",
+			"type": "object"
+		},
+		"DatabaseTemplate": {
+			"description": "Available default templates for database sync.",
+			"enum": ["columns", "preview", "profiling", "ai_summary", "query_history"],
+			"title": "DatabaseTemplate",
+			"type": "string"
+		},
+		"DatabricksConfig": {
+			"description": "Databricks-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "databricks",
+					"default": "databricks",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"server_hostname": {
+					"description": "Databricks server hostname (e.g., 'adb-xxxx.azuredatabricks.net')",
+					"title": "Server Hostname",
+					"type": "string"
+				},
+				"http_path": {
+					"description": "HTTP path to the SQL warehouse or cluster",
+					"title": "Http Path",
+					"type": "string"
+				},
+				"access_token": {
+					"description": "Databricks personal access token",
+					"title": "Access Token",
+					"type": "string"
+				},
+				"catalog": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Unity Catalog name (optional)",
+					"title": "Catalog"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional)",
+					"title": "Schema Name"
+				},
+				"temp_schema": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "A schema you have write access to, used for temporary storage during queries (optional)",
+					"title": "Temp Schema"
+				}
+			},
+			"required": ["name", "server_hostname", "http_path", "access_token"],
+			"title": "DatabricksConfig",
+			"type": "object"
+		},
+		"DuckDBConfig": {
+			"description": "DuckDB-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "duckdb",
+					"default": "duckdb",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"path": {
+					"default": ":memory:",
+					"description": "Path to the DuckDB database file",
+					"title": "Path",
+					"type": "string"
+				}
+			},
+			"required": ["name"],
+			"title": "DuckDBConfig",
+			"type": "object"
+		},
+		"DuckLakeCatalogConfig": {
+			"description": "Metadata catalog backing a DuckLake, either a server or a local file.",
+			"properties": {
+				"type": {
+					"description": "Catalog backend holding DuckLake metadata",
+					"enum": ["postgres", "mysql", "sqlite", "duckdb"],
+					"title": "Type",
+					"type": "string"
+				},
+				"host": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog host (server catalogs only)",
+					"title": "Host"
+				},
+				"port": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog port (defaults per catalog type)",
+					"title": "Port"
+				},
+				"database": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog database name (server catalogs only)",
+					"title": "Database"
+				},
+				"user": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog username (server catalogs only)",
+					"title": "User"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog password (server catalogs only)",
+					"title": "Password"
+				},
+				"path": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog file path (file catalogs only)",
+					"title": "Path"
+				}
+			},
+			"required": ["type"],
+			"title": "DuckLakeCatalogConfig",
+			"type": "object"
+		},
+		"DuckLakeConfig": {
+			"description": "DuckLake configuration: a metadata catalog plus a data path, attached read-only.",
+			"properties": {
+				"type": {
+					"const": "ducklake",
+					"default": "ducklake",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"catalog": {
+					"$ref": "#/$defs/DuckLakeCatalogConfig",
+					"description": "Catalog holding DuckLake metadata"
+				},
+				"data_path": {
+					"description": "Where DuckLake stores data files (local path or s3:// URI)",
+					"title": "Data Path",
+					"type": "string"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Restrict sync to a single lake schema (optional)",
+					"title": "Schema Name"
+				},
+				"metadata_schema": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog schema holding the ducklake_* metadata tables (default: the catalog's own default schema)",
+					"title": "Metadata Schema"
+				},
+				"storage": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/DuckLakeStorageConfig"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Object-storage credentials (omit for a local data_path)"
+				}
+			},
+			"required": ["name", "catalog", "data_path"],
+			"title": "DuckLakeConfig",
+			"type": "object"
+		},
+		"DuckLakeStorageConfig": {
+			"description": "Object-storage credentials for the DuckLake data path.",
+			"properties": {
+				"type": {
+					"const": "s3",
+					"default": "s3",
+					"description": "Storage backend type",
+					"title": "Type",
+					"type": "string"
+				},
+				"key_id": {
+					"description": "Access key id",
+					"title": "Key Id",
+					"type": "string"
+				},
+				"secret": {
+					"description": "Secret access key",
+					"title": "Secret",
+					"type": "string"
+				},
+				"region": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Storage region",
+					"title": "Region"
+				},
+				"endpoint": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom endpoint (MinIO, R2)",
+					"title": "Endpoint"
+				},
+				"url_style": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "URL style, 'path' for MinIO",
+					"title": "Url Style"
+				},
+				"use_ssl": {
+					"default": true,
+					"description": "Whether the endpoint uses TLS",
+					"title": "Use Ssl",
+					"type": "boolean"
+				}
+			},
+			"required": ["key_id", "secret"],
+			"title": "DuckLakeStorageConfig",
+			"type": "object"
+		},
+		"FabricAuthMode": {
+			"enum": ["sql_password", "azure_interactive", "azure_cli", "azure_service_principal"],
+			"title": "FabricAuthMode",
+			"type": "string"
+		},
+		"FabricConfig": {
+			"description": "Microsoft Fabric Data Warehouse / SQL Analytics Endpoint configuration.",
+			"properties": {
+				"type": {
+					"const": "fabric",
+					"default": "fabric",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "Fabric SQL endpoint (e.g., 'abc123.datawarehouse.fabric.microsoft.com')",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 1433,
+					"description": "SQL port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"database": {
+					"description": "Warehouse or Lakehouse name",
+					"title": "Database",
+					"type": "string"
+				},
+				"auth_mode": {
+					"$ref": "#/$defs/FabricAuthMode",
+					"default": "sql_password",
+					"description": "Authentication method: 'sql_password', 'azure_interactive', 'azure_cli', or 'azure_service_principal'"
+				},
+				"user": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SQL username",
+					"title": "User"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SQL password",
+					"title": "Password"
+				},
+				"client_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Azure AD application (client) ID",
+					"title": "Client Id"
+				},
+				"client_secret": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Azure AD client secret",
+					"title": "Client Secret"
+				},
+				"tenant_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Azure AD tenant ID (optional)",
+					"title": "Tenant Id"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional)",
+					"title": "Schema Name"
+				},
+				"driver": {
+					"description": "ODBC driver \u2014 must be 'ODBC Driver 17/18 for SQL Server' (not FreeTDS)",
+					"title": "Driver",
+					"type": "string"
+				}
+			},
+			"required": ["name", "host", "database"],
+			"title": "FabricConfig",
+			"type": "object"
+		},
+		"LLMConfig": {
+			"description": "LLM configuration: one or more providers, each exposing one or more models.",
+			"properties": {
+				"providers": {
+					"description": "The LLM providers to use",
+					"items": {
+						"$ref": "#/$defs/ProviderConfig"
+					},
+					"title": "Providers",
+					"type": "array"
+				},
+				"annotation_model": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Model to use for ai_summary generation via prompt(...) in Jinja templates",
+					"title": "Annotation Model"
+				},
+				"meta": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/LLMConfigMeta"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Deprecated: declare costs on the matching model instead"
+				}
+			},
+			"title": "LLMConfig",
+			"type": "object"
+		},
+		"LLMConfigMeta": {
+			"properties": {
+				"costs": {
+					"$ref": "#/$defs/ModelCosts"
+				}
+			},
+			"required": ["costs"],
+			"title": "LLMConfigMeta",
+			"type": "object"
+		},
+		"LLMProvider": {
+			"description": "Supported LLM providers.",
+			"enum": [
+				"openai",
+				"anthropic",
+				"mistral",
+				"gemini",
+				"openrouter",
+				"requesty",
+				"ollama",
+				"bedrock",
+				"vertex",
+				"qwen",
+				"minimax",
+				"moonshot",
+				"meta",
+				"openaiCompatible"
+			],
+			"title": "LLMProvider",
+			"type": "string"
+		},
+		"McpConfig": {
+			"description": "MCP (Model Context Protocol) configuration.",
+			"properties": {
+				"json_file_path": {
+					"description": "Path to the MCP JSON configuration file",
+					"title": "Json File Path",
+					"type": "string"
+				}
+			},
+			"required": ["json_file_path"],
+			"title": "McpConfig",
+			"type": "object"
+		},
+		"MetabaseConfig": {
+			"properties": {
+				"url": {
+					"description": "The Metabase base URL",
+					"minLength": 1,
+					"title": "Url",
+					"type": "string"
+				},
+				"api_key": {
+					"description": "The Metabase API key",
+					"format": "password",
+					"minLength": 1,
+					"title": "Api Key",
+					"type": "string",
+					"writeOnly": true
+				}
+			},
+			"required": ["url", "api_key"],
+			"title": "MetabaseConfig",
+			"type": "object"
+		},
+		"ModelConfig": {
+			"description": "A model exposed to the agent by its provider.",
+			"properties": {
+				"id": {
+					"description": "The model identifier used by the provider",
+					"minLength": 1,
+					"title": "Id",
+					"type": "string"
+				},
+				"name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Display name shown in the model picker",
+					"title": "Name"
+				},
+				"default": {
+					"type": "boolean",
+					"default": false,
+					"description": "Preselect this model for new chats",
+					"title": "Default"
+				},
+				"costs": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ModelCosts"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Price in US dollars per million tokens"
+				},
+				"settings": {
+					"anyOf": [
+						{
+							"additionalProperties": true,
+							"type": "object"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Inference parameters for this model, e.g. temperature or reasoning_effort",
+					"title": "Settings"
+				}
+			},
+			"required": ["id"],
+			"title": "ModelConfig",
+			"type": "object"
+		},
+		"ModelCosts": {
+			"description": "Model price in US dollars per million tokens.",
+			"properties": {
+				"input_no_cache": {
+					"anyOf": [
+						{
+							"minimum": 0,
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Price of an uncached input token",
+					"title": "Input No Cache"
+				},
+				"input_cache_read": {
+					"anyOf": [
+						{
+							"minimum": 0,
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Price of an input token read from cache",
+					"title": "Input Cache Read"
+				},
+				"input_cache_write": {
+					"anyOf": [
+						{
+							"minimum": 0,
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Price of an input token written to cache",
+					"title": "Input Cache Write"
+				},
+				"output": {
+					"anyOf": [
+						{
+							"minimum": 0,
+							"type": "number"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Price of an output token",
+					"title": "Output"
+				}
+			},
+			"title": "ModelCosts",
+			"type": "object"
+		},
+		"MotherDuckConfig": {
+			"description": "MotherDuck configuration (DuckDB-compatible cloud backend).",
+			"properties": {
+				"type": {
+					"const": "motherduck",
+					"default": "motherduck",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"database": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "MotherDuck database name (optional; connects to the default account database when empty)",
+					"title": "Database"
+				},
+				"token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "MotherDuck access token. Prefer `{{ env('MOTHERDUCK_TOKEN') }}` in nao_config.yaml. When omitted, DuckDB also reads the MOTHERDUCK_TOKEN / motherduck_token environment variable.",
+					"title": "Token"
+				}
+			},
+			"required": ["name"],
+			"title": "MotherDuckConfig",
+			"type": "object"
+		},
+		"MssqlConfig": {
+			"description": "Microsoft SQL Server / Azure SQL Database configuration.",
+			"properties": {
+				"type": {
+					"const": "mssql",
+					"default": "mssql",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "MSSQL host (e.g., 'myserver.database.windows.net' for Azure SQL)",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 1433,
+					"description": "MSSQL port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"database": {
+					"description": "Database name",
+					"title": "Database",
+					"type": "string"
+				},
+				"auth_mode": {
+					"$ref": "#/$defs/FabricAuthMode",
+					"default": "sql_password",
+					"description": "Authentication method: 'sql_password', 'azure_service_principal', 'azure_cli', or 'azure_interactive' (Entra ID modes require the Microsoft ODBC Driver 17/18 for SQL Server)"
+				},
+				"user": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Username (sql_password auth)",
+					"title": "User"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Password (sql_password auth)",
+					"title": "Password"
+				},
+				"client_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Entra ID application (client) ID",
+					"title": "Client Id"
+				},
+				"client_secret": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Entra ID client secret",
+					"title": "Client Secret"
+				},
+				"tenant_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Entra ID tenant ID (optional)",
+					"title": "Tenant Id"
+				},
+				"driver": {
+					"description": "ODBC driver (FreeTDS on Mac/Linux, ODBC Driver 18 for SQL Server on Windows or with Entra ID)",
+					"title": "Driver",
+					"type": "string"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional, uses 'dbo' if not set)",
+					"title": "Schema Name"
+				}
+			},
+			"required": ["name", "host", "database"],
+			"title": "MssqlConfig",
+			"type": "object"
+		},
+		"MysqlConfig": {
+			"description": "MySQL-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "mysql",
+					"default": "mysql",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "MySQL host",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 3306,
+					"description": "MySQL port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"database": {
+					"description": "Database name",
+					"title": "Database",
+					"type": "string"
+				},
+				"user": {
+					"description": "Username",
+					"title": "User",
+					"type": "string"
+				},
+				"password": {
+					"description": "Password",
+					"title": "Password",
+					"type": "string"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional)",
+					"title": "Schema Name"
+				}
+			},
+			"required": ["name", "host", "database", "user", "password"],
+			"title": "MysqlConfig",
+			"type": "object"
+		},
+		"NotionConfig": {
+			"description": "Notion configuration.",
+			"properties": {
+				"api_key": {
+					"description": "The API key to use",
+					"title": "Api Key",
+					"type": "string"
+				},
+				"pages": {
+					"description": "The pages and databases to sync, as URLs or IDs",
+					"items": {
+						"type": "string"
+					},
+					"title": "Pages",
+					"type": "array"
+				},
+				"max_depth": {
+					"default": 1,
+					"description": "Maximum descendant depth for recursive sync",
+					"maximum": 10,
+					"minimum": 0,
+					"title": "Max Depth",
+					"type": "integer"
+				},
+				"max_pages": {
+					"default": 100,
+					"description": "Maximum objects discovered by recursive sync",
+					"maximum": 250,
+					"minimum": 1,
+					"title": "Max Pages",
+					"type": "integer"
+				}
+			},
+			"required": ["api_key", "pages"],
+			"title": "NotionConfig",
+			"type": "object"
+		},
+		"ObsidianConfig": {
+			"description": "Obsidian configuration.",
+			"properties": {
+				"path": {
+					"description": "The local path to the Obsidian vault",
+					"title": "Path",
+					"type": "string"
+				}
+			},
+			"required": ["path"],
+			"title": "ObsidianConfig",
+			"type": "object"
+		},
+		"PostgresConfig": {
+			"description": "PostgreSQL-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "postgres",
+					"default": "postgres",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "PostgreSQL host",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 5432,
+					"description": "PostgreSQL port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"database": {
+					"description": "Database name",
+					"title": "Database",
+					"type": "string"
+				},
+				"user": {
+					"description": "Username",
+					"title": "User",
+					"type": "string"
+				},
+				"password": {
+					"description": "Password",
+					"title": "Password",
+					"type": "string"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional, uses 'public' if not set)",
+					"title": "Schema Name"
+				}
+			},
+			"required": ["name", "host", "database", "user", "password"],
+			"title": "PostgresConfig",
+			"type": "object"
+		},
+		"ProfilingConfig": {
+			"description": "Configuration for profiling refresh policy.",
+			"properties": {
+				"refresh_policy": {
+					"$ref": "#/$defs/ProfilingRefreshPolicy",
+					"default": "always",
+					"description": "When to refresh the template: always, interval, or once"
+				},
+				"interval_days": {
+					"default": 7,
+					"description": "Number of days between refreshes (only used when refresh_policy=interval)",
+					"minimum": 1,
+					"title": "Interval Days",
+					"type": "integer"
+				}
+			},
+			"title": "ProfilingConfig",
+			"type": "object"
+		},
+		"ProfilingRefreshPolicy": {
+			"enum": ["always", "interval", "once"],
+			"title": "ProfilingRefreshPolicy",
+			"type": "string"
+		},
+		"ProviderConfig": {
+			"description": "Credentials and models for a single LLM provider.",
+			"properties": {
+				"provider": {
+					"$ref": "#/$defs/LLMProvider",
+					"description": "The LLM provider to use"
+				},
+				"name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Name of this endpoint, written as `openaiCompatible/<name>` in the provider field",
+					"title": "Name"
+				},
+				"api_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "The API key to use",
+					"title": "Api Key"
+				},
+				"base_url": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Optional custom base URL for the provider API",
+					"title": "Base Url"
+				},
+				"access_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS access key (only for Bedrock)",
+					"title": "Access Key"
+				},
+				"secret_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS secret key (only for Bedrock)",
+					"title": "Secret Key"
+				},
+				"aws_region": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS region (only for Bedrock)",
+					"title": "Aws Region"
+				},
+				"aws_profile": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS CLI profile name (only for Bedrock, e.g. SSO profile)",
+					"title": "Aws Profile"
+				},
+				"gcp_project": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "GCP project ID (only for Vertex)",
+					"title": "Gcp Project"
+				},
+				"gcp_location": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "GCP location (only for Vertex)",
+					"title": "Gcp Location"
+				},
+				"service_account_json": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Service account JSON (only for Vertex)",
+					"title": "Service Account Json"
+				},
+				"key_file": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Path to service account key file (only for Vertex)",
+					"title": "Key File"
+				},
+				"models": {
+					"description": "The models to expose for this provider, in display order",
+					"items": {
+						"$ref": "#/$defs/ModelConfig"
+					},
+					"title": "Models",
+					"type": "array"
+				},
+				"budget": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/BudgetConfig"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Spend limit for this provider, enforced by the chat app"
+				}
+			},
+			"required": ["provider"],
+			"title": "ProviderConfig",
+			"type": "object"
+		},
+		"QueryTagConfig": {
+			"description": "Comment added to every SQL query nao sends to a warehouse, to find them in its query history.\n\nDeclared here, the tag is read-only in the app (Settings > Project > Agent > SQL).",
+			"properties": {
+				"template": {
+					"description": "Text of the comment. `{{ user_id }}`, `{{ user_email }}`, `{{ user_groups }}`, `{{ project_id }}`, `{{ chat_id }}`, `{{ source }}` and `{{ database_id }}` are replaced for each query.",
+					"maxLength": 1000,
+					"minLength": 1,
+					"title": "Template",
+					"type": "string"
+				},
+				"position": {
+					"$ref": "#/$defs/QueryTagPosition",
+					"default": "start",
+					"description": "Put the comment at the `start` or at the `end` of the query. Snowflake drops leading comments."
+				}
+			},
+			"required": ["template"],
+			"title": "QueryTagConfig",
+			"type": "object"
+		},
+		"QueryTagPosition": {
+			"description": "Where the comment goes in the query.",
+			"enum": ["start", "end"],
+			"title": "QueryTagPosition",
+			"type": "string"
+		},
+		"RedshiftAuthMode": {
+			"enum": ["password", "iam", "azure_entra_id"],
+			"title": "RedshiftAuthMode",
+			"type": "string"
+		},
+		"RedshiftConfig": {
+			"description": "Amazon Redshift-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "redshift",
+					"default": "redshift",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "Redshift cluster endpoint",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 5439,
+					"description": "Redshift port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"database": {
+					"description": "Database name",
+					"title": "Database",
+					"type": "string"
+				},
+				"auth_mode": {
+					"$ref": "#/$defs/RedshiftAuthMode",
+					"default": "password",
+					"description": "Authentication mode"
+				},
+				"user": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Username. Required for password auth. In azure_entra_id mode it is optional but recommended: nao sync uses it to read metadata (columns, previews, query history). It is never used at runtime from /execute_sql.",
+					"title": "User"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Password. Required for password auth. In azure_entra_id mode it is optional but recommended: nao sync uses it to read metadata (columns, previews, query history). It is never used at runtime from /execute_sql.",
+					"title": "Password"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional, uses 'public' if not set)",
+					"title": "Schema Name"
+				},
+				"sslmode": {
+					"default": "require",
+					"description": "SSL mode for the connection",
+					"title": "Sslmode",
+					"type": "string"
+				},
+				"ssh_tunnel": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/SSHTunnelConfig"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SSH tunnel configuration (optional)"
+				},
+				"cluster_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Cluster identifier for get_cluster_credentials. Defaults to first segment of host when not set.",
+					"title": "Cluster Id"
+				},
+				"region_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS region for IAM authentication (e.g. 'us-east-1'). Required when auth_mode is 'iam'.",
+					"title": "Region Name"
+				},
+				"aws_access_key_id": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS access key ID",
+					"title": "Aws Access Key Id"
+				},
+				"aws_secret_access_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS secret access key",
+					"title": "Aws Secret Access Key"
+				},
+				"aws_session_token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS session token",
+					"title": "Aws Session Token"
+				},
+				"profile_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "AWS profile name",
+					"title": "Profile Name"
+				}
+			},
+			"required": ["name", "host", "database"],
+			"title": "RedshiftConfig",
+			"type": "object"
+		},
+		"RefreshConfig": {
+			"description": "Configuration for template refresh policy.",
+			"properties": {
+				"refresh_policy": {
+					"$ref": "#/$defs/ProfilingRefreshPolicy",
+					"default": "always",
+					"description": "When to refresh the template: always, interval, or once"
+				},
+				"interval_days": {
+					"default": 7,
+					"description": "Number of days between refreshes (only used when refresh_policy=interval)",
+					"minimum": 1,
+					"title": "Interval Days",
+					"type": "integer"
+				}
+			},
+			"title": "RefreshConfig",
+			"type": "object"
+		},
+		"RepoConfig": {
+			"description": "Repository configuration.\n\nSupports two source types:\n- Git repository: specify `url` (and optionally `branch`)\n- Local path: specify `local_path` (relative to nao_config.yaml or absolute)",
+			"properties": {
+				"name": {
+					"description": "The name of the repository",
+					"title": "Name",
+					"type": "string"
+				},
+				"url": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "The URL of the repository",
+					"title": "Url"
+				},
+				"branch": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "The branch of the repository",
+					"title": "Branch"
+				},
+				"local_path": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Local filesystem path (relative to nao_config.yaml or absolute)",
+					"title": "Local Path"
+				},
+				"include": {
+					"description": "Glob patterns for files to include (e.g. 'models/**/*.sql'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for files to exclude (e.g. '*.pyc')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				}
+			},
+			"required": ["name"],
+			"title": "RepoConfig",
+			"type": "object"
+		},
+		"SSHTunnelConfig": {
+			"properties": {
+				"ssh_host": {
+					"description": "SSH bastion host",
+					"title": "Ssh Host",
+					"type": "string"
+				},
+				"ssh_port": {
+					"default": 22,
+					"description": "SSH bastion port",
+					"maximum": 65535,
+					"minimum": 1,
+					"title": "Ssh Port",
+					"type": "integer"
+				},
+				"ssh_username": {
+					"description": "SSH username",
+					"title": "Ssh Username",
+					"type": "string"
+				},
+				"ssh_private_key_path": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Path to an SSH private key",
+					"title": "Ssh Private Key Path"
+				},
+				"ssh_private_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SSH private key contents",
+					"title": "Ssh Private Key"
+				},
+				"ssh_private_key_passphrase": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SSH private key passphrase",
+					"title": "Ssh Private Key Passphrase"
+				},
+				"ssh_host_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Expected SSH bastion host key",
+					"title": "Ssh Host Key"
+				}
+			},
+			"required": ["ssh_host", "ssh_username"],
+			"title": "SSHTunnelConfig",
+			"type": "object"
+		},
+		"SemanticLayerConfig": {
+			"description": "Semantic layer configuration.\n\nDeclares a semantic layer the agent can query through `execute_semantic_query`.\nThe definitions are compiled to SQL locally and executed through the configured\ndatabase connection, so no dbt Cloud plan is required.",
+			"properties": {
+				"type": {
+					"$ref": "#/$defs/SemanticLayerType",
+					"default": "metricflow",
+					"description": "The semantic layer engine. Only `metricflow` (dbt Semantic Layer) is supported today."
+				},
+				"manifest_path": {
+					"description": "Path to the `semantic_manifest.json` produced by `dbt parse` (relative to nao_config.yaml or absolute).",
+					"title": "Manifest Path",
+					"type": "string"
+				},
+				"database": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Name of the configured database that executes the compiled SQL. Optional when a single database is configured.",
+					"title": "Database"
+				}
+			},
+			"required": ["manifest_path"],
+			"title": "SemanticLayerConfig",
+			"type": "object"
+		},
+		"SemanticLayerType": {
+			"description": "Supported semantic layer engines.",
+			"enum": ["metricflow"],
+			"title": "SemanticLayerType",
+			"type": "string"
+		},
+		"SkillsConfig": {
+			"description": "Skills configuration.",
+			"properties": {
+				"folder_path": {
+					"description": "Path to the skills folder",
+					"title": "Folder Path",
+					"type": "string"
+				}
+			},
+			"required": ["folder_path"],
+			"title": "SkillsConfig",
+			"type": "object"
+		},
+		"SlackConfig": {
+			"description": "Slack configuration.",
+			"properties": {
+				"bot_token": {
+					"description": "The bot token to use",
+					"title": "Bot Token",
+					"type": "string"
+				},
+				"signing_secret": {
+					"description": "The signing secret for verifying requests",
+					"title": "Signing Secret",
+					"type": "string"
+				},
+				"post_message_url": {
+					"default": "https://slack.com/api/chat.postMessage",
+					"description": "The Slack API URL for posting messages",
+					"title": "Post Message Url",
+					"type": "string"
+				}
+			},
+			"required": ["bot_token", "signing_secret"],
+			"title": "SlackConfig",
+			"type": "object"
+		},
+		"SnowflakeAuthMode": {
+			"enum": ["credentials", "external_oauth"],
+			"title": "SnowflakeAuthMode",
+			"type": "string"
+		},
+		"SnowflakeConfig": {
+			"description": "Snowflake-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "snowflake",
+					"default": "snowflake",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"username": {
+					"description": "Snowflake username",
+					"title": "Username",
+					"type": "string"
+				},
+				"account_id": {
+					"description": "Snowflake account identifier (e.g., 'xy12345.us-east-1')",
+					"title": "Account Id",
+					"type": "string"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Snowflake password",
+					"title": "Password"
+				},
+				"database": {
+					"description": "Snowflake database",
+					"title": "Database",
+					"type": "string"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Snowflake schema (optional)",
+					"title": "Schema Name"
+				},
+				"warehouse": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Snowflake warehouse to use (optional)",
+					"title": "Warehouse"
+				},
+				"private_key_path": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Path to private key file for key-pair authentication",
+					"title": "Private Key Path"
+				},
+				"private_key": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "PEM-encoded private key string for key-pair authentication (alternative to private_key_path)",
+					"title": "Private Key"
+				},
+				"passphrase": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Passphrase for the private key if it is encrypted",
+					"title": "Passphrase"
+				},
+				"token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Programmatic Access Token (PAT) value \u2014 use with authenticator='programmatic_access_token'",
+					"title": "Token"
+				},
+				"authenticator": {
+					"anyOf": [
+						{
+							"enum": [
+								"externalbrowser",
+								"username_password_mfa",
+								"jwt_token",
+								"oauth",
+								"programmatic_access_token"
+							],
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Authentication method (e.g., 'externalbrowser' for SSO, 'programmatic_access_token' for PAT)",
+					"title": "Authenticator"
+				},
+				"auth_mode": {
+					"$ref": "#/$defs/SnowflakeAuthMode",
+					"default": "credentials",
+					"description": "'credentials' runs every query with the configured account. 'external_oauth' runs chat queries as the signed-in user with the access token of their identity provider (Snowflake External OAuth, e.g. Okta or Microsoft Entra ID); the configured account then only serves nao sync and SQL validation."
+				}
+			},
+			"required": ["name", "username", "account_id", "database"],
+			"title": "SnowflakeConfig",
+			"type": "object"
+		},
+		"StarRocksConfig": {
+			"description": "StarRocks-specific configuration using mysql-connector-python.",
+			"properties": {
+				"type": {
+					"const": "starrocks",
+					"default": "starrocks",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "StarRocks FE host",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 9030,
+					"description": "StarRocks MySQL protocol port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"user": {
+					"description": "Username",
+					"title": "User",
+					"type": "string"
+				},
+				"password": {
+					"default": "",
+					"description": "Password",
+					"title": "Password",
+					"type": "string"
+				},
+				"catalog": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Catalog name (optional, defaults to all catalogs)",
+					"title": "Catalog"
+				},
+				"database": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default database name (optional)",
+					"title": "Database"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Specific schema to sync (optional)",
+					"title": "Schema Name"
+				}
+			},
+			"required": ["name", "host", "user"],
+			"title": "StarRocksConfig",
+			"type": "object"
+		},
+		"TableauConfig": {
+			"properties": {
+				"server": {
+					"title": "Server",
+					"type": "string"
+				},
+				"site_name": {
+					"default": "",
+					"title": "Site Name",
+					"type": "string"
+				},
+				"pat_name": {
+					"title": "Pat Name",
+					"type": "string"
+				},
+				"pat_value": {
+					"title": "Pat Value",
+					"type": "string"
+				},
+				"api_version": {
+					"default": "3.21",
+					"title": "Api Version",
+					"type": "string"
+				}
+			},
+			"required": ["server", "pat_name", "pat_value"],
+			"title": "TableauConfig",
+			"type": "object"
+		},
+		"TestConfig": {
+			"description": "Defaults for `nao test`, each one overridable by the matching command line flag.",
+			"properties": {
+				"models": {
+					"description": "The models to run the tests against, in the format 'provider:model_id', or as {model, reasoning_efforts} to run a model at several reasoning efforts",
+					"items": {
+						"anyOf": [
+							{
+								"type": "string"
+							},
+							{
+								"$ref": "#/$defs/TestModelConfig"
+							}
+						]
+					},
+					"title": "Models",
+					"type": "array"
+				},
+				"threads": {
+					"default": 1,
+					"description": "Number of test runs to execute in parallel",
+					"minimum": 1,
+					"title": "Threads",
+					"type": "integer"
+				},
+				"k": {
+					"default": 1,
+					"description": "Number of times to run each test case, used to compute pass@k and pass^k",
+					"minimum": 1,
+					"title": "K",
+					"type": "integer"
+				},
+				"comparison": {
+					"$ref": "#/$defs/ComparisonConfig",
+					"description": "Tolerances used when comparing results to the expected data"
+				}
+			},
+			"title": "TestConfig",
+			"type": "object"
+		},
+		"TestModelConfig": {
+			"additionalProperties": false,
+			"description": "A model of `test.models` run once per reasoning effort listed, or at all the efforts it supports.",
+			"properties": {
+				"model": {
+					"description": "The model, in the format 'provider:model_id'",
+					"title": "Model",
+					"type": "string"
+				},
+				"reasoning_efforts": {
+					"anyOf": [
+						{
+							"items": {
+								"enum": ["minimal", "low", "medium", "high", "max"],
+								"type": "string"
+							},
+							"minItems": 1,
+							"type": "array"
+						},
+						{
+							"const": "all",
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "The reasoning efforts to run the model at, or 'all' of the ones it supports",
+					"title": "Reasoning Efforts"
+				}
+			},
+			"required": ["model"],
+			"title": "TestModelConfig",
+			"type": "object"
+		},
+		"TrinoConfig": {
+			"description": "Trino-specific configuration.",
+			"properties": {
+				"type": {
+					"const": "trino",
+					"default": "trino",
+					"title": "Type",
+					"type": "string"
+				},
+				"name": {
+					"description": "A friendly name for this connection",
+					"title": "Name",
+					"type": "string"
+				},
+				"include": {
+					"description": "Glob patterns for schemas/tables to include (e.g., 'prod_*.*', 'analytics.dim_*'). Empty means include all.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Include",
+					"type": "array"
+				},
+				"exclude": {
+					"description": "Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude",
+					"type": "array"
+				},
+				"allow_listed_only": {
+					"default": false,
+					"description": "When enabled, SQL may only query tables present in synced context for this database.",
+					"title": "Allow Listed Only",
+					"type": "boolean"
+				},
+				"exclude_columns": {
+					"description": "Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', 'analytics.events.*_id'). Empty means no columns are excluded.",
+					"items": {
+						"type": "string"
+					},
+					"title": "Exclude Columns",
+					"type": "array"
+				},
+				"preview_max_value_length": {
+					"default": 1000,
+					"description": "Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.",
+					"minimum": 0,
+					"title": "Preview Max Value Length",
+					"type": "integer"
+				},
+				"templates": {
+					"description": "Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.",
+					"items": {
+						"$ref": "#/$defs/DatabaseTemplate"
+					},
+					"title": "Templates",
+					"type": "array"
+				},
+				"query_history_days": {
+					"anyOf": [
+						{
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of days to look back for query history (used by query_history template).",
+					"title": "Query History Days"
+				},
+				"query_history_sql": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.",
+					"title": "Query History Sql"
+				},
+				"query_history_exclude_patterns": {
+					"description": "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)').",
+					"items": {
+						"type": "string"
+					},
+					"title": "Query History Exclude Patterns",
+					"type": "array"
+				},
+				"profiling": {
+					"$ref": "#/$defs/ProfilingConfig",
+					"description": "Profiling refresh policy configuration"
+				},
+				"ai_summary": {
+					"$ref": "#/$defs/RefreshConfig",
+					"description": "AI summary refresh policy configuration"
+				},
+				"host": {
+					"description": "Trino coordinator host",
+					"title": "Host",
+					"type": "string"
+				},
+				"port": {
+					"default": 8080,
+					"description": "Trino coordinator port",
+					"title": "Port",
+					"type": "integer"
+				},
+				"catalog": {
+					"description": "Catalog name",
+					"title": "Catalog",
+					"type": "string"
+				},
+				"user": {
+					"description": "Username",
+					"title": "User",
+					"type": "string"
+				},
+				"schema_name": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Default schema (optional)",
+					"title": "Schema Name"
+				},
+				"password": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Password (optional)",
+					"title": "Password"
+				},
+				"http_scheme": {
+					"default": "http",
+					"description": "HTTP scheme used to reach the coordinator. Default 'http' preserves prior behaviour.",
+					"enum": ["http", "https"],
+					"title": "Http Scheme",
+					"type": "string"
+				},
+				"verify": {
+					"anyOf": [
+						{
+							"type": "boolean"
+						},
+						{
+							"type": "string"
+						}
+					],
+					"default": true,
+					"description": "TLS verification when http_scheme='https'. True = verify with system CAs, False = disable verification, str = path to a CA bundle. Ignored for plain http.",
+					"title": "Verify"
+				},
+				"jwt_token": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Bearer JWT for Trino's OAuth2/JWT authenticator. When set, takes precedence over password and forces http_scheme='https'.",
+					"title": "Jwt Token"
+				},
+				"jwt_token_file": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Path to a file containing the Bearer JWT, re-read on every connect(). Lets an external refresher rotate short-lived tokens without rewriting the config. Takes precedence over jwt_token.",
+					"title": "Jwt Token File"
+				}
+			},
+			"required": ["name", "host", "catalog", "user"],
+			"title": "TrinoConfig",
+			"type": "object"
+		}
+	},
+	"description": "nao project configuration.",
+	"properties": {
+		"project_name": {
+			"description": "The name of the nao project",
+			"title": "Project Name",
+			"type": "string"
+		},
+		"threads": {
+			"anyOf": [
+				{
+					"minimum": 1,
+					"type": "integer"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "Default worker threads to use for sync",
+			"title": "Threads"
+		},
+		"databases": {
+			"description": "The databases to use",
+			"items": {
+				"discriminator": {
+					"mapping": {
+						"athena": "#/$defs/AthenaConfig",
+						"bigquery": "#/$defs/BigQueryConfig",
+						"clickhouse": "#/$defs/ClickHouseConfig",
+						"databricks": "#/$defs/DatabricksConfig",
+						"duckdb": "#/$defs/DuckDBConfig",
+						"ducklake": "#/$defs/DuckLakeConfig",
+						"fabric": "#/$defs/FabricConfig",
+						"motherduck": "#/$defs/MotherDuckConfig",
+						"mssql": "#/$defs/MssqlConfig",
+						"mysql": "#/$defs/MysqlConfig",
+						"postgres": "#/$defs/PostgresConfig",
+						"redshift": "#/$defs/RedshiftConfig",
+						"snowflake": "#/$defs/SnowflakeConfig",
+						"starrocks": "#/$defs/StarRocksConfig",
+						"trino": "#/$defs/TrinoConfig"
+					},
+					"propertyName": "type"
+				},
+				"oneOf": [
+					{
+						"$ref": "#/$defs/AthenaConfig"
+					},
+					{
+						"$ref": "#/$defs/BigQueryConfig"
+					},
+					{
+						"$ref": "#/$defs/ClickHouseConfig"
+					},
+					{
+						"$ref": "#/$defs/DatabricksConfig"
+					},
+					{
+						"$ref": "#/$defs/FabricConfig"
+					},
+					{
+						"$ref": "#/$defs/SnowflakeConfig"
+					},
+					{
+						"$ref": "#/$defs/DuckDBConfig"
+					},
+					{
+						"$ref": "#/$defs/DuckLakeConfig"
+					},
+					{
+						"$ref": "#/$defs/MotherDuckConfig"
+					},
+					{
+						"$ref": "#/$defs/MysqlConfig"
+					},
+					{
+						"$ref": "#/$defs/MssqlConfig"
+					},
+					{
+						"$ref": "#/$defs/PostgresConfig"
+					},
+					{
+						"$ref": "#/$defs/RedshiftConfig"
+					},
+					{
+						"$ref": "#/$defs/StarRocksConfig"
+					},
+					{
+						"$ref": "#/$defs/TrinoConfig"
+					}
+				]
+			},
+			"title": "Databases",
+			"type": "array"
+		},
+		"repos": {
+			"description": "The repositories to use",
+			"items": {
+				"$ref": "#/$defs/RepoConfig"
+			},
+			"title": "Repos",
+			"type": "array"
+		},
+		"notion": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/NotionConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Notion configurations"
+		},
+		"confluence": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/ConfluenceConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Confluence configuration"
+		},
+		"obsidian": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/ObsidianConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Obsidian configuration"
+		},
+		"llm": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/LLMConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The LLM configuration"
+		},
+		"slack": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/SlackConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Slack configuration"
+		},
+		"mcp": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/McpConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The MCP configuration"
+		},
+		"metabase": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/MetabaseConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Metabase configuration"
+		},
+		"skills": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/SkillsConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Skills configuration"
+		},
+		"test": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/TestConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The defaults used by `nao test`"
+		},
+		"semantic_layer": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/SemanticLayerConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The semantic layer (dbt MetricFlow) the agent can query"
+		},
+		"tableau": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/TableauConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The Tableau connection"
+		},
+		"query_tag": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/QueryTagConfig"
+				},
+				{
+					"type": "null"
+				}
+			],
+			"default": null,
+			"description": "The comment added to every SQL query sent to a warehouse"
+		}
+	},
+	"required": ["project_name"],
+	"title": "NaoConfig",
+	"type": "object"
+}

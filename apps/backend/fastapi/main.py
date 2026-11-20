@@ -860,6 +860,7 @@ async def validate_warehouse(request: PrepareWarehouseRequest):
                 for issue in error.errors(include_input=False)
             }
         )
+        print(f"WAREHOUSE ERROR: {type(error).__name__}: {error}")
         raise HTTPException(
             status_code=422,
             detail={
@@ -868,6 +869,7 @@ async def validate_warehouse(request: PrepareWarehouseRequest):
             },
         ) from error
     except Exception as error:
+        print(f"WAREHOUSE ERROR: {type(error).__name__}: {error}")
         raise HTTPException(
             status_code=422,
             detail={
@@ -901,6 +903,7 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
                 for issue in error.errors(include_input=False)
             }
         )
+        print(f"WAREHOUSE ERROR: {type(error).__name__}: {error}")
         raise HTTPException(
             status_code=422,
             detail={
@@ -909,6 +912,7 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
             },
         ) from error
     except (ValueError, TypeError) as error:
+        print(f"WAREHOUSE ERROR: {type(error).__name__}: {error}")
         raise HTTPException(
             status_code=422,
             detail="Invalid warehouse credentials",

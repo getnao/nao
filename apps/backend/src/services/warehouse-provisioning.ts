@@ -299,7 +299,7 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 function normalizeWarehouseCredentials(provider: WarehouseProvider, credentials: object): Record<string, unknown> {
 	const normalized = toSnakeCaseRecord(credentials);
 
-	if (provider === 'redshift' && isRecord(normalized.ssh_tunnel)) {
+	if ((provider === 'redshift' || provider === 'postgres') && isRecord(normalized.ssh_tunnel)) {
 		normalized.ssh_tunnel = toSnakeCaseRecord(normalized.ssh_tunnel);
 	}
 

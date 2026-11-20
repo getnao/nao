@@ -2693,6 +2693,7 @@ all = [
     { name = "notion2md" },
     { name = "ollama" },
     { name = "openai" },
+    { name = "paramiko" },
     { name = "redshift-connector" },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
     { name = "sshtunnel" },
@@ -2705,6 +2706,7 @@ all-databases = [
     { name = "google-cloud" },
     { name = "ibis-framework", extra = ["athena", "bigquery", "clickhouse", "databricks", "duckdb", "mssql", "mysql", "postgres", "snowflake", "trino"] },
     { name = "mysql-connector-python" },
+    { name = "paramiko" },
     { name = "redshift-connector" },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
     { name = "sshtunnel" },
@@ -2782,9 +2784,12 @@ openai = [
 ]
 postgres = [
     { name = "ibis-framework", extra = ["postgres"] },
+    { name = "paramiko" },
+    { name = "sshtunnel" },
 ]
 redshift = [
     { name = "ibis-framework", extra = ["postgres"] },
+    { name = "paramiko" },
     { name = "redshift-connector" },
     { name = "sshtunnel" },
 ]
@@ -2859,6 +2864,8 @@ requires-dist = [
     { name = "orjson", specifier = ">=3.10.0" },
     { name = "packaging", specifier = ">=21.3" },
     { name = "pandas", specifier = ">=2.1.0" },
+    { name = "paramiko", marker = "extra == 'postgres'", specifier = ">=3.5,<4" },
+    { name = "paramiko", marker = "extra == 'redshift'", specifier = ">=3.5,<4" },
     { name = "posthog", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pyngrok", specifier = ">=7.0.0" },
@@ -2873,6 +2880,7 @@ requires-dist = [
     { name = "rich", specifier = ">=14.0.0" },
     { name = "snowflake-connector-python", extras = ["secure-local-storage"], marker = "extra == 'snowflake'", specifier = ">=4.2.0" },
     { name = "sqlglot", specifier = ">=26.0.0" },
+    { name = "sshtunnel", marker = "extra == 'postgres'", specifier = ">=0.4.0" },
     { name = "sshtunnel", marker = "extra == 'redshift'", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
@@ -3383,17 +3391,16 @@ wheels = [
 
 [[package]]
 name = "paramiko"
-version = "4.0.0"
+version = "3.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bcrypt" },
     { name = "cryptography" },
-    { name = "invoke" },
     { name = "pynacl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/e7/81fdcbc7f190cdb058cffc9431587eb289833bdd633e2002455ca9bb13d4/paramiko-4.0.0.tar.gz", hash = "sha256:6a25f07b380cc9c9a88d2b920ad37167ac4667f8d9886ccebd8f90f654b5d69f", size = 1630743, upload-time = "2025-08-04T01:02:03.711Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/15/ad6ce226e8138315f2451c2aeea985bf35ee910afb477bae7477dc3a8f3b/paramiko-3.5.1.tar.gz", hash = "sha256:b2c665bc45b2b215bd7d7f039901b14b067da00f3a11e6640995fd58f2664822", size = 1566110, upload-time = "2025-02-04T02:37:59.783Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/90/a744336f5af32c433bd09af7854599682a383b37cfd78f7de263de6ad6cb/paramiko-4.0.0-py3-none-any.whl", hash = "sha256:0e20e00ac666503bf0b4eda3b6d833465a2b7aff2e2b3d79a8bba5ef144ee3b9", size = 223932, upload-time = "2025-08-04T01:02:02.029Z" },
+    { url = "https://files.pythonhosted.org/packages/15/f8/c7bd0ef12954a81a1d3cea60a13946bd9a49a0036a5927770c461eade7ae/paramiko-3.5.1-py3-none-any.whl", hash = "sha256:43b9a0501fc2b5e70680388d9346cf252cfb7d00b0667c39e80eb43a408b8f61", size = 227298, upload-time = "2025-02-04T02:37:57.672Z" },
 ]
 
 [[package]]

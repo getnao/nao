@@ -41,7 +41,7 @@ from nao_core.config.databases.base import (  # noqa: E402
     DatabaseAccessor,
     DatabaseConfig,
 )
-from nao_core.config.databases.redshift import RedshiftSSHTunnelConfig  # noqa: E402
+from nao_core.config.databases.ssh_tunnel import SSHTunnelConfig # noqa: E402
 from nao_core.config.llm import (  # noqa: E402
     DEFAULT_ANNOTATION_MODELS,
     LLMConfig,
@@ -207,9 +207,9 @@ def _section_databases() -> str:
         parts.append(_fields_table(config_cls, exclude=BASE_DB_FIELDS))
         parts.append("")
 
-    parts.append("### RedshiftSSHTunnelConfig\n")
+    parts.append("### SSHTunnelConfig\n")
     parts.append("Nested under `ssh_tunnel` in a Redshift database entry.\n")
-    parts.append(_fields_table(RedshiftSSHTunnelConfig))
+    parts.append(_fields_table(SSHTunnelConfig))
     parts.append("")
 
     return "\n".join(parts)
