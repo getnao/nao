@@ -1,26 +1,38 @@
-import { ChevronRight, Folder, FolderLock, Globe, Home, Lock } from 'lucide-react';
+import { ChevronRight, Folder, FolderLock, FolderUsers, Globe, Home, Lock, Users } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import type { FolderItem } from '@/lib/stories-page';
+import { isTeamFolder } from '@/lib/stories-page';
 import { cn } from '@/lib/utils';
 
 export type FolderTreeSelectProps = {
 	tree: FolderItem[];
 	selectedId: string | null;
+	currentId?: string | null;
 	onSelect: (id: string | null) => void;
 	isDisabled?: (folder: FolderItem) => boolean;
+	isRootDisabled?: boolean;
 };
 
-export function FolderTreeSelect({ tree, selectedId, onSelect, isDisabled }: FolderTreeSelectProps) {
+export function FolderTreeSelect({
+	tree,
+	selectedId,
+	currentId,
+	onSelect,
+	isDisabled,
+	isRootDisabled = false,
+}: FolderTreeSelectProps) {
 	const rootSelected = selectedId === null;
 
 	return (
 		<div className='flex flex-col gap-0.5 max-h-64 overflow-y-auto rounded-md border p-1'>
 			<FolderTreeItem
-				label='Root'
+				label='Home'
 				icon={<Home className='size-3.5' />}
 				visibility='public'
 				selected={rootSelected}
-				disabled={false}
+				current={currentId === null}
+				disabled={isRootDisabled}
 				depth={0}
 				onSelect={() => onSelect(null)}
 			/>
@@ -32,6 +44,7 @@ export function FolderTreeSelect({ tree, selectedId, onSelect, isDisabled }: Fol
 						folder={f}
 						allFolders={tree}
 						selectedId={selectedId}
+						currentId={currentId}
 						depth={1}
 						onSelect={onSelect}
 						isDisabled={isDisabled}
@@ -41,17 +54,22 @@ export function FolderTreeSelect({ tree, selectedId, onSelect, isDisabled }: Fol
 	);
 }
 
-export function getTargetVisibility(folderId: string | null, tree: FolderItem[]): string {
-	if (folderId === null) {
-		return 'public';
+type FolderAudience = 'private' | 'public' | 'team';
+
+/** Who stories filed in the folder are shared with: nobody, the entire project, or the team folder's groups. */
+export function getTargetAudience(folderId: string | null, tree: FolderItem[]): FolderAudience {
+	const folder = folderId === null ? undefined : tree.find((f) => f.id === folderId);
+	if (folder?.visibility === 'private') {
+		return 'private';
 	}
-	return tree.find((f) => f.id === folderId)?.visibility ?? 'public';
+	return folder && isTeamFolder(folder) ? 'team' : 'public';
 }
 
 function FolderTreeNode({
 	folder,
 	allFolders,
 	selectedId,
+	currentId,
 	depth,
 	onSelect,
 	isDisabled,
@@ -59,6 +77,7 @@ function FolderTreeNode({
 	folder: FolderItem;
 	allFolders: FolderItem[];
 	selectedId: string | null;
+	currentId?: string | null;
 	depth: number;
 	onSelect: (id: string | null) => void;
 	isDisabled?: (folder: FolderItem) => boolean;
@@ -73,12 +92,16 @@ function FolderTreeNode({
 				icon={
 					folder.visibility === 'private' ? (
 						<FolderLock className='size-3.5' />
+					) : isTeamFolder(folder) ? (
+						<FolderUsers className='size-3.5' />
 					) : (
 						<Folder className='size-3.5' />
 					)
 				}
 				visibility={folder.visibility ?? 'public'}
+				isTeam={isTeamFolder(folder)}
 				selected={selectedId === folder.id}
+				current={currentId === folder.id}
 				disabled={disabled}
 				depth={depth}
 				onSelect={() => onSelect(folder.id)}
@@ -89,6 +112,7 @@ function FolderTreeNode({
 					folder={child}
 					allFolders={allFolders}
 					selectedId={selectedId}
+					currentId={currentId}
 					depth={depth + 1}
 					onSelect={onSelect}
 					isDisabled={isDisabled}
@@ -102,7 +126,9 @@ function FolderTreeItem({
 	label,
 	icon,
 	visibility,
+	isTeam = false,
 	selected,
+	current = false,
 	disabled,
 	depth,
 	onSelect,
@@ -110,13 +136,24 @@ function FolderTreeItem({
 	label: string;
 	icon: React.ReactNode;
 	visibility: string;
+	isTeam?: boolean;
 	selected: boolean;
+	current?: boolean;
 	disabled: boolean;
 	depth: number;
 	onSelect: () => void;
 }) {
+	const ref = useRef<HTMLButtonElement>(null);
+
+	useEffect(() => {
+		if (current) {
+			ref.current?.scrollIntoView({ block: 'nearest' });
+		}
+	}, [current]);
+
 	return (
 		<button
+			ref={ref}
 			type='button'
 			disabled={disabled}
 			onClick={onSelect}
@@ -131,8 +168,11 @@ function FolderTreeItem({
 			{depth > 1 && <ChevronRight className='size-3 text-muted-foreground/50 shrink-0' />}
 			<span className='text-muted-foreground shrink-0'>{icon}</span>
 			<span className='truncate flex-1'>{label}</span>
+			{current && <span className='shrink-0 text-xs text-muted-foreground'>Current</span>}
 			{visibility === 'private' ? (
 				<Lock className='size-3 shrink-0 text-muted-foreground/60' />
+			) : isTeam ? (
+				<Users className='size-3 shrink-0 text-muted-foreground/60' />
 			) : (
 				<Globe className='size-3 shrink-0 text-muted-foreground/30' />
 			)}

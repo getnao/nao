@@ -244,7 +244,7 @@ export async function disableStoryDelivery(storyId: string): Promise<void> {
 
 export async function teardownStoryDelivery(storyId: string): Promise<void> {
 	await syncStoryDeliveryJob(storyId, false, null);
-	await storyDeliveryQueries.disableAndResetRecipients(storyId);
+	await storyDeliveryQueries.disableAndResetRecipients([storyId]);
 	await notificationUnsubscribeQueries.removeUnsubscribesForStory(storyId);
 }
 

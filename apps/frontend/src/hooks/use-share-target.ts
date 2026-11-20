@@ -8,6 +8,7 @@ import type { GeneralAccess, ShareGrant, ShareOwner } from '@/lib/share-access';
 import type { ShareDraft } from '@/lib/share-draft';
 import { formatMemberCount, shareSubjectKey, toShareSelection } from '@/lib/share-access';
 import { isShareDraftEmpty, toSavedGrants } from '@/lib/share-draft';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { trpc } from '@/main';
 
 export type ShareTarget =
@@ -29,10 +30,21 @@ export interface ShareModel {
 	withRoles: boolean;
 	withGroups: boolean;
 	shareUrl: string | null;
+	placement: SharePlacement | null;
+}
+
+interface SharePlacement {
+	folderId: string | null;
+	lastUsedFolderId: string | null;
+}
+
+interface ShareSaveOptions {
+	notify: boolean;
+	folderId?: string | null;
 }
 
 export interface ShareCommands {
-	save: (draft: ShareDraft, options: { notify: boolean }) => Promise<string | null>;
+	save: (draft: ShareDraft, options: ShareSaveOptions) => Promise<string | null>;
 	invalidate: () => Promise<unknown>;
 }
 
@@ -111,6 +123,7 @@ function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean):
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.getShareSettings.queryKey(lookup) }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.getSharedStoryInfo.queryKey(lookup) }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() }),
+				invalidateStoriesCaches(queryClient),
 			]),
 		[queryClient, lookup],
 	);
@@ -120,7 +133,7 @@ function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean):
 		model: query.data && toStoryModel(query.data),
 		refetch: () => void query.refetch(),
 		commands: {
-			save: async (draft, { notify }) => {
+			save: async (draft, { notify, folderId }) => {
 				const grants = toSavedGrants(draft);
 				await saveSettings.mutateAsync({
 					storyId,
@@ -128,6 +141,7 @@ function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean):
 					projectRole: draft.projectRole,
 					users: toRoleGrants(grants, 'user'),
 					groups: toRoleGrants(grants, 'group'),
+					folderId,
 					notify,
 				});
 				return isShareDraftEmpty(draft) ? null : buildStoryUrl(storyId);
@@ -212,6 +226,7 @@ function toChatModel(settings: ChatShareSettings): ShareModel {
 		withRoles: false,
 		withGroups: true,
 		shareUrl: settings.shareId && buildSharedChatUrl(settings.shareId),
+		placement: null,
 	};
 }
 
@@ -227,6 +242,7 @@ function toStoryModel(settings: StoryShareSettings): ShareModel {
 		withRoles: true,
 		withGroups: true,
 		shareUrl: buildStoryUrl(settings.storyId),
+		placement: { folderId: settings.folderId, lastUsedFolderId: settings.lastUsedFolderId },
 	};
 }
 
@@ -242,6 +258,7 @@ function toAutomationModel(settings: AutomationShareSettings): ShareModel {
 		withRoles: true,
 		withGroups: true,
 		shareUrl: buildAutomationUrl(settings.automationId),
+		placement: null,
 	};
 }
 

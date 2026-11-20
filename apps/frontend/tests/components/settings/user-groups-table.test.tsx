@@ -126,6 +126,10 @@ vi.mock('@/main', () => ({
 			getForMember: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-for-member'] })) },
 			setPersonalBudget: { mutationOptions: vi.fn() },
 		},
+		storyFolder: {
+			listTree: { queryOptions: vi.fn(() => ({ queryKey: ['story-folder-tree'] })) },
+			access: { queryKey: vi.fn(() => ['story-folder-access']) },
+		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
@@ -174,6 +178,10 @@ vi.mock('@/components/settings/tool-call-density-slider', () => ({
 			Density slider
 		</button>
 	),
+}));
+vi.mock('@/components/settings/user-group-folders', () => ({
+	listGroupTeamFolderIds: () => [],
+	UserGroupFolders: () => null,
 }));
 vi.mock('@/components/settings/user-group-context-access', () => ({
 	UserGroupDataAccess: ({
@@ -963,6 +971,7 @@ describe('UserGroupEditor', () => {
 			'Data access',
 			'MCP',
 			'Skills',
+			'Folders',
 			'Budget',
 			'Advanced settings',
 		]);

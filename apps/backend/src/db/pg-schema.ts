@@ -2389,6 +2389,19 @@ export const storyFolderItem = pgTable(
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
 );
 
+export const storyFolderGroup = pgTable(
+	'story_folder_group',
+	{
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.folderId, t.groupId] }), index('story_folder_group_groupId_idx').on(t.groupId)],
+);
+
 export const storyFeedback = pgTable(
 	'story_feedback',
 	{

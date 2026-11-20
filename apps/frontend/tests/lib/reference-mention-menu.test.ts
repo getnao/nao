@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SHARED_WITH_ME_FOLDER_ID } from '@nao/shared';
 import type { MentionOption } from 'prompt-mentions';
 import type { ReferenceMentionSources, ReferenceableStory, StoryFolder } from '@/lib/reference-mention-menu';
 import { buildReferenceMentionMenu, STORIES_ROOT_ID, TABLES_ROOT_ID } from '@/lib/reference-mention-menu';
@@ -38,6 +39,33 @@ describe('buildReferenceMentionMenu', () => {
 			{ id: 'story-folder:finance', children: [{ id: 'story-folder:kpis', children: [{ id: 'story:nested' }] }] },
 			{ id: 'story-folder:marketing' },
 			{ id: 'story:root' },
+		]);
+	});
+
+	it('files a shared story in its folder when the user sees it, in "Shared with me" otherwise', () => {
+		const base = sources();
+		const storiesRoot = rootOf(
+			buildReferenceMentionMenu({
+				...base,
+				stories: [
+					{ ...story('team', 'Team'), isSharedWithMe: true },
+					{ ...story('hidden', 'Hidden'), isSharedWithMe: true },
+				],
+				folders: [
+					folder(SHARED_WITH_ME_FOLDER_ID, 'Shared with me', null, { systemType: 'shared_with_me' }),
+					folder('sales', 'Sales'),
+				],
+				folderItems: [
+					{ storyId: 'team', folderId: 'sales' },
+					{ storyId: 'hidden', folderId: 'someone-else-private' },
+				],
+			}),
+			STORIES_ROOT_ID,
+		);
+
+		expect(tree(storiesRoot.children)).toEqual([
+			{ id: `story-folder:${SHARED_WITH_ME_FOLDER_ID}`, children: [{ id: 'story:hidden' }] },
+			{ id: 'story-folder:sales', children: [{ id: 'story:team' }] },
 		]);
 	});
 

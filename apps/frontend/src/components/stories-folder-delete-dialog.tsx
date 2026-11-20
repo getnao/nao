@@ -11,6 +11,8 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ErrorMessage } from '@/components/ui/error-message';
+import { invalidateStoryPlacementCaches } from '@/lib/stories-cache';
+import { describeTeamGroups } from '@/lib/stories-page';
 import { trpc } from '@/main';
 
 export function FolderDeleteDialog({
@@ -20,6 +22,7 @@ export function FolderDeleteDialog({
 	folderName,
 	parentName,
 	hasChildren,
+	teamGroupNames,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -27,14 +30,14 @@ export function FolderDeleteDialog({
 	folderName: string;
 	parentName: string;
 	hasChildren: boolean;
+	teamGroupNames: string[];
 }) {
 	const queryClient = useQueryClient();
 
 	const deleteMutation = useMutation(
 		trpc.storyFolder.delete.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
+				invalidateStoryPlacementCaches(queryClient);
 				onOpenChange(false);
 			},
 		}),
@@ -46,9 +49,7 @@ export function FolderDeleteDialog({
 				<AlertDialogHeader>
 					<AlertDialogTitle>Delete &ldquo;{folderName}&rdquo;?</AlertDialogTitle>
 					<AlertDialogDescription>
-						{hasChildren
-							? `Stories and sub-folders inside will be moved to ${parentName}. This action cannot be undone.`
-							: 'This folder will be permanently deleted. This action cannot be undone.'}
+						{describeDeletion({ parentName, hasChildren, teamGroupNames })}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 
@@ -71,4 +72,23 @@ export function FolderDeleteDialog({
 			</AlertDialogContent>
 		</AlertDialog>
 	);
+}
+
+function describeDeletion({
+	parentName,
+	hasChildren,
+	teamGroupNames,
+}: {
+	parentName: string;
+	hasChildren: boolean;
+	teamGroupNames: string[];
+}): string {
+	if (!hasChildren) {
+		return 'This folder will be permanently deleted. This action cannot be undone.';
+	}
+	if (teamGroupNames.length === 0) {
+		return `Stories and sub-folders inside will be moved to ${parentName}. This action cannot be undone.`;
+	}
+	const groups = describeTeamGroups(teamGroupNames);
+	return `Stories inside will go back to their owners' private folders and stop being shared with ${groups}. Sub-folders will be moved to ${parentName} and stay visible only to ${groups}. This action cannot be undone.`;
 }
