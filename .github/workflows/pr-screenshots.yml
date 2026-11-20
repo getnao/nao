@@ -169,12 +169,16 @@ jobs:
                      headless with \`executablePath: process.env.CHROME_PATH\`, \`args: ['--no-sandbox']\` and a 1440x900 viewport.
                      It signs in, navigates, puts the UI in the changed state (open the dialog, toggle the setting, hover the element,
                      type in the input, ...), waits for the network to settle and saves each PNG as /shots/<kebab-case-name>.png.
-                     Crop to the relevant area when the change is small in a large page. The same script runs on both branches, so
-                     wrap each screenshot in its own try/catch: an element that only exists in the PR must not stop the others.
+                     Crop every screenshot to the zone that changed: find the closest container that holds the whole change (the card,
+                     dialog, form section, table, menu...), scroll it into view and capture its bounding box with \`page.screenshot({ clip })\`
+                     plus ~24px of margin, so a reviewer sees the change and just enough around it to place it. Capture the whole viewport
+                     only when the change is page-wide (layout, navigation, theme). Locate the zone with the same selector on both
+                     branches so the before and after crops match. The same script runs on both branches, so wrap each screenshot in
+                     its own try/catch: an element that only exists in the PR must not stop the others.
                   4. Run it with the \`capture-screens\` command (no arguments), the only shell command you can run. It runs
                      ./capture.mjs in both containers, prints the output and copies the PNGs to $SHOTS_DIR/after and $SHOTS_DIR/before.
                   5. Open every PNG with the Read tool and check the after one really shows the change, not a spinner, an error or
-                     the login page. Fix ./capture.mjs and run \`capture-screens\` again when it does not.
+                     the login page, and that the crop is tight around the change. Fix ./capture.mjs and run \`capture-screens\` again when not.
                   6. Write ./manifest.json as \`[{"file": "name.png", "caption": "one short plain-text sentence", "before": true}]\`,
                      in reading order. Set \`before\` to true only when before/name.png shows the same screen in the same state, so
                      the pair makes a meaningful comparison (a restyle, a changed layout or copy). Set it to false when the screen
