@@ -163,6 +163,10 @@ def test_group_denied_columns_are_blocked_when_read_without_being_named(tmp_path
             "SELECT o.total FROM public.orders o NATURAL JOIN public.audit a JOIN public.users u ON u.id = o.id",
         ),
         ("postgres", "SELECT id.id FROM public.users AS id"),
+        (
+            "postgres",
+            "SELECT COUNT(*) FROM (SELECT id FROM public.users UNION ALL SELECT id FROM public.orders) AS ids",
+        ),
         ("duckdb", "SELECT id FROM public.users AS id"),
         ("duckdb", "SELECT o FROM public.orders o"),
         ("duckdb", "SELECT o.users FROM public.orders o JOIN public.users ON users.id = o.id"),

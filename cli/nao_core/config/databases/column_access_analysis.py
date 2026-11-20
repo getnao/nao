@@ -252,8 +252,11 @@ class _ColumnAccessAnalyzer:
     def _natural_join_origins(self, scope: Scope) -> set[_ColumnOrigin]:
         """A NATURAL JOIN compares every column its right side shares with the relations joined before it."""
         origins: set[_ColumnOrigin] = set()
+        joins = scope.expression.args.get("joins") or []
+        if not any(join.method == "NATURAL" for join in joins):
+            return origins
         left_outputs = self._relation_outputs(scope, scope.expression.args.get("from_"))
-        for join in scope.expression.args.get("joins") or []:
+        for join in joins:
             right_outputs = self._relation_outputs(scope, join)
             if join.method == "NATURAL":
                 shared_names = _output_names(left_outputs) & _output_names(right_outputs)
