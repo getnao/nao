@@ -723,6 +723,7 @@ function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, datab
 		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 		queryTag: context.sqlQueryTag,
 	};

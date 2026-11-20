@@ -3,7 +3,7 @@ import path from 'path';
 
 import type { ToolContext } from '../types/tools';
 import { isMissingPathError, resolveCanonicalProjectPath } from '../utils/tools';
-import { isProjectContextPathAllowed, type ProjectPathKind } from './project-context-path-access.service';
+import { isProjectContextPathRenderAllowed, type ProjectPathKind } from './project-context-path-access.service';
 
 const PATH_FORMAT_HINT =
 	"Paths are relative to the project root, e.g. '/RULES.md', '/docs/<folder>/<file>.md' or " +
@@ -13,7 +13,13 @@ const DATABASE_LAYOUT_KEYS = ['type', 'database', 'schema', 'table'];
 
 type PathAccessContext = Pick<
 	ToolContext,
-	'projectFolder' | 'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess' | 'skillsAccess'
+	| 'projectFolder'
+	| 'warehouseTableAccess'
+	| 'warehouseColumnSecurity'
+	| 'docsContextAccess'
+	| 'filesContextAccess'
+	| 'mcpAccess'
+	| 'skillsAccess'
 >;
 
 /**
@@ -75,7 +81,7 @@ function existsAndAllowed(virtualPath: string, kind: ProjectPathKind, context: P
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
 		return (
 			fs.existsSync(canonical.realPath) &&
-			isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind)
+			isProjectContextPathRenderAllowed(context, virtualPath, canonical.virtualPath, kind)
 		);
 	} catch {
 		return false;

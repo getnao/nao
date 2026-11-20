@@ -8,7 +8,9 @@ import {
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectColumnSecurity,
 	type StoredProjectRowSecurity,
+	type StoredUserGroupColumnPolicies,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 	type StoredUserGroupRowPolicies,
@@ -351,6 +353,7 @@ export const project = pgTable(
 			.$type<LlmAccessMode>()
 			.notNull()
 			.default('project'),
+		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -689,6 +692,7 @@ export const userGroup = pgTable(
 			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
+		columnPolicies: jsonb('column_policies').$type<StoredUserGroupColumnPolicies>(),
 		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
 		llmConfigIds: jsonb('llm_config_ids').$type<string[]>().notNull().default([]),
 		llmModelIdsByConfig: jsonb('llm_model_ids_by_config').$type<LlmModelIdsByConfig>().notNull().default({}),

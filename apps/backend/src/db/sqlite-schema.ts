@@ -8,7 +8,9 @@ import {
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectColumnSecurity,
 	type StoredProjectRowSecurity,
+	type StoredUserGroupColumnPolicies,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 	type StoredUserGroupRowPolicies,
@@ -367,6 +369,7 @@ export const project = sqliteTable(
 			.$type<LlmAccessMode>()
 			.notNull()
 			.default('project'),
+		columnSecurity: text('column_security', { mode: 'json' }).$type<StoredProjectColumnSecurity>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -722,6 +725,7 @@ export const userGroup = sqliteTable(
 			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: text('sso_mappings', { mode: 'json' }).$type<StoredUserGroupSsoMappings>(),
+		columnPolicies: text('column_policies', { mode: 'json' }).$type<StoredUserGroupColumnPolicies>(),
 		rowPolicies: text('row_policies', { mode: 'json' }).$type<StoredUserGroupRowPolicies>(),
 		llmConfigIds: text('llm_config_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		llmModelIdsByConfig: text('llm_model_ids_by_config', { mode: 'json' })
