@@ -100,7 +100,11 @@ jobs:
                   start_app nao-base "$BASE_DIR" > "$RUNNER_TEMP/nao-base.log" 2>&1 &
                   BASE_PID=$!
                   start_app nao-app "$APP_DIR"
-                  wait "$BASE_PID" || { cat "$RUNNER_TEMP/nao-base.log"; echo "::warning::The base app did not start, no before screenshots"; }
+                  if ! wait "$BASE_PID"; then
+                      cat "$RUNNER_TEMP/nao-base.log"
+                      docker rm -f nao-base > /dev/null
+                      echo "::warning::The base app did not start, no before screenshots"
+                  fi
 
             - name: Install the capture command
               run: |
@@ -242,19 +246,28 @@ jobs:
                           `${marker}\n## 📸 UI Screenshots\n\nCaptured by Claude from the frontend diff at \`${sha}\`.\n\n${renderScreenshots(shots, imageUrl)}`,
                       );
 
-                      /** Before/after pairs get a table each, screens without a before are laid out two per row. */
+                      /** Keeps the manifest order: before/after pairs get a table each, consecutive screens without a before go two per row. */
                       function renderScreenshots(shots, imageUrl) {
                           const image = (side, { file, caption }) => `![${caption}](${imageUrl(side, file)})`;
-                          const comparisons = shots
-                              .filter((shot) => shot.before)
-                              .map((shot) => `#### ${shot.caption}\n\n${renderTable(['Before', 'After'], [image('before', shot), image('after', shot)])}`);
-                          const singles = shots.filter((shot) => !shot.before);
-                          const grids = [];
-                          for (let index = 0; index < singles.length; index += 2) {
-                              const row = singles.slice(index, index + 2);
-                              grids.push(renderTable(row.map((shot) => shot.caption), row.map((shot) => image('after', shot))));
+                          const blocks = [];
+                          let pendingSingles = [];
+                          const flushSingles = () => {
+                              for (let index = 0; index < pendingSingles.length; index += 2) {
+                                  const row = pendingSingles.slice(index, index + 2);
+                                  blocks.push(renderTable(row.map((shot) => shot.caption), row.map((shot) => image('after', shot))));
+                              }
+                              pendingSingles = [];
+                          };
+                          for (const shot of shots) {
+                              if (!shot.before) {
+                                  pendingSingles.push(shot);
+                                  continue;
+                              }
+                              flushSingles();
+                              blocks.push(`#### ${shot.caption}\n\n${renderTable(['Before', 'After'], [image('before', shot), image('after', shot)])}`);
                           }
-                          return [...comparisons, ...grids].join('\n\n');
+                          flushSingles();
+                          return blocks.join('\n\n');
                       }
 
                       function renderTable(headers, cells) {
