@@ -32,10 +32,7 @@ vi.mock('../../src/queries/story.queries', () => ({
 	upsertStoryDataCacheByStoryId: mocks.upsertStoryDataCacheByStoryId,
 }));
 vi.mock('../../src/queries/story-file.queries', () => ({ listDraftFiles: mocks.listDraftFiles }));
-vi.mock('../../src/queries/project.queries', async (importOriginal) => ({
-	...(await importOriginal<typeof import('../../src/queries/project.queries')>()),
-	getAgentSettings: async () => null,
-}));
+vi.mock('../../src/queries/project.queries', () => ({ getAgentSettings: async () => null }));
 vi.mock('../../src/queries/mcp-query-data.queries', () => ({
 	getMcpQueryData: mocks.getMcpQueryData,
 	getMcpSqlQueriesByIds: mocks.getMcpSqlQueriesByIds,
@@ -81,6 +78,7 @@ describe('custom stories through MCP without a chat', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getStandaloneStoryByUserAndSlug.mockResolvedValue(null);
+		mocks.getStoryById.mockResolvedValue(STANDALONE_STORY);
 		mocks.createCustomStoryDraft.mockResolvedValue({ story: STANDALONE_STORY, files: ['app.jsx'] });
 		mocks.listDraftFiles.mockResolvedValue(APP_FILES);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);
@@ -166,6 +164,24 @@ describe('custom stories through MCP without a chat', () => {
 			null,
 		);
 		expect(mocks.publishCustomStoryDraft).toHaveBeenCalled();
+	});
+
+	it('refuses to publish when the saved rows the story reads hold an image from a source the project does not allow', async () => {
+		mocks.listDraftFiles.mockResolvedValue([
+			{ path: 'app.jsx', content: 'useQueryData("query_ask").data.map((row) => <Image src={row.logo} />)' },
+		]);
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			queryData: { query_ask: { columns: ['logo'], data: [{ logo: 'https://cdn.acme.com/logo.png' }] } },
+		});
+
+		const result = await updateCustomStoryForMcp(
+			STANDALONE_STORY as never,
+			{ title: undefined, files: [], deletePaths: [], queryData: undefined },
+			ctx,
+		);
+
+		expect(result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('cdn.acme.com') }] });
+		expect(mocks.publishCustomStoryDraft).not.toHaveBeenCalled();
 	});
 
 	it('refuses an update while another MCP write of the same user still holds the story', async () => {

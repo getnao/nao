@@ -6,6 +6,7 @@ import type { DBStory, DBStoryDataCache } from '../../db/abstractSchema';
 import * as storyQueries from '../../queries/story.queries';
 import type { StoryFileInput } from '../../queries/story-file.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
+import { getStoredCustomStoryQueryDataByStoryId } from '../../services/custom-story';
 import {
 	applyCustomStoryDraftChanges,
 	createCustomStoryDraft,
@@ -247,10 +248,11 @@ export async function resolveCustomStory(storyId: string, ctx: McpContext): Prom
 
 async function publishResult(story: DBStory, ctx: McpContext): Promise<ToolResult> {
 	const draft = await storyFileQueries.listDraftFiles(story.id);
+	const queryData = await getStoredCustomStoryQueryDataByStoryId(story.id, [...extractCustomStoryQueryIds(draft)]);
 	const blockedImages = await findBlockedStoryImageSources(
 		ctx.projectId,
 		draft.map((file) => file.content),
-		{},
+		queryData,
 	);
 	if (blockedImages.length > 0) {
 		return errorResult(`"${story.title}" was not published. ${describeBlockedStoryImages(blockedImages)}`);
