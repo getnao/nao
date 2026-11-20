@@ -1,16 +1,22 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import type { LlmSelectedModel, UserRole } from '@nao/shared/types';
 
 import { adminAgent } from '../agents/profiles/admin';
 import { analyticsAgent } from '../agents/profiles/analytics';
+import { automationEditorAgent } from '../agents/profiles/automation-editor';
+import { contextEditorAgent } from '../agents/profiles/context-editor';
 import type { AgentProfile } from '../agents/profiles/types';
 import type { DBProject } from '../db/abstractSchema';
 import { noProjectMessage } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as userQueries from '../queries/user.queries';
 import type { AgentRequest } from '../types/chat';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
+import { resolveEditedAutomationId } from './automation-editor.service';
+import { canRoleReceiveChatFeedback } from './automation-feedback-trigger.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertCanEditContextFromChat } from './context-editor.service';
 import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './onboarding/example-agent-run';
 
 export interface AgentRunRequest {
@@ -87,11 +93,38 @@ async function authorizeMemberAgentRun({ userId, body, projectId }: AuthorizedAg
 		throw new HandlerError('FORBIDDEN', 'Viewers cannot send messages');
 	}
 	await assertProjectCloudBillingAccess(projectId);
-	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
 	return {
 		projectId,
-		profile: body.adminMode && canUseAdminAgent ? adminAgent : analyticsAgent,
+		profile: await resolveMemberAgentProfile({ userId, body, projectId }, userRole),
 		model: body.model,
 		unbilledManagedAiUsage: false,
 	};
+}
+
+async function resolveMemberAgentProfile(
+	{ userId, body, projectId }: Omit<AuthorizedAgentRunRequest, 'currentProject'>,
+	userRole: UserRole,
+): Promise<AgentProfile> {
+	if (body.automationDraft) {
+		const automationId = await resolveEditedAutomationId({ userId, projectId, chatId: body.chatId });
+		return automationEditorAgent({
+			draft: body.automationDraft,
+			automationId,
+			canUseChatFeedback: canRoleReceiveChatFeedback(userRole),
+		});
+	}
+	if (body.contextHub) {
+		await assertCanEditContextFromChat(body.chatId, userRole);
+		return contextEditorAgent({ editor: await getContextEditor(userId), openPath: body.contextHub.openPath });
+	}
+	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
+	return body.adminMode && canUseAdminAgent ? adminAgent : analyticsAgent;
+}
+
+async function getContextEditor(userId: string): Promise<{ id: string; name: string; email: string }> {
+	const user = await userQueries.getUser({ id: userId });
+	if (!user) {
+		throw new HandlerError('NOT_FOUND', `User ${userId} not found.`);
+	}
+	return { id: user.id, name: user.name, email: user.email };
 }

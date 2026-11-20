@@ -47,7 +47,7 @@ export function renderWhiteLabelBrand(brand: WhiteLabelBrand, { logoAttached }: 
 		'WHITE-LABEL BRANDING, set by the admin in nao’s white-label settings:',
 		brand.appName ? `  Brand name: ${brand.appName}` : '',
 		brand.brandColor
-			? `  Primary colour: ${brand.brandColor} — the brand's own declared primary. Use it as the accent and the first chart colour unless the admin guidance says otherwise.`
+			? `  Primary colour: ${brand.brandColor} — the brand's own declared primary. Use it as the accent and the first chart colour unless the admin guidance or a brand document says otherwise.`
 			: '',
 		logoAttached && brand.logo?.image
 			? '  The logo is the last attached image: read the wordmark style and colours from it.'

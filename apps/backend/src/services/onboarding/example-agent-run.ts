@@ -7,6 +7,7 @@ import type { DBProject } from '../../db/abstractSchema';
 import * as chatQueries from '../../queries/chat.queries';
 import { consumeExampleChatRun, releaseExampleChatRun } from '../../queries/onboarding/example-chat-allowance.queries';
 import * as warehouseProvisioningJobQueries from '../../queries/onboarding/warehouse-provisioning-job.queries';
+import * as projectQueries from '../../queries/project.queries';
 import type { AgentRequest } from '../../types/chat';
 import type { ExampleChatAllowanceScope } from '../../types/onboarding/example-chat-allowance';
 import {
@@ -16,7 +17,7 @@ import {
 } from '../../utils/error';
 import type { AgentRun, AuthorizedAgentRunRequest } from '../agent-run';
 import { getExampleProjectForUser, getSystemExampleProject } from '../example-project';
-import { hasConnectedProject } from './warehouse-provisioning';
+import { isProjectSetupComplete } from '../project-readiness.service';
 
 const EXAMPLE_MODEL = { provider: 'nao', modelId: 'gpt-6-sol' } satisfies LlmSelectedModel;
 
@@ -70,15 +71,18 @@ export async function getExampleProjectForNewChat(
 	return project;
 }
 
-/** Users who already set up a project keep onboarding only while that setup is still running. */
+/** Example and onboarding chats stay available until a project is actually set up. */
 export async function reserveExampleChatRun(
 	userId: string,
 	scope: ExampleChatAllowanceScope,
 	chatId?: string,
 ): Promise<boolean> {
-	const userHasProject = await hasConnectedProject(userId);
-	if (userHasProject && !(scope === 'onboarding' && (await isProjectSetupRunning(userId, chatId)))) {
-		return false;
+	const projects = await projectQueries.listUserProjects(userId);
+	if (projects.length > 0) {
+		const setupStillRunning = scope === 'onboarding' && (await isProjectSetupRunning(userId, chatId));
+		if (!setupStillRunning && (await hasCompletedProjectSetup(projects))) {
+			return false;
+		}
 	}
 	if (!(await consumeExampleChatRun(userId, scope))) {
 		throw scope === 'onboarding'
@@ -86,6 +90,17 @@ export async function reserveExampleChatRun(
 			: new ExampleChatAllowanceExhaustedError();
 	}
 	return true;
+}
+
+async function hasCompletedProjectSetup(
+	projects: Awaited<ReturnType<typeof projectQueries.listUserProjects>>,
+): Promise<boolean> {
+	for (const project of projects) {
+		if (await isProjectSetupComplete(project)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 async function isProjectSetupRunning(userId: string, chatId: string | undefined): Promise<boolean> {

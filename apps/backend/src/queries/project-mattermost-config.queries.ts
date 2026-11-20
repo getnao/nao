@@ -7,6 +7,7 @@ import { env } from '../env';
 import { llmProviderSchema } from '../types/llm';
 import type { MattermostSettings } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
+import { updateProjectSettings } from './project-settings.queries';
 
 export const getProjectMattermostConfig = async (projectId: string): Promise<MattermostConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -53,28 +54,14 @@ export const updateProjectMattermostModel = async (
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.mattermostSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				mattermostSettings: {
-					mattermostBaseUrl: existing?.mattermostBaseUrl ?? '',
-					mattermostBotToken: existing?.mattermostBotToken ?? '',
-					mattermostLlmProvider: modelProvider ?? '',
-					mattermostLlmModelId: modelId ?? '',
-					mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? false,
-					mattermostCallbackUrl: existing?.mattermostCallbackUrl,
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'mattermostSettings', (existing) => ({
+		mattermostBaseUrl: existing?.mattermostBaseUrl ?? '',
+		mattermostBotToken: existing?.mattermostBotToken ?? '',
+		mattermostLlmProvider: modelProvider ?? '',
+		mattermostLlmModelId: modelId ?? '',
+		mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? false,
+		mattermostCallbackUrl: existing?.mattermostCallbackUrl,
+	}));
 };
 
 export const deleteProjectMattermostConfig = async (projectId: string): Promise<void> => {

@@ -8,10 +8,16 @@ import { SignJWT } from 'jose';
 import { env } from '../env';
 import { NAO_CO_AUTHOR } from '../utils/git-identity';
 import { getGitOAuthCredential, runGitWithOAuthAsync } from '../utils/git-oauth';
+import { describeError, logger } from '../utils/logger';
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_API_TIMEOUT_MS = 30_000;
 const GITHUB_AUTH_RETRY_DELAY_MS = 1_000;
+/** GitHub answers 401 to a JWT signed with a key of another app, and 404 to an installation of another app. */
+const APP_CONFIGURATION_ERROR_STATUSES = new Set([401, 404]);
+
+/** Publishing cannot succeed on this instance until an operator fixes its managed GitHub configuration. */
+export class ManagedGithubConfigurationError extends Error {}
 
 interface ManagedRepositoryInput {
 	projectId: string;
@@ -41,6 +47,10 @@ interface GithubRepository {
 interface ManagedGithubRepository {
 	repository: GithubRepository;
 	created: boolean;
+}
+
+interface GithubAppInstallation {
+	account: { login: string } | null;
 }
 
 export async function provisionManagedGithubRepository(
@@ -97,6 +107,18 @@ export async function deleteManagedGithubRepository(repoFullName: string): Promi
 	await deleteRepository(repoFullName, token);
 }
 
+/** Publishing only runs at the end of a warehouse setup, so a broken configuration is reported when the server starts. */
+export async function reportManagedGithubConfiguration(): Promise<void> {
+	try {
+		const org = await verifyManagedGithubConfiguration();
+		if (org) {
+			logger.info(`Managed GitHub publishing is configured for ${org}`, { source: 'system' });
+		}
+	} catch (error) {
+		logger.error(`Managed GitHub publishing is misconfigured: ${describeError(error)}`, { source: 'system' });
+	}
+}
+
 export function getManagedGithubRepositoryFullName({
 	projectId,
 	projectName,
@@ -115,14 +137,14 @@ function getManagedGithubConfig(): ManagedGithubConfig | null {
 
 	if (values.every((value) => !value)) {
 		if (env.NAO_MODE === 'cloud') {
-			throw new Error('Managed GitHub project configuration is required in cloud mode');
+			throw new ManagedGithubConfigurationError('Managed GitHub project configuration is required in cloud mode');
 		}
 		return null;
 	}
 
 	const [org, appId, installationId, privateKey] = values;
 	if (!org || !appId || !installationId || !privateKey) {
-		throw new Error('Missing required GitHub project configuration');
+		throw new ManagedGithubConfigurationError('Missing required GitHub project configuration');
 	}
 
 	return {
@@ -133,27 +155,71 @@ function getManagedGithubConfig(): ManagedGithubConfig | null {
 	};
 }
 
-async function createInstallationToken(config: ManagedGithubConfig): Promise<string> {
-	const now = Math.floor(Date.now() / 1000);
-	const key = createPrivateKey(config.privateKey);
-	const jwt = await new SignJWT({})
-		.setProtectedHeader({ alg: 'RS256' })
-		.setIssuer(config.appId)
-		.setIssuedAt(now - 60)
-		.setExpirationTime(now + 9 * 60)
-		.sign(key);
+async function verifyManagedGithubConfiguration(): Promise<string | null> {
+	const config = getManagedGithubConfig();
+	if (!config) {
+		return null;
+	}
 
+	const response = await githubFetch(`/app/installations/${config.installationId}`, {
+		headers: githubHeaders(await createAppJwt(config)),
+	});
+	if (!response.ok) {
+		throw await appRequestError('Failed to get the GitHub App installation', response);
+	}
+
+	const installation = (await response.json()) as GithubAppInstallation;
+	const account = installation.account?.login;
+	if (account?.toLowerCase() !== config.org.toLowerCase()) {
+		throw new ManagedGithubConfigurationError(
+			`GitHub App installation ${config.installationId} is on ${account ?? 'an unknown account'}, not on ${config.org}`,
+		);
+	}
+	return config.org;
+}
+
+async function createInstallationToken(config: ManagedGithubConfig): Promise<string> {
 	const response = await githubFetch(`/app/installations/${config.installationId}/access_tokens`, {
 		method: 'POST',
-		headers: githubHeaders(jwt),
+		headers: githubHeaders(await createAppJwt(config)),
 	});
 
 	if (!response.ok) {
-		throw new Error(`Failed to create installation token: ${response.status}`);
+		throw await appRequestError('Failed to create installation token', response);
 	}
 
 	const body = (await response.json()) as { token: string };
 	return body.token;
+}
+
+async function createAppJwt(config: ManagedGithubConfig): Promise<string> {
+	const now = Math.floor(Date.now() / 1000);
+	try {
+		return await new SignJWT({})
+			.setProtectedHeader({ alg: 'RS256' })
+			.setIssuer(config.appId)
+			.setIssuedAt(now - 60)
+			.setExpirationTime(now + 9 * 60)
+			.sign(createPrivateKey(config.privateKey));
+	} catch (error) {
+		throw new ManagedGithubConfigurationError(
+			`Failed to sign a GitHub App token with the configured private key: ${getErrorMessage(error)}`,
+			{ cause: error },
+		);
+	}
+}
+
+async function appRequestError(action: string, response: Response): Promise<Error> {
+	const message = await describeGithubFailure(action, response);
+	return APP_CONFIGURATION_ERROR_STATUSES.has(response.status)
+		? new ManagedGithubConfigurationError(message)
+		: new Error(message);
+}
+
+async function describeGithubFailure(action: string, response: Response): Promise<string> {
+	const body: unknown = await response.json().catch(() => null);
+	const reason = isRecord(body) && typeof body.message === 'string' ? ` (${body.message})` : '';
+	return `${action}: GitHub returned ${response.status}${reason}`;
 }
 
 async function getOrCreateRepository(org: string, repoName: string, token: string): Promise<ManagedGithubRepository> {
@@ -177,7 +243,7 @@ async function getOrCreateRepository(org: string, repoName: string, token: strin
 	});
 
 	if (!response.ok) {
-		throw new Error(`Failed to create repository: ${response.status}`);
+		throw new Error(await describeGithubFailure('Failed to create repository', response));
 	}
 
 	return {
@@ -196,7 +262,7 @@ async function getRepository(org: string, repoName: string, token: string): Prom
 	}
 
 	if (!response.ok) {
-		throw new Error(`Failed to get repository: ${response.status}`);
+		throw new Error(await describeGithubFailure('Failed to get repository', response));
 	}
 
 	return response.json() as Promise<GithubRepository>;
@@ -213,7 +279,7 @@ async function deleteRepository(repoFullName: string, token: string): Promise<vo
 	}
 
 	if (!response.ok) {
-		throw new Error(`Failed to delete repository: ${response.status}`);
+		throw new Error(await describeGithubFailure('Failed to delete repository', response));
 	}
 }
 
@@ -367,4 +433,8 @@ function githubHeaders(token: string): Record<string, string> {
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -16,7 +16,9 @@ import { StoryCard } from '@/components/stories-groups';
 import { ViewerHome } from '@/components/viewer-home';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useIsDarkMode } from '@/contexts/theme.provider';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { useMultiProject } from '@/hooks/use-multi-project';
+import { useLastSeen } from '@/hooks/use-last-seen';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
@@ -60,11 +62,12 @@ function HomePage() {
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const { limbo, resolving } = useCloudSetupState();
 	const switchProject = useProjectSwitch(project.data?.id);
 	const multiProjectMode = useMultiProject();
 	const isCloud = useIsCloud();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
-	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true);
+	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true || limbo || resolving);
 	const storiesProjectId = showExampleProject ? SYSTEM_EXAMPLE_PROJECT_ID : project.data?.id;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const isDark = useIsDarkMode();
@@ -91,7 +94,49 @@ function HomePage() {
 	});
 	const storiesGridRef = useRef<HTMLDivElement>(null);
 	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);
-	const storyCount = (stories.data?.length ?? 0) + (sharedStories.data?.length ?? 0);
+	const folderItemMap = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const item of folderItems.data ?? []) {
+			map.set(item.storyId, item.folderId);
+		}
+		return map;
+	}, [folderItems.data]);
+	const areStoriesLoaded =
+		stories.isSuccess &&
+		sharedStories.isSuccess &&
+		(!hasProject || [favorites, folderItems, folderTree].every((query) => query.isSuccess || query.isError));
+	const loadedRecentStories = useMemo(() => {
+		if (!areStoriesLoaded) {
+			return undefined;
+		}
+		const items = buildStoryItems({
+			userStories: stories.data,
+			sharedStories: sharedStories.data,
+			currentUserName: session?.user?.name ?? username ?? '',
+			favoriteStoryIds: favorites.data?.storyIds,
+			folderItemMap,
+			folders: folderTree.data ?? [],
+		});
+		return {
+			items: rankRecentStories(items).slice(0, STORY_CARD_MAX_COLS),
+			count: stories.data.length + sharedStories.data.length,
+		};
+	}, [
+		areStoriesLoaded,
+		stories.data,
+		sharedStories.data,
+		session?.user?.name,
+		username,
+		favorites.data,
+		folderItemMap,
+		folderTree.data,
+	]);
+	const recentStories = useLastSeen(
+		'home-stories',
+		JSON.stringify([session?.user?.id, storiesProjectId]),
+		loadedRecentStories,
+	);
+	const storyCount = recentStories?.count ?? 0;
 	const hasStories = storyCount > 0;
 	useResizeObserver(
 		storiesGridRef,
@@ -100,41 +145,7 @@ function HomePage() {
 		},
 		[hasStories],
 	);
-	const folderItemMap = useMemo(() => {
-		const map = new Map<string, string>();
-		for (const item of folderItems.data ?? []) {
-			map.set(item.storyId, item.folderId);
-		}
-		return map;
-	}, [folderItems.data]);
-	const latestStoryItems = useMemo(() => {
-		const items = buildStoryItems({
-			userStories: stories.data ?? [],
-			sharedStories: sharedStories.data ?? [],
-			currentUserName: session?.user?.name ?? username ?? '',
-			favoriteStoryIds: favorites.data?.storyIds,
-			folderItemMap,
-			folders: folderTree.data ?? [],
-		});
-		return [...items]
-			.sort((a, b) => {
-				const rankDiff = storyPriorityRank(a) - storyPriorityRank(b);
-				if (rankDiff !== 0) {
-					return rankDiff;
-				}
-				return b.createdAt.getTime() - a.createdAt.getTime();
-			})
-			.slice(0, storyCols);
-	}, [
-		stories.data,
-		sharedStories.data,
-		session?.user?.name,
-		storyCols,
-		username,
-		favorites.data,
-		folderItemMap,
-		folderTree.data,
-	]);
+	const latestStoryItems = useMemo(() => recentStories?.items.slice(0, storyCols) ?? [], [recentStories, storyCols]);
 	const storyGroups = useMemo(() => buildStoryGroups(latestStoryItems), [latestStoryItems]);
 	const hasMoreStories = storyCount > storyCols;
 	const storiesGrid =
@@ -310,6 +321,16 @@ const STORY_CARD_GAP = 20;
 const STORY_CARD_MAX_COLS = 3;
 
 type StoryGroup = { key: 'favorites' | 'pinned' | 'latest'; label: string; items: StoryItem[] };
+
+function rankRecentStories(items: StoryItem[]): StoryItem[] {
+	return [...items].sort((a, b) => {
+		const rankDiff = storyPriorityRank(a) - storyPriorityRank(b);
+		if (rankDiff !== 0) {
+			return rankDiff;
+		}
+		return b.createdAt.getTime() - a.createdAt.getTime();
+	});
+}
 
 function storyPriorityRank(item: StoryItem): number {
 	if (item.isFavorited) {

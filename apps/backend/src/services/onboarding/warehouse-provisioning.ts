@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -7,11 +8,12 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { generateOnboardingRules as generateOnboardingRulesTool } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
+import { Effect } from 'effect';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
 import type { DBWarehouseProvisioningJob, NewWarehouseProvisioningJob } from '../../db/abstractSchema';
-import { env } from '../../env';
+import { env, isCloud } from '../../env';
 import { contextRecommendationsJobUniqueKey } from '../../handlers/context-recommendations.handler';
 import * as warehouseConnectionCheckQueries from '../../queries/onboarding/warehouse-connection-check.queries';
 import * as warehouseProvisioningJobQueries from '../../queries/onboarding/warehouse-provisioning-job.queries';
@@ -31,11 +33,16 @@ import {
 	warehouseCredentialsSchema,
 	type WarehouseProvider,
 } from '../../types/warehouse';
+import { fromPromise, repeatInBackground, runEffect, withHeartbeat } from '../../utils/effect-runtime';
 import { decryptSecret, encryptSecret } from '../../utils/encryption';
-import { logger, serializeError } from '../../utils/logger';
+import { describeError, logger, serializeError } from '../../utils/logger';
+import { extractConfiguredDatabases } from '../../utils/nao-config';
+import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../../utils/onboarding/warehouse-setup';
+import { assertSafeHost } from '../../utils/safe-fetch';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
+	ManagedGithubConfigurationError,
 	provisionManagedGithubRepository,
 } from '../managed-github-repository';
 import { reconcileProjectReadiness } from '../project.service';
@@ -43,11 +50,12 @@ import { createNewProject, createTempProjectDir } from '../project-import.servic
 import { saveProjectWarehouseEnvVars } from '../warehouse-credentials';
 import { generateOnboardingRules } from './onboarding-rules';
 
+const PREPARE_TIMEOUT_MS = 30_000;
 const INIT_TIMEOUT_MS = 15 * 60_000;
 const DEBUG_TIMEOUT_MS = 5 * 60_000;
-const SYNC_TIMEOUT_MS = 30 * 60_000;
 const COMMAND_OUTPUT_LIMIT = 8000;
 const COMMAND_LOG_UPDATE_MS = 300;
+const COMMAND_CANCELLATION_CHECK_MS = 5_000;
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 const JOB_LEASE_MS = 5 * 60_000;
 const JOB_HEARTBEAT_MS = 30_000;
@@ -56,9 +64,16 @@ const FAILED_CREDENTIALS_RETENTION_MS = 60 * 60_000;
 const SETUP_WAIT_TIMEOUT_MS = 5 * 60_000;
 const SETUP_WAIT_POLL_MS = 2_000;
 const AGENT_LOGS_LIMIT = 4000;
+const ERROR_DETAIL_LIMIT = 8000;
+const FAILURE_CAUSE_LIMIT = 1500;
 const MAX_JOB_ATTEMPTS = 5;
 const SETUP_IN_PROGRESS_MESSAGE = 'A warehouse connection is already being set up.';
 const SETUP_CANCELLED_MESSAGE = 'The warehouse setup was cancelled because the onboarding was restarted.';
+const FINALIZATION_FAILED_MESSAGE = 'Project setup could not be completed. Please try again.';
+const PUBLISHING_FAILED_MESSAGE =
+	'Your warehouse connection works, but nao could not save the project. Your connection details are not the problem. Please try again in a few minutes.';
+const PUBLISHING_MISCONFIGURED_MESSAGE =
+	"Your warehouse connection works, but nao could not save the project because of a configuration problem on nao's side. Your connection details are not the problem. Contact the nao team: a retry will fail until they fix it.";
 const WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const PROVISIONING_STATUSES: WarehouseProvisioningStatus[] = [
 	'queued',
@@ -74,6 +89,14 @@ const RECOVERABLE_STATUSES: WarehouseProvisioningStatus[] = [
 	...FINALIZATION_STATUSES,
 ];
 const CONNECTION_VERIFIED_STATUSES: WarehouseProvisioningStatus[] = ['syncing', 'registering', 'awaiting_context'];
+const COMMAND_STATUSES: WarehouseProvisioningStatus[] = ['initializing', 'debugging', 'syncing'];
+const COMMAND_FAILURE_PATTERN = /^nao (init|debug|sync) (failed|timed out)\b/i;
+
+interface CommandLogs {
+	redactor: WarehouseLogRedactor;
+	publish: (logs: string) => Promise<unknown>;
+	assertNotCancelled: () => Promise<void>;
+}
 
 const preparedWarehouseSchema = z.object({
 	database_config: z.record(z.string(), z.unknown()),
@@ -116,8 +139,10 @@ const WAREHOUSE_CREDENTIAL_LABELS: Record<string, string> = {
 	http_path: 'HTTP Path',
 	http_scheme: 'HTTP Scheme',
 	location: 'Location',
+	passphrase: 'Private Key Passphrase',
 	password: 'Password',
 	port: 'Port',
+	private_key: 'Private Key',
 	project_id: 'GCP Project ID',
 	protocol: 'Protocol',
 	region_name: 'AWS Region',
@@ -162,6 +187,10 @@ export async function validateWarehouseCredentials(
 ): Promise<{ valid: true }> {
 	const connection = warehouseCredentialsSchema.parse(input);
 	try {
+		const hostRefusal = await findWarehouseHostRefusal(connection);
+		if (hostRefusal) {
+			throw new WarehouseValidationError(hostRefusal, 'connection_error');
+		}
 		const result = await requestWarehouseValidation(connection);
 		await recordConnectionCheck(userId, connection.provider, 'ok');
 		return result;
@@ -258,6 +287,7 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 			provider,
 			credentials: normalizeWarehouseCredentials(provider, credentials),
 		}),
+		signal: AbortSignal.timeout(PREPARE_TIMEOUT_MS),
 	});
 
 	if (!response.ok) {
@@ -274,6 +304,44 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 	}
 
 	return preparedWarehouseSchema.parse(await response.json());
+}
+
+const WAREHOUSE_HOST_FIELDS = ['host', 'server_hostname'];
+const BARE_HOST_NAME_PATTERN = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i;
+
+/**
+ * nao Cloud connects to the warehouse from inside its own network, so the host must be a public one, written as a
+ * bare name or address: a port, a path or connection-string syntax could make the connector reach another host
+ * than the one checked here. A self-hosted instance is left free to reach the warehouses of its private network.
+ */
+async function findWarehouseHostRefusal({
+	provider,
+	credentials,
+}: ProjectWarehouseCredentials): Promise<string | null> {
+	if (!isCloud) {
+		return null;
+	}
+	const normalized = normalizeWarehouseCredentials(provider, credentials);
+	for (const field of WAREHOUSE_HOST_FIELDS) {
+		const host = normalized[field];
+		if (host === undefined || host === null || host === '') {
+			continue;
+		}
+		if (!(await isPublicBareHost(host))) {
+			return `nao cannot connect to "${String(host)}": enter only the public host name or address of the warehouse.`;
+		}
+	}
+	return null;
+}
+
+async function isPublicBareHost(host: unknown): Promise<boolean> {
+	if (typeof host !== 'string' || !(BARE_HOST_NAME_PATTERN.test(host) || net.isIPv6(host))) {
+		return false;
+	}
+	return assertSafeHost(host).then(
+		() => true,
+		() => false,
+	);
 }
 
 function normalizeWarehouseCredentials(provider: WarehouseProvider, credentials: object): Record<string, unknown> {
@@ -316,6 +384,7 @@ type PublicWarehouseProvisioningJob = Pick<
 	DBWarehouseProvisioningJob,
 	'id' | 'provider' | 'status' | 'failedStatus' | 'projectId' | 'projectName' | 'logs' | 'error'
 > & {
+	cause: string | null;
 	businessContextProvided: boolean;
 	canRetry: boolean;
 };
@@ -334,6 +403,10 @@ export async function startWarehouseProvisioning(
 		provider: input.provider,
 		credentials: input.credentials,
 	});
+	const hostRefusal = await findWarehouseHostRefusal(connection);
+	if (hostRefusal) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: hostRefusal });
+	}
 	const job = await createQueuedJob({
 		id: crypto.randomUUID(),
 		userId: input.userId,
@@ -471,13 +544,13 @@ export async function submitWarehouseBusinessContext(
 	userId: string,
 	onboardingChatId: string,
 	finalization: WarehouseProvisioningFinalization,
-): Promise<{ jobId: string }> {
+): Promise<{ jobId: string; status: WarehouseProvisioningStatus }> {
 	const job = await warehouseProvisioningJobQueries.getLatestWarehouseProvisioningJob(userId, onboardingChatId);
 	if (!job) {
 		throw new Error('No warehouse setup was started in this conversation.');
 	}
 	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
-		return { jobId: job.id };
+		return { jobId: job.id, status: job.status };
 	}
 
 	await updateJob(job.id, {
@@ -492,7 +565,8 @@ export async function submitWarehouseBusinessContext(
 	}
 
 	await maybeStartFinalization(job.id);
-	return { jobId: job.id };
+	const updatedJob = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(job.id);
+	return { jobId: job.id, status: updatedJob?.status ?? job.status };
 }
 
 export async function getWarehouseProvisioningJob(
@@ -526,7 +600,12 @@ export async function hasConnectedProject(userId: string): Promise<boolean> {
 		warehouseProvisioningJobQueries.listStoppedSetupProjectIds(userId),
 	]);
 	const rolledBackProjectIds = new Set(stoppedSetupProjectIds);
-	return projects.some((project) => !rolledBackProjectIds.has(project.id));
+	return projects.some(
+		(project) =>
+			!rolledBackProjectIds.has(project.id) &&
+			project.path !== null &&
+			extractConfiguredDatabases(project.path).length > 0,
+	);
 }
 
 async function assertNoWarehouseSetupInProgress(userId: string): Promise<void> {
@@ -598,6 +677,7 @@ function toPublicWarehouseProvisioningJob(job: DBWarehouseProvisioningJob): Publ
 		projectName: job.projectName,
 		logs: job.logs,
 		error: job.error,
+		cause: getFailureCause(job),
 		businessContextProvided: Boolean(job.businessContext),
 		canRetry: canRetryJob(job),
 	};
@@ -609,10 +689,32 @@ function toWarehouseSetup(job: DBWarehouseProvisioningJob): WarehouseSetup {
 		status: job.status,
 		failedStatus: job.failedStatus,
 		error: job.error,
-		logs: job.logs ? job.logs.slice(-AGENT_LOGS_LIMIT) : null,
+		cause: getFailureCause(job),
+		logs: getCommandLogs(job),
 		businessContextProvided: Boolean(job.businessContext),
 		canRetry: canRetryJob(job),
 	};
+}
+
+function getFailureCause(job: DBWarehouseProvisioningJob): string | null {
+	if (job.status !== 'failed' || !job.errorDetail || job.errorDetail === job.error || isExplainedByLogs(job)) {
+		return null;
+	}
+	return job.errorDetail.slice(0, FAILURE_CAUSE_LIMIT);
+}
+
+/** A failed command is explained by its logs, which its cause would only repeat. */
+function isExplainedByLogs(job: DBWarehouseProvisioningJob): boolean {
+	return COMMAND_FAILURE_PATTERN.test(job.errorDetail ?? '') && getCommandLogs(job) !== null;
+}
+
+/** Logs belong to the last command, so they would mislead about a step that runs no command. */
+function getCommandLogs(job: DBWarehouseProvisioningJob): string | null {
+	const step = isStoppedStatus(job.status) ? job.failedStatus : job.status;
+	if (!job.logs || !step || !COMMAND_STATUSES.includes(step)) {
+		return null;
+	}
+	return job.logs.slice(-AGENT_LOGS_LIMIT);
 }
 
 function canRetryJob(job: DBWarehouseProvisioningJob): boolean {
@@ -660,25 +762,20 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
-		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, (logs) =>
-			updateJob(jobId, { logs }),
-		);
+		const commandLogs: CommandLogs = {
+			redactor: createWarehouseLogRedactor(provisionConfig.env_vars),
+			publish: (logs) => updateJob(jobId, { logs }),
+			assertNotCancelled: () => assertJobNotCancelled(jobId),
+		};
+		await runNaoCommand(['init', '--yes'], projectDir, commandEnvironment, INIT_TIMEOUT_MS, commandLogs);
 
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
 		await updateJob(jobId, { status: 'debugging', logs: '' });
-		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, (logs) =>
-			updateJob(jobId, { logs }),
-		);
+		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, commandLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
-		await runNaoCommand(
-			['sync', '--provider', 'databases'],
-			projectDir,
-			commandEnvironment,
-			SYNC_TIMEOUT_MS,
-			(logs) => updateJob(jobId, { logs }),
-		);
+		await runNaoCommand(['sync', '--provider', 'databases'], projectDir, commandEnvironment, null, commandLogs);
 
 		const projectId = crypto.randomUUID();
 		registeredProjectId = projectId;
@@ -688,6 +785,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			sourceDir: projectDir,
 			projectName: input.projectName,
 			orgId: input.orgId,
+			userId: input.userId,
 			projectId,
 		});
 		registeredProjectId = project.projectId;
@@ -715,16 +813,14 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		if (error instanceof WarehouseSetupCancelledError) {
 			return;
 		}
-		const serializedError = serializeError(error);
-		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
-		logger.error(`Warehouse provisioning failed: ${errorMessage}`, {
+		logger.error(`Warehouse provisioning failed: ${describeError(error)}`, {
 			source: 'system',
 			context: {
 				jobId,
-				error: serializedError,
+				error: serializeError(error),
 			},
 		});
-		await failJob(jobId, getPublicProvisioningError(error));
+		await failJob(jobId, getPublicProvisioningError(error), describeError(error));
 	} finally {
 		if (projectDir) {
 			fs.rmSync(projectDir, { recursive: true, force: true });
@@ -788,7 +884,7 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 		);
 
 		await updateJob(jobId, { status: 'publishing' });
-		managedRepository = await provisionManagedGithubRepository({
+		managedRepository = await publishProject({
 			projectId: job.projectId,
 			projectName: job.projectName,
 			projectDir: registeredProjectPath,
@@ -805,18 +901,26 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 		if (error instanceof WarehouseSetupCancelledError) {
 			return;
 		}
-		const serializedError = serializeError(error);
-		const errorMessage = typeof serializedError.message === 'string' ? serializedError.message : 'Unknown error';
-		logger.error(`Warehouse finalization failed: ${errorMessage}`, {
+		logger.error(`Warehouse finalization failed: ${describeError(error)}`, {
 			source: 'system',
 			context: {
 				jobId,
 				projectId: job.projectId,
 				projectName: job.projectName,
-				error: serializedError,
+				error: serializeError(error),
 			},
 		});
-		await failJob(jobId, 'Project setup could not be completed. Please try again.');
+		await failJob(jobId, getPublicFinalizationError(error), describeError(error));
+	}
+}
+
+async function publishProject(
+	input: Parameters<typeof provisionManagedGithubRepository>[0],
+): Promise<Awaited<ReturnType<typeof provisionManagedGithubRepository>>> {
+	try {
+		return await provisionManagedGithubRepository(input);
+	} catch (error) {
+		throw new ProjectPublishingError(error);
 	}
 }
 
@@ -879,6 +983,7 @@ function createCommandEnvironment(warehouseEnvVars: Record<string, string>): Nod
 	return {
 		PATH: process.env.PATH,
 		HOME: process.env.HOME,
+		NAO_MODE: process.env.NAO_MODE,
 		TMPDIR: process.env.TMPDIR,
 		VIRTUAL_ENV: process.env.VIRTUAL_ENV,
 		LANG: process.env.LANG,
@@ -896,8 +1001,8 @@ function runNaoCommand(
 	args: string[],
 	cwd: string,
 	env: NodeJS.ProcessEnv,
-	timeoutMs: number,
-	onOutput?: (output: string) => Promise<unknown>,
+	timeoutMs: number | null,
+	logs: CommandLogs,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn('nao', args, {
@@ -909,13 +1014,9 @@ function runNaoCommand(
 		let output = '';
 		let logUpdate: ReturnType<typeof setTimeout> | undefined;
 		let pendingLogUpdate = Promise.resolve<unknown>(undefined);
-		const publishOutput = () => {
-			if (!onOutput) {
-				return;
-			}
-			const visibleOutput = output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
+		const publishOutput = (visibleOutput: string) => {
 			pendingLogUpdate = pendingLogUpdate
-				.then(() => onOutput(visibleOutput))
+				.then(() => logs.publish(visibleOutput))
 				.catch((error) => {
 					if (error instanceof WarehouseSetupCancelledError) {
 						stopCommand(error);
@@ -929,44 +1030,67 @@ function runNaoCommand(
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			clearTimers();
 			child.kill('SIGTERM');
 			reject(error);
+		};
+		const clearTimers = () => {
+			clearTimeout(timeout);
+			void stopCancellationChecks();
 		};
 		const flushOutput = async () => {
 			if (logUpdate) {
 				clearTimeout(logUpdate);
 				logUpdate = undefined;
 			}
-			publishOutput();
+			publishOutput(toVisibleOutput(output));
 			await pendingLogUpdate;
 		};
 		const captureOutput = (chunk: Buffer) => {
-			output = `${output}${chunk.toString('utf8')}`.slice(-COMMAND_OUTPUT_LIMIT);
-			if (onOutput && !logUpdate) {
+			output = logs.redactor.redact(`${output}${chunk.toString('utf8')}`).slice(-COMMAND_OUTPUT_LIMIT);
+			if (!logUpdate) {
 				logUpdate = setTimeout(() => {
 					logUpdate = undefined;
-					publishOutput();
+					publishOutput(logs.redactor.withholdPartialSecret(toVisibleOutput(output)));
 				}, COMMAND_LOG_UPDATE_MS);
 			}
 		};
 		child.stdout.on('data', captureOutput);
 		child.stderr.on('data', captureOutput);
-		const timeout = setTimeout(() => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
-		}, timeoutMs);
+		const timeout =
+			timeoutMs === null
+				? undefined
+				: setTimeout(() => {
+						if (settled) {
+							return;
+						}
+						settled = true;
+						clearTimers();
+						child.kill('SIGTERM');
+						void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
+					}, timeoutMs);
+		const stopCancellationChecks = repeatInBackground(
+			'Warehouse setup cancellation check',
+			fromPromise(() =>
+				logs.assertNotCancelled().catch((error) => {
+					if (error instanceof WarehouseSetupCancelledError) {
+						stopCommand(error);
+						return;
+					}
+					logger.warn(`Could not check whether warehouse setup was cancelled: ${String(error)}`, {
+						source: 'system',
+					});
+				}),
+			),
+			COMMAND_CANCELLATION_CHECK_MS,
+		);
 
 		child.once('error', async (error) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			clearTimers();
 			await flushOutput();
 			reject(new Error(`Could not start nao ${args[0]}: ${error.message}`));
 		});
@@ -975,7 +1099,7 @@ function runNaoCommand(
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
+			clearTimers();
 			await flushOutput();
 			if (code === 0) {
 				resolve();
@@ -987,6 +1111,10 @@ function runNaoCommand(
 	});
 }
 
+function toVisibleOutput(output: string): string {
+	return output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
+}
+
 let reconcilerStarted = false;
 
 export function startWarehouseProvisioningReconciler(): void {
@@ -995,11 +1123,12 @@ export function startWarehouseProvisioningReconciler(): void {
 	}
 	reconcilerStarted = true;
 
-	void reconcileWarehouseProvisioningJobs().catch(logReconciliationError);
-	const interval = setInterval(() => {
-		void reconcileWarehouseProvisioningJobs().catch(logReconciliationError);
-	}, JOB_RECONCILIATION_MS);
-	interval.unref?.();
+	repeatInBackground(
+		'Warehouse provisioning reconciliation',
+		fromPromise(() => reconcileWarehouseProvisioningJobs()),
+		JOB_RECONCILIATION_MS,
+		{ immediately: true },
+	);
 }
 
 export async function reconcileWarehouseProvisioningJobs(): Promise<void> {
@@ -1071,12 +1200,11 @@ async function recoverProvisioningJob(jobId: string): Promise<void> {
 			if (error instanceof WarehouseSetupCancelledError) {
 				return;
 			}
-			const serializedError = serializeError(error);
-			logger.error('Warehouse provisioning recovery failed', {
+			logger.error(`Warehouse provisioning recovery failed: ${describeError(error)}`, {
 				source: 'system',
-				context: { jobId, error: serializedError },
+				context: { jobId, error: serializeError(error) },
 			});
-			await failJob(jobId, getPublicProvisioningError(error));
+			await failJob(jobId, getPublicProvisioningError(error), describeError(error));
 		}
 	});
 
@@ -1097,10 +1225,12 @@ async function recoverFinalizationJob(jobId: string): Promise<void> {
 
 async function failExhaustedJob(job: DBWarehouseProvisioningJob): Promise<void> {
 	await cleanUpStoppedJob(job, job.status);
-	await failJob(job.id, 'Warehouse setup stopped unexpectedly several times. Please try again.', {
-		lockedBy: null,
-		lockedAt: null,
-	});
+	await failJob(
+		job.id,
+		'Warehouse setup stopped unexpectedly several times. Please try again.',
+		`Abandoned ${job.attempts} times while ${job.status}: each worker stopped before finishing, for example on a server restart.`,
+		{ lockedBy: null, lockedAt: null },
+	);
 }
 
 /**
@@ -1157,17 +1287,18 @@ async function claimJob(
 }
 
 async function withJobLease(jobId: string, operation: () => Promise<void>): Promise<void> {
-	const heartbeat = setInterval(() => {
-		void warehouseProvisioningJobQueries
-			.renewWarehouseProvisioningJobLock(jobId, WORKER_ID)
-			.catch(logReconciliationError);
-	}, JOB_HEARTBEAT_MS);
-	heartbeat.unref?.();
-
 	try {
-		await operation();
+		await runEffect(
+			fromPromise(() => operation()).pipe(
+				withHeartbeat({
+					name: 'Warehouse provisioning job lease renewal',
+					beat: () => warehouseProvisioningJobQueries.renewWarehouseProvisioningJobLock(jobId, WORKER_ID),
+					every: JOB_HEARTBEAT_MS,
+				}),
+				Effect.withSpan('warehouse-provisioning.job', { attributes: { 'job.id': jobId } }),
+			),
+		);
 	} finally {
-		clearInterval(heartbeat);
 		await warehouseProvisioningJobQueries.releaseWarehouseProvisioningJobLock(jobId, WORKER_ID);
 	}
 }
@@ -1191,6 +1322,13 @@ async function updateJob(
 	throw job?.status === 'cancelled' ? new WarehouseSetupCancelledError() : new Error('Warehouse setup job not found');
 }
 
+async function assertJobNotCancelled(jobId: string): Promise<void> {
+	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
+	if (job?.status === 'cancelled') {
+		throw new WarehouseSetupCancelledError();
+	}
+}
+
 /**
  * Keeps the status the job failed at, so the onboarding funnel knows which step broke, and its encrypted
  * credentials, so the setup can be retried until they are cleared after `FAILED_CREDENTIALS_RETENTION_MS`.
@@ -1198,6 +1336,7 @@ async function updateJob(
 async function failJob(
 	jobId: string,
 	error: string,
+	errorDetail: string,
 	changes: warehouseProvisioningJobQueries.WarehouseProvisioningJobChanges = {},
 ): Promise<void> {
 	const job = await warehouseProvisioningJobQueries.getWarehouseProvisioningJobById(jobId);
@@ -1206,6 +1345,7 @@ async function failJob(
 		status: 'failed',
 		failedStatus: job?.status ?? null,
 		error,
+		errorDetail: errorDetail.slice(0, ERROR_DETAIL_LIMIT),
 		temporaryDirectory: null,
 		finishedAt: new Date(),
 	});
@@ -1215,6 +1355,21 @@ class ProjectNameConflictError extends Error {
 	constructor(projectName: string) {
 		super(`A project named "${projectName}" already exists.`);
 	}
+}
+
+class ProjectPublishingError extends Error {
+	constructor(cause: unknown) {
+		super('Project publishing failed', { cause });
+	}
+}
+
+function getPublicFinalizationError(error: unknown): string {
+	if (!(error instanceof ProjectPublishingError)) {
+		return FINALIZATION_FAILED_MESSAGE;
+	}
+	return error.cause instanceof ManagedGithubConfigurationError
+		? PUBLISHING_MISCONFIGURED_MESSAGE
+		: PUBLISHING_FAILED_MESSAGE;
 }
 
 export function getPublicProvisioningError(error: unknown): string {
@@ -1227,9 +1382,9 @@ export function getPublicProvisioningError(error: unknown): string {
 	}
 
 	const message = error instanceof Error ? error.message : String(error);
-	const failedCommand = message.match(/^nao (init|debug|sync) (?:failed|timed out)\b/i)?.[1]?.toLowerCase();
-	if (failedCommand) {
-		return `nao ${failedCommand} failed. Check the logs for details.`;
+	const commandFailure = message.match(COMMAND_FAILURE_PATTERN);
+	if (commandFailure) {
+		return `nao ${commandFailure[1].toLowerCase()} ${commandFailure[2].toLowerCase()}. Check the logs for details.`;
 	}
 
 	const connector = message.match(/nao-core\[([^\]]+)\]/i)?.[1];

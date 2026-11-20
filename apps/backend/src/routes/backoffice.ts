@@ -13,14 +13,19 @@ import * as backofficeQueries from '../queries/backoffice.queries';
 import * as eventQueries from '../queries/backoffice-events.queries';
 import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
+import { checkDatabaseConnection } from '../queries/health.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
 import * as onboardingService from '../services/onboarding/backoffice-onboarding.service';
+import * as ssoService from '../services/organization-sso.service';
+import { INSTANCE_LOG_SORT_KEYS, instanceLogFilterSchema } from '../types/backoffice';
+import { organizationSsoDomainsInputSchema } from '../types/organization';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
 
 const MAX_BACKOFFICE_TOP_UP_CENTS = 1_000_000;
+const MAX_INSTANCE_LOG_FILTERS = 20;
 
 const paginationSchema = z.object({
 	limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -40,6 +45,11 @@ const creditTopUpSchema = z
 		requestId: z.uuid(),
 	})
 	.strict();
+const instanceLogsQuerySchema = paginationSchema.extend({
+	sort: z.enum(INSTANCE_LOG_SORT_KEYS).default('createdAt'),
+	direction: z.enum(['asc', 'desc']).default('desc'),
+	filters: jsonQueryParam(z.array(instanceLogFilterSchema).max(MAX_INSTANCE_LOG_FILTERS), '[]'),
+});
 
 export const backofficeRoutes = async (app: App) => {
 	app.addHook('onRequest', async (request, reply) => {
@@ -49,7 +59,7 @@ export const backofficeRoutes = async (app: App) => {
 	});
 
 	app.get('/health', async () => {
-		const connected = await backofficeQueries.checkDatabaseConnection();
+		const connected = await checkDatabaseConnection();
 		return {
 			status: connected ? 'ok' : 'degraded',
 			version: env.APP_VERSION,
@@ -122,6 +132,36 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.updateOrganization(params.orgId, body));
+	});
+
+	app.get('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, async () => ({ sso: await ssoService.getOrganizationSso(params.orgId) }));
+	});
+
+	app.put('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		const body = parse(organizationSsoDomainsInputSchema, request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, async () => ({
+			sso: await ssoService.activateOrganizationSso(params.orgId, body.domains),
+		}));
+	});
+
+	app.delete('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => ssoService.deactivateOrganizationSso(params.orgId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
 	});
 
 	app.put('/organizations/:orgId/members/:userId', async (request, reply) => {
@@ -198,6 +238,14 @@ export const backofficeRoutes = async (app: App) => {
 		return eventQueries.listProjectLogs(params.projectId, query);
 	});
 
+	app.get('/logs', async (request, reply) => {
+		const query = parse(instanceLogsQuerySchema, request.query, reply);
+		if (!query) {
+			return;
+		}
+		return eventQueries.listInstanceLogs(query);
+	});
+
 	app.get('/users', async (request, reply) => {
 		const query = parse(searchPaginationSchema, request.query, reply);
 		if (!query) {
@@ -215,6 +263,14 @@ export const backofficeRoutes = async (app: App) => {
 	});
 
 	app.get('/onboarding', async () => onboardingService.listOnboardingSummaries());
+
+	app.get('/onboarding/setup-failures', async (request, reply) => {
+		const query = parse(paginationSchema.pick({ limit: true }), request.query, reply);
+		if (!query) {
+			return;
+		}
+		return onboardingService.listRecentSetupFailures(query.limit);
+	});
 
 	app.get('/users/:userId/onboarding', async (request, reply) => {
 		const params = parse(userParamsSchema, request.params, reply);
@@ -286,6 +342,21 @@ async function ensureProject(projectId: string, reply: FastifyReply): Promise<bo
 	}
 	reply.status(404).send({ error: 'Project not found' });
 	return false;
+}
+
+function jsonQueryParam<T>(schema: z.ZodType<T>, defaultValue: string) {
+	return z
+		.string()
+		.default(defaultValue)
+		.transform((value, context) => {
+			try {
+				return JSON.parse(value) as unknown;
+			} catch {
+				context.addIssue({ code: 'custom', message: 'Expected a JSON value' });
+				return z.NEVER;
+			}
+		})
+		.pipe(schema);
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown, reply: FastifyReply): T | null {

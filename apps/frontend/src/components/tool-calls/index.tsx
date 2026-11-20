@@ -1,10 +1,17 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
+import { AutomationRunHistoryToolCall, GetAutomationToolCall, UpdateAutomationToolCall } from './automation-editor';
 import { ClarificationToolCall } from './clarification';
+import { CodemodeToolCall } from './codemode';
+import {
+	ApplyRecommendationToolCall,
+	GetRecommendationToolCall,
+	ListRecommendationsToolCall,
+	SetRecommendationStatusToolCall,
+} from './context-recommendations';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { DisplayMapToolCall } from './display-map';
-import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
@@ -14,7 +21,7 @@ import { McpToolCall } from './mcp';
 import { onboardingToolComponents } from './onboarding';
 import { QueryAppDbToolCall } from './query-app-db';
 import { ReadToolCall } from './read';
-import { ReadQueryResultToolCall } from './read-query-result';
+import { PageQueryResultToolCall } from './page-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
 import { StrReplaceToolCall } from './str-replace';
@@ -36,16 +43,16 @@ const toolComponents: Partial<{
 }> = {
 	story: StoryToolCall,
 	clarification: ClarificationToolCall,
+	codemode: CodemodeToolCall,
 	display_chart: DisplayChartToolCall,
 	display_map: DisplayMapToolCall,
-	execute_python: ExecutePythonToolCall,
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	execute_semantic_query: ExecuteSemanticQueryToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
 	read: ReadToolCall,
-	read_query_result: ReadQueryResultToolCall,
+	page_query_result: PageQueryResultToolCall,
 	search: SearchToolCall,
 	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,
@@ -61,6 +68,13 @@ export const dynamicToolComponents = {
 	record_recommendation: RecordRecommendationToolCall,
 	mcp_call: McpToolCall,
 	mcp_connect: McpToolCall,
+	get_automation: GetAutomationToolCall,
+	update_automation: UpdateAutomationToolCall,
+	get_automation_run_history: AutomationRunHistoryToolCall,
+	list_recommendations: ListRecommendationsToolCall,
+	get_recommendation: GetRecommendationToolCall,
+	apply_recommendation: ApplyRecommendationToolCall,
+	set_recommendation_status: SetRecommendationStatusToolCall,
 } satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
 
 export type DynamicToolName = keyof typeof dynamicToolComponents;

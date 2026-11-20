@@ -12,7 +12,7 @@ import {
 	Save,
 	X,
 } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ShareSource } from '@nao/shared/types';
 import type { StorySummary } from '@/lib/story.utils';
@@ -20,12 +20,21 @@ import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import type { StoryDownloadOptions } from '@/components/story-download';
 import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
-import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { StoryVersionEntry } from '@/components/story-version-nav';
+import {
+	CustomStoryElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
 import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useMovableStory } from '@/hooks/use-movable-story';
+import { StoryFolderPickerDialog, StoryMoveToFolderMenuItem } from '@/components/story-move-to-folder';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
 	StoryFeedbackButtons,
@@ -61,7 +70,7 @@ interface StoryHeaderBaseProps {
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
 	currentVersion: number;
-	versionDates: (string | Date)[];
+	versions: StoryVersionEntry[];
 	versionNumber?: number;
 	versionDate?: string | Date | null;
 	onSelectVersion: (version: number) => void;
@@ -74,6 +83,7 @@ interface StoryHeaderBaseProps {
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isEditLocked?: boolean;
 	isStoryUpdating: boolean;
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
@@ -115,7 +125,7 @@ export const StoryHeader = memo(function StoryHeader({
 	allStories,
 	onSwitchStory,
 	currentVersion,
-	versionDates,
+	versions,
 	versionNumber,
 	versionDate,
 	onSelectVersion,
@@ -128,6 +138,7 @@ export const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isEditLocked = false,
 	isStoryUpdating,
 	isSaving = false,
 	isReadonlyMode,
@@ -147,6 +158,9 @@ export const StoryHeader = memo(function StoryHeader({
 }: StoryHeaderProps) {
 	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
+	const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
+	const movableStory = useMovableStory(storyId);
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { otherStories, switchToStory, mentionedStories, openMentionedStory } = useSwitchableStories({
 		chatId,
 		storySlug,
@@ -163,7 +177,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
-				canEdit={!isReadonlyMode}
+				canEdit={!isReadonlyMode && !isEditLocked}
 				heading='h3'
 				className='min-w-0 truncate text-sm font-medium'
 				inputClassName='text-sm font-medium'
@@ -205,7 +219,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
-				canEdit={!isReadonlyMode}
+				canEdit={!isReadonlyMode && !isEditLocked}
 				heading='h3'
 				className='truncate text-sm font-medium'
 				inputClassName='text-sm font-medium'
@@ -222,8 +236,9 @@ export const StoryHeader = memo(function StoryHeader({
 
 	const versionNav = (
 		<StoryVersionNav
+			storyId={storyId}
 			currentVersion={currentVersion}
-			versionDates={versionDates}
+			versions={versions}
 			onSelectVersion={onSelectVersion}
 		/>
 	);
@@ -233,6 +248,7 @@ export const StoryHeader = memo(function StoryHeader({
 			controls={viewModeControls}
 			isReadonlyMode={isReadonlyMode}
 			isAgentRunning={isAgentRunning}
+			isEditLocked={isEditLocked}
 			isSaving={isSaving}
 		/>
 	);
@@ -311,11 +327,17 @@ export const StoryHeader = memo(function StoryHeader({
 		versionNumber,
 		onDownload,
 	};
-	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
+	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions) || !!movableStory;
 	const canFavorite = !isReadonlyMode && !!storyId;
+	const canDuplicate =
+		!isReadonlyMode && (customStoryCreationEnabled || !isCustomStoryViewModeControls(viewModeControls));
 
 	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
+
+	const elementSelectionToggle = isCustomStoryViewModeControls(viewModeControls) && (
+		<CustomStoryElementSelectionToggle {...viewModeControls} />
+	);
 
 	const actionButtons = showActionsMenu && (
 		<DropdownMenu>
@@ -327,6 +349,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<DropdownMenuContent align='end' className='w-auto min-w-20'>
 				<StoryDownloadMenu {...downloadOptions} isAgentRunning={isAgentRunning} isSaving={isSaving} />
 				{canFavorite && <StoryFavoriteMenuItem storyId={storyId} />}
+				{movableStory && <StoryMoveToFolderMenuItem onSelect={() => setIsFolderPickerOpen(true)} />}
 				{!isReadonlyMode && (
 					<>
 						<DropdownMenuItem onSelect={onOpenAnalytics}>
@@ -339,6 +362,7 @@ export const StoryHeader = memo(function StoryHeader({
 						</DropdownMenuItem>
 					</>
 				)}
+				{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} versionNumber={versionNumber} />}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -364,6 +388,7 @@ export const StoryHeader = memo(function StoryHeader({
 						{favoritedButton}
 						{shareButton}
 						{replayAnalyticsButton}
+						{elementSelectionToggle}
 						{actionButtons}
 					</div>
 					<div className='flex items-center gap-2 border-b px-4 py-2'>
@@ -392,6 +417,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{favoritedButton}
 					{shareButton}
 					{replayAnalyticsButton}
+					{elementSelectionToggle}
 					{actionButtons}
 				</div>
 			)}
@@ -452,7 +478,7 @@ export const StoryHeader = memo(function StoryHeader({
 								variant='outline'
 								size='sm'
 								onClick={onRestore}
-								disabled={isSaving}
+								disabled={isSaving || isEditLocked}
 								className='gap-1.5 rounded-full'
 							>
 								<RotateCcw className='size-3' strokeWidth={2.25} />
@@ -461,6 +487,9 @@ export const StoryHeader = memo(function StoryHeader({
 						</>
 					)}
 				</div>
+			)}
+			{movableStory && isFolderPickerOpen && (
+				<StoryFolderPickerDialog story={movableStory} onClose={() => setIsFolderPickerOpen(false)} />
 			)}
 		</div>
 	);
@@ -511,10 +540,11 @@ interface ViewModeToggleProps {
 	controls: StoryViewModeControls | CustomStoryViewModeControls;
 	isReadonlyMode: boolean;
 	isAgentRunning: boolean;
+	isEditLocked: boolean;
 	isSaving: boolean;
 }
 
-function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isSaving }: ViewModeToggleProps) {
+function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isEditLocked, isSaving }: ViewModeToggleProps) {
 	if (isCustomStoryViewModeControls(controls)) {
 		return <CustomStoryViewModeToggle {...controls} />;
 	}
@@ -544,7 +574,7 @@ function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isSaving }: 
 						'hover:rounded-full',
 					)}
 					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning || isSaving}
+					disabled={isAgentRunning || isSaving || isEditLocked}
 				>
 					<Pencil className='size-3' strokeWidth={2.25} />
 				</Button>

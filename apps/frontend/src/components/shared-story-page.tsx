@@ -10,6 +10,7 @@ import { SharedStoryHeader } from '@/components/shared-story-header';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { STORY_ASK_BAR_INSET_STYLE, StoryAskBar } from '@/components/story-ask-bar';
+import { StoryElementPicker } from '@/components/story-element-picker';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
@@ -22,9 +23,12 @@ import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
+import { useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
-import { requestAskAboutSelection } from '@/stores/ask-bar';
+import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
 
 export function SharedStoryPage({ storyId }: { storyId: string }) {
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
@@ -37,7 +41,8 @@ export function SharedStoryPage({ storyId }: { storyId: string }) {
 function SharedCustomStory({ storyId }: { storyId: string }) {
 	const { data: session } = useSession();
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
-	const isOwner = useResolvedStory(storyId).data?.isOwner === true;
+	const resolvedStory = useResolvedStory(storyId).data;
+	const access = { isOwner: resolvedStory?.isOwner === true, canEdit: resolvedStory?.canEdit === true };
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -54,7 +59,7 @@ function SharedCustomStory({ storyId }: { storyId: string }) {
 			authorName={story.authorName}
 			isLive={story.isLive}
 			canRefresh={story.canRefresh}
-			storyChatHeader={toStoryChatHeader(storyId, story, isOwner)}
+			storyChatHeader={toStoryChatHeader(storyId, story, access)}
 		/>
 	);
 }
@@ -64,6 +69,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const queryClient = useQueryClient();
 
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	const presence = useStoryEditSession({ target: session?.user?.id ? { storyId } : null, isEditing: false });
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -89,9 +95,14 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 		refresh: handleRefresh,
 	});
 
-	const isOwner = useResolvedStory(storyId).data?.isOwner === true;
-	const storyChatHeader = toStoryChatHeader(storyId, story, isOwner);
+	const resolvedStory = useResolvedStory(storyId).data;
+	const isOwner = resolvedStory?.isOwner === true;
+	const storyChatHeader = toStoryChatHeader(storyId, story, {
+		isOwner,
+		canEdit: resolvedStory?.canEdit === true,
+	});
 	const canAsk = storyChatHeader.storyChat?.canChat === true;
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -143,7 +154,13 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 					onRefresh={handleRefresh}
 					storyId={session?.user?.id && story.userRole ? storyId : null}
 					download={{ chatId: story.chatId!, storySlug: story.slug, shareSource, isOwner: false }}
+					elementSelection={
+						canAsk
+							? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+							: undefined
+					}
 				/>
+				<StoryEditPresenceBanner presence={presence} />
 
 				<SelectionProvider key={storyId}>
 					{canAsk && <HighlightBubble onAsk={requestAskAboutSelection} />}
@@ -157,18 +174,24 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 								queryData={queryData}
 								theme={storyTheme}
 								preview={
-									<SharedStoryContent
-										code={editor.code}
-										queryData={queryData}
-										theme={storyTheme}
-										storyId={storyId}
-										cacheSchedule={story.cacheSchedule}
-										isDataPending={isQueryDataPending}
-										isViewingLatest={editor.versionNav.isViewingLatest}
-									/>
+									<StoryElementPicker
+										isPicking={canAsk && isSelectingElements}
+										storySlug={story.slug}
+										onPick={(ask) => requestAskAboutElement(ask)}
+									>
+										<SharedStoryContent
+											code={editor.code}
+											queryData={queryData}
+											theme={storyTheme}
+											storyId={storyId}
+											cacheSchedule={story.cacheSchedule}
+											isDataPending={isQueryDataPending}
+											isViewingLatest={editor.versionNav.isViewingLatest}
+										/>
+									</StoryElementPicker>
 								}
 							/>
-							{canAsk && <StoryAskBar storyId={storyId} isOwner={isOwner} />}
+							{canAsk && <StoryAskBar storyId={storyId} canEdit={resolvedStory?.canEdit === true} />}
 						</div>
 
 						{sidePanel.content && (
@@ -289,6 +312,7 @@ function SharedStoryContent({
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
 			<StoryTabbedContent
 				code={code}
+				storyId={storyId}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
 				theme={theme}
@@ -304,10 +328,10 @@ function SharedStoryContent({
 function toStoryChatHeader(
 	storyId: string,
 	story: { userRole: string | null; canFork: boolean; isArchived: boolean },
-	isOwner: boolean,
+	access: { isOwner: boolean; canEdit: boolean },
 ): Pick<StoryPageHeaderProps, 'storyChat' | 'canDuplicate'> {
 	return {
-		storyChat: { storyId, isOwner, canChat: story.userRole !== 'viewer' && !story.isArchived },
+		storyChat: { storyId, ...access, canChat: story.userRole !== 'viewer' && !story.isArchived },
 		canDuplicate: story.canFork && !story.isArchived,
 	};
 }

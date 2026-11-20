@@ -8,7 +8,8 @@ import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
-import { createProject, touchProjectUpdatedAt } from './project.service';
+import { extractConfiguredDatabases } from '../utils/nao-config';
+import { createProject, getMissingProjectEnvVars, touchProjectUpdatedAt } from './project.service';
 
 export function createTempProjectDir(prefix: string): string {
 	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.${prefix}-${crypto.randomUUID()}`);
@@ -65,14 +66,14 @@ export async function createNewProject({
 	sourceDir,
 	projectName,
 	orgId,
+	userId,
 	projectId = crypto.randomUUID(),
-	actingUserId,
 }: {
 	sourceDir: string;
 	projectName: string;
 	orgId: string;
+	userId: string;
 	projectId?: string;
-	actingUserId?: string;
 }) {
 	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 
@@ -88,23 +89,26 @@ export async function createNewProject({
 
 	let project: DBProject;
 	try {
-		project = await createProject(
-			{
-				id: projectId,
-				name: projectName,
-				type: 'local',
-				path: projectDir,
-				orgId,
-			},
-			actingUserId,
-		);
+		project = await createProject({
+			id: projectId,
+			name: projectName,
+			type: 'local',
+			path: projectDir,
+			orgId,
+		});
 	} catch (err) {
 		fs.rmSync(projectDir, { recursive: true, force: true });
 		throw err;
 	}
 
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
-	return { projectId: project.id, projectName, status: 'created' as const };
+	const role = await projectQueries.getUserRoleInProject(project.id, userId);
+	return {
+		projectId: project.id,
+		projectName,
+		status: 'created' as const,
+		...(await getSetupGaps(project, role === 'admin')),
+	};
 }
 
 export async function replaceExistingProject({
@@ -139,5 +143,18 @@ export async function replaceExistingProject({
 	}
 
 	await touchProjectUpdatedAt(project.id);
-	return { projectId: project.id, projectName, status: 'updated' as const };
+	return {
+		projectId: project.id,
+		projectName,
+		status: 'updated' as const,
+		...(await getSetupGaps(project, role === 'admin')),
+	};
+}
+
+async function getSetupGaps(project: DBProject, canEditEnvVars: boolean) {
+	return {
+		missingEnvVars: await getMissingProjectEnvVars(project),
+		missingDatabase: !project.path || extractConfiguredDatabases(project.path).length === 0,
+		canEditEnvVars,
+	};
 }

@@ -12,6 +12,7 @@ import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
+import { getTwoFactorStatus } from '../services/two-factor.service';
 import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
 import {
@@ -19,6 +20,7 @@ import {
 	projectProtectedProcedure,
 	protectedProcedure,
 	resolveOrganizationMembership,
+	sessionProcedure,
 } from './trpc';
 
 const creditLedgerPaginationInput = z
@@ -35,11 +37,12 @@ const managedAiUsagePaginationInput = z
 	})
 	.default({ limit: 25 });
 
+/** Resolves the organization as the billing routes do, so the wallet and the plan of one page never differ. */
 const walletProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
 		ctx.user.id,
 		ctx.selectedProjectId,
-		ctx.selectedProjectId ? null : ctx.selectedOrganizationId,
+		ctx.selectedOrganizationId,
 	);
 	return next({ ctx: { membership } });
 });
@@ -62,7 +65,7 @@ export const accountRoutes = {
 	getManagedCreditStatus: projectProtectedProcedure.query(({ ctx }) => getManagedCreditStatus(ctx.project)),
 	getCreditSummary: walletAdminProcedure.query(async ({ ctx }) => {
 		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
-		return { ...summary, enabled: isManagedAiEnabled() };
+		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled() };
 	}),
 	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>
 		creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId),
@@ -123,7 +126,10 @@ export const accountRoutes = {
 
 			return { password };
 		}),
-	modifyPassword: protectedProcedure
+	getTwoFactorStatus: sessionProcedure.query(async ({ ctx }) => {
+		return getTwoFactorStatus(ctx.user.id);
+	}),
+	modifyPassword: sessionProcedure
 		.input(
 			z.object({
 				newPassword: z.string(),
@@ -166,6 +172,7 @@ async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
 			enabled: isManagedAiEnabled(),
 			organization: null,
 			hasCredits: false,
+			balanceMicroUsd: 0,
 		};
 	}
 	const [organization, summary] = await Promise.all([
@@ -176,5 +183,6 @@ async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
 		enabled: isManagedAiEnabled(),
 		organization: organization ? { id: organization.id, name: organization.name } : null,
 		hasCredits: summary.balanceMicroUsd > 0,
+		balanceMicroUsd: summary.balanceMicroUsd,
 	};
 }

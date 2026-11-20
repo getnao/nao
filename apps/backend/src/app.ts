@@ -9,13 +9,14 @@ import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
-import { env, isCloud, isCloudBillingEnabled } from './env';
+import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
 	cloudTrialProvisioningHandler,
 } from './handlers/cloud-trial-provisioning.handler';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler } from './handlers/cloud-welcome-email.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -49,8 +50,10 @@ import {
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
-import { flushTelemetry } from './instrumentation';
+import { flushTelemetry, requestTracingEnabled } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { registerRequestTracing } from './middleware/request-tracing';
+import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
@@ -86,6 +89,7 @@ import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
 import { startWarehouseProvisioningReconciler } from './services/onboarding/warehouse-provisioning';
 import { pingLicensesServer } from './services/ping';
@@ -94,6 +98,13 @@ import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './s
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
+import {
+	resolveTestScheduleProjectId,
+	runScheduledTests,
+	syncAllConfiguredTestSchedules,
+	TEST_SCHEDULE_JOB_NAME,
+	TEST_SCHEDULE_SYNC_JOB_NAME,
+} from './services/test-schedule.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import {
@@ -110,6 +121,8 @@ import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const HEALTH_DATABASE_TIMEOUT_MS = 2_000;
+const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -148,13 +161,18 @@ app.setErrorHandler((error, request, reply) => {
 			: undefined;
 	logger.error(describeError(error), {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return reply.status(error.code).send({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (error instanceof ExampleChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });
@@ -168,9 +186,17 @@ app.setErrorHandler((error, request, reply) => {
 	throw error;
 });
 
+if (requestTracingEnabled) {
+	registerRequestTracing(app, [HEALTH_PATH]);
+}
+
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
+	if (
+		request.url.includes('log.listLogs') ||
+		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
+		request.url === HEALTH_PATH
+	) {
 		done();
 		return;
 	}
@@ -180,6 +206,7 @@ app.addHook('onResponse', (request, reply, done) => {
 	}
 	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
 	});
 	done();
@@ -204,9 +231,10 @@ app.register(fastifyTRPCPlugin, {
 	trpcOptions: {
 		router: trpcRouter,
 		createContext,
-		onError({ path, error }) {
+		onError({ path, error, req }) {
 			logger.error(`tRPC error on ${path}: ${describeError(error)}`, {
 				source: 'http',
+				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
 		},
@@ -428,6 +456,9 @@ app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
 	if (isDraining()) {
 		return reply.status(503).send({ status: 'draining' });
 	}
+	if (!(await checkDatabaseConnection(HEALTH_DATABASE_TIMEOUT_MS))) {
+		return reply.status(503).send({ status: 'database_unavailable' });
+	}
 	return { status: 'ok' };
 });
 
@@ -447,6 +478,9 @@ const isReservedBackendPath = (url: string) => {
 		pathname.startsWith('/.well-known/')
 	);
 };
+
+/** Hashed build chunks must 404 when missing (e.g. after a deploy) rather than fall back to index.html. */
+const isBuiltAssetPath = (url: string) => url.startsWith('/assets/');
 
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
@@ -475,7 +509,7 @@ if (staticRoot) {
 // SPA fallback: serve index.html for all non-API routes.
 // In dev mode without a built frontend, redirect to the Vite dev server.
 app.setNotFoundHandler((request, reply) => {
-	if (isReservedBackendPath(request.url)) {
+	if (isReservedBackendPath(request.url) || isBuiltAssetPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
 		reply.sendFile('index.html');
@@ -529,6 +563,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	registerJob(TEST_SCHEDULE_JOB_NAME, runScheduledTests, { resolveProjectId: resolveTestScheduleProjectId });
+	registerJob(TEST_SCHEDULE_SYNC_JOB_NAME, syncAllConfiguredTestSchedules);
+	await ensureRecurring({
+		name: TEST_SCHEDULE_SYNC_JOB_NAME,
+		cron: '*/15 * * * *',
+		uniqueKey: TEST_SCHEDULE_SYNC_JOB_NAME,
+	});
 	if (isCloud) {
 		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
 		await ensureRecurring({
@@ -547,6 +588,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 			cron: '0 * * * *',
 			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
 		});
+	}
+	if (isCloudWelcomeEmailEnabled()) {
+		registerJob(CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler);
 	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
@@ -590,6 +634,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
 	startWarehouseProvisioningReconciler();
+	void reportManagedGithubConfiguration();
 
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());
@@ -609,7 +654,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		if (isDraining()) {
 			return;
 		}
-		stopScheduler();
+		void stopScheduler();
 		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
 		await handleShutdown();
 	};

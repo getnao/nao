@@ -32,14 +32,12 @@ import { useAgentContext } from '@/contexts/agent.provider';
 export const AssistantMessage = memo(
 	({
 		message,
-		showLoader,
 		isSettled,
 		isRunning,
 		isLastMessage,
 		storyIntroMessageId,
 	}: {
 		message: UIMessage;
-		showLoader: boolean;
 		isSettled: boolean;
 		isRunning: boolean;
 		isLastMessage: boolean;
@@ -75,7 +73,7 @@ export const AssistantMessage = memo(
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 
-					{isCompacting ? <AssistantCompaction /> : showLoader && <TextShimmer showLogo />}
+					{isCompacting ? <AssistantCompaction /> : !isSettled && <TextShimmer showLogo />}
 
 					{chatId && showActions && (
 						<AssistantMessageActions

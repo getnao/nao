@@ -1,38 +1,43 @@
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ChevronRight, NewspaperIcon, PanelLeft, PlusIcon, SearchIcon, X } from 'lucide-react';
+import { ChevronRight, PanelLeft, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
-import { NewChatDropTarget } from './new-chat-drop-target';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
+import { SidebarMenuNav } from './sidebar-menu-nav';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarVersionNotice } from './sidebar-version-notice';
 import { Spinner } from './ui/spinner';
-import StoryIcon from './ui/story-icon';
-import type { ChatFilterType, ChatGroup, ChatGroupBy, GroupedChatItem } from '@nao/shared/types';
-import type { LucideIcon } from 'lucide-react';
+import type {
+	AutomationEventTriggers,
+	ChatFilterType,
+	ChatGroup,
+	ChatGroupBy,
+	GroupedChatItem,
+} from '@nao/shared/types';
 
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TrialOnboardingBanner } from '@/components/onboarding/trial-onboarding-banner';
-import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useGroupedChats } from '@/hooks/use-grouped-chats';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { resetLastAppLocation, useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
+import { getEnabledNaoEvents, isAutomationActive, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { SIDE_PANEL_ANIMATION_DURATION, SIDE_PANEL_ANIMATION_EASING } from '@/lib/side-panel';
-import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -47,7 +52,6 @@ const SIDEBAR_TRANSITION_STYLE: React.CSSProperties = {
 
 export function Sidebar() {
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
 	const {
 		isCollapsed,
@@ -58,7 +62,6 @@ export function Sidebar() {
 		expand: expandSidebar,
 	} = useSidebar();
 	const [toggleHintOpen, setToggleHintOpen] = useState(false);
-	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const switchProject = useProjectSwitch(project.data?.id);
@@ -67,20 +70,25 @@ export function Sidebar() {
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
+	const showContextHub = isAdmin || isContextAdmin;
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
 	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
 	const unreadAutomationRunCount = useUnreadAutomationRunCount(showAutomations, project.data?.id).data ?? 0;
-	const hasFeedActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
+	const hasInboxActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
 	const isInSettings = !!isSettingsRoute && (!isViewer || (isCloud && isOrgAdmin));
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	const { limbo } = useCloudSetupState();
 	const showTrialOnboarding =
-		isCloud && project.isSuccess && project.data === null && locationPath === '/' && !effectiveIsCollapsed;
+		isCloud &&
+		locationPath === '/' &&
+		!effectiveIsCollapsed &&
+		((project.isSuccess && project.data === null) || limbo);
 	useTrackLastAppLocation();
 
 	useEffect(() => {
@@ -105,28 +113,6 @@ export function Sidebar() {
 			closeMobile();
 		}
 	}, [navigate, isMobile, closeMobile]);
-
-	const handleNavigateStories = useCallback(() => {
-		invalidateStoriesCaches(queryClient);
-		navigate({ to: '/stories', search: { folderId: null } });
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [navigate, isMobile, closeMobile, queryClient]);
-
-	const handleNavigateFeed = useCallback(() => {
-		navigate({ to: '/feed' });
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [navigate, isMobile, closeMobile]);
-
-	const handleSearchChats = useCallback(() => {
-		openCommandMenu();
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [openCommandMenu, isMobile, closeMobile]);
 
 	useEffect(() => {
 		if (!project.data?.id) {
@@ -248,41 +234,16 @@ export function Sidebar() {
 				)}
 				{!isInSettings && (
 					<>
-						<div className='py-4'>
-							{!isViewer && (
-								<NewChatDropTarget>
-									<SidebarMenuButton
-										icon={PlusIcon}
-										label='New chat'
-										shortcut={getShortcutLabel('new-chat')}
-										isCollapsed={effectiveIsCollapsed}
-										onClick={handleNavigateHome}
-									/>
-								</NewChatDropTarget>
-							)}
-							<SidebarMenuButton
-								icon={SearchIcon}
-								label='Search chats'
-								shortcut={getShortcutLabel('command-menu')}
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleSearchChats}
-							/>
-							<SidebarMenuButton
-								icon={StoryIcon as unknown as LucideIcon}
-								label='Stories'
-								shortcut={getShortcutLabel('go-to-stories')}
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateStories}
-							/>
-							<SidebarMenuButton
-								icon={NewspaperIcon as unknown as LucideIcon}
-								label='Feed'
-								shortcut=''
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateFeed}
-								indicator={hasFeedActivity}
-							/>
-						</div>
+						<SidebarMenuNav
+							isCollapsed={effectiveIsCollapsed}
+							hasProject={project.data != null}
+							access={{
+								canCreateChat: !isViewer,
+								canSeeAutomations: showAutomations,
+								canSeeContextHub: showContextHub,
+								hasInboxActivity,
+							}}
+						/>
 					</>
 				)}
 			</div>
@@ -316,6 +277,7 @@ export function Sidebar() {
 						filters={filters}
 						isViewer={isViewer}
 						isTrial={project.isSuccess && project.data === null}
+						resumeOnboarding={(project.isSuccess && project.data === null) || limbo}
 					/>
 				</>
 			)}
@@ -351,49 +313,6 @@ export function Sidebar() {
 	}
 
 	return sidebarContent;
-}
-
-function SidebarMenuButton({
-	icon: Icon,
-	label,
-	shortcut,
-	isCollapsed,
-	onClick,
-	indicator = false,
-}: {
-	icon: LucideIcon;
-	label: string;
-	shortcut: string;
-	isCollapsed: boolean;
-	onClick: () => void;
-	indicator?: boolean;
-}) {
-	return (
-		<Button
-			variant='ghost'
-			className={cn(
-				'w-full justify-start relative group shadow-none transition-[padding,height,background-color] duration-300 p-[10px_!important] gap-4',
-				isCollapsed ? 'h-9' : '',
-			)}
-			onClick={onClick}
-		>
-			<span className='relative flex items-center'>
-				<Icon className='size-4' />
-				{indicator && (
-					<span
-						aria-hidden
-						className='absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-sidebar'
-					/>
-				)}
-			</span>
-			<div className={cn('flex items-center transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
-				<span>{label}</span>
-				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity hidden md:inline'>
-					{shortcut}
-				</kbd>
-			</div>
-		</Button>
-	);
 }
 
 function SidebarChatHeader({
@@ -437,17 +356,16 @@ function SidebarNav({
 	filters,
 	isViewer,
 	isTrial,
+	resumeOnboarding,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
 	isTrial: boolean;
+	resumeOnboarding: boolean;
 }) {
-	const groupedChats = useQuery({
-		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
-		placeholderData: keepPreviousData,
-	});
+	const groupedChats = useGroupedChats(groupBy, filters);
 	const unfilteredChats = useQuery(trpc.chat.listGrouped.queryOptions({ groupBy: 'none', filters: ['all'] }));
 	const onboardingChat = unfilteredChats.data?.groups
 		.flatMap((group) => group.chats)
@@ -466,7 +384,7 @@ function SidebarNav({
 	});
 	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
 
-	const groups = groupedChats.data?.groups.map((group) => ({
+	const groups = groupedChats?.groups.map((group) => ({
 		...group,
 		chats: group.chats.filter((chat) => !(onboardingNeedsAttention && chat.id === onboardingChatId)),
 	}));
@@ -484,7 +402,7 @@ function SidebarNav({
 		>
 			{showAttentionChat && (
 				<div className='px-2 space-y-1'>
-					<ChatListItem chat={showAttentionChat} needsAttention resumeOnboarding={isTrial} />
+					<ChatListItem chat={showAttentionChat} needsAttention resumeOnboarding={resumeOnboarding} />
 				</div>
 			)}
 			{groups?.map((group) => (
@@ -493,7 +411,7 @@ function SidebarNav({
 					group={group}
 					groupBy={groupBy}
 					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
-					resumeOnboardingChatId={isTrial ? onboardingChatId : undefined}
+					resumeOnboardingChatId={resumeOnboarding ? onboardingChatId : undefined}
 				/>
 			))}
 
@@ -550,6 +468,7 @@ function AutomationsSection({
 		enabled: boolean;
 		cron: string;
 		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
 		updatedAt: Date;
 	}>;
 }) {
@@ -596,19 +515,13 @@ function AutomationListItem({
 		enabled: boolean;
 		cron: string;
 		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
 		updatedAt: Date;
 	};
 }) {
 	const timeAgo = useTimeAgo(new Date(item.updatedAt).getTime());
-	const hasSchedule = Boolean(item.cron);
-	const isActive = hasSchedule ? item.enabled : item.webhookEnabled;
-	const statusLabel = hasSchedule
-		? item.enabled
-			? timeAgo.humanReadable
-			: 'paused'
-		: item.webhookEnabled
-			? 'webhook'
-			: 'paused';
+	const isActive = isAutomationActive(item);
+	const statusLabel = getAutomationStatusLabel(item, timeAgo.humanReadable);
 
 	return (
 		<Link
@@ -748,4 +661,23 @@ function SidebarSectionHeader({
 			</div>
 		</button>
 	);
+}
+
+function getAutomationStatusLabel(
+	item: {
+		cron: string;
+		enabled: boolean;
+		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
+	},
+	lastUpdatedLabel: string,
+): string {
+	if (item.cron) {
+		return item.enabled ? lastUpdatedLabel : 'paused';
+	}
+	if (item.webhookEnabled) {
+		return 'webhook';
+	}
+	const [firstEvent] = getEnabledNaoEvents(item.eventTriggers);
+	return firstEvent ? NAO_EVENT_LABELS[firstEvent].toLowerCase() : 'paused';
 }

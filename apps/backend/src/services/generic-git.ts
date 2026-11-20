@@ -7,7 +7,7 @@ import {
 	resolveContextSourceGitToken,
 	sanitizeContextSourceRepositoryUrl,
 } from '../utils/context-repo';
-import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors, withRequester } from '../utils/git-identity';
 import { toGitError } from '../utils/git-repo';
 import * as github from './github';
 import * as gitlab from './gitlab';
@@ -29,11 +29,14 @@ export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
 	cloneRepo,
 	getGitInfo,
 	getUserGitIdentity: async ({ user }) => user,
-	coAuthor: NAO_CO_AUTHOR,
+	commitCoAuthors: () => [NAO_CO_AUTHOR],
+	isFirstParty: false,
+	sharesAccessToken: false,
 	commitAllAndPushBranch,
 	pushBranch,
 	findOpenReviewRequest,
 	findReviewRequestByBranch: async () => null,
+	listBranches: async () => null,
 	openReviewRequest,
 };
 
@@ -240,7 +243,7 @@ async function findPlatformReviewRequest(
 	branch: string,
 ): Promise<{ url: string } | null> {
 	if (platform === 'github') {
-		const apiBaseUrl = repository.host === 'github.com' ? 'https://api.github.com' : `${repository.origin}/api/v3`;
+		const apiBaseUrl = githubApiBaseUrl(repository, repositoryUrl);
 		return github.findOpenPullRequest(token, repository.repositoryPath, branch, apiBaseUrl);
 	}
 	if (platform === 'gitlab') {
@@ -257,9 +260,9 @@ async function createReviewRequest(
 	repository: ParsedGenericRepository,
 	args: { title: string; head: string; base: string; body: string; requester: GitIdentity },
 ): Promise<OpenReviewRequestResult> {
-	const body = `${args.body}${args.body ? '\n\n' : ''}Requested by ${args.requester.name}`;
+	const body = withRequester(args.body, args.requester);
 	if (platform === 'github') {
-		const apiBaseUrl = repository.host === 'github.com' ? 'https://api.github.com' : `${repository.origin}/api/v3`;
+		const apiBaseUrl = githubApiBaseUrl(repository, repositoryUrl);
 		const pullRequest = await github.createPullRequest(
 			token,
 			repository.repositoryPath,
@@ -340,6 +343,25 @@ async function findOpenBitbucketPullRequest(
 	const result = (await response.json()) as { values?: Array<{ links?: { html?: { href?: string } } }> };
 	const url = result.values?.[0]?.links?.html?.href;
 	return url ? { url } : null;
+}
+
+function githubApiBaseUrl(repository: ParsedGenericRepository, repositoryUrl: string): string {
+	if (isConfiguredGithubInstance(repository, repositoryUrl)) {
+		return github.githubApiUrl();
+	}
+	if (repository.host === 'github.com') {
+		return 'https://api.github.com';
+	}
+	return `${repository.origin}/api/v3`;
+}
+
+/** HTTP(S) remotes identify the instance by origin; SSH remotes only carry the hostname. */
+function isConfiguredGithubInstance(repository: ParsedGenericRepository, repositoryUrl: string): boolean {
+	const configuredBase = new URL(github.githubBaseUrl());
+	if (/^https?:\/\//i.test(repositoryUrl)) {
+		return repository.origin === configuredBase.origin;
+	}
+	return repository.host === configuredBase.hostname;
 }
 
 function hasPlatformApiAuthentication(platform: GitPlatform, token: string, repositoryUrl: string): boolean {

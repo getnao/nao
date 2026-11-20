@@ -1,4 +1,3 @@
-export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
 import { ALL_MCP_ACCESS, type CustomBoundarySet, isMcpServerGranted, type McpAccess } from '@nao/shared';
@@ -13,9 +12,9 @@ import { isStorageEnabled } from '../../services/storage';
 import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
+import { createCodemodeTool } from './codemode';
 import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
-import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSemanticQuery from './execute-semantic-query';
 import executeSql, { localOnlyExecuteSql } from './execute-sql';
@@ -25,8 +24,8 @@ import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
 import { onboardingTools } from './onboarding';
+import pageQueryResult from './page-query-result';
 import read from './read';
-import readQueryResult from './read-query-result';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import strReplace, { buildStrReplaceToolDescription } from './str-replace';
@@ -45,11 +44,11 @@ export const tools = {
 	story,
 	clarification,
 	display_chart: displayChart,
-	...(executePython && { execute_python: executePython }),
+	codemode: createCodemodeTool({ mcpServers: null }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
 	execute_semantic_query: executeSemanticQuery,
-	read_query_result: readQueryResult,
+	page_query_result: pageQueryResult,
 	grep,
 	list,
 	load_skill: loadSkill,
@@ -109,15 +108,16 @@ export const getTools = (
 		(options.mcpServers == null
 			? grantedServers.size > 0
 			: options.mcpServers.some((server) => grantedServers.has(server)));
+	const includeCodemode = agentSettings?.experimental?.codemode !== false && isBuiltinToolKept('codemode', options);
 	const mcpTools: Record<string, Tool> = includeMcp
 		? {
-				mcp_call: createMcpCallTool(options.mcpServers ?? null),
+				mcp_call: createMcpCallTool(options.mcpServers ?? null, { codemode: includeCodemode }),
 				mcp_connect: createMcpConnectTool(options.mcpServers ?? null),
 			}
 		: {};
 
 	const {
-		execute_python,
+		codemode: _codemode,
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
@@ -145,7 +145,9 @@ export const getTools = (
 	const allTools = {
 		...baseTools,
 		...mcpTools,
-		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
+		...(includeCodemode && {
+			codemode: createCodemodeTool({ mcpServers: includeMcp ? (options.mcpServers ?? null) : false }),
+		}),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
 		...(agentSettings?.mapEnabled !== false && {
 			display_map: createDisplayMapTool(options.customBoundaries ?? []),
@@ -187,6 +189,14 @@ export const getTools = (
 	}
 
 	return result;
+};
+
+const isBuiltinToolKept = (
+	name: string,
+	options: { builtinToolAllowlist?: string[]; excludeBuiltinTools?: string[] },
+): boolean => {
+	const allowed = !options.builtinToolAllowlist || options.builtinToolAllowlist.includes(name);
+	return allowed && !options.excludeBuiltinTools?.includes(name);
 };
 
 const keepTools = <T extends Record<string, unknown>>(

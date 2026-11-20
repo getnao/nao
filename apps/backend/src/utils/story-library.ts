@@ -1,3 +1,5 @@
+import { storyIdOfMountPattern } from './story-mount';
+
 /**
  * Top-level folder of the virtual tree exposing, read-only, the stories the user can see in the project,
  * one folder per story id: `/story-library/<id>/story.md`.
@@ -8,8 +10,6 @@ export const STORY_LIBRARY_MOUNT = 'story-library';
 export const STORY_METADATA_FILE = 'story.yaml';
 export const STORY_QUERIES_FILE = 'queries.sql';
 export const CLASSIC_STORY_FILE = 'story.md';
-
-const GLOB_CHARACTERS = /[*?[\]{}()!+@]/;
 
 export const STORY_LIBRARY_READ_ONLY = `stories in /${STORY_LIBRARY_MOUNT} are read-only. To build on one, create a new story in this conversation.`;
 
@@ -34,10 +34,7 @@ export const isStoryLibraryPattern = (pattern: string): boolean => {
 
 /** The story a search pattern is limited to, when the segment after the mount is a literal story id. */
 export const storyIdOfLibraryPattern = (pattern: string): string | null => {
-	const segments = pattern.split('/');
-	const mountIndex = segments.indexOf(STORY_LIBRARY_MOUNT);
-	const storyId = mountIndex === -1 ? undefined : segments[mountIndex + 1];
-	return storyId && !GLOB_CHARACTERS.test(storyId) ? storyId : null;
+	return storyIdOfMountPattern(pattern, STORY_LIBRARY_MOUNT);
 };
 
 export const parseStoryLibraryPath = (virtualPath: string): StoryLibraryPath => {

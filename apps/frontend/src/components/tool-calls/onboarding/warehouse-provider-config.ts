@@ -109,7 +109,7 @@ export const SQL_PROVIDER_SETTINGS: Record<SqlProvider, SqlProviderSettings> = {
 	snowflake: {
 		label: 'Snowflake',
 		defaultPort: 443,
-		fields: ['database', 'user', 'password', 'schemaName', 'warehouse', 'accountId'],
+		fields: ['database', 'user', 'schemaName', 'warehouse', 'accountId'],
 	},
 	starrocks: {
 		label: 'StarRocks',

@@ -26,6 +26,7 @@ export const analyticsRoutes = async (app: App) => {
 		if (!session) {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
+		request.actorUserId = session.user.id;
 
 		const parsed = viewDurationBodySchema.safeParse(request.body);
 		if (!parsed.success) {

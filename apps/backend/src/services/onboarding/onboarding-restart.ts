@@ -11,11 +11,7 @@ export async function restartOnboarding(
 	userId: string,
 	onboardingChatId: string,
 ): Promise<{ cancelledWarehouseSetup: boolean }> {
-	const cancelledWarehouseSetup = await cancelWarehouseProvisioning(userId);
-	if (!cancelledWarehouseSetup && (await hasConnectedProject(userId))) {
-		throw new TRPCError({ code: 'CONFLICT', message: PROJECT_ALREADY_SET_UP_MESSAGE });
-	}
-
+	const cancelledWarehouseSetup = await cancelSetupForRestart(userId);
 	await chatQueries.upsertMessage({
 		role: 'user',
 		parts: [{ type: 'text', text: restartOnboardingTool.RESTARTED_MESSAGE }],
@@ -24,4 +20,13 @@ export async function restartOnboarding(
 		source: 'onboarding',
 	});
 	return { cancelledWarehouseSetup };
+}
+
+/** Cancels the setup in progress; once the project is set up without one, there is nothing left to restart. */
+export async function cancelSetupForRestart(userId: string): Promise<boolean> {
+	const cancelledWarehouseSetup = await cancelWarehouseProvisioning(userId);
+	if (!cancelledWarehouseSetup && (await hasConnectedProject(userId))) {
+		throw new TRPCError({ code: 'CONFLICT', message: PROJECT_ALREADY_SET_UP_MESSAGE });
+	}
+	return cancelledWarehouseSetup;
 }

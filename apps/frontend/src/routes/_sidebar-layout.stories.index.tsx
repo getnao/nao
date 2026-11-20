@@ -11,10 +11,11 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { getEventCoordinates } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, retainSearchParams, useNavigate } from '@tanstack/react-router';
 import { Archive, Folder, Home } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BULK_ITEMS_LIMIT, SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
+import type { StoriesPageFilters } from '@nao/shared/sidebar-menu';
 import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
 
@@ -38,6 +39,7 @@ import { useRunningChatIds } from '@/hooks/use-chat-activity';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useDragPointer } from '@/hooks/use-drag-pointer';
+import { findStoriesPageEntry, useSidebarMenu } from '@/hooks/use-sidebar-menu';
 import { useStartChatWithStories } from '@/hooks/use-start-chat-with-stories';
 import { useSession } from '@/lib/auth-client';
 import { hasAnyStoryReference, isOverNewChatDropTarget, NO_STORY_REFERENCES } from '@/lib/story-reference';
@@ -60,11 +62,25 @@ import { trpc } from '@/main';
 import { selectedStoryReferencesStore, storyDragOverNewChatStore } from '@/stores/story-references';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/')({
-	validateSearch: (search: Record<string, unknown>) => ({
+	validateSearch: (search: Record<string, unknown>): { folderId: string | null; view?: string } => ({
 		folderId: typeof search.folderId === 'string' ? search.folderId : null,
+		...(typeof search.view === 'string' ? { view: search.view } : {}),
 	}),
-	component: StoriesPage,
+	search: { middlewares: [retainSearchParams(['view'])] },
+	component: StoriesRoutePage,
 });
+
+/** A sidebar menu entry can open this page as a named view with preset filters, e.g. "Apps". */
+function StoriesRoutePage() {
+	const { view } = Route.useSearch();
+	const { entries, isLoading } = useSidebarMenu();
+	const storiesView = findStoriesPageEntry(entries, view);
+
+	if (view && isLoading) {
+		return null;
+	}
+	return <StoriesPage key={storiesView ? view : 'all'} view={storiesView} />;
+}
 
 const snapCenterToCursor: Modifier = ({ activatorEvent, draggingNodeRect, transform }) => {
 	if (!draggingNodeRect || !activatorEvent) {
@@ -116,7 +132,7 @@ type DialogState =
 	| { kind: 'picker-selection'; selection: StoryReferences }
 	| null;
 
-function StoriesPage() {
+function StoriesPage({ view }: { view: StoriesView | null }) {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -130,7 +146,7 @@ function StoriesPage() {
 	);
 	const [sort, setSort] = useState<SortState>(() => readStoredSort());
 	const [searchQuery, setSearchQuery] = useState('');
-	const [filters, setFilters] = useState<StoriesFilters>(DEFAULT_FILTERS);
+	const [filters, setFilters] = useState<StoriesFilters>(() => getInitialFilters(view));
 	const [showArchived, setShowArchived] = useState(false);
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
@@ -311,7 +327,7 @@ function StoriesPage() {
 	]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
-		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : 'Root' };
+		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : (view?.label ?? 'Root') };
 		if (!currentFolderId) {
 			return [root];
 		}
@@ -331,7 +347,7 @@ function StoriesPage() {
 			id = 'parentId' in folder ? (folder.parentId ?? null) : null;
 		}
 		return [root, ...path];
-	}, [currentFolderId, folders, showArchived]);
+	}, [currentFolderId, folders, showArchived, view]);
 
 	const isLoading = showArchived
 		? project.isLoading || archivedStories.isLoading || archivedStandaloneStories.isLoading
@@ -359,7 +375,7 @@ function StoriesPage() {
 	async function handleProjectChange(projectId: string) {
 		const didSwitch = await switchProject(projectId);
 		if (didSwitch) {
-			navigate({ to: '/stories', search: { folderId: null } });
+			navigate({ to: '/stories', search: { folderId: null, view: undefined } });
 		}
 	}
 
@@ -940,4 +956,14 @@ function DragOverlayCard({ item, count }: { item: StoryItem | FolderItem; count:
 			)}
 		</div>
 	);
+}
+
+type StoriesView = { label: string; filters: StoriesPageFilters };
+
+function getInitialFilters(view: StoriesView | null): StoriesFilters {
+	if (!view) {
+		return DEFAULT_FILTERS;
+	}
+	const { format, certifiedOnly, liveOnly, owner } = view.filters;
+	return { ...DEFAULT_FILTERS, format, certifiedOnly, liveOnly, owner };
 }

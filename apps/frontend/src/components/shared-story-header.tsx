@@ -16,6 +16,7 @@ interface SharedStoryHeaderProps {
 	onRefresh: () => void;
 	storyId: string | null;
 	download: StoryPageHeaderProps['download'];
+	elementSelection?: StoryPageHeaderProps['elementSelection'];
 }
 
 export function SharedStoryHeader({
@@ -30,6 +31,7 @@ export function SharedStoryHeader({
 	onRefresh,
 	storyId,
 	download,
+	elementSelection,
 }: SharedStoryHeaderProps) {
 	const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
 	const canManageNotifications = isLive && Boolean(storyId);
@@ -58,6 +60,7 @@ export function SharedStoryHeader({
 				}
 				download={download}
 				storyId={storyId}
+				elementSelection={elementSelection}
 			/>
 
 			{storyId && (

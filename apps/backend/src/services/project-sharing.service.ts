@@ -1,4 +1,8 @@
-import { type ProjectSharingPermission, resolveProjectSharingPermission } from '@nao/shared';
+import {
+	type ProjectSharingPermission,
+	resolveGroupShareTargetIds,
+	resolveProjectSharingPermission,
+} from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 
 import * as projectQueries from '../queries/project.queries';
@@ -28,12 +32,12 @@ export interface ProjectWideShareRevocation {
 }
 
 interface ProjectSharingState {
-	groups: Array<Pick<userGroupQueries.UserGroup, 'id' | 'name' | 'isDefault' | 'projectSharing'>>;
+	groups: Array<Pick<userGroupQueries.UserGroup, 'id' | 'name' | 'isDefault' | 'projectSharing' | 'shareTargets'>>;
 	users: UserWithRole[];
 	memberships: Array<{ groupId: string; userId: string }>;
 }
 
-/** Everyone in the project, or only the user's custom user groups and those groups' members. */
+/** Everyone in the project, or only the share targets of the user's custom user groups and those groups' members. */
 export async function getShareAudience(projectId: string, userId: string): Promise<ShareAudience> {
 	return resolveShareAudience(await loadProjectSharingState(projectId), userId);
 }
@@ -88,7 +92,7 @@ export function assertAudienceIncludes(
 		code: 'FORBIDDEN',
 		message: audience.canShareToProject
 			? 'Recipients must have access to this project.'
-			: 'You can only share with your user groups and their members.',
+			: 'You can only share with the user groups your groups allow and their members.',
 	});
 }
 
@@ -139,9 +143,19 @@ function resolveShareAudience(state: ProjectSharingState, userId: string): Share
 			groupIds: new Set(state.groups.filter((group) => !group.isDefault).map((group) => group.id)),
 		};
 	}
-	const groupIds = getUserGroupIds(state, userId);
+	const groupIds = getShareTargetGroupIds(state, userId);
 	const memberIds = new Set([userId, ...[...groupIds].flatMap((groupId) => [...getGroupMemberIds(state, groupId)])]);
 	return { canShareToProject: false, memberIds, groupIds };
+}
+
+function getShareTargetGroupIds(state: ProjectSharingState, userId: string): Set<string> {
+	const userGroupIds = getUserGroupIds(state, userId);
+	const customGroupIds = new Set(state.groups.filter((group) => !group.isDefault).map((group) => group.id));
+	return new Set(
+		state.groups
+			.filter((group) => userGroupIds.has(group.id))
+			.flatMap((group) => resolveGroupShareTargetIds(group, customGroupIds)),
+	);
 }
 
 /** Admins manage this permission, so they can always share with the entire project. */

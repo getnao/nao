@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { ContextGitUnavailableReason, RepoProvider } from '@nao/shared/types';
 
 import { env } from '../env';
+import * as github from '../services/github';
 import * as gitlab from '../services/gitlab';
 import type { InternalRepoProvider } from '../services/review-request-provider';
 import { runGit, tryRunGit } from './git-repo';
@@ -216,7 +217,7 @@ export function detectGitPlatform(repositoryUrl: string | undefined): GitPlatfor
 		}
 	}
 	const normalizedHost = host.toLowerCase();
-	return normalizedHost === 'github.com'
+	return normalizedHost === 'github.com' || normalizedHost === new URL(github.githubBaseUrl()).hostname
 		? 'github'
 		: normalizedHost === 'gitlab.com'
 			? 'gitlab'
@@ -291,7 +292,7 @@ export function toRepoPath(repo: ResolvedContextRepo, projectPath: string): stri
 	return repo.projectPrefix ? `${repo.projectPrefix}/${normalized}` : normalized;
 }
 
-export function fromRepoPath(repo: ResolvedContextRepo, repoPath: string): string | null {
+export function fromRepoPath(repo: Pick<ResolvedContextRepo, 'projectPrefix'>, repoPath: string): string | null {
 	const normalized = repoPath.replaceAll('\\', '/');
 	if (!repo.projectPrefix) {
 		return normalized;
@@ -372,7 +373,7 @@ function toRepositoryConnection(
 	branch: string | null,
 	source: ContextRepositoryConnection['source'],
 ): ContextRepositoryConnection {
-	const baseUrl = config.provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com';
+	const baseUrl = config.provider === 'gitlab' ? gitlab.gitlabBaseUrl() : github.githubBaseUrl();
 	return {
 		...config,
 		branch,

@@ -1,0 +1,18 @@
+name: top_customers_by_lifetime_value
+prompt: >-
+  Who are our 5 most valuable customers by lifetime value? Show their full name,
+  number of orders, lifetime value and average order value rounded to 2 decimals,
+  sorted from most to least valuable, breaking ties alphabetically by name.
+sql: |
+  SELECT
+    first_name || ' ' || last_name AS customer_name,
+    number_of_orders,
+    customer_lifetime_value,
+    ROUND(customer_lifetime_value / number_of_orders, 2) AS average_order_value
+  FROM customers
+  WHERE customer_lifetime_value IS NOT NULL
+  ORDER BY customer_lifetime_value DESC, customer_name
+  LIMIT 5
+assertions:
+  - type: tool_call
+    tool: execute_sql

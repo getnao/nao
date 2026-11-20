@@ -1,4 +1,4 @@
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, like, lte, sql } from 'drizzle-orm';
 
 import s, { type DBScheduledJob, type NewScheduledJob } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -177,6 +177,25 @@ export const reclaimStaleJobs = async (now: Date, leaseDurationMs: number): Prom
 
 export const getJobById = async (id: string): Promise<DBScheduledJob | null> => {
 	const [row] = await db.select().from(s.scheduledJob).where(eq(s.scheduledJob.id, id)).limit(1).execute();
+	return row ?? null;
+};
+
+export const listJobsByUniqueKeyPrefix = async (prefix: string): Promise<DBScheduledJob[]> => {
+	return db
+		.select()
+		.from(s.scheduledJob)
+		.where(like(s.scheduledJob.uniqueKey, `${prefix}%`))
+		.orderBy(s.scheduledJob.createdAt)
+		.execute();
+};
+
+export const getJobByUniqueKey = async (uniqueKey: string): Promise<DBScheduledJob | null> => {
+	const [row] = await db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, uniqueKey))
+		.limit(1)
+		.execute();
 	return row ?? null;
 };
 

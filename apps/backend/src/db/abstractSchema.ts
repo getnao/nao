@@ -60,6 +60,9 @@ export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferIns
 export type DBOrganization = typeof sqliteSchema.organization.$inferSelect;
 export type NewOrganization = typeof sqliteSchema.organization.$inferInsert;
 
+export type DBSsoProvider = typeof sqliteSchema.ssoProvider.$inferSelect;
+export type NewSsoProvider = typeof sqliteSchema.ssoProvider.$inferInsert;
+
 export type DBOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferSelect;
 export type NewOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferInsert;
 
@@ -113,12 +116,14 @@ export type NewStoryFile = typeof sqliteSchema.storyFile.$inferInsert;
 
 export type DBStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferSelect;
 export type NewStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferInsert;
+export type DBStoryEditLock = typeof sqliteSchema.storyEditLock.$inferSelect;
 
 export type DBStoryBundle = typeof sqliteSchema.storyBundle.$inferSelect;
 export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;
 
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
+export type DBStoryFilterOptionsCache = typeof sqliteSchema.storyFilterOptionsCache.$inferSelect;
 
 export type DBStoryAppState = typeof sqliteSchema.storyAppState.$inferSelect;
 export type NewStoryAppState = typeof sqliteSchema.storyAppState.$inferInsert;
@@ -149,6 +154,9 @@ export type NewProjectMemberBudget = typeof sqliteSchema.projectMemberBudget.$in
 
 export type DBProjectGroupBudget = typeof sqliteSchema.projectGroupBudget.$inferSelect;
 export type NewProjectGroupBudget = typeof sqliteSchema.projectGroupBudget.$inferInsert;
+
+export type DBProjectGroupSharedBudget = typeof sqliteSchema.projectGroupSharedBudget.$inferSelect;
+export type NewProjectGroupSharedBudget = typeof sqliteSchema.projectGroupSharedBudget.$inferInsert;
 
 export type DBMemberBudgetNotification = typeof sqliteSchema.memberBudgetNotification.$inferSelect;
 export type NewMemberBudgetNotification = typeof sqliteSchema.memberBudgetNotification.$inferInsert;
@@ -190,6 +198,14 @@ export type DBContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferSelect;
 export type NewContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferInsert;
+
+export type DBTestRun = typeof sqliteSchema.testRun.$inferSelect;
+export type NewTestRun = typeof sqliteSchema.testRun.$inferInsert;
+
+export type DBTestRunResult = typeof sqliteSchema.testRunResult.$inferSelect;
+export type NewTestRunResult = typeof sqliteSchema.testRunResult.$inferInsert;
+
+export type DBContextDraftFile = typeof sqliteSchema.contextDraftFile.$inferSelect;
 
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;

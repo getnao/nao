@@ -12,6 +12,7 @@ import type { SearchChatResult } from '../queries/chat.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import { agentService } from '../services/agent';
+import { agentStreamService } from '../services/agent-stream';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getQueryRowsPage, type QueryRowsPage } from '../services/query-rows.service';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
@@ -25,10 +26,14 @@ import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
 const MAX_QUERY_ROWS_PAGE_SIZE = 1000;
+const CANCEL_WAIT_MS = 10_000;
 
 export const chatRoutes = {
 	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
-		const [chat, userId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+		const [chat, userId] = await chatQueries.getChat(input.chatId, {
+			includeFeedback: true,
+			queryResultPreviews: true,
+		});
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
@@ -83,7 +88,7 @@ export const chatRoutes = {
 				format: z.enum(DOWNLOAD_FORMATS).default('pdf'),
 				includeErrors: z.boolean().default(false),
 				includeSql: z.boolean().default(true),
-				includePython: z.boolean().default(true),
+				includeCode: z.boolean().default(true),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
@@ -103,7 +108,7 @@ export const chatRoutes = {
 				format: input.format,
 				includeErrors: input.includeErrors,
 				includeSql: input.includeSql,
-				includePython: input.includePython,
+				includeCode: input.includeCode,
 				dateFormat: displaySettings?.dateFormat,
 			});
 
@@ -141,20 +146,24 @@ export const chatRoutes = {
 	delete: chatOwnerProcedure
 		.input(z.object({ chatId: z.string() }))
 		.mutation(async ({ input, ctx }): Promise<void> => {
-			const { projectId } = await chatQueries.deleteChat(input.chatId);
+			const { projectId } = await chatQueries.softDeleteChat(input.chatId);
 			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	listRunning: protectedProcedure.query(
+		({ ctx }): Promise<string[]> => agentStreamService.listRunningChatIds(ctx.user.id),
+	),
+
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
 		const agent = agentService.get(input.chatId);
-		if (!agent) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: `Agent with id ${input.chatId} not found.` });
-		}
-		if (!agent.checkIsUserOwner(ctx.user.id)) {
+		if (agent && !agent.checkIsUserOwner(ctx.user.id)) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not allowed to stop this agent.' });
 		}
-
-		agent.stop();
+		if (agent) {
+			agent.stop();
+		} else if (!(await stopAgentOnAnotherInstance(input.chatId, ctx.user.id))) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Agent with id ${input.chatId} not found.` });
+		}
 
 		const projectId = await chatQueries.getChatProjectId(input.chatId);
 		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
@@ -175,7 +184,9 @@ export const chatRoutes = {
 					project_id: agent.chat.projectId,
 					chat_id: input.chatId,
 				});
-				await Promise.race([agent.waitUntilFinished(), delay(10_000)]);
+				await Promise.race([agent.waitUntilFinished(), delay(CANCEL_WAIT_MS)]);
+			} else if (await agentStreamService.requestStopElsewhere(input.chatId)) {
+				await agentStreamService.waitUntilEndedElsewhere(input.chatId, CANCEL_WAIT_MS);
 			}
 
 			return chatQueries.deleteLastEmptyTurn(input.chatId);
@@ -237,6 +248,13 @@ export const chatRoutes = {
 			return usage;
 		}),
 };
+
+async function stopAgentOnAnotherInstance(chatId: string, userId: string): Promise<boolean> {
+	if ((await chatQueries.getChatOwnerId(chatId)) !== userId) {
+		return false;
+	}
+	return agentStreamService.requestStopElsewhere(chatId);
+}
 
 const delay = (milliseconds: number): Promise<void> =>
 	new Promise((resolve) => {

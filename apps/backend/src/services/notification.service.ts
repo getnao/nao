@@ -1,11 +1,14 @@
 import type {
 	SharedItemLabel,
 	SharedNotificationPayload,
+	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
+	StoryTransferNotificationPayload,
 	Visibility,
 } from '@nao/shared/types';
 
+import type { DBTestRun, DBTestRunResult } from '../db/abstractSchema';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
@@ -41,7 +44,7 @@ const sharedItemAcl: Record<SharedItemLabel, (itemId: string, projectId: string)
 			}
 			const visibility = share.visibility as Visibility;
 			const allowedUserIds =
-				visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(shareId) : [];
+				visibility === 'specific' ? await sharedChatQueries.getSharedChatRecipientUserIds(shareId) : [];
 			return { visibility, allowedUserIds };
 		},
 	};
@@ -120,6 +123,39 @@ export async function notifyStorySubscriptionAdded(params: {
 	});
 }
 
+export async function notifyStoryTransfer(params: {
+	projectId: string;
+	recipientId: string;
+	senderName: string;
+	stories: Array<{ id: string; title: string }>;
+	previousOwnerId?: string;
+}): Promise<void> {
+	const [story] = params.stories;
+	const isSingleStory = params.stories.length === 1;
+	const payload: StoryTransferNotificationPayload = {
+		kind: 'story_transfer',
+		senderName: params.senderName,
+		storyCount: params.stories.length,
+		storyId: isSingleStory ? story.id : null,
+		storyTitle: isSingleStory ? story.title : null,
+		previousOwnerName: params.previousOwnerId ? ((await resolveOwnerName(params.previousOwnerId)) ?? null) : null,
+	};
+
+	await notify({
+		userId: params.recipientId,
+		projectId: params.projectId,
+		category: 'shared',
+		title: isSingleStory ? story.title : `${params.stories.length} stories`,
+		body: isSingleStory
+			? `${params.senderName} made you the owner of this story.`
+			: `${params.senderName} made you the owner of ${params.stories.length} stories.`,
+		linkUrl: isSingleStory ? storyPath(story.id) : '/stories',
+		ctaLabel: isSingleStory ? 'Open story' : 'Open stories',
+		payload,
+		channels: ['in_app', 'email'],
+	});
+}
+
 export async function notifyStoryRefreshFailed(params: {
 	projectId: string;
 	ownerId: string;
@@ -148,6 +184,144 @@ export async function notifyStoryRefreshFailed(params: {
 		ctaLabel: 'Open story',
 		payload,
 	});
+}
+
+type ScheduledTestRun = Pick<
+	DBTestRun,
+	'id' | 'projectId' | 'triggeredByUserId' | 'status' | 'errorMessage' | 'passedAttempts' | 'totalAttempts'
+>;
+
+type ScheduledTestResult = Pick<
+	DBTestRunResult,
+	'testPath' | 'testName' | 'llmProvider' | 'llmModelId' | 'reasoningEffort' | 'passed' | 'message' | 'errorMessage'
+>;
+
+const MAX_LISTED_FAILED_TESTS = 5;
+const MAX_FAILURE_REASON_LENGTH = 150;
+const SCHEDULED_TEST_TABLE_HEADERS = ['Test', 'Model', 'Result', 'Why'];
+
+/** Tells who scheduled the tests that a scheduled run broke or did not pass, as nobody watches these runs. */
+export async function notifyScheduledTestsFailed(run: ScheduledTestRun, results: ScheduledTestResult[]): Promise<void> {
+	const failure = describeScheduledRunFailure(run, results);
+	if (!run.triggeredByUserId || !failure) {
+		return;
+	}
+	await notify({
+		userId: run.triggeredByUserId,
+		projectId: run.projectId,
+		category: 'test_run',
+		...failure,
+		linkUrl: `/context-hub?testRun=${run.id}`,
+		ctaLabel: 'Open the run',
+	});
+}
+
+/** A run that broke is told apart from one whose tests failed, tabled with why. Null for a run with nothing to report. */
+function describeScheduledRunFailure(
+	run: ScheduledTestRun,
+	results: ScheduledTestResult[],
+): Pick<NotifyInput, 'title' | 'body' | 'table'> | null {
+	if (run.status === 'failed') {
+		return {
+			title: 'Scheduled tests could not run',
+			body: run.errorMessage ?? 'The run stopped before it finished.',
+		};
+	}
+	const outcomes = groupResultsByTestAndModel(results);
+	const failedOutcomes = outcomes.filter((outcome) => outcome.failures.length > 0);
+	const failedTestLabels = [...new Set(failedOutcomes.map((outcome) => outcome.testLabel))];
+	if (run.status !== 'completed' || failedTestLabels.length === 0) {
+		return null;
+	}
+	const testCount = new Set(outcomes.map((outcome) => outcome.testLabel)).size;
+	return {
+		title: `Scheduled tests: ${failedTestLabels.length} of ${testCount} failed`,
+		body: `Failed: ${listTestLabels(failedTestLabels)}`,
+		table: {
+			headers: SCHEDULED_TEST_TABLE_HEADERS,
+			rows: [...failedOutcomes, ...outcomes.filter((outcome) => outcome.failures.length === 0)].map(toTableRow),
+		},
+	};
+}
+
+type TestOutcome = { testLabel: string; model: string; attemptCount: number; failures: ScheduledTestResult[] };
+
+/** One outcome per test file and model setting, as tests of different folders can share a name. */
+function groupResultsByTestAndModel(results: ScheduledTestResult[]): TestOutcome[] {
+	const testLabels = labelTests(results);
+	const outcomes = new Map<string, TestOutcome>();
+	for (const result of results) {
+		const model = describeModelSetting(result);
+		const key = [result.testPath, result.llmProvider, model].join('\u0000');
+		const outcome = outcomes.get(key) ?? {
+			testLabel: testLabels.get(result.testPath) ?? result.testName,
+			model,
+			attemptCount: 0,
+			failures: [],
+		};
+		outcome.attemptCount++;
+		if (!result.passed) {
+			outcome.failures.push(result);
+		}
+		outcomes.set(key, outcome);
+	}
+	return [...outcomes.values()];
+}
+
+/** A test is shown by its name, or by its path when another test file has the same name. */
+function labelTests(results: ScheduledTestResult[]): Map<string, string> {
+	const pathsByName = new Map<string, Set<string>>();
+	for (const { testName, testPath } of results) {
+		pathsByName.set(testName, (pathsByName.get(testName) ?? new Set()).add(testPath));
+	}
+	return new Map(
+		results.map(({ testName, testPath }) => [
+			testPath,
+			(pathsByName.get(testName)?.size ?? 0) > 1 ? testPath : testName,
+		]),
+	);
+}
+
+function describeModelSetting(result: ScheduledTestResult): string {
+	return result.reasoningEffort ? `${result.llmModelId} (${result.reasoningEffort})` : result.llmModelId;
+}
+
+function listTestLabels(testLabels: string[]): string {
+	const listed = testLabels.slice(0, MAX_LISTED_FAILED_TESTS).join(', ');
+	const unlistedCount = testLabels.length - MAX_LISTED_FAILED_TESTS;
+	return unlistedCount > 0 ? `${listed} and ${unlistedCount} more` : listed;
+}
+
+function toTableRow(outcome: TestOutcome): string[] {
+	const passedCount = outcome.attemptCount - outcome.failures.length;
+	const verdict = outcome.failures.length > 0 ? '❌ Failed' : '✅ Passed';
+	const share = outcome.attemptCount > 1 ? ` (${passedCount}/${outcome.attemptCount})` : '';
+	const reason = outcome.failures.length > 0 ? describeFailureReason(outcome.failures[0]) : '';
+	return [outcome.testLabel, outcome.model, `${verdict}${share}`, reason];
+}
+
+function describeFailureReason(result: ScheduledTestResult): string {
+	const reason = result.errorMessage
+		? `Error: ${result.errorMessage}`
+		: (result.message ?? 'No verdict').split('; ').map(explainVerdict).join('; ');
+	const singleLineReason = reason.replace(/\s+/g, ' ').trim();
+	return singleLineReason.length > MAX_FAILURE_REASON_LENGTH
+		? `${singleLineReason.slice(0, MAX_FAILURE_REASON_LENGTH - 1)}…`
+		: singleLineReason;
+}
+
+function explainVerdict(verdict: string): string {
+	const rowCount = verdict.match(/^row count: (\d+) vs (\d+)$/);
+	if (rowCount) {
+		return `${rowCount[1]} rows instead of ${rowCount[2]}`;
+	}
+	if (verdict === 'values differ') {
+		return 'Other values than the reference SQL';
+	}
+	if (verdict === 'actual is empty') {
+		return 'No data returned';
+	}
+	return verdict.replace(/^missing columns: /, 'Missing the columns ');
 }
 
 export class NotificationChannelDeliveryError extends Error {
@@ -201,6 +375,8 @@ export async function notifySharedItem(params: {
 	visibility: Visibility;
 	allowedUserIds?: string[];
 	deliverExternally?: boolean;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 }): Promise<void> {
 	const recipientIds = await resolveSharedItemRecipientIds(params);
 	if (recipientIds.length === 0) {
@@ -216,27 +392,47 @@ export async function notifySharedItem(params: {
 		itemLabel: params.itemLabel,
 		itemTitle: params.itemTitle,
 		visibility: params.visibility,
+		...(params.role && { role: params.role }),
+		...(params.isRoleChange && { isRoleChange: true }),
 	};
 
 	await notifyUsers(recipientIds, {
 		category: 'shared',
-		title: `${params.sharerName} shared a ${params.itemLabel} with you`,
+		title: describeSharedItemTitle(params),
 		body: `"${params.itemTitle}"`,
 		linkUrl,
 		ctaLabel: `Open ${params.itemLabel}`,
 		projectId: params.projectId,
 		payload,
-		channels: params.deliverExternally === false ? ['in_app'] : ['in_app', 'email'],
+		channels: params.deliverExternally === false || params.isRoleChange ? ['in_app'] : ['in_app', 'email'],
 		emailOverride: (recipient, unsubscribeUrl) =>
 			buildSharedItemEmail(
 				recipient,
-				params.sharerName,
-				params.itemLabel,
-				params.itemTitle,
-				itemUrl,
+				{
+					sharerName: params.sharerName,
+					itemLabel: params.itemLabel,
+					itemTitle: params.itemTitle,
+					itemUrl,
+					role: params.role,
+				},
 				unsubscribeUrl,
 			),
 	});
+}
+
+function describeSharedItemTitle(params: {
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	role?: ShareRole;
+	isRoleChange?: boolean;
+}): string {
+	if (params.isRoleChange) {
+		return params.role === 'viewer'
+			? `${params.sharerName} changed your access to a ${params.itemLabel} to view only`
+			: `${params.sharerName} gave you edit rights on a ${params.itemLabel}`;
+	}
+	const rights = params.role === 'editor' ? ', with edit rights' : '';
+	return `${params.sharerName} shared a ${params.itemLabel} with you${rights}`;
 }
 
 async function resolveOwnerName(ownerId: string): Promise<string | undefined> {
@@ -323,6 +519,7 @@ async function deliverToRecipient(
 					projectId: input.projectId,
 					emailAttachments: input.emailAttachments,
 					emailBodyHtml: input.emailBodyHtml,
+					table: input.table,
 					emailOverride: input.emailOverride,
 				},
 				{ propagateErrors: options.throwOnChannelError },

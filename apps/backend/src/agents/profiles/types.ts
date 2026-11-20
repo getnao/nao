@@ -1,7 +1,14 @@
+import type { OutputInterface, StepResult, ToolChoice } from 'ai';
+
 import type { AgentChat, AgentToolsResolver } from '../../services/agent';
-import type { MessageSource } from '../../types/chat';
+import type { AgentTools, MessageSource } from '../../types/chat';
 import type { ManagedAiUsageCategory } from '../../types/managed-ai-usage';
 import type { Provider } from '../../types/messaging-provider';
+
+export interface AgentStepTools {
+	toolChoice?: ToolChoice<AgentTools>;
+	activeTools?: (keyof AgentTools)[];
+}
 
 /**
  * A profile is the flavour of an agent run: what it is for, the tools it may call and how its
@@ -13,8 +20,12 @@ export interface AgentProfile {
 	tools: AgentToolsResolver;
 	/** Tools that end the turn as soon as they are called, on top of the interactive stop conditions. */
 	turnEndingTools?: string[];
+	/** Restricts the tools of the next step, for steps of the profile's flow that must end with a given tool call. */
+	stepTools?: (steps: StepResult<AgentTools>[]) => AgentStepTools | undefined;
 	/** Replaces the project system prompt (RULES.md, memories, connections) for runs with a dedicated purpose. */
 	systemPrompt?: (context: { timezone?: string; chat: AgentChat }) => string | Promise<string>;
+	/** Replaces the analyst introduction at the top of the project system prompt. */
+	role?: string;
 	/** Appended to the project system prompt. */
 	promptAppendix?: string;
 	/** Chat app the answer is posted to, which adapts the prompt to its formatting. */
@@ -23,7 +34,15 @@ export interface AgentProfile {
 	queriesAppDatabase?: boolean;
 	/** Project-defined charts only render in the web client. */
 	supportsCustomCharts?: boolean;
+	/** Leaves the user's memories out of the prompt and skips memory extraction, so the outcome does not depend on who runs it. */
+	excludesMemories?: boolean;
+	/** Leaves the published RULES.md out of the prompt, for runs that edit the rules rather than follow them. */
+	excludesUserRules?: boolean;
 	/** Ends non-interactive runs after this many steps instead of when the agent suggests follow-ups. */
 	maxSteps?: number;
 	usageCategory?: ManagedAiUsageCategory;
+	/** Asks the model for a structured answer instead of text, returned as `output` by `streamToCompletion`. */
+	output?: OutputInterface;
+	/** Caps each answer below the model's own limit, for runs a caller pays per call. */
+	maxOutputTokens?: number;
 }

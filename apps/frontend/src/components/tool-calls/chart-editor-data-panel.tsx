@@ -1,4 +1,14 @@
-import { CalendarDays, CaseSensitive, Hash, PanelLeftClose, PanelLeftOpen, Search, ToggleLeft } from 'lucide-react';
+import {
+	AlertTriangle,
+	CalendarDays,
+	CaseSensitive,
+	Hash,
+	Layers,
+	PanelLeftClose,
+	PanelLeftOpen,
+	Search,
+	ToggleLeft,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -21,6 +31,14 @@ const KIND_ICONS: Record<ColumnValueKind, LucideIcon> = {
 	empty: CaseSensitive,
 };
 
+/** What the chart's data comes from, as shown on the button that opens its query editor. */
+export interface ChartEditorQuerySource {
+	kind: 'sql' | 'semantic';
+	dialect?: string;
+	/** Why the query deserves a look, e.g. the semantic layer changed since it last ran. */
+	warning?: string;
+}
+
 interface ChartEditorDataPanelProps {
 	columns: string[];
 	data: Record<string, unknown>[];
@@ -28,11 +46,11 @@ interface ChartEditorDataPanelProps {
 	onCollapse: () => void;
 	onEditQuery?: () => void;
 	isEditingQuery?: boolean;
-	dialect?: string;
+	querySource?: ChartEditorQuerySource;
 	className?: string;
 }
 
-/** Left pane of the chart editor: the query result columns and the entry point to edit the SQL. */
+/** Left pane of the chart editor: the query result columns and the entry point to edit the query. */
 export function ChartEditorDataPanel({
 	columns,
 	data,
@@ -40,7 +58,7 @@ export function ChartEditorDataPanel({
 	onCollapse,
 	onEditQuery,
 	isEditingQuery = false,
-	dialect,
+	querySource,
 	className,
 }: ChartEditorDataPanelProps) {
 	const [search, setSearch] = useState('');
@@ -59,9 +77,13 @@ export function ChartEditorDataPanel({
 						className='w-full rounded-full text-xs'
 						onClick={onEditQuery}
 						disabled={isEditingQuery}
+						title={querySource?.warning}
 					>
-						<DatabaseIcon dialect={dialect} className='size-3.5' />
-						{isEditingQuery ? 'Editing SQL' : 'Edit SQL'}
+						<QuerySourceIcon querySource={querySource} className='size-3.5' />
+						{editQueryLabel(querySource, isEditingQuery)}
+						{querySource?.warning && (
+							<AlertTriangle className='size-3.5 text-amber-600 dark:text-amber-400' aria-hidden />
+						)}
 					</Button>
 				</div>
 			)}
@@ -112,16 +134,17 @@ interface ChartEditorDataRailProps {
 	onExpand: () => void;
 	onEditQuery?: () => void;
 	isEditingQuery?: boolean;
-	dialect?: string;
+	querySource?: ChartEditorQuerySource;
 }
 
-/** The data pane once collapsed: a thin rail to reopen it or jump to the SQL editor. */
+/** The data pane once collapsed: a thin rail to reopen it or jump to the query editor. */
 export function ChartEditorDataRail({
 	onExpand,
 	onEditQuery,
 	isEditingQuery = false,
-	dialect,
+	querySource,
 }: ChartEditorDataRailProps) {
+	const editLabel = editQueryLabel(querySource, false);
 	return (
 		<div className='flex h-full flex-col items-center gap-1 py-3'>
 			<Button
@@ -139,16 +162,32 @@ export function ChartEditorDataRail({
 					type='button'
 					variant='ghost-muted'
 					size='icon-sm'
+					className='relative'
 					onClick={onEditQuery}
 					disabled={isEditingQuery}
-					aria-label='Edit SQL'
-					title='Edit SQL'
+					aria-label={editLabel}
+					title={querySource?.warning ?? editLabel}
 				>
-					<DatabaseIcon dialect={dialect} className='size-4' />
+					<QuerySourceIcon querySource={querySource} className='size-4' />
+					{querySource?.warning && (
+						<span className='absolute top-1 right-1 size-1.5 rounded-full bg-amber-500' aria-hidden />
+					)}
 				</Button>
 			)}
 		</div>
 	);
+}
+
+function QuerySourceIcon({ querySource, className }: { querySource?: ChartEditorQuerySource; className?: string }) {
+	if (querySource?.kind === 'semantic') {
+		return <Layers className={className} />;
+	}
+	return <DatabaseIcon dialect={querySource?.dialect} className={className} />;
+}
+
+function editQueryLabel(querySource: ChartEditorQuerySource | undefined, isEditing: boolean): string {
+	const subject = querySource?.kind === 'semantic' ? 'semantic query' : 'SQL';
+	return isEditing ? `Editing ${subject}` : `Edit ${subject}`;
 }
 
 function ColumnRow({ profile, usageColors }: { profile: ColumnProfile; usageColors?: string[] }) {

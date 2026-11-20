@@ -192,12 +192,18 @@ class DatabaseContext:
         return None
 
     def profiling(self) -> dict[str, Any] | None:
-        """Return profiling data for the table."""
+        """Return profiling data for the table.
+
+        Column stats and their ``total_count`` share one scope: the rows matching
+        ``_partition_filter()`` when one applies, the full table otherwise. A
+        ``scope`` entry is added only when the stats cover a filtered subset.
+        """
         try:
             cols = self.columns()
             if not cols:
                 return None
-            total_count = self.row_count()
+            partition_filter = self._partition_filter()
+            total_count = self._profiled_row_count(partition_filter)
         except Exception:
             return None
 
@@ -219,10 +225,32 @@ class DatabaseContext:
         except Exception:
             pass
 
-        return {
+        result: dict[str, Any] = {
             "computed_at": datetime.now(timezone.utc).isoformat(),
             "clustering_columns": clustering_columns,
             "columns": profiles,
+        }
+        if partition_filter:
+            result["scope"] = self._profiling_scope(partition_filter, total_count)
+        return result
+
+    def _profiled_row_count(self, partition_filter: str) -> int:
+        """Count the rows the column stats are computed over."""
+        if not partition_filter:
+            return self.row_count()
+        query = f"SELECT COUNT(*) FROM {self._qualified_table_sql()} WHERE {partition_filter}"
+        row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+        return int(row[0] or 0) if row else 0
+
+    def _profiling_scope(self, partition_filter: str, profiled_row_count: int) -> dict[str, Any]:
+        try:
+            table_row_count: int | None = self.row_count()
+        except Exception:
+            table_row_count = None
+        return {
+            "partition_filter": partition_filter,
+            "profiled_row_count": profiled_row_count,
+            "table_row_count": table_row_count,
         }
 
     def _profile_standard_column(self, col: dict, total_count: int) -> dict[str, Any] | None:

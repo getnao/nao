@@ -7,6 +7,7 @@ export const STORY_THEME_SOURCE_KINDS = [
 	'website',
 	'image',
 	'pdf',
+	'document',
 	'zip',
 	'logo',
 	'instructions',

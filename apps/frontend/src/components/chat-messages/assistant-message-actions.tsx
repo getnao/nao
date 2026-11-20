@@ -1,9 +1,21 @@
 import { useState } from 'react';
-import { ThumbsUp, ThumbsDown, Copy, Check, Ellipsis, ClipboardCopy, FileText, FileDown, Loader2 } from 'lucide-react';
+import {
+	ThumbsUp,
+	ThumbsDown,
+	Copy,
+	Check,
+	Ellipsis,
+	ClipboardCopy,
+	FileText,
+	FileDown,
+	FlaskConical,
+	Loader2,
+} from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import type { UIMessage } from '@nao/backend/chat';
 import type { FormEvent, KeyboardEvent } from 'react';
 import type { Chat } from '@/queries/use-chat-query';
+import type { TestDraft } from '@/lib/test-draft';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
 import { ConfettiBurst } from '@/components/confetti-burst';
@@ -16,6 +28,9 @@ import { downloadBase64File, downloadTextFile, toFileSlug } from '@/lib/export-c
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { SaveAsTestDialog } from '@/components/chat-messages/save-as-test-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
+import { canSaveAsTest, getTestDraft } from '@/lib/test-draft';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -38,16 +53,20 @@ export function AssistantMessageActions({
 	const [feedbackCelebration, setFeedbackCelebration] = useState<FeedbackCelebration | null>(null);
 	const [includeErrors, setIncludeErrors] = useState(false);
 	const [includeSql, setIncludeSql] = useState(true);
-	const [includePython, setIncludePython] = useState(true);
+	const [includeCode, setIncludeCode] = useState(true);
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const [exportError, setExportError] = useState<string | null>(null);
+	const [isSaveAsTestOpen, setIsSaveAsTestOpen] = useState(false);
+	const [testDraft, setTestDraft] = useState<TestDraft | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
 	const getAgentMessages = useAgentMessagesGetter();
+	const { canManageTests } = usePermissions();
+	const isSaveAsTestAvailable = canManageTests && canSaveAsTest(message);
 	const { data: chat } = useChatQuery({ chatId, select: selectChatExportMetadata });
 
 	const chatTitle = chat?.title ?? 'nao chat';
 	const chatMetadata = { title: chatTitle, createdAt: chat?.createdAt, updatedAt: chat?.updatedAt };
-	const exportOptions = { includeErrors, includeSql, includePython };
+	const exportOptions = { includeErrors, includeSql, includeCode };
 
 	const buildChatMarkdown = () => {
 		const agentMessages = getAgentMessages();
@@ -56,6 +75,11 @@ export function AssistantMessageActions({
 	};
 
 	const handleCopyChat = () => copy(buildChatMarkdown());
+
+	const handleSaveAsTest = () => {
+		setTestDraft(getTestDraft(getAgentMessages(), message));
+		setIsSaveAsTestOpen(true);
+	};
 
 	const handleExportMarkdown = () => {
 		downloadTextFile(`${toFileSlug(chatTitle)}.md`, buildChatMarkdown(), 'text/markdown');
@@ -142,7 +166,7 @@ export function AssistantMessageActions({
 					variant='ghost'
 					size='icon-sm'
 					onClick={() => copy(getMessageMarkdown(message, exportOptions))}
-					className='opacity-50 hover:opacity-100 hover:rounded-full'
+					className='relative opacity-50 hover:opacity-100 hover:rounded-full'
 					aria-label='Copy message'
 				>
 					{isCopied ? <Check className='size-4' /> : <Copy className='size-4' />}
@@ -153,7 +177,7 @@ export function AssistantMessageActions({
 						<Button
 							variant='ghost'
 							size='icon-sm'
-							className='opacity-50 hover:opacity-100 hover:rounded-full'
+							className='relative opacity-50 hover:opacity-100 hover:rounded-full'
 							aria-label='More actions'
 						>
 							<Ellipsis className='size-4' />
@@ -178,8 +202,8 @@ export function AssistantMessageActions({
 							className='flex items-center justify-between gap-4 px-2 py-1.5 text-xs font-medium cursor-pointer select-none'
 							onClick={(e) => e.stopPropagation()}
 						>
-							<span>Include Python</span>
-							<Switch checked={includePython} onCheckedChange={setIncludePython} />
+							<span>Include scripts</span>
+							<Switch checked={includeCode} onCheckedChange={setIncludeCode} />
 						</label>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem onSelect={handleCopyChat}>
@@ -200,6 +224,15 @@ export function AssistantMessageActions({
 							{isExportingPdf ? <Loader2 className='animate-spin' /> : <FileDown />}
 							<span>{isExportingPdf ? 'Generating PDF…' : 'Export chat to PDF'}</span>
 						</DropdownMenuItem>
+						{isSaveAsTestAvailable && (
+							<>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={handleSaveAsTest}>
+									<FlaskConical />
+									<span>Save as test</span>
+								</DropdownMenuItem>
+							</>
+						)}
 					</DropdownMenuContent>
 				</DropdownMenu>
 
@@ -217,6 +250,10 @@ export function AssistantMessageActions({
 				isPending={submitFeedback.isPending}
 				vote={feedbackDialogVote}
 			/>
+
+			{testDraft && (
+				<SaveAsTestDialog draft={testDraft} open={isSaveAsTestOpen} onOpenChange={setIsSaveAsTestOpen} />
+			)}
 		</>
 	);
 }

@@ -1,16 +1,24 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
-import { STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
+import { fitMapBoundariesInExport, STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
+import { readRequestAnswers } from './story-request-answers';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DownloadFormat } from '@nao/shared/types';
-import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryExportData, StoryMapBoundary, StoryQueryResult } from '@nao/shared/story-app';
 
 import type { CustomStoryContent } from '@/components/custom-story/custom-story-body';
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import type { StoryDownloadFile } from '@/components/story-download';
 import { useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
-import { narrativesOptions, queryDataOptions, stateOptions } from '@/components/custom-story/story-data-options';
+import {
+	fetchChartPluginSources,
+	fetchMapBoundary,
+	narrativesOptions,
+	queryDataOptions,
+	stateOptions,
+} from '@/components/custom-story/story-data-options';
+import { useSession } from '@/lib/auth-client';
 import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
 
 type RenderExport = (format: DownloadFormat, html: string) => Promise<StoryDownloadFile>;
@@ -24,6 +32,7 @@ export function useCustomStoryDownload(
 	render: RenderExport,
 ) {
 	const queryClient = useQueryClient();
+	const viewerId = useSession().data?.user.id ?? '';
 	const theme = useActiveStoryTheme(content?.theme);
 	return useCallback(
 		async (format: DownloadFormat) => {
@@ -32,7 +41,7 @@ export function useCustomStoryDownload(
 			}
 			const [runtime, data] = await Promise.all([
 				loadStandaloneRuntime(),
-				fetchExportData(queryClient, dataSource, content.queryIds),
+				fetchExportData(queryClient, dataSource, content.queryIds, content.mapBoundaryKeys, viewerId),
 			]);
 			const html = buildStoryExportDocument({
 				title: content.title,
@@ -44,7 +53,7 @@ export function useCustomStoryDownload(
 			});
 			return render(format, html);
 		},
-		[content, dataSource, queryClient, render, theme],
+		[content, dataSource, queryClient, render, theme, viewerId],
 	);
 }
 
@@ -66,8 +75,10 @@ async function fetchExportData(
 	queryClient: QueryClient,
 	dataSource: CustomStoryDataSource,
 	queryIds: string[],
+	mapBoundaryKeys: string[],
+	viewerId: string,
 ): Promise<StoryExportData> {
-	const [results, narratives, state] = await Promise.all([
+	const [results, narratives, state, chartPlugins, mapBoundaries] = await Promise.all([
 		Promise.all(
 			queryIds.map((queryId) =>
 				queryClient.fetchQuery(queryDataOptions(dataSource, queryId)).then(
@@ -83,12 +94,34 @@ async function fetchExportData(
 		),
 		queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({})),
 		queryClient.fetchQuery(stateOptions(dataSource)).catch(() => undefined),
+		fetchChartPluginSources(queryClient, dataSource).catch(() => undefined),
+		fetchMapBoundaries(queryClient, dataSource, mapBoundaryKeys),
 	]);
 	return {
 		queries: Object.fromEntries(results.filter((entry) => entry !== null)),
+		requests: readRequestAnswers(viewerId, dataSource),
 		narratives,
 		state,
+		chartPlugins,
+		mapBoundaries,
 	};
+}
+
+/** A set that fails to load or does not fit the download is left out: its map then shows an error offline. */
+async function fetchMapBoundaries(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	keys: string[],
+): Promise<Record<string, StoryMapBoundary>> {
+	const entries = await Promise.all(
+		keys.map((key) =>
+			fetchMapBoundary(queryClient, dataSource, key).then(
+				(boundary): [string, StoryMapBoundary] => [key, boundary],
+				() => null,
+			),
+		),
+	);
+	return fitMapBoundariesInExport(entries.filter((entry) => entry !== null));
 }
 
 function isUnknownQueryError(error: unknown): boolean {

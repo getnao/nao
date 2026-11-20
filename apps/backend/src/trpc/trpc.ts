@@ -4,6 +4,8 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
+import { traceProcedure } from '../middleware/request-tracing';
+import { getOrganizationBilling } from '../queries/billing.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
@@ -13,6 +15,7 @@ import {
 } from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
+import { isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -22,10 +25,12 @@ export type MiddlewareFunction = Parameters<typeof t.procedure.use>[0];
 export const createContext = async (opts: CreateFastifyContextOptions) => {
 	const headers = convertHeaders(opts.req.headers);
 	const session = await getSession(headers);
+	opts.req.actorUserId = session?.user.id;
 	return {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
 		selectedOrganizationId: headers.get('x-nao-organization-id'),
+		requestSpan: opts.req.requestSpan,
 	};
 };
 
@@ -87,14 +92,27 @@ const withHandlerErrors = t.middleware(async ({ next }) => {
 	}
 });
 
-export const publicProcedure = t.procedure.use(withHandlerErrors);
+const withProcedureSpan = t.middleware(async ({ ctx, path, next }) => {
+	return traceProcedure(ctx.requestSpan, path, next);
+});
 
-export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
+export const publicProcedure = t.procedure.use(withProcedureSpan).use(withHandlerErrors);
+
+/** Signed in, and still reachable by members who must set up two-factor authentication first. */
+export const sessionProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	if (!ctx.session?.user) {
 		throw new TRPCError({ code: 'UNAUTHORIZED' });
 	}
 
 	return next({ ctx: { user: ctx.session.user } });
+});
+
+export const protectedProcedure = sessionProcedure.use(async ({ ctx, next }) => {
+	if (ctx.session?.twoFactorSetupRequired) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Set up two-factor authentication to continue.' });
+	}
+
+	return next();
 });
 
 export async function resolveOrganizationMembership(
@@ -125,10 +143,19 @@ export async function resolveOrganizationMembership(
 	return membership;
 }
 
-export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, type, next }) => {
+	const isWrite = type === 'mutation';
+	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId, {
+		fallbackWhenInaccessible: !isWrite,
+	});
 	if (!project) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message:
+				isWrite && ctx.selectedProjectId
+					? 'You no longer have access to the selected project. Reload the page and try again.'
+					: 'No project configured',
+		});
 	}
 	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 
@@ -243,7 +270,10 @@ export const organizationProtectedProcedure = protectedProcedure.use(async ({ ct
 
 export const cloudBillingProjectImportProcedure = organizationProtectedProcedure.use(async ({ ctx, next }) => {
 	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
-		await assertOrganizationCloudBillingAccess(ctx.organization.id);
+		const billing = await getOrganizationBilling(ctx.organization.id);
+		if (!isTrialAvailable(billing)) {
+			await assertOrganizationCloudBillingAccess(ctx.organization.id);
+		}
 	}
 	return next({ ctx });
 });

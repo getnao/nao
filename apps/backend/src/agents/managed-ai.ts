@@ -8,7 +8,6 @@ import type { LlmProvider } from '@nao/shared/types';
 import { type LanguageModelMiddleware, wrapLanguageModel } from 'ai';
 
 import { env } from '../env';
-import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as projectQueries from '../queries/project.queries';
 import { MAX_OUTPUT_TOKENS } from '../services/agent';
 import * as creditWalletService from '../services/credit-wallet.service';
@@ -16,6 +15,7 @@ import type { TokenUsage } from '../types/chat';
 import type { ModelCosts, ModelSource } from '../types/llm';
 import type { ManagedAiUsageCategory, ManagedAiUsageCostSource, ManagedAiUsageStatus } from '../types/managed-ai-usage';
 import { logger } from '../utils/logger';
+import { resolveModelPrices } from './model-prices';
 import { createProviderModel, getProviderMeta } from './providers';
 
 export type ManagedAiUsageContext = {
@@ -45,22 +45,22 @@ const LEGACY_MANAGED_MODEL_ALIASES: Record<string, string> = {
 export const managedAiSource: ModelSource = {
 	managed: true,
 
-	async listProviders(projectId) {
-		if (!isManagedAiEnabled() || !(await hasWalletBalance(projectId))) {
+	async listProviders() {
+		if (!isManagedAiEnabled()) {
 			return [];
 		}
 		const enabledModels = getProviderMeta('nao').models.map((model) => model.id);
 		return [{ provider: 'nao', enabledModels, customModels: [], baseUrl: null }];
 	},
 
-	async resolveModel({ projectId, provider, modelId, usageContext }) {
+	async resolveModel({ projectId, provider, modelId, usageContext, inferenceOverrides }) {
 		const apiKey = env.NAO_MANAGED_OPENAI_API_KEY;
 		const resolvedModelId = LEGACY_MANAGED_MODEL_ALIASES[modelId] ?? modelId;
 		if (!isManagedAiEnabled() || !apiKey || !usageContext?.userId || !isManagedModel(provider, resolvedModelId)) {
 			return null;
 		}
 		const orgId = usageContext.orgId ?? (await projectQueries.getProjectById(projectId))?.orgId ?? undefined;
-		const result = createProviderModel(provider, { apiKey }, resolvedModelId);
+		const result = createProviderModel(provider, { apiKey }, resolvedModelId, inferenceOverrides);
 		return {
 			...result,
 			model: withManagedAiUsageMetering(result.model, provider, resolvedModelId, {
@@ -94,7 +94,7 @@ function createManagedAiUsageMiddleware(
 	context: ManagedAiUsageContext,
 	declaredCosts?: ModelCosts,
 ): LanguageModelMiddleware {
-	const rates = resolveRates('nao', modelId, declaredCosts);
+	const rates = resolveModelPrices('nao', modelId, declaredCosts);
 	return {
 		specificationVersion: 'v3',
 		wrapGenerate: async ({ doGenerate, params }) => {
@@ -338,11 +338,6 @@ async function recordManagedAiUsage(options: RecordManagedAiUsageOptions): Promi
 	await creditWalletService.recordManagedAiUsageAndChargeWallet(usage, customerChargeMicroUsd);
 }
 
-function resolveRates(provider: LlmProvider, modelId: string, declaredCosts?: ModelCosts): ModelCosts | undefined {
-	const builtInCosts = getProviderMeta(provider).models.find((model) => model.id === modelId)?.costPerM;
-	return builtInCosts || declaredCosts ? { ...builtInCosts, ...declaredCosts } : undefined;
-}
-
 function calculateCosts(
 	usage: TokenUsage,
 	rates?: ModelCosts,
@@ -402,11 +397,6 @@ function toTokenUsage(usage: LanguageModelV3Usage): TokenUsage {
 		outputReasoningTokens: usage.outputTokens.reasoning,
 		totalTokens: (usage.inputTokens.total ?? 0) + outputTotalTokens,
 	};
-}
-
-async function hasWalletBalance(projectId: string): Promise<boolean> {
-	const project = await projectQueries.getProjectById(projectId);
-	return project?.orgId ? (await creditWalletQueries.getCreditBalance(project.orgId)) > 0 : false;
 }
 
 function isManagedModel(provider: LlmProvider, modelId: string): boolean {

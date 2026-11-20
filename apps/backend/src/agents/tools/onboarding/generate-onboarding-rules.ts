@@ -9,7 +9,7 @@ export default createTool<generateOnboardingRules.Input, generateOnboardingRules
 	inputSchema: generateOnboardingRules.InputSchema,
 	outputSchema: generateOnboardingRules.OutputSchema,
 	execute: async ({ businessContext }, context) => {
-		const { jobId } = await submitWarehouseBusinessContext(context.userId, context.chatId, {
+		const { jobId, status } = await submitWarehouseBusinessContext(context.userId, context.chatId, {
 			businessContext,
 			modelSelection: context.modelSelection,
 			modelProjectId: context.projectId,
@@ -18,11 +18,11 @@ export default createTool<generateOnboardingRules.Input, generateOnboardingRules
 		return {
 			_version: '1',
 			jobId,
-			status: 'finalizing',
+			status,
 		};
 	},
-	toModelOutput: () => ({
+	toModelOutput: ({ output }) => ({
 		type: 'text',
-		value: 'Business context saved. Call wait_for_warehouse_setup to follow the end of the setup.',
+		value: `Business context saved. The setup status is ${output.status}. Call wait_for_warehouse_setup to follow the end of the setup.`,
 	}),
 });

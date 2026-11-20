@@ -2,15 +2,17 @@ import type { WarehouseRowSecurity } from '@nao/shared';
 
 import { env } from '../env';
 import { assertWarehouseTableAccess, type WarehouseTableAccess } from './context-access';
+import { type RunSqlQueryTag, serializeRunSqlQueryTag } from './sql-query-tag.service';
 
 interface WarehouseSqlOptions {
 	projectFolder: string;
 	databaseId?: string;
 	envVars?: Record<string, string>;
-	azureAccessToken?: string | null;
+	warehouseAccessToken?: string | null;
 	enforceExcludedColumns: boolean;
 	tableAccess: WarehouseTableAccess;
 	rowSecurity: WarehouseRowSecurity;
+	queryTag?: RunSqlQueryTag | null;
 }
 
 export interface WarehouseSqlResult {
@@ -18,6 +20,11 @@ export interface WarehouseSqlResult {
 	row_count: number;
 	columns: string[];
 	dialect?: string;
+}
+
+export interface WarehouseSqlValidation {
+	valid: true;
+	dialect: string;
 }
 
 export class WarehouseSqlError extends Error {
@@ -34,8 +41,8 @@ export async function executeWarehouseSql(sql: string, options: WarehouseSqlOpti
 	return requestWarehouseSql<WarehouseSqlResult>('/execute_sql', sql, options);
 }
 
-export async function validateWarehouseSql(sql: string, options: WarehouseSqlOptions): Promise<void> {
-	await requestWarehouseSql('/validate_sql', sql, options);
+export async function validateWarehouseSql(sql: string, options: WarehouseSqlOptions): Promise<WarehouseSqlValidation> {
+	return requestWarehouseSql<WarehouseSqlValidation>('/validate_sql', sql, options);
 }
 
 export async function validateWarehouseRowPredicate(
@@ -85,7 +92,8 @@ async function requestWarehouseSql<T>(
 			row_security: serializeRowSecurity(options.rowSecurity),
 			...(options.databaseId && { database_id: options.databaseId }),
 			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
-			...(options.azureAccessToken && { azure_access_token: options.azureAccessToken }),
+			...(options.warehouseAccessToken && { user_access_token: options.warehouseAccessToken }),
+			...(options.queryTag && { query_tag: serializeRunSqlQueryTag(options.queryTag, options.databaseId) }),
 		}),
 	});
 

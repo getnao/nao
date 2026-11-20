@@ -25,7 +25,7 @@ const SEARCH_CHATS_DESCRIPTION =
 	'to read the full conversation.';
 
 const GET_CHAT_DESCRIPTION =
-	"Read a chat of this nao project as a transcript: every message's text, the tools the agent called " +
+	"Read a chat of this nao project as a transcript: every message's text, the agent's thoughts, the tools it called " +
 	'(with their input and error), and the feedback users left (admins and context admins only).\n\n' +
 	'USE WHEN: you have a chat id (from `search_chats`, a replay link, or the user) and need to understand ' +
 	'what was asked, what nao answered, and where it failed.\n' +
@@ -85,6 +85,7 @@ const CHAT_MESSAGE_SCHEMA = z.object({
 	createdAt: z.string().nullable(),
 	source: z.string().nullable(),
 	text: z.string(),
+	thoughts: z.string().describe("The agent's reasoning for this message; empty when the model shared none."),
 	toolCalls: z.array(TOOL_CALL_SCHEMA),
 	feedback: z.object({ vote: z.enum(['up', 'down']), explanation: z.string().nullable() }).nullable(),
 });
@@ -187,7 +188,9 @@ function registerGetChat(server: McpServer, ctx: McpContext): void {
 		handler: async ({ chat_id, include_tool_outputs }) => {
 			const chatProjectId = await chatQueries.getChatProjectId(chat_id);
 			const [chat, ownerId] =
-				chatProjectId === ctx.projectId ? await chatQueries.getChat(chat_id, { includeFeedback: true }) : [];
+				chatProjectId === ctx.projectId
+					? await chatQueries.getChat(chat_id, { includeFeedback: true, queryResultPreviews: true })
+					: [];
 			if (!chat) {
 				throw new Error(`Chat ${chat_id} not found in this project.`);
 			}
@@ -261,6 +264,7 @@ function toChatMessage(message: UIMessage, includeToolOutputs: boolean): ChatMes
 		createdAt: message.createdAt ? new Date(message.createdAt).toISOString() : null,
 		source: message.source ?? null,
 		text: extractText(message.parts),
+		thoughts: extractThoughts(message.parts),
 		toolCalls: message.parts.filter(isToolUIPart).map((part) => toToolCall(part, includeToolOutputs)),
 		feedback: message.feedback
 			? { vote: message.feedback.vote, explanation: message.feedback.explanation ?? null }
@@ -272,6 +276,14 @@ function extractText(parts: UIMessagePart[]): string {
 	return parts
 		.filter((part): part is Extract<UIMessagePart, { type: 'text' }> => part.type === 'text')
 		.map((part) => normalizeCitationMarkers(part.text))
+		.join('\n\n');
+}
+
+function extractThoughts(parts: UIMessagePart[]): string {
+	return parts
+		.filter((part): part is Extract<UIMessagePart, { type: 'reasoning' }> => part.type === 'reasoning')
+		.map((part) => part.text.trim())
+		.filter((thought) => thought !== '')
 		.join('\n\n');
 }
 

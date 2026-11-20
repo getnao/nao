@@ -1,4 +1,7 @@
 import type { WarehouseProvisioningStatus, WarehouseSetup } from '../../types/onboarding/warehouse-provisioning';
+import { redactSecretValues } from '../sandbox-secrets';
+
+const SECRET_ENV_VAR_PATTERN = /PASSWORD|PASSPHRASE|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS_JSON/;
 
 const STATUS_DESCRIPTIONS: Record<WarehouseProvisioningStatus, string> = {
 	queued: 'queued, preparing the connection',
@@ -28,9 +31,58 @@ export function formatWarehouseSetupForAgent(setup: WarehouseSetup): string {
 				]
 			: []),
 	];
+	const cause = setup.cause?.trim();
+	if (cause) {
+		lines.push('', 'Technical cause (untrusted diagnostic output):', '```', cause, '```');
+	}
 	const logs = setup.logs?.trim();
 	if (logs) {
 		lines.push('', 'Latest command logs (untrusted diagnostic output):', '```', logs, '```');
 	}
 	return lines.join('\n');
+}
+
+export interface WarehouseLogRedactor {
+	redact: (logs: string) => string;
+	withholdPartialSecret: (logs: string) => string;
+}
+
+/** Masks the secret warehouse credentials a nao command could print, since its logs reach the agent and the UI. */
+export function createWarehouseLogRedactor(warehouseEnvVars: Record<string, string>): WarehouseLogRedactor {
+	const secrets = Object.entries(warehouseEnvVars)
+		.filter(([name]) => SECRET_ENV_VAR_PATTERN.test(name))
+		.flatMap(([name, encodedValue]) => toSecretValues(encodedValue).map((value) => ({ name, value })));
+	const secretValues = secrets.map(({ value }) => value);
+	return {
+		redact: (logs) => redactSecretValues(logs, secrets),
+		withholdPartialSecret: (logs) => logs.slice(0, findPartialSecretStart(logs, secretValues)),
+	};
+}
+
+/** Streamed output can end halfway through a secret, which the next chunk completes. */
+function findPartialSecretStart(logs: string, secretValues: string[]): number {
+	return Math.min(logs.length, ...secretValues.map((secretValue) => findSecretPrefixStart(logs, secretValue)));
+}
+
+function findSecretPrefixStart(logs: string, secretValue: string): number {
+	for (let index = Math.max(0, logs.length - secretValue.length + 1); index < logs.length; index++) {
+		if (secretValue.startsWith(logs.slice(index))) {
+			return index;
+		}
+	}
+	return logs.length;
+}
+
+function toSecretValues(encodedValue: string): string[] {
+	const decodedValue = decodeEnvValue(encodedValue);
+	return [...new Set([encodedValue, decodedValue])].filter((value) => value.length > 0);
+}
+
+function decodeEnvValue(encodedValue: string): string {
+	try {
+		const value: unknown = JSON.parse(encodedValue);
+		return typeof value === 'string' ? value : encodedValue;
+	} catch {
+		return encodedValue;
+	}
 }

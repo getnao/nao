@@ -1,4 +1,4 @@
-import type { StoryFilterType } from './sql-template';
+import type { StoryFilterType, StoryFilterValueType } from './sql-template';
 import type * as displayChart from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
 
@@ -26,6 +26,7 @@ export type StoryChartBlockInput = Pick<
 	| 'y_axis_right_max'
 	| 'y_axis_right_label'
 	| 'show_data_labels'
+	| 'show_legend'
 	| 'comparison_mode'
 	| 'hide_total'
 > & {
@@ -50,12 +51,13 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
 	const dataLabelsAttr = input.show_data_labels ? ' show_data_labels="true"' : '';
+	const showLegendAttr = input.show_legend !== undefined ? ` show_legend="${input.show_legend}"` : '';
 	const comparisonModeAttr =
 		input.comparison_mode && input.comparison_mode !== 'none'
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
 	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${showLegendAttr}${comparisonModeAttr}${hideTotalAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
@@ -82,6 +84,7 @@ export type StoryMapBlockInput = Pick<
 	| 'radius'
 	| 'size_key'
 	| 'value_key'
+	| 'color_scale'
 	| 'region_key'
 	| 'region_boundaries'
 	| 'boundaries_url'
@@ -110,6 +113,7 @@ export function buildStoryMapBlock(input: StoryMapBlockInput): string {
 		radiusAttr +
 		stringAttr('size_key', input.size_key) +
 		stringAttr('value_key', input.value_key) +
+		stringAttr('color_scale', input.color_scale) +
 		stringAttr('region_key', input.region_key) +
 		stringAttr('region_boundaries', input.region_boundaries) +
 		stringAttr('boundaries_url', input.boundaries_url) +
@@ -128,6 +132,9 @@ export interface StoryFilterBlockInput {
 	table?: string;
 	database_id?: string;
 	options?: string[];
+	value_type?: StoryFilterValueType;
+	depends_on?: string;
+	allow_custom?: boolean;
 }
 
 export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
@@ -136,5 +143,8 @@ export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
 	const tableAttr = input.table ? ` table="${escapeDoubleQuotedStoryAttr(input.table)}"` : '';
 	const databaseIdAttr = input.database_id ? ` database_id="${escapeDoubleQuotedStoryAttr(input.database_id)}"` : '';
 	const optionsAttr = input.options ? ` options='${escapeSingleQuotedStoryAttr(JSON.stringify(input.options))}'` : '';
-	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr} />`;
+	const valueTypeAttr = input.value_type ? ` value_type="${input.value_type}"` : '';
+	const dependsOnAttr = input.depends_on ? ` depends_on="${escapeDoubleQuotedStoryAttr(input.depends_on)}"` : '';
+	const allowCustomAttr = input.allow_custom ? ' allow_custom="true"' : '';
+	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr}${valueTypeAttr}${dependsOnAttr}${allowCustomAttr} />`;
 }

@@ -645,6 +645,146 @@
       "when": 1793197360141,
       "tag": "0091_onboarding_funnel",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793275903231,
+      "tag": "0092_onboarding_setup_tracing",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793281513485,
+      "tag": "0093_log_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793727408407,
+      "tag": "0094_test_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793802715843,
+      "tag": "0095_test_run_reasoning_effort",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793808043313,
+      "tag": "0096_project_deployed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793883302427,
+      "tag": "0097_chat_message_citations",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793956748335,
+      "tag": "0098_story_version_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793965270432,
+      "tag": "0099_story_filter_options_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794262121434,
+      "tag": "0100_automation_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794297263754,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794307823056,
+      "tag": "0102_story_multi_editors",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794608573692,
+      "tag": "0103_project_menu_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794665362220,
+      "tag": "0104_shared_github_access_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794824545395,
+      "tag": "0105_story_queries",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1794936825739,
+      "tag": "0106_story_transferred_from",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795005230933,
+      "tag": "0107_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795008907744,
+      "tag": "0108_sso_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795027131609,
+      "tag": "0109_agent_stream_relay",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795044833610,
+      "tag": "0110_query_result_previews",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1795047406229,
+      "tag": "0111_group_shared_budget",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import {
 	Bar,
 	BarChart,
 	CartesianGrid,
+	Cell,
 	ComposedChart,
 	Customized,
 	Line,
@@ -63,6 +64,7 @@ import {
 	toFiniteNumber,
 } from './chart-values';
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
+import { partAttributes, type StoryBlockPart } from './story-parts';
 import type * as displayChart from './tools/display-chart';
 import { capitalizeWords } from './utils';
 
@@ -82,6 +84,10 @@ export const DEFAULT_COLORS = [
 
 const CHART_LABEL_FONT_SIZE = 12;
 const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE, fontFamily: CHART_FONT_STACK };
+const AXIS_TICK_PART = partAttributes({ kind: 'axis-tick' });
+const SELECTABLE_AXIS_TICK = { ...AXIS_TICK, ...AXIS_TICK_PART };
+const POINT_HIT_RADIUS = 4;
+const MAX_SELECTABLE_POINTS = 1000;
 const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
 
@@ -538,13 +544,30 @@ export function KpiCard({ value, displayName, comparison, valueFormat, leadingSl
 			{(displayName || leadingSlot) && (
 				<div className='nao-kpi-card__header flex items-center gap-1'>
 					{leadingSlot}
-					{displayName && <div className='nao-kpi-card__name text-lg tracking-wide'>{displayName}</div>}
+					{displayName && (
+						<div
+							className='nao-kpi-card__name text-lg tracking-wide'
+							{...partAttributes({ kind: 'kpi-name', label: displayName })}
+						>
+							{displayName}
+						</div>
+					)}
 				</div>
 			)}
-			<div className='nao-kpi-card__value text-3xl font-medium tabular-nums'>{formattedValue}</div>
+			<div
+				className='nao-kpi-card__value text-3xl font-medium tabular-nums'
+				{...partAttributes({ kind: 'kpi-value', label: displayName, value: formattedValue })}
+			>
+				{formattedValue}
+			</div>
 			{comparison && (
 				<div
 					className={`nao-kpi-card__comparison nao-kpi-card__comparison--${trend} mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}
+					{...partAttributes({
+						kind: 'kpi-comparison',
+						label: displayName,
+						value: `${comparison.valueText} vs. ${comparison.periodLabel}`,
+					})}
 				>
 					{showArrowAndColor && <KpiTrendArrow direction={comparison.direction} />}
 					<span className='nao-kpi-card__comparison-value font-medium tabular-nums'>
@@ -579,7 +602,7 @@ function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick, y
 	return (
 		<YAxis
 			width={Y_AXIS_WIDTH + (yAxisLabel ? AXIS_LABEL_WIDTH : 0)}
-			tick={AXIS_TICK}
+			tick={SELECTABLE_AXIS_TICK}
 			tickLine={false}
 			axisLine={false}
 			minTickGap={12}
@@ -632,7 +655,11 @@ function renderCategoryXAxis({
 			dataKey={xAxisKey}
 			type={xAxisType}
 			domain={['dataMin', 'dataMax']}
-			tick={compact ? { ...AXIS_TICK, fontSize: tickFontSize ?? AXIS_TICK.fontSize } : AXIS_TICK}
+			tick={
+				compact
+					? { ...SELECTABLE_AXIS_TICK, fontSize: tickFontSize ?? AXIS_TICK.fontSize }
+					: SELECTABLE_AXIS_TICK
+			}
 			tickLine
 			tickMargin={10 + labelFootroom}
 			axisLine={false}
@@ -722,7 +749,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 				<XAxis
 					type='number'
 					{...visibleValueAxisDomainProps}
-					tick={AXIS_TICK}
+					tick={SELECTABLE_AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
@@ -748,7 +775,12 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 				/>
 			)}
 			{isDiverging && !props.hideAxes && (
-				<ReferenceLine x={0} stroke={HORIZONTAL_BAR_BASELINE_COLOR} strokeWidth={1} />
+				<ReferenceLine
+					x={0}
+					stroke={HORIZONTAL_BAR_BASELINE_COLOR}
+					strokeWidth={1}
+					{...partAttributes({ kind: 'reference-line', label: 'Baseline' })}
+				/>
 			)}
 			{children}
 			{hasMultipleSeries ? (
@@ -763,7 +795,9 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 						maxBarSize={HORIZONTAL_BAR_MAX_SIZE}
 						isAnimationActive={Boolean(props.animate)}
 						animationDuration={CHART_ANIMATION_DURATION_MS}
-					/>
+					>
+						{renderDataPointCells(data, item, xAxisKey)}
+					</Bar>
 				))
 			) : (
 				<Bar
@@ -779,7 +813,9 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 					barSize={HORIZONTAL_BAR_SIZE}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				/>
+				>
+					{renderDataPointCells(data, renderedSeries[0], xAxisKey)}
+				</Bar>
 			)}
 			{horizontalBarValueLabelsLayer && <Customized component={horizontalBarValueLabelsLayer} />}
 		</BarChart>
@@ -911,6 +947,7 @@ function createHorizontalBarCategoryTick(tickFormatter: (value: string) => strin
 				fontSize={fontSize}
 				fontFamily={AXIS_TICK.fontFamily}
 				className='recharts-text recharts-cartesian-axis-tick-value'
+				{...AXIS_TICK_PART}
 			>
 				{tickFormatter(String(payload?.value ?? ''))}
 			</text>
@@ -998,7 +1035,7 @@ function selectHorizontalBarValueLabels(
 }
 
 function renderHorizontalBarBackground(backgroundProps: unknown) {
-	const rectProps = backgroundProps as RectangleProps;
+	const rectProps = withoutPartAttributes(backgroundProps as RectangleProps);
 	return (
 		<Rectangle
 			{...rectProps}
@@ -1006,6 +1043,10 @@ function renderHorizontalBarBackground(backgroundProps: unknown) {
 			radius={[HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS]}
 		/>
 	);
+}
+
+function withoutPartAttributes<Props extends object>(props: Props): Props {
+	return Object.fromEntries(Object.entries(props).filter(([key]) => !key.startsWith('data-nao-part'))) as Props;
 }
 
 function buildBarChart(props: ResolvedProps) {
@@ -1062,7 +1103,7 @@ function buildBarChart(props: ResolvedProps) {
 			) : (
 				<YAxis
 					width={valueAxisWidth}
-					tick={AXIS_TICK}
+					tick={SELECTABLE_AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
@@ -1103,7 +1144,9 @@ function buildBarChart(props: ResolvedProps) {
 					}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				/>
+				>
+					{renderDataPointCells(data, s, xAxisKey)}
+				</Bar>
 			))}
 			{stackTotalLayer && <Customized component={stackTotalLayer} />}
 			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
@@ -1255,7 +1298,7 @@ function buildAreaChart(props: ResolvedProps) {
 			) : (
 				<YAxis
 					width={valueAxisWidth}
-					tick={AXIS_TICK}
+					tick={SELECTABLE_AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
@@ -1290,6 +1333,8 @@ function buildAreaChart(props: ResolvedProps) {
 					stroke={colorFor(s.data_key, i)}
 					fill={isLine ? 'none' : `url(#${gradientIdFor(i)})`}
 					stackId={isStacked ? 'stack' : undefined}
+					dot={renderPartDot(data, s, xAxisKey)}
+					activeDot={renderPartActiveDot(s, xAxisKey)}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
@@ -1383,7 +1428,7 @@ function buildComboChart(props: ResolvedProps) {
 					<YAxis
 						yAxisId='left'
 						width={leftAxisWidth}
-						tick={AXIS_TICK}
+						tick={SELECTABLE_AXIS_TICK}
 						tickLine={false}
 						axisLine={false}
 						minTickGap={12}
@@ -1407,7 +1452,7 @@ function buildComboChart(props: ResolvedProps) {
 						yAxisId='right'
 						width={rightAxisWidth}
 						orientation='right'
-						tick={AXIS_TICK}
+						tick={SELECTABLE_AXIS_TICK}
 						tickLine={false}
 						axisLine={false}
 						minTickGap={12}
@@ -1432,7 +1477,9 @@ function buildComboChart(props: ResolvedProps) {
 				})
 			)}
 			{children}
-			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix, props.chartStyle))}
+			{series.map((s, i) =>
+				renderComboSeries(data, xAxisKey, s, i, chartType, colorFor, idPrefix, props.chartStyle),
+			)}
 			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</ComposedChart>
 	);
@@ -1465,6 +1512,8 @@ function computeComboAxisWidth(
 }
 
 function renderComboSeries(
+	data: Record<string, unknown>[],
+	xAxisKey: string,
 	series: displayChart.SeriesConfig,
 	index: number,
 	baseType: ChartType,
@@ -1485,7 +1534,8 @@ function renderComboSeries(
 				type='monotone'
 				stroke={color}
 				strokeWidth={2}
-				dot={false}
+				dot={renderPartDot(data, series, xAxisKey)}
+				activeDot={renderPartActiveDot(series, xAxisKey)}
 				isAnimationActive={false}
 			/>
 		);
@@ -1499,6 +1549,8 @@ function renderComboSeries(
 				type='monotone'
 				stroke={color}
 				fill={`url(#${idPrefix}grad-combo-${index})`}
+				dot={renderPartDot(data, series, xAxisKey)}
+				activeDot={renderPartActiveDot(series, xAxisKey)}
 				isAnimationActive={false}
 			/>
 		);
@@ -1511,8 +1563,102 @@ function renderComboSeries(
 			fill={color}
 			radius={uniformRadius(chartStyle.barRadius)}
 			isAnimationActive={false}
-		/>
+		>
+			{renderDataPointCells(data, series, xAxisKey)}
+		</Bar>
 	);
+}
+
+function dataPointPart(
+	row: Record<string, unknown>,
+	series: displayChart.SeriesConfig,
+	xAxisKey: string,
+): StoryBlockPart {
+	const value = toFiniteNumber(row[series.data_key]);
+	return {
+		kind: 'data-point',
+		category: String(row[xAxisKey] ?? ''),
+		series: series.data_key,
+		...(value !== null ? { value: formatChartValue(value, series.value_format) } : {}),
+	};
+}
+
+function hasSelectablePoints(data: Record<string, unknown>[]): boolean {
+	return data.length <= MAX_SELECTABLE_POINTS;
+}
+
+function renderDataPointCells(data: Record<string, unknown>[], series: displayChart.SeriesConfig, xAxisKey: string) {
+	if (!hasSelectablePoints(data)) {
+		return null;
+	}
+	return data.map((row, index) => <Cell key={index} {...partAttributes(dataPointPart(row, series, xAxisKey))} />);
+}
+
+function renderPartDot(data: Record<string, unknown>[], series: displayChart.SeriesConfig, xAxisKey: string) {
+	if (!hasSelectablePoints(data)) {
+		return false;
+	}
+	return function PartDot({
+		key,
+		cx,
+		cy,
+		payload,
+	}: {
+		key?: React.Key;
+		cx?: number | null;
+		cy?: number | null;
+		payload: Record<string, unknown>;
+	}) {
+		const centerX = toFiniteNumber(cx);
+		const centerY = toFiniteNumber(cy);
+		if (centerX === null || centerY === null) {
+			return <g key={key} />;
+		}
+		return (
+			<circle
+				key={key}
+				cx={centerX}
+				cy={centerY}
+				r={POINT_HIT_RADIUS}
+				fill='transparent'
+				stroke='none'
+				{...partAttributes(dataPointPart(payload, series, xAxisKey))}
+			/>
+		);
+	};
+}
+
+interface ActiveDotProps {
+	cx?: number | null;
+	cy?: number | null;
+	r?: number;
+	fill?: string;
+	stroke?: string;
+	strokeWidth?: number;
+	payload: Record<string, unknown>;
+}
+
+function renderPartActiveDot(series: displayChart.SeriesConfig, xAxisKey: string) {
+	return function PartActiveDot(props: unknown) {
+		const { cx, cy, r, fill, stroke, strokeWidth, payload } = props as ActiveDotProps;
+		const centerX = toFiniteNumber(cx);
+		const centerY = toFiniteNumber(cy);
+		if (centerX === null || centerY === null) {
+			return <g />;
+		}
+		return (
+			<circle
+				className='recharts-dot'
+				cx={centerX}
+				cy={centerY}
+				r={r}
+				fill={fill}
+				stroke={stroke}
+				strokeWidth={strokeWidth}
+				{...partAttributes(dataPointPart(payload, series, xAxisKey))}
+			/>
+		);
+	};
 }
 
 function uniformRadius(radius: number): [number, number, number, number] {
@@ -1535,6 +1681,7 @@ function axisLabel(label: string | undefined, side: displayChart.YAxisSide) {
 		angle: -90,
 		position: side === 'left' ? ('insideLeft' as const) : ('insideRight' as const),
 		style: AXIS_LABEL_STYLE,
+		...partAttributes({ kind: 'y-axis', label }),
 	};
 }
 
@@ -1542,7 +1689,13 @@ function xAxisLabelProps(label: string | undefined) {
 	if (!label) {
 		return undefined;
 	}
-	return { value: label, position: 'insideBottom' as const, offset: 0, style: AXIS_LABEL_STYLE };
+	return {
+		value: label,
+		position: 'insideBottom' as const,
+		offset: 0,
+		style: AXIS_LABEL_STYLE,
+		...partAttributes({ kind: 'x-axis', label }),
+	};
 }
 
 function buildScatterChart(props: ResolvedProps) {
@@ -1584,7 +1737,7 @@ function buildScatterChart(props: ResolvedProps) {
 					<XAxis
 						dataKey={xAxisKey}
 						type={xAxisType ?? 'number'}
-						tick={AXIS_TICK}
+						tick={SELECTABLE_AXIS_TICK}
 						tickLine={false}
 						axisLine={false}
 						minTickGap={12}
@@ -1593,7 +1746,7 @@ function buildScatterChart(props: ResolvedProps) {
 					/>
 					<YAxis
 						width={valueAxisWidth}
-						tick={AXIS_TICK}
+						tick={SELECTABLE_AXIS_TICK}
 						tickLine={false}
 						axisLine={false}
 						minTickGap={12}
@@ -1612,7 +1765,9 @@ function buildScatterChart(props: ResolvedProps) {
 					fill={colorFor(s.data_key, i)}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				/>
+				>
+					{renderDataPointCells(data, s, xAxisKey)}
+				</Scatter>
 			))}
 		</ScatterChart>
 	);
@@ -1632,9 +1787,9 @@ function buildRadarChart(props: ResolvedProps) {
 			) : (
 				<>
 					<PolarGrid />
-					<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
+					<PolarAngleAxis dataKey={xAxisKey} tick={SELECTABLE_AXIS_TICK} />
 					<PolarRadiusAxis
-						tick={AXIS_TICK}
+						tick={SELECTABLE_AXIS_TICK}
 						tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
 					/>
 				</>
@@ -1686,7 +1841,9 @@ function buildPieChart(props: ResolvedProps) {
 				strokeWidth={1}
 				isAnimationActive={Boolean(props.animate)}
 				animationDuration={CHART_ANIMATION_DURATION_MS}
-			/>
+			>
+				{renderDataPointCells(data, series[0], xAxisKey)}
+			</Pie>
 			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 			{children}
 		</PieChart>
@@ -1769,6 +1926,7 @@ function renderChartTitle(title: string) {
 					fontWeight='600'
 					fontFamily={CHART_FONT_STACK}
 					fill='var(--foreground, #111827)'
+					{...partAttributes({ kind: 'title', label: title })}
 				>
 					{title}
 				</text>

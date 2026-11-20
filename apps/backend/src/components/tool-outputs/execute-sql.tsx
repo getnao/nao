@@ -24,7 +24,7 @@ export const ExecuteSqlOutput = ({
 		return (
 			<Block>
 				Stale result: query {output.id} was re-run later in this conversation. Refer to the latest execute_sql
-				result with this query id (or call read_query_result) for the current SQL and rows.
+				result with this query id (or call page_query_result) for the current SQL and rows.
 			</Block>
 		);
 	}
@@ -42,7 +42,7 @@ export const ExecuteSqlOutput = ({
 
 	const isTruncated = output.data.length > maxRows;
 	const visibleRows = isTruncated ? output.data.slice(0, maxRows) : output.data;
-	const remainingRows = isTruncated ? output.data.length - maxRows : 0;
+	const remainingRows = isTruncated ? output.row_count - maxRows : 0;
 
 	const isLimitReached =
 		output.applied_limit !== undefined && output.row_count >= output.applied_limit && output.row_count > 0;
@@ -78,7 +78,7 @@ export const ExecuteSqlOutput = ({
 
 			{remainingRows > 0 && (
 				<Span>
-					...({remainingRows} more — call read_query_result with query_id "{output.id}" and offset {maxRows}{' '}
+					...({remainingRows} more — call page_query_result with query_id "{output.id}" and offset {maxRows}{' '}
 					to see more)
 				</Span>
 			)}

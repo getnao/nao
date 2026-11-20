@@ -10,9 +10,9 @@ from typing import Any
 from rich.console import Console
 from rich.markup import escape
 
-from nao_core.commands.sync.cleanup import cleanup_stale_repos
+from nao_core.commands.sync.cleanup import cleanup_stale_repos, cleanup_stale_targets
 from nao_core.config import NaoConfig
-from nao_core.config.repos import RepoConfig
+from nao_core.config.repos import RepoConfig, RepoTarget
 from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
@@ -37,7 +37,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         if tmp_path.exists():
             shutil.rmtree(tmp_path)
 
-        cmd = ["git", "clone"]
+        cmd = ["git", "clone", "--depth", "1", "--single-branch"]
         if repo.branch:
             cmd.extend(["-b", repo.branch])
         if repo.url:
@@ -61,6 +61,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
             shutil.rmtree(git_dir)
 
         _filter_repo_files(tmp_path, repo.include, repo.exclude)
+        _move_targets(repo, tmp_path, base_path.parent)
 
         # Atomic swap: only replace existing repo after successful clone
         if repo_path.exists():
@@ -73,6 +74,42 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         UI.print(f"  [yellow]⚠[/yellow] Error syncing {escape(repo.name)}: {e}")
         shutil.rmtree(tmp_path, ignore_errors=True)
         return False
+
+
+def _move_targets(repo: RepoConfig, synced_folder: Path, project_path: Path) -> None:
+    """Move each target folder of the synced repository to its own folder of the project, replacing it whole.
+
+    Every source is checked before any target is replaced, so a missing one leaves the project untouched.
+    """
+    sources = [_target_source(repo, synced_folder, target) for target in repo.targets]
+    for source, target in zip(sources, repo.targets, strict=True):
+        destination = _target_destination(project_path, target)
+        _remove_path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, destination)
+    if repo.targets:
+        _prune_empty_dirs(synced_folder)
+
+
+def _target_source(repo: RepoConfig, synced_folder: Path, target: RepoTarget) -> Path:
+    source = synced_folder / target.source
+    if source.is_symlink() or not source.is_dir() or not source.resolve().is_relative_to(synced_folder.resolve()):
+        raise ValueError(f"'{target.source}' is not a folder of {repo.name} once include and exclude are applied")
+    return source
+
+
+def _target_destination(project_path: Path, target: RepoTarget) -> Path:
+    destination = project_path / target.target
+    if not destination.parent.resolve().is_relative_to(project_path.resolve()):
+        raise ValueError(f"target '{target.target}' leads outside the project")
+    return destination
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
 
 
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -211,6 +248,7 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(file_path, dest)
 
+        _move_targets(repo, repo_path, base_path.parent)
         return True
 
     except Exception as e:
@@ -242,6 +280,7 @@ class RepositorySyncProvider(SyncProvider):
 
     def pre_sync(self, config: NaoConfig, output_path: Path) -> None:
         cleanup_stale_repos(config.repos, output_path, verbose=True)
+        cleanup_stale_targets(config.repos, output_path, verbose=True)
 
     def get_items(self, config: NaoConfig) -> list[RepoConfig]:
         return config.repos
@@ -289,7 +328,7 @@ class RepositorySyncProvider(SyncProvider):
 
         error = None
         if failed_repositories:
-            failed_names = ", ".join(escape(name) for name in sorted(failed_repositories))
+            failed_names = ", ".join(sorted(failed_repositories))
             repository_label = "repository" if len(failed_repositories) == 1 else "repositories"
             error = f"Failed to sync {len(failed_repositories)} {repository_label}: {failed_names}"
 

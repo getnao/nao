@@ -3,12 +3,14 @@ import {
 	bubbleLegendValues,
 	bucketPieData,
 	buildChoroplethEntries,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	buildMapPoints,
-	CHOROPLETH_MAX_OPACITY,
 	CHOROPLETH_MIN_OPACITY,
+	type ChoroplethLegendModel,
 	choroplethOpacity,
+	choroplethOpacityExpression,
 	choroplethTooltipKeys,
-	choroplethValueDomain,
 	computeKpiComparison,
 	type CustomBoundarySet,
 	DEFAULT_MARKER_COLOR,
@@ -16,6 +18,7 @@ import {
 	formatChartValue,
 	formatCompactNumber,
 	indexBoundaries,
+	type KpiComparison,
 	labelize,
 	MAP_BOUNDARY_URLS,
 	type MapFeatureCollection,
@@ -42,7 +45,12 @@ import {
 } from '@nao/shared/date';
 import { STORY_MAP_TILE_LAYERS } from '@nao/shared/story-map-tiles';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
+import {
+	collectMapBlocks,
+	incompleteMapMessage,
+	mapBlockToInput,
+	splitCodeIntoSegments,
+} from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
@@ -55,6 +63,7 @@ import { generateChartImage, renderChartToSvg } from '../components/generate-cha
 import type { EmailAttachment } from '../types/email';
 import { svgToPng } from './generate-chart';
 import { getCachedBoundary, setCachedBoundary } from './map-boundary-cache';
+import { loadBoundarySet } from './map-boundary-resolve';
 import { parseAndValidateGeoJson, safeFetch } from './safe-fetch';
 import { type Basemap, basemapByteBudgetForCount, buildBasemapTiles } from './static-map-basemap';
 import {
@@ -149,10 +158,11 @@ export async function generateStoryHtml(
 	const palette = storyExportPalette(options?.theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
-	const hasMap = segmentsIncludeMap(segments);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], staticMaps);
+	const maps = collectRenderableMaps(segments);
+	const hasMap = maps.length > 0;
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], staticMaps);
 	const basemaps = staticMaps
-		? await prefetchBasemaps(segments, queryData, inlinedBoundaries)
+		? await prefetchBasemaps(maps, queryData, inlinedBoundaries)
 		: new Map<string, Basemap>();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
@@ -191,12 +201,83 @@ export async function generateStoryEmailHtml(
 	customBoundaries?: CustomBoundarySet[],
 	theme?: StoryThemePair | null,
 ): Promise<StoryEmailHtml> {
+	const segments = splitCodeIntoSegments(flattenStoryTabs(story.code));
+	return generateEmailSegmentsHtml(segments, queryData, dateFormat, customBoundaries, theme);
+}
+
+/** Draws one parsed chart or map to a PNG, legend included, for exports that cannot carry the HTML around it. */
+export async function renderStoryVisualImage(
+	segment: Extract<Segment, { type: 'chart' | 'map' }>,
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	theme?: StoryThemePair | null,
+): Promise<Buffer | null> {
+	if (segment.type === 'map') {
+		const { images } = await generateEmailSegmentsHtml([segment], queryData, dateFormat, undefined, theme);
+		return images[0] ? Buffer.from(images[0].content) : null;
+	}
+	const rows = queryData?.[segment.chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!rows?.length || segment.chart.chartType === 'kpi_card') {
+		return null;
+	}
+	return generateChartImage({
+		config: toChartConfig(resolveChartKeys(segment.chart, rows)),
+		data: rows,
+		width: CHART_WIDTH,
+		height: CHART_HEIGHT,
+		margin: { top: 0, right: 0, bottom: 0, left: 0 },
+		includeLegend: true,
+		dateFormat: dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS },
+		palette: storyExportPalette(theme),
+	});
+}
+
+export interface KpiCardValue {
+	dataKey: string;
+	label: string;
+	value: string;
+	comparison: KpiComparison | null;
+}
+
+/** The latest value of each KPI series, with its change against the previous period when the chart asks for it. */
+export function kpiCardValues(chart: ParsedChartBlock, queryData: QueryDataMap | null): KpiCardValue[] {
+	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!rows?.length) {
+		return [];
+	}
+	const resolved = resolveChartKeys(chart, rows);
+	const sortedRows = [...rows].sort((a, b) => {
+		const av = a[resolved.xAxisKey];
+		const bv = b[resolved.xAxisKey];
+		if (resolved.xAxisType === 'date') {
+			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
+		}
+		return 0;
+	});
+	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
+	return resolved.series.map((s) => {
+		const raw = lastRow[s.data_key];
+		return {
+			dataKey: s.data_key,
+			label: s.label ?? s.data_key,
+			value: typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? ''),
+			comparison: computeKpiComparison(sortedRows, resolved.xAxisKey, s.data_key, resolved.comparisonMode),
+		};
+	});
+}
+
+async function generateEmailSegmentsHtml(
+	segments: Segment[],
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	customBoundaries?: CustomBoundarySet[],
+	theme?: StoryThemePair | null,
+): Promise<StoryEmailHtml> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const palette = storyExportPalette(theme);
-	const flattened = flattenStoryTabs(story.code);
-	const segments = splitCodeIntoSegments(flattened);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], true);
-	const basemaps = await prefetchBasemaps(segments, queryData, inlinedBoundaries);
+	const maps = collectRenderableMaps(segments);
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], true);
+	const basemaps = await prefetchBasemaps(maps, queryData, inlinedBoundaries);
 	const sink = createEmailImageSink();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
@@ -231,12 +312,13 @@ function emailContainerStyle(palette: StoryExportPalette): React.CSSProperties {
 	};
 }
 
-function segmentsIncludeMap(segments: Segment[]): boolean {
-	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
+/** Maps missing their columns render a placeholder, so they need no boundaries, basemap or map library. */
+function collectRenderableMaps(segments: Segment[]): ParsedMapBlock[] {
+	return collectMapBlocks(segments).filter((map) => !map.missingAttributes);
 }
 
 async function prefetchCustomBoundaries(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	customBoundaries: CustomBoundarySet[],
 	staticMaps: boolean,
 ): Promise<InlinedBoundaries> {
@@ -245,48 +327,26 @@ async function prefetchCustomBoundaries(
 	const customKeysNeeded = new Set<string>();
 	const boundaryUrlsNeeded = new Set<string>();
 
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				// Static rendering resolves region geometry server-side, so it needs the built-in
-				// boundary sets inlined too — not just custom ones.
-				if (seg.map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
-					customKeysNeeded.add(seg.map.regionBoundaries);
-				}
-				if (seg.map.boundariesUrl) {
-					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
-				}
-				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
-				if (staticMaps && isPointMap) {
-					customKeysNeeded.add(WORLD_BACKDROP_KEY);
-				}
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
+	for (const map of maps) {
+		// Static rendering resolves region geometry server-side, so it needs the built-in
+		// boundary sets inlined too — not just custom ones.
+		if (map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
+			customKeysNeeded.add(map.regionBoundaries);
 		}
-	};
-	collect(segments);
+		if (map.boundariesUrl) {
+			boundaryUrlsNeeded.add(map.boundariesUrl);
+		}
+		const isPointMap = map.mapType === 'points' || map.mapType === 'scatter_bubble';
+		if (staticMaps && isPointMap) {
+			customKeysNeeded.add(WORLD_BACKDROP_KEY);
+		}
+	}
 
 	await Promise.all([
 		...[...customKeysNeeded].map(async (key) => {
-			const resolved = resolveBoundary(key, customBoundaries);
-			if (!resolved) {
-				return;
-			}
-			const isCustom = customBoundaries.some((set) => set.key === key);
-			const url = isCustom ? resolved.url : builtinBoundaryUrl(key) || resolved.url;
-			const cached = getCachedBoundary(url);
-			if (cached) {
-				result.set(key, { geojson: cached, joinProps: resolved.joinProps });
-				return;
-			}
-			try {
-				const text = await safeFetch(url);
-				const { geojson } = parseAndValidateGeoJson(text);
-				setCachedBoundary(url, geojson);
-				result.set(key, { geojson, joinProps: resolved.joinProps });
-			} catch {
-				// silently skip — the map will render without region fills
+			const boundary = await loadBoundarySet(key, customBoundaries);
+			if (boundary) {
+				result.set(key, boundary);
 			}
 		}),
 		// Boundary GeoJSON depends only on the URL, so it is shared across maps. The join property is
@@ -312,23 +372,11 @@ async function prefetchCustomBoundaries(
 }
 
 async function prefetchBasemaps(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	queryData: QueryDataMap | null,
 	inlinedBoundaries: InlinedBoundaries,
 ): Promise<Basemaps> {
 	const result: Basemaps = new Map();
-	const maps: ParsedMapBlock[] = [];
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				maps.push(seg.map);
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
-		}
-	};
-	collect(segments);
-
 	const byteBudget = basemapByteBudgetForCount(new Set(maps.map(mapBasemapKey)).size);
 	await Promise.all(
 		maps.map(async (map) => {
@@ -542,12 +590,12 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	const chart = resolveChartKeys(rawChart, rows);
 
 	if (chart.chartType === 'kpi_card') {
-		return <KpiCards chart={chart} rows={rows} />;
+		return <KpiCards values={kpiCardValues(rawChart, queryData)} />;
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
 	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
-	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
+	const showLegend = !isPie && (chart.showLegend ?? (!isHorizontalBar || chart.series.length >= 2));
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -650,7 +698,7 @@ function EmailChart({
 					alt={chart.title || 'Chart'}
 					style={{ display: 'block', width: '100%', maxWidth: CHART_WIDTH, height: 'auto' }}
 				/>
-				{!isPie && <ChartLegend series={chart.series} />}
+				{!isPie && chart.showLegend !== false && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
@@ -679,17 +727,8 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 	);
 }
 
-function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
+function KpiCards({ values }: { values: KpiCardValue[] }) {
 	const palette = useContext(PaletteContext);
-	const sortedRows = [...rows].sort((a, b) => {
-		const av = a[chart.xAxisKey];
-		const bv = b[chart.xAxisKey];
-		if (chart.xAxisType === 'date') {
-			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
-		}
-		return 0;
-	});
-	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
 	return (
 		<div
 			style={{
@@ -701,13 +740,9 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 				justifyContent: 'flex-start',
 			}}
 		>
-			{chart.series.map((s) => {
-				const raw = lastRow[s.data_key];
-				const value = typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? '');
-				const label = s.label ?? s.data_key;
-				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
+			{values.map(({ dataKey, label, value, comparison }) => {
 				return (
-					<div key={s.data_key} style={{ minWidth: 160 }}>
+					<div key={dataKey} style={{ minWidth: 160 }}>
 						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: palette.body }}>{label}</div>
 						<div
 							style={{
@@ -851,6 +886,9 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 
 function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
+	if (map.missingAttributes) {
+		return <Placeholder label={map.title || 'Map'} message={incompleteMapMessage(map)} />;
+	}
 	const rows = queryData?.[map.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={map.title || 'Map'} message='Data unavailable' />;
@@ -1169,7 +1207,7 @@ function ChoroplethMapBlock({
 	if (payload.regions.length === 0) {
 		return <Placeholder label={map.title || 'Map'} message='No regions to shade' />;
 	}
-	const legend = payload.domain ? <ChoroplethLegendOverlay color={payload.color} domain={payload.domain} /> : null;
+	const legend = payload.legend ? <ChoroplethLegendOverlay color={payload.color} legend={payload.legend} /> : null;
 	if (staticMaps) {
 		return <StaticChoroplethMap map={map} payload={payload} legend={legend} />;
 	}
@@ -1289,7 +1327,8 @@ interface PointPayload {
 interface ChoroplethPayload {
 	type: 'choropleth';
 	color: string;
-	domain: NumericDomain | null;
+	legend: ChoroplethLegendModel | null;
+	fillOpacity: number | unknown[];
 	boundaryUrl: string | null;
 	joinProps: string[] | null;
 	inlineGeoJson?: unknown;
@@ -1364,9 +1403,9 @@ function buildChoroplethPayload(
 		});
 	}
 	const color = config.color?.trim() || DEFAULT_MARKER_COLOR;
-	const domain = choroplethValueDomain(entries);
+	const scale = buildChoroplethScale(entries, config.color_scale);
 	for (const region of regions) {
-		region.dot = withOpacity(color, choroplethOpacity(region.value, domain));
+		region.dot = withOpacity(color, choroplethOpacity(region.value, scale));
 	}
 	const regionBoundaries = config.region_boundaries;
 	const inlinedByKey = regionBoundaries ? inlinedBoundaries?.get(regionBoundaries) : undefined;
@@ -1398,7 +1437,8 @@ function buildChoroplethPayload(
 	return {
 		type: 'choropleth',
 		color,
-		domain,
+		legend: scale && buildChoroplethLegend(scale),
+		fillOpacity: choroplethOpacityExpression(scale),
 		boundaryUrl,
 		joinProps,
 		...(inlineGeoJson !== undefined && { inlineGeoJson }),
@@ -1416,7 +1456,26 @@ function builtinBoundaryUrl(set: string): string {
 	return '';
 }
 
-function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: NumericDomain }) {
+function ChoroplethLegendOverlay({ color, legend }: { color: string; legend: ChoroplethLegendModel }) {
+	if (legend.kind === 'classes') {
+		return (
+			<div style={{ ...LEGEND_BOX_STYLE, display: 'grid', gap: 2, color: '#6b7280' }}>
+				{legend.classes.map((item) => (
+					<div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+						<span
+							style={{
+								width: 10,
+								height: 10,
+								borderRadius: 2,
+								background: withOpacity(color, item.opacity),
+							}}
+						/>
+						<span>{item.label}</span>
+					</div>
+				))}
+			</div>
+		);
+	}
 	return (
 		<div style={LEGEND_BOX_STYLE}>
 			<div
@@ -1427,9 +1486,31 @@ function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: Num
 					background: `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`,
 				}}
 			/>
-			<div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, color: '#6b7280' }}>
-				<span>{formatCompactNumber(domain.min)}</span>
-				<span>{formatCompactNumber(domain.max)}</span>
+			<div
+				style={{
+					position: 'relative',
+					display: 'flex',
+					justifyContent: 'space-between',
+					marginTop: 4,
+					color: '#6b7280',
+				}}
+			>
+				{legend.ticks.map((tick) =>
+					tick.align === 'center' ? (
+						<span
+							key={tick.position}
+							style={{
+								position: 'absolute',
+								left: `${tick.position * 100}%`,
+								transform: 'translateX(-50%)',
+							}}
+						>
+							{tick.label}
+						</span>
+					) : (
+						<span key={tick.position}>{tick.label}</span>
+					),
+				)}
 			</div>
 		</div>
 	);
@@ -1528,6 +1609,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
+		show_legend: chart.showLegend,
 	};
 }
 
@@ -1979,12 +2061,6 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 const MAP_INIT_SCRIPT_TEMPLATE = `
 function naoInitMaps(maplibregl){
 	var STYLE_URL=__MAP_STYLE_URL__;
-	var MIN_OPACITY=${CHOROPLETH_MIN_OPACITY};
-	var MAX_OPACITY=${CHOROPLETH_MAX_OPACITY};
-	function fillOpacity(domain){
-		if(!domain||domain.min===domain.max)return (MIN_OPACITY+MAX_OPACITY)/2;
-		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
-	}
 	var containers=document.querySelectorAll('.nao-map');
 	if(!containers.length){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
 	var pending=containers.length;
@@ -2053,7 +2129,7 @@ function naoInitMaps(maplibregl){
 			features.push({type:'Feature',geometry:geometry,properties:{value:region.value,tip:JSON.stringify({label:region.label,rows:region.rows,dot:region.dot})}});
 		});
 		map.addSource('query-regions',{type:'geojson',data:{type:'FeatureCollection',features:features}});
-		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':fillOpacity(cfg.domain)}});
+		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':cfg.fillOpacity}});
 		map.addLayer({id:'query-regions-line',type:'line',source:'query-regions',paint:{'line-color':'#ffffff','line-width':0.75,'line-opacity':0.6}});
 		var bounds=new maplibregl.LngLatBounds();
 		features.forEach(function(f){extendBounds(bounds,f.geometry.coordinates);});

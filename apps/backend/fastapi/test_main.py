@@ -2,6 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import duckdb
 import main
@@ -856,6 +857,9 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
         def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
             return column != "email"
 
+        def requires_user_access_token(self) -> bool:
+            return False
+
         def execute_sql(self, sql: str):
             assert sql == "SELECT 1 AS value"
             return main.pd.DataFrame([{"value": 1}])
@@ -904,6 +908,111 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
     assert "main.users.email" in guarded.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    ("sql", "query_tag", "executed_sql"),
+    [
+        ("SELECT 1", None, "SELECT 1"),
+        ("SELECT 1", {"comment": "nao user=ada"}, "/* nao user=ada */\nSELECT 1"),
+        ("SELECT 1", {"comment": "nao user=ada", "position": "end"}, "SELECT 1\n/* nao user=ada */"),
+        ("SELECT 1;\n", {"comment": "nao user=ada", "position": "end"}, "SELECT 1\n/* nao user=ada */;"),
+        (
+            "SELECT 1",
+            {"comment": "nao */ DROP TABLE users; /* !50000 x"},
+            "/* nao * / DROP TABLE users; / * !50000 x */\nSELECT 1",
+        ),
+    ],
+)
+def test_execute_sql_tags_the_query_sent_to_the_warehouse(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sql: str,
+    query_tag: dict | None,
+    executed_sql: str,
+):
+    executed: list[str] = []
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = False
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return False
+
+        def execute_sql(self, sql: str):
+            executed.append(sql)
+            return main.pd.DataFrame({"value": [1]})
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": sql,
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            **({"query_tag": query_tag} if query_tag else {}),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert executed == [executed_sql]
+
+
+@pytest.mark.parametrize("execution_path", ["user_token", "guarded_connection"])
+def test_execute_sql_tags_the_validated_query_on_every_execution_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    execution_path: str,
+):
+    executed: list[str] = []
+    result = main.pd.DataFrame({"value": [1]})
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = True
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return execution_path == "user_token"
+
+        def connect(self):
+            return SimpleNamespace(disconnect=lambda: None)
+
+        def execute_sql(self, sql: str, conn=None):
+            executed.append(sql)
+            return result
+
+        def execute_sql_with_token(self, sql: str, access_token: str):
+            executed.append(sql)
+            return result
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+    monkeypatch.setattr(main, "_validate_sql", lambda *args, **kwargs: "SELECT 1 AS validated")
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "user_access_token": "token",
+            "query_tag": {"comment": "nao"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert executed == ["/* nao */\nSELECT 1 AS validated"]
+
+
 def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     pd = main.pd
     result = pd.DataFrame(
@@ -927,6 +1036,9 @@ def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatc
 
         def get_database_name(self) -> str:
             return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return False
 
         def execute_sql(self, sql: str):
             return result
@@ -1103,42 +1215,54 @@ def test_execute_sql_blocks_table_missing_from_synced_context(
     assert "Only synced context tables are allowed - list/read context to see them." in detail
 
 
-def test_azure_entra_tableless_query_does_not_require_sync_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    class AzureDatabaseConfig:
-        name = "test-redshift"
-        type = "redshift"
-        auth_mode = SimpleNamespace(value="azure_entra_id")
-        user = None
-        password = None
-        allow_listed_only = True
-        exclude_columns = ["*.secret"]
+class UserTokenDatabaseConfig:
+    name = "test-warehouse"
+    type = "snowflake"
+    allow_listed_only = True
+    exclude_columns = ["*.secret"]
 
-        def get_database_name(self) -> str:
-            return "analytics"
+    def get_database_name(self) -> str:
+        return "analytics"
 
-        def execute_sql_with_token(self, sql: str, access_token: str):
-            assert sql == "SELECT 1 AS value"
-            assert access_token == "token"
-            return main.pd.DataFrame([{"value": 1}])
+    def requires_user_access_token(self) -> bool:
+        return True
 
-    config = SimpleNamespace(databases=[AzureDatabaseConfig()])
+    def has_sync_credentials(self) -> bool:
+        return False
+
+    def execute_sql(self, sql: str):
+        raise AssertionError("queries must run with the user access token")
+
+    def execute_sql_with_token(self, sql: str, access_token: str):
+        assert sql == "SELECT 1 AS value"
+        assert access_token == "token"
+        return main.pd.DataFrame([{"value": 1}])
+
+
+@pytest.fixture
+def user_token_database(monkeypatch: pytest.MonkeyPatch):
+    config = SimpleNamespace(databases=[UserTokenDatabaseConfig()])
     monkeypatch.setattr(
         main.NaoConfig,
         "try_load",
         staticmethod(lambda *args, **kwargs: config),
     )
 
-    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+
+def post_user_token_query(sql: str, **extra):
+    return TestClient(app, headers=INTERNAL_HEADERS).post(
         "/execute_sql",
         json={
-            "sql": "SELECT 1 AS value",
+            "sql": sql,
             "nao_project_folder": "/unused",
             "table_access": UNENFORCED_TABLE_ACCESS,
-            "azure_access_token": "token",
+            **extra,
         },
     )
+
+
+def test_user_token_tableless_query_does_not_require_sync_credentials(user_token_database):
+    response = post_user_token_query("SELECT 1 AS value", user_access_token="token")
 
     assert response.status_code == 200
     assert_sql_result(
@@ -1147,6 +1271,22 @@ def test_azure_entra_tableless_query_does_not_require_sync_credentials(
         columns=["value"],
         expected_data=[{"value": 1}],
     )
+
+
+@pytest.mark.parametrize(
+    ("sql", "extra", "expected_detail"),
+    [
+        ("SELECT 1 AS value", {}, "nao has no access token for them"),
+        ("SELECT * FROM users", {"user_access_token": "token"}, "require sync credentials"),
+    ],
+)
+def test_user_token_database_rejects_queries_it_cannot_run_safely(
+    user_token_database, sql: str, extra: dict, expected_detail: str
+):
+    response = post_user_token_query(sql, **extra)
+
+    assert response.status_code == 400
+    assert expected_detail in response.json()["detail"]
 
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):
@@ -1193,6 +1333,97 @@ def bigquery_project_folder():
         with config_path.open("w") as f:
             yaml.dump(config, f)
         yield tmpdir
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+@pytest.mark.parametrize(
+    "sql", ["SELECT SESSION_USER() AS identity", "SELECT * FROM customer.orders"]
+)
+def test_cloud_bigquery_sso_never_uses_server_credentials(
+    bigquery_project_folder, monkeypatch, endpoint, sql
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    with patch("ibis.bigquery.connect") as connect:
+        response = client.post(
+            endpoint,
+            json={
+                "sql": sql,
+                "nao_project_folder": bigquery_project_folder,
+                "table_access": UNENFORCED_TABLE_ACCESS,
+            },
+        )
+
+    assert response.status_code == 403, response.text
+    assert "service account" in response.json()["detail"]
+    connect.assert_not_called()
+
+
+@pytest.fixture
+def env_templated_project_folder():
+    """Two databases, one named after an env reference, so an unknown database_id lists the rendered names."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {
+                    "name": "db-{{ env('BETTER_AUTH_SECRET') }}",
+                    "type": "duckdb",
+                    "path": ":memory:",
+                },
+                {"name": "other", "type": "duckdb", "path": ":memory:"},
+            ],
+        }
+        with (Path(tmpdir) / "nao_config.yaml").open("w") as f:
+            yaml.dump(config, f)
+        yield tmpdir
+
+
+def _available_databases(project_folder: str, env_vars: dict[str, str] | None = None):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": project_folder,
+            "database_id": "missing",
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            **({"env_vars": env_vars} if env_vars else {}),
+        },
+    )
+    assert response.status_code == 400, response.text
+    return response.json()["detail"]["available_databases"]
+
+
+def test_cloud_project_config_never_reads_the_server_environment(
+    env_templated_project_folder, monkeypatch
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+
+    assert _available_databases(env_templated_project_folder) == ["db-", "other"]
+
+
+def test_cloud_project_config_reads_the_project_env_vars(
+    env_templated_project_folder, monkeypatch
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+
+    databases = _available_databases(
+        env_templated_project_folder, {"BETTER_AUTH_SECRET": "project-value"}
+    )
+
+    assert databases == ["db-project-value", "other"]
+
+
+def test_self_hosted_project_config_reads_the_server_environment(
+    env_templated_project_folder, monkeypatch
+):
+    monkeypatch.delenv("NAO_MODE", raising=False)
+
+    assert _available_databases(env_templated_project_folder) == [
+        f"db-{INTERNAL_SECRET}",
+        "other",
+    ]
 
 
 def test_execute_sql_simple_bigquery(bigquery_project_folder):
@@ -1330,6 +1561,38 @@ def test_compile_semantic_query_without_semantic_layer(duckdb_project_folder):
     response = client.post(
         "/semantic_layer/compile",
         json={"nao_project_folder": duckdb_project_folder, "metrics": ["revenue"]},
+    )
+
+    assert response.status_code == 400
+    assert "semantic_layer" in response.json()["detail"]
+
+
+def test_describe_semantic_layer(semantic_layer_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/catalog",
+        json={"nao_project_folder": semantic_layer_project_folder},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metrics = {metric["name"]: metric for metric in body["metrics"]}
+    dimensions = {dimension["name"]: dimension for dimension in body["dimensions"]}
+    assert set(metrics) == {"average_order_value", "orders", "revenue"}
+    assert metrics["revenue"]["label"] == "Revenue"
+    assert "order__status" in metrics["revenue"]["dimensions"]
+    assert dimensions["order__ordered_at"]["type"] == "time"
+    assert dimensions["order__ordered_at"]["granularity"] == "day"
+    assert dimensions["order__status"]["description"] == "Order status"
+
+
+def test_describe_semantic_layer_without_semantic_layer(duckdb_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/catalog",
+        json={"nao_project_folder": duckdb_project_folder},
     )
 
     assert response.status_code == 400
