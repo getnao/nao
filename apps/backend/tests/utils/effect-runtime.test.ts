@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { context, propagation, trace } from '@opentelemetry/api';
+import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { Effect } from 'effect';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { logger } from '../helpers/logger-mock';
 
 vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 
 import { fromPromise, repeatInBackground, runEffect, withHeartbeat } from '../../src/utils/effect-runtime';
+import { EFFECT_TRACER_NAME } from '../../src/utils/tracer-names';
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -60,5 +64,33 @@ describe('withHeartbeat', () => {
 		);
 
 		await expect(result).rejects.toBeInstanceOf(StoryLockedError);
+	});
+});
+
+describe('tracing', () => {
+	const exporter = new InMemorySpanExporter();
+
+	beforeAll(() => {
+		new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] }).register();
+	});
+
+	afterAll(() => {
+		trace.disable();
+		context.disable();
+		propagation.disable();
+	});
+
+	it('exports Effect spans under their own tracer without parenting the spans started inside them', async () => {
+		await runEffect(
+			Effect.sync(() => trace.getTracer('ai').startSpan('ai.generateText').end()).pipe(
+				Effect.withSpan('scheduler.job'),
+			),
+		);
+
+		const spans = exporter.getFinishedSpans();
+		const jobSpan = spans.find((span) => span.name === 'scheduler.job');
+		const llmSpan = spans.find((span) => span.name === 'ai.generateText');
+		expect(jobSpan?.instrumentationScope.name).toBe(EFFECT_TRACER_NAME);
+		expect(llmSpan?.parentSpanContext).toBeUndefined();
 	});
 });
