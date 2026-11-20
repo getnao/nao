@@ -11,6 +11,10 @@ export const InputSchema = z.object({
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),
 	success: z.literal(true),
+	visibleTextInTurn: z
+		.string()
+		.optional()
+		.describe('Text the user saw earlier in the turn, before this call. Absent when the user saw none.'),
 });
 
 export type Input = z.infer<typeof InputSchema>;
