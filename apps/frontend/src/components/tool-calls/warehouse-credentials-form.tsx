@@ -290,7 +290,10 @@ export function WarehouseCredentialsForm({
 							placeholder='public'
 						/>
 					)}
-					{(provider === 'redshift' || provider === 'postgres') && (
+					{(provider === 'redshift' ||
+						provider === 'postgres' ||
+						provider === 'mysql' ||
+						provider === 'mssql') && (
 						<>
 							<form.Field name='useSshTunnel'>
 								{(field) => (

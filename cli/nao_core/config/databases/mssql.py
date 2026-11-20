@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import Field, model_validator
 
 from nao_core.config.exceptions import InitError
-from nao_core.ui import ask_select, ask_text
+from nao_core.ui import ask_confirm, ask_select, ask_text
 
 if TYPE_CHECKING:
     from ibis import BaseBackend
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from .base import DatabaseConfig
 from .context import DatabaseContext
 from .fabric import FabricAuthMode, FabricConfig, _detect_fabric_driver
+from .ssh_tunnel import SSHTunnelConfig, connect_through_ssh_tunnel
 
 MssqlAuthMode = FabricAuthMode
 
@@ -114,6 +115,7 @@ class MssqlConfig(DatabaseConfig):
         description="ODBC driver (FreeTDS on Mac/Linux, ODBC Driver 18 for SQL Server on Windows or with Entra ID)",
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'dbo' if not set)")
+    ssh_tunnel: SSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
     @model_validator(mode="before")
     @classmethod
@@ -163,6 +165,25 @@ class MssqlConfig(DatabaseConfig):
         driver = ask_text("ODBC driver:", default=detected_driver) or detected_driver
         schema_name = ask_text("Default schema (uses 'dbo' if empty):")
 
+        use_ssh = ask_confirm("Use SSH tunnel?", default=False)
+        ssh_tunnel = None
+
+        if use_ssh:
+            ssh_host = ask_text("SSH host:", required_field=True)
+            ssh_port_str = ask_text("SSH port:", default="22") or "22"
+            if not ssh_port_str.isdigit():
+                raise InitError("SSH port must be a valid integer.")
+            ssh_username = ask_text("SSH username:", required_field=True)
+            ssh_private_key_path = ask_text("Path to SSH private key:", required_field=True)
+            ssh_private_key_passphrase = ask_text("SSH private key passphrase (optional):", password=True)
+            ssh_tunnel = SSHTunnelConfig(
+                ssh_host=ssh_host or "",
+                ssh_port=int(ssh_port_str),
+                ssh_username=ssh_username or "",
+                ssh_private_key_path=ssh_private_key_path or "",
+                ssh_private_key_passphrase=ssh_private_key_passphrase or None,
+            )
+
         return MssqlConfig(
             name=name,
             host=host,
@@ -176,6 +197,7 @@ class MssqlConfig(DatabaseConfig):
             tenant_id=tenant_id,
             driver=driver,
             schema_name=schema_name,
+            ssh_tunnel=ssh_tunnel,
         )
 
     def connect(self) -> BaseBackend:
@@ -194,13 +216,22 @@ class MssqlConfig(DatabaseConfig):
 
         import ibis
 
-        return ibis.mssql.connect(
-            host=self.host,
-            port=self.port,
-            database=self.database,
-            user=self.user,
-            password=self.password,
-            driver=self.driver,
+        def connect_to_mssql(host: str, port: int) -> BaseBackend:
+            return ibis.mssql.connect(
+                host=host,
+                port=port,
+                database=self.database,
+                user=self.user,
+                password=self.password,
+                driver=self.driver,
+            )
+
+        return connect_through_ssh_tunnel(
+            self.ssh_tunnel,
+            self.host,
+            self.port,
+            connect_to_mssql,
+            "mssql",
         )
 
     def _connect_with_tenant_service_principal(self) -> BaseBackend:

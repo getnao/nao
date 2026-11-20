@@ -2768,9 +2768,13 @@ mistral = [
 mssql = [
     { name = "azure-identity" },
     { name = "ibis-framework", extra = ["mssql"] },
+    { name = "paramiko" },
+    { name = "sshtunnel" },
 ]
 mysql = [
     { name = "ibis-framework", extra = ["mysql"] },
+    { name = "paramiko" },
+    { name = "sshtunnel" },
 ]
 notion = [
     { name = "notion-client" },
@@ -2864,6 +2868,8 @@ requires-dist = [
     { name = "orjson", specifier = ">=3.10.0" },
     { name = "packaging", specifier = ">=21.3" },
     { name = "pandas", specifier = ">=2.1.0" },
+    { name = "paramiko", marker = "extra == 'mssql'", specifier = ">=3.5,<4" },
+    { name = "paramiko", marker = "extra == 'mysql'", specifier = ">=3.5,<4" },
     { name = "paramiko", marker = "extra == 'postgres'", specifier = ">=3.5,<4" },
     { name = "paramiko", marker = "extra == 'redshift'", specifier = ">=3.5,<4" },
     { name = "posthog", specifier = ">=2.0.0" },
@@ -2880,6 +2886,8 @@ requires-dist = [
     { name = "rich", specifier = ">=14.0.0" },
     { name = "snowflake-connector-python", extras = ["secure-local-storage"], marker = "extra == 'snowflake'", specifier = ">=4.2.0" },
     { name = "sqlglot", specifier = ">=26.0.0" },
+    { name = "sshtunnel", marker = "extra == 'mssql'", specifier = ">=0.4.0" },
+    { name = "sshtunnel", marker = "extra == 'mysql'", specifier = ">=0.4.0" },
     { name = "sshtunnel", marker = "extra == 'postgres'", specifier = ">=0.4.0" },
     { name = "sshtunnel", marker = "extra == 'redshift'", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },

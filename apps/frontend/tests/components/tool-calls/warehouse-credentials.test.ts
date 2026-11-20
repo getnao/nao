@@ -206,20 +206,23 @@ describe('buildWarehouseCredentials', () => {
 		expect(buildWarehouseCredentials(provider, values)).toEqual(expected);
 	});
 
-	it.each(['postgres', 'redshift'] as const)('adds SSH tunnel credentials to %s only when enabled', (provider) => {
-		const credentials = buildWarehouseCredentials(provider, { ...values, useSshTunnel: true });
+	it.each(['mssql', 'mysql', 'postgres', 'redshift'] as const)(
+		'adds SSH tunnel credentials to %s only when enabled',
+		(provider) => {
+			const credentials = buildWarehouseCredentials(provider, { ...values, useSshTunnel: true });
 
-		expect(credentials).toMatchObject({
-			sshTunnel: {
-				sshHost: 'bastion.example.com',
-				sshPort: 22,
-				sshUsername: 'nao-ssh',
-				sshPrivateKey: '-----BEGIN OPENSSH PRIVATE KEY-----',
-				sshPrivateKeyPassphrase: 'ssh-key-passphrase',
-				sshHostKey: 'ssh-ed25519 host-key',
-			},
-		});
-	});
+			expect(credentials).toMatchObject({
+				sshTunnel: {
+					sshHost: 'bastion.example.com',
+					sshPort: 22,
+					sshUsername: 'nao-ssh',
+					sshPrivateKey: '-----BEGIN OPENSSH PRIVATE KEY-----',
+					sshPrivateKeyPassphrase: 'ssh-key-passphrase',
+					sshHostKey: 'ssh-ed25519 host-key',
+				},
+			});
+		},
+	);
 
 	it('omits empty optional Athena values over the wire', () => {
 		const credentials = buildWarehouseCredentials('athena', getWarehouseCredentialsDefaults('athena'));

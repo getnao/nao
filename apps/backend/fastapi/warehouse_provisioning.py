@@ -58,8 +58,9 @@ ALLOWED_FIELDS = {
         "password",
         "schema_name",
         "driver",
+        "ssh_tunnel",
     },
-    "mysql": {"host", "port", "user", "database", "password", "schema_name"},
+    "mysql": {"host", "port", "user", "database", "password", "schema_name", "ssh_tunnel"},
     "postgres": {"host", "port", "user", "database", "password", "schema_name", "ssh_tunnel"},
     "redshift": {
         "host",
@@ -168,7 +169,7 @@ def sanitize_warehouse_credentials(
     ]
 
     ssh_tunnel = credentials.get("ssh_tunnel")
-    if provider in ("redshift", "postgres") and ssh_tunnel is not None:
+    if provider in ("redshift", "postgres", "mysql", "mssql") and ssh_tunnel is not None:
         if not isinstance(ssh_tunnel, dict):
             issues.append(
                 {

@@ -48,26 +48,29 @@ describe('WarehouseCredentialsForm', () => {
 		expect(screen.getByRole('button', { name: /Checking connection/ })).toBeTruthy();
 	});
 
-	it.each(['postgres', 'redshift'] as const)('shows SSH bastion fields only when enabled for %s', (provider) => {
-		render(
-			<WarehouseCredentialsForm
-				provider={provider}
-				onSubmit={vi.fn()}
-				isValidating={false}
-				isPending={false}
-				error={null}
-			/>,
-		);
+	it.each(['mssql', 'mysql', 'postgres', 'redshift'] as const)(
+		'shows SSH bastion fields only when enabled for %s',
+		(provider) => {
+			render(
+				<WarehouseCredentialsForm
+					provider={provider}
+					onSubmit={vi.fn()}
+					isValidating={false}
+					isPending={false}
+					error={null}
+				/>,
+			);
 
-		expect(screen.queryByLabelText('Bastion Host')).toBeNull();
+			expect(screen.queryByLabelText('Bastion Host')).toBeNull();
 
-		fireEvent.click(screen.getByRole('switch', { name: 'Connect through an SSH bastion' }));
+			fireEvent.click(screen.getByRole('switch', { name: 'Connect through an SSH bastion' }));
 
-		expect(screen.getByLabelText('Bastion Host')).toBeTruthy();
-		expect((screen.getByLabelText('Bastion Port') as HTMLInputElement).value).toBe('22');
-		expect(screen.getByLabelText('SSH Username')).toBeTruthy();
-		expect(screen.getByLabelText('SSH Private Key')).toBeTruthy();
-	});
+			expect(screen.getByLabelText('Bastion Host')).toBeTruthy();
+			expect((screen.getByLabelText('Bastion Port') as HTMLInputElement).value).toBe('22');
+			expect(screen.getByLabelText('SSH Username')).toBeTruthy();
+			expect(screen.getByLabelText('SSH Private Key')).toBeTruthy();
+		},
+	);
 
 	it('submits a Snowflake private key after switching authentication', async () => {
 		const onSubmit = vi.fn().mockResolvedValue(undefined);

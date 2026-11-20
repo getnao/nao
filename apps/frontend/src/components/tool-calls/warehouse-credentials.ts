@@ -179,6 +179,18 @@ export function buildWarehouseCredentials(
 				password: values.password,
 				schemaName,
 				driver: values.driver || undefined,
+				...(values.useSshTunnel
+					? {
+							sshTunnel: {
+								sshHost: values.sshHost,
+								sshPort: Number(values.sshPort),
+								sshUsername: values.sshUsername,
+								sshPrivateKey: values.sshPrivateKey,
+								sshPrivateKeyPassphrase: values.sshPrivateKeyPassphrase || undefined,
+								sshHostKey: values.sshHostKey || undefined,
+							},
+						}
+					: {}),
 			};
 		case 'mysql':
 			return {
@@ -188,6 +200,18 @@ export function buildWarehouseCredentials(
 				database,
 				password: values.password,
 				schemaName,
+				...(values.useSshTunnel
+					? {
+							sshTunnel: {
+								sshHost: values.sshHost,
+								sshPort: Number(values.sshPort),
+								sshUsername: values.sshUsername,
+								sshPrivateKey: values.sshPrivateKey,
+								sshPrivateKeyPassphrase: values.sshPrivateKeyPassphrase || undefined,
+								sshHostKey: values.sshHostKey || undefined,
+							},
+						}
+					: {}),
 			};
 		case 'postgres':
 			return {
