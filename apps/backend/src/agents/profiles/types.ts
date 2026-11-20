@@ -18,6 +18,8 @@ export interface AgentProfile {
 	/** Recorded on the run's messages and analytics events. */
 	source: MessageSource;
 	tools: AgentToolsResolver;
+	/** Tools that end the turn as soon as they are called, on top of the interactive stop conditions. */
+	turnEndingTools?: string[];
 	/** Restricts the tools of the next step, for steps of the profile's flow that must end with a given tool call. */
 	stepTools?: (steps: StepResult<AgentTools>[]) => AgentStepTools | undefined;
 	/** Replaces the project system prompt (RULES.md, memories, connections) for runs with a dedicated purpose. */
