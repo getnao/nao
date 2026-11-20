@@ -128,6 +128,10 @@ export function getManagedGithubRepositoryFullName({
 }
 
 function getManagedGithubConfig(): ManagedGithubConfig | null {
+	if (env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING) {
+		return null;
+	}
+
 	const values = [
 		env.CLOUD_GITHUB_PROJECT_ORG,
 		env.CLOUD_GITHUB_PROJECT_APP_ID,

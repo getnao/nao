@@ -242,6 +242,7 @@ vi.mock('node:child_process', () => ({
 
 import { spawn } from 'node:child_process';
 
+import { env } from '../../src/env';
 import * as projectQueries from '../../src/queries/project.queries';
 import * as scheduledJobQueries from '../../src/queries/scheduled-job.queries';
 import * as warehouseConnectionCheckQueries from '../../src/queries/warehouse-connection-check.queries';
@@ -271,14 +272,18 @@ import {
 } from '../../src/services/warehouse-provisioning';
 import { logger } from '../../src/utils/logger';
 
+const originalSkipPublishing = env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING;
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	warehouseJobs.clear();
 	controls.failReadyUpdate = false;
+	env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING = false;
 	vi.mocked(projectQueries.listUserProjects).mockResolvedValue([]);
 });
 
 afterEach(() => {
+	env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING = originalSkipPublishing;
 	vi.clearAllTimers();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
@@ -693,6 +698,24 @@ describe('warehouse provisioning', () => {
 			projectDir: registeredProjectDirectory,
 		});
 		expect(reconcileProjectReadiness).toHaveBeenCalledWith('project-2');
+		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
+	});
+
+	it('reaches ready without publishing when managed GitHub publishing is skipped', async () => {
+		env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING = true;
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-skip-publishing');
+		const { jobId } = await startOnboardingSetup();
+
+		await submitWarehouseBusinessContext('user-1', 'chat-1', {
+			businessContext: { additionalContext: 'A bicycle rental company.' },
+			modelSelection: { provider: 'openai', modelId: 'gpt-4o-mini' },
+			modelProjectId: 'example-project',
+		});
+
+		await vi.waitFor(async () => {
+			expect((await getWarehouseProvisioningJob(jobId, 'user-1'))?.status).toBe('ready');
+		});
+		expect(provisionManagedGithubRepository).not.toHaveBeenCalled();
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});
 
