@@ -7,6 +7,13 @@ const mocks = vi.hoisted(() => ({
 	getUser: vi.fn(),
 	validateApiKey: vi.fn(),
 	isSelfHostedMultiProjectEnabled: vi.fn(),
+	isCloud: false,
+}));
+
+vi.mock('../../src/env', () => ({
+	get isCloud() {
+		return mocks.isCloud;
+	},
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -40,6 +47,7 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		mocks.getProjectByOrgAndName.mockResolvedValue(ORG_PROJECT);
 		mocks.getProjectByUserId.mockResolvedValue(null);
 		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(false);
+		mocks.isCloud = false;
 	});
 
 	it('authenticates as the key creator on the named project of the key organization', async () => {
@@ -85,8 +93,12 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		expect(reply.status).toHaveBeenCalledWith(401);
 	});
 
-	it('refuses a project name the organization does not have when the instance serves several projects', async () => {
-		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(true);
+	it.each([
+		{ instance: 'nao Cloud', isCloud: true, isMultiProject: false },
+		{ instance: 'a self-hosted instance serving several projects', isCloud: false, isMultiProject: true },
+	])('refuses a project name the organization does not have on $instance', async ({ isCloud, isMultiProject }) => {
+		mocks.isCloud = isCloud;
+		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(isMultiProject);
 		mocks.getProjectByOrgAndName.mockResolvedValue(null);
 		mocks.getProjectByUserId.mockResolvedValue(ORG_PROJECT);
 
