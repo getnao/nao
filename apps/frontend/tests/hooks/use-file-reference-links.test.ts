@@ -12,6 +12,8 @@ describe('findFileReferenceAt', () => {
 		},
 		{ line: '  include: { from_file: "./tables.yml" }', column: 30, opened: '/tables.yml', start: 26 },
 		{ line: "  from_file: 'tables.yml' # analysts' list", column: 16, opened: '/tables.yml', start: 15 },
+		{ line: '  include: {from_file: tables.yml}', column: 25, opened: '/tables.yml', start: 24 },
+		{ line: '  from_file: "shared docs/tables.yml"', column: 22, opened: '/shared docs/tables.yml', start: 15 },
 	])('opens $opened from the path under the pointer', ({ line, column, opened, start }) => {
 		const onOpenFile = vi.fn();
 

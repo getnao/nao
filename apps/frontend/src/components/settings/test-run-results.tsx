@@ -114,7 +114,7 @@ function RunResults({
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
 					run={run}
-					testPaths={visibleTests.filter((test) => !test.isQueued).map((test) => test.testPath)}
+					testPaths={visibleTests.map((test) => test.testPath)}
 					onOpenTest={openTest}
 				/>
 			) : (
@@ -419,7 +419,7 @@ function listTestsWithResults(run: TestRunWithResults, expectedAttempts: number)
 		return run.comparison.tests.map((test) => ({
 			testPath: test.testPath,
 			testName: test.testName,
-			outcome: { ...test.draft, expectedAttempts, modelsDisagree: false },
+			outcome: { ...getChangesSideOutcome(test), expectedAttempts, modelsDisagree: false },
 			failure: null,
 			comparison: test,
 			isQueued: false,
@@ -472,4 +472,9 @@ function summarizeTestMetrics(results: TestResultOutcome[]) {
 		});
 	}
 	return metrics;
+}
+
+/** A test the changes delete only runs against production, so its outcome is the one of that side. */
+function getChangesSideOutcome(test: TestComparisonRow): TestComparisonRow['draft'] {
+	return test.change === 'removed' ? test.production : test.draft;
 }

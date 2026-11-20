@@ -91,6 +91,18 @@ describe('SyncedRepos', () => {
 		expect(mocks.getUpstreamChanges).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		{ hasUnsavedFileChanges: false, isDisabled: false },
+		{ hasUnsavedFileChanges: true, isDisabled: true },
+	])('lets a branch be picked unless edits are unsaved: $hasUnsavedFileChanges', async (props) => {
+		renderRepos({ hasUnsavedFileChanges: props.hasUnsavedFileChanges });
+
+		fireEvent.click(await screen.findByRole('button', { name: /Synced repos/, expanded: false }));
+
+		const branchButton = screen.getByRole('button', { name: 'Branch of business: main' });
+		expect(branchButton.hasAttribute('disabled')).toBe(props.isDisabled);
+	});
+
 	it('lists what the picked branch changes, opens a change and tests the branch', async () => {
 		localStorage.setItem(
 			'nao-test-upstream-source',
@@ -150,10 +162,15 @@ describe('SyncedRepos', () => {
 	});
 });
 
-function renderRepos({ onViewDiff = vi.fn(), onOpenTests = vi.fn() } = {}) {
+function renderRepos({ onViewDiff = vi.fn(), onOpenTests = vi.fn(), hasUnsavedFileChanges = false } = {}) {
 	return render(
 		<QueryClientProvider client={createTestQueryClient()}>
-			<SyncedRepos selectedPath={null} onViewDiff={onViewDiff} onOpenTests={onOpenTests} />
+			<SyncedRepos
+				selectedPath={null}
+				hasUnsavedFileChanges={hasUnsavedFileChanges}
+				onViewDiff={onViewDiff}
+				onOpenTests={onOpenTests}
+			/>
 		</QueryClientProvider>,
 	);
 }

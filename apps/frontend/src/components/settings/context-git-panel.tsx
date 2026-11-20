@@ -510,6 +510,7 @@ export function ContextGitPanel({
 			{onViewUpstreamDiff && onOpenTests && (
 				<SyncedRepos
 					selectedPath={selectedUpstreamDiffPath}
+					hasUnsavedFileChanges={hasUnsavedFileChanges}
 					onViewDiff={onViewUpstreamDiff}
 					onOpenTests={onOpenTests}
 				/>

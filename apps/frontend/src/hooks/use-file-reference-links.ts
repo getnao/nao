@@ -4,7 +4,8 @@ import type { EditorLink } from '@/lib/editor-links';
 import { bindEditorLinks, rangeAtColumn } from '@/lib/editor-links';
 
 const NAO_CONFIG_PATH = /(^|\/)nao_config\.ya?ml$/;
-const FILE_REFERENCE_PATTERN = /\bfrom_file:\s*(["']?)([^\s"'#]+)\1/g;
+/** A double-quoted, single-quoted, or plain YAML value, which ends a flow mapping or sequence at `,`, `}` or `]`. */
+const FILE_REFERENCE_PATTERN = /\bfrom_file:\s*(?:"([^"\n]+)"|'([^'\n]+)'|([^\s"'#,{}[\]]+))/g;
 
 /** Makes the `from_file` paths of nao_config.yaml Cmd/Ctrl+clickable, opening the file they point at. */
 export function useFileReferenceLinks(
@@ -30,7 +31,7 @@ export function findFileReferenceAt(
 	onOpenFile: (path: string) => void,
 ): EditorLink | null {
 	for (const match of line.matchAll(FILE_REFERENCE_PATTERN)) {
-		const referencedPath = match[2];
+		const referencedPath = match[1] ?? match[2] ?? match[3];
 		const pathStart = match.index + match[0].lastIndexOf(referencedPath);
 		const range = rangeAtColumn(lineNumber, pathStart + 1, referencedPath.length, column);
 		if (range) {

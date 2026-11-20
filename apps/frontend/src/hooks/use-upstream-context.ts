@@ -44,6 +44,14 @@ export function useContextFile(path: string | null): ContextFile {
 		enabled: path !== null && branchFile === null && !isWaitingForBranch,
 	});
 
+	if (source !== null && upstreamChanges.isError) {
+		return {
+			data: undefined,
+			isLoading: false,
+			isError: true,
+			refetch: async () => ({ error: (await upstreamChanges.refetch()).error }),
+		};
+	}
 	if (branchFile) {
 		return {
 			data: branchFile,

@@ -20,15 +20,19 @@ import { trpc } from '@/main';
 
 interface SyncedReposProps {
 	selectedPath: string | null;
+	/** Picking another branch reloads the open file, which would lose the edits not saved yet. */
+	hasUnsavedFileChanges: boolean;
 	onViewDiff: (path: string) => void;
 	onOpenTests: () => void;
 }
+
+const UNSAVED_EDITS_REASON = 'Save or discard your edits before picking another branch.';
 
 /**
  * The repositories `nao sync` copies into the context, read-only here. Picking a branch of one lists what it changes
  * against production and makes it the branch the tests run against.
  */
-export function SyncedRepos({ selectedPath, onViewDiff, onOpenTests }: SyncedReposProps) {
+export function SyncedRepos({ selectedPath, hasUnsavedFileChanges, onViewDiff, onOpenTests }: SyncedReposProps) {
 	const repos = useQuery(trpc.testRun.listUpstreamRepos.queryOptions());
 	const [source, setSource] = useUpstreamTestSource();
 	const refreshBranch = useRefreshUpstreamBranch();
@@ -56,6 +60,7 @@ export function SyncedRepos({ selectedPath, onViewDiff, onOpenTests }: SyncedRep
 							name={repo.name}
 							productionBranch={repo.branch}
 							pickedBranch={pickedBranch}
+							pickDisabledReason={hasUnsavedFileChanges ? UNSAVED_EDITS_REASON : null}
 							onPickBranch={(branch) => {
 								const picked =
 									branch === null || branch === repo.branch ? null : { repo: repo.name, branch };
@@ -86,12 +91,14 @@ function SyncedRepoRow({
 	name,
 	productionBranch,
 	pickedBranch,
+	pickDisabledReason,
 	onPickBranch,
 	onOpenTests,
 }: {
 	name: string;
 	productionBranch: string | null;
 	pickedBranch: string | null;
+	pickDisabledReason: string | null;
 	onPickBranch: (branch: string | null) => void;
 	onOpenTests: () => void;
 }) {
@@ -111,6 +118,7 @@ function SyncedRepoRow({
 					repo={name}
 					productionBranch={productionBranch}
 					pickedBranch={pickedBranch}
+					disabledReason={pickDisabledReason}
 					onPick={onPickBranch}
 				/>
 			</div>
@@ -122,11 +130,13 @@ function RepoBranchPicker({
 	repo,
 	productionBranch,
 	pickedBranch,
+	disabledReason,
 	onPick,
 }: {
 	repo: string;
 	productionBranch: string | null;
 	pickedBranch: string | null;
+	disabledReason: string | null;
 	onPick: (branch: string | null) => void;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
@@ -142,10 +152,12 @@ function RepoBranchPicker({
 						pickedBranch && 'text-foreground',
 					)}
 					aria-label={`Branch of ${repo}: ${pickedBranch ?? productionBranch ?? 'default'}`}
+					disabled={disabledReason !== null}
 					title={
-						pickedBranch
+						disabledReason ??
+						(pickedBranch
 							? `Compared with ${productionBranch ?? 'the default branch'} in production`
-							: 'Production'
+							: 'Production')
 					}
 				>
 					<GitBranch className='size-3 shrink-0' />
