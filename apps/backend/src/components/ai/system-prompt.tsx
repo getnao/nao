@@ -9,7 +9,7 @@ import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
 import type { InternalSkill } from '../../agents/skills';
-import { listInternalSkills } from '../../agents/skills';
+import { listInternalSkills, storyKitSkill } from '../../agents/skills';
 import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { SandboxSecretDefinition } from '../../services/sandbox-secret.service';
 import type { PreloadedSkill, Skill } from '../../services/skill';
@@ -111,7 +111,10 @@ export function SystemPrompt({
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
-	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]);
+	const canAuthorCustomStories = customStoriesEnabled && hasTool('story') && hasTool('write');
+	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]).filter(
+		(skill) => skill.name !== storyKitSkill.name || canAuthorCustomStories,
+	);
 
 	return (
 		<Block>
@@ -230,8 +233,8 @@ export function SystemPrompt({
 					canReplace={hasTool('str_replace')}
 				/>
 			)}
-			{customStoriesEnabled && hasTool('story') && hasTool('write') && (
-				<CustomStoriesBlock canReplace={hasTool('str_replace')} />
+			{canAuthorCustomStories && (
+				<CustomStoriesBlock canReplace={hasTool('str_replace')} canLoadSkill={hasTool('load_skill')} />
 			)}
 			{hasStoryLibrary && <ExistingStoriesBlock trustedStories={trustedStories} canGrep={hasTool('grep')} />}
 			{hasTool('execute_sql') && (
@@ -618,7 +621,8 @@ function PermanentStorageBlock({
 	);
 }
 
-function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
+/** The story-kit guide is long, so it is loaded as a skill whenever the run can load one. */
+function CustomStoriesBlock({ canReplace, canLoadSkill }: { canReplace: boolean; canLoadSkill: boolean }) {
 	return (
 		<Block>
 			<Title level={2}>Custom Stories</Title>
@@ -667,7 +671,15 @@ function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
 						removes draft files and "revert" resets the draft to a published version. Published versions are
 						readable, not writable, at /stories/&lt;id&gt;/@v&lt;N&gt;/&lt;path&gt;.
 					</ListItem>,
-					...storyKitGuideItems(),
+					...(canLoadSkill
+						? [
+								<ListItem key='kit'>
+									Call <Bold>load_skill</Bold> with <Bold>{storyKitSkill.name}</Bold> before writing
+									or editing a story file: it documents the @nao/story-kit blocks, theming, layout,
+									filters and saved state, which the starter app alone does not show.
+								</ListItem>,
+							]
+						: storyKitGuideItems()),
 				]}
 			</List>
 		</Block>

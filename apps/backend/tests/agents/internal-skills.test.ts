@@ -34,6 +34,10 @@ describe('internal skill registry', () => {
 		}
 	});
 
+	it('serves the story-kit guide as a skill', () => {
+		expect(bodyOf('custom-story-kit', false)).toContain('useStoryState("key", initial)');
+	});
+
 	it('keeps names unique, since the model addresses a skill by name', () => {
 		expect(new Set(internalSkillNames()).size).toBe(internalSkillNames().length);
 	});
