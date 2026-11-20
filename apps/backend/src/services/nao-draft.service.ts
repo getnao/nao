@@ -13,7 +13,14 @@ import { TRPCError } from '@trpc/server';
 import type { DBContextDraftFile } from '../db/abstractSchema';
 import type { DraftOwner } from '../queries/context-draft.queries';
 import * as contextDraftQueries from '../queries/context-draft.queries';
-import { normalizeProjectPath, resolveContextRepository } from '../utils/context-repo';
+import {
+	getCommittedProjectPaths,
+	getWorktreeProjectRoot,
+	normalizeProjectPath,
+	type ResolvedContextRepo,
+	resolveContextRepository,
+} from '../utils/context-repo';
+import { tryRunGit } from '../utils/git-repo';
 import { writeFileAtomically } from '../utils/safe-file-write';
 import {
 	compareTreeEntries,
@@ -109,14 +116,25 @@ export async function discardAllNaoDraftFiles(owner: DraftOwner): Promise<void> 
 
 /**
  * Carries the edits a user saved in nao into their worktree of the repository the project was just connected to,
- * where they show as changes ready to commit. A file that cannot be written there keeps its draft.
+ * where they show as changes ready to commit. A file keeps its draft when Changes would not list it there, when it
+ * cannot be written, or when it was saved again meanwhile.
  */
-export async function moveNaoDraftToWorktree(owner: DraftOwner, worktreeProjectRoot: string): Promise<void> {
+export async function moveNaoDraftToWorktree(owner: DraftOwner, repo: ResolvedContextRepo): Promise<void> {
+	const trackedPaths = getCommittedProjectPaths(repo);
+	const worktreeProjectRoot = getWorktreeProjectRoot(repo);
 	for (const file of await listSortedDraftFiles(owner)) {
-		if (writeWorktreeFile(worktreeProjectRoot, file)) {
-			await contextDraftQueries.deleteDraftFile(owner, file.path);
+		const isListedInChanges = trackedPaths.has(file.path) || isNewFileGitShows(repo, file);
+		if (isListedInChanges && writeWorktreeFile(worktreeProjectRoot, file)) {
+			await contextDraftQueries.deleteDraftFileIfUnchanged(owner, file.path, file.content);
 		}
 	}
+}
+
+/** A file the repository does not track only shows as a change when the project has no such file and git does not ignore it. */
+function isNewFileGitShows(repo: ResolvedContextRepo, file: DBContextDraftFile): boolean {
+	const repositoryPath = repo.projectPrefix ? `${repo.projectPrefix}/${file.path}` : file.path;
+	const isIgnored = tryRunGit(repo.worktreeRoot, ['check-ignore', '--quiet', '--', repositoryPath]) !== null;
+	return file.baseHash === null && !isIgnored;
 }
 
 function writeWorktreeFile(worktreeProjectRoot: string, file: DBContextDraftFile): boolean {

@@ -118,7 +118,6 @@ vi.mock('../../src/services/context-explorer-pr.service', () => ({
 
 vi.mock('../../src/utils/context-repo', () => ({
 	ContextProjectResolutionError: mocks.ContextProjectResolutionError,
-	getWorktreeProjectRoot: (repo: { worktreeRoot: string }) => repo.worktreeRoot,
 	resolveContextRepository: mocks.resolveContextRepository,
 	resolveContextSourceGitToken: vi.fn(() => null),
 	sanitizeContextSourceRepositoryUrl: vi.fn((url: string) => url),
@@ -163,7 +162,7 @@ describe('context explorer repository connection', () => {
 
 		expect(mocks.moveNaoDraftToWorktree).toHaveBeenCalledWith(
 			{ projectId: 'project-id', userId: 'user-id' },
-			'/worktrees/user-id',
+			{ worktreeRoot: '/worktrees/user-id' },
 		);
 	});
 

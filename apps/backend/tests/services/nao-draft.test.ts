@@ -33,7 +33,8 @@ import {
 	readNaoDraft,
 	searchNaoDraftContents,
 } from '../../src/services/nao-draft.service';
-import { writeFiles } from '../helpers/context-git-fixture';
+import type { ResolvedContextRepo } from '../../src/utils/context-repo';
+import { commitAll, initRepository, writeFiles } from '../helpers/context-git-fixture';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const OWNER = { projectId: 'draft-project', userId: 'draft-user' };
@@ -209,19 +210,33 @@ describe('File Explorer without a context repository', () => {
 
 describe('moveNaoDraftToWorktree', () => {
 	it('hands the edits saved in nao to the worktree of a newly connected repository', async () => {
-		const worktree = path.join(root, 'worktree');
-		writeFiles(worktree, { 'RULES.md': '# Rules\n' });
+		const repo = createRepository({ 'RULES.md': '# Rules\n', '.gitignore': 'ignored/\n' });
 		await editFile('/RULES.md', '# Rules\nUse net revenue.\n');
 		await createDraftFile('/tests/revenue.yml', 'prompt: What is the revenue?\n', access);
 		await createDraftFile('/tests/other.yml', 'prompt: Another user\n', naoDraftAccess(OTHER_OWNER));
 
-		await moveNaoDraftToWorktree(OWNER, worktree);
+		await moveNaoDraftToWorktree(OWNER, repo);
 
-		expect(read(worktree, 'RULES.md')).toBe('# Rules\nUse net revenue.\n');
-		expect(read(worktree, 'tests/revenue.yml')).toBe('prompt: What is the revenue?\n');
+		expect(read(repo.worktreeRoot, 'RULES.md')).toBe('# Rules\nUse net revenue.\n');
+		expect(read(repo.worktreeRoot, 'tests/revenue.yml')).toBe('prompt: What is the revenue?\n');
 		expect(await listNaoDraftChanges(OWNER)).toEqual([]);
-		expect(fs.existsSync(path.join(worktree, 'tests/other.yml'))).toBe(false);
+		expect(fs.existsSync(path.join(repo.worktreeRoot, 'tests/other.yml'))).toBe(false);
 		expect(await listNaoDraftChanges(OTHER_OWNER)).toHaveLength(1);
+	});
+
+	it('keeps in nao the edits the Changes of the repository would not list', async () => {
+		const repo = createRepository({ 'RULES.md': '# Rules\n', '.gitignore': 'ignored/\n' });
+		await editFile('/docs/revenue.md', 'Revenue is gross.\n');
+		await createDraftFile('/ignored/notes.md', 'Ignored by the repository\n', access);
+
+		await moveNaoDraftToWorktree(OWNER, repo);
+
+		expect((await listNaoDraftChanges(OWNER)).map((file) => file.path)).toEqual([
+			'/docs/revenue.md',
+			'/ignored/notes.md',
+		]);
+		expect(fs.existsSync(path.join(repo.worktreeRoot, 'docs/revenue.md'))).toBe(false);
+		expect(fs.existsSync(path.join(repo.worktreeRoot, 'ignored/notes.md'))).toBe(false);
 	});
 });
 
@@ -259,6 +274,21 @@ function findOnlySavedIndex(saves: PromiseSettledResult<unknown>[]): number {
 	expect(saves.filter((save) => save.status === 'fulfilled')).toHaveLength(1);
 	expect(saves.find((save) => save.status === 'rejected')).toMatchObject({ reason: { code: 'CONFLICT' } });
 	return saves.findIndex((save) => save.status === 'fulfilled');
+}
+
+function createRepository(files: Record<string, string>): ResolvedContextRepo {
+	const worktreeRoot = path.join(root, 'worktree');
+	writeFiles(worktreeRoot, files);
+	initRepository(worktreeRoot);
+	commitAll(worktreeRoot, 'initial');
+	return {
+		provider: 'github',
+		repoFullName: 'nao/context',
+		branch: 'main',
+		source: 'settings',
+		worktreeRoot,
+		projectPrefix: '',
+	};
 }
 
 function naoDraftAccess(owner: typeof OWNER): ContextExplorerFileAccess {
