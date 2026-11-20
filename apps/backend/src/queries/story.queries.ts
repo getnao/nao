@@ -117,8 +117,8 @@ export async function getStoryProjectId(storyId: string): Promise<string | null>
 	return row.chatProjectId ?? row.storyProjectId ?? null;
 }
 
-export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
-	const [row] = await db
+export async function getStoryOwnerId(storyId: string, executor: DBExecutor = db): Promise<string | undefined> {
+	const [row] = await executor
 		.select({
 			storyUserId: s.story.userId,
 			chatUserId: s.chat.userId,

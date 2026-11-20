@@ -7,9 +7,16 @@ import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { listLockedUserGroupIds } from './locked-user-groups';
-import { sharedStoryGrantsUser } from './shared-story.queries';
+import {
+	getSharedStoryAllowedGroupIds,
+	getSharedStoryAllowedUserIds,
+	getSharedStoryInfo,
+	sharedStoryGrantsUser,
+} from './shared-story.queries';
+import { getStoryOwnerId } from './story.queries';
 import * as storyDeliveryQueries from './story-delivery.queries';
 import type { ReferenceableStoryFilters } from './story-reference.queries';
+import { listUserIdsInGroups } from './user-group.queries';
 
 type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'excludedFolderIds' | 'sharedWithMeOnly'>;
 
@@ -714,7 +721,10 @@ export async function setStoryFolder(
 	}
 }
 
-/** A story losing its share also loses its delivery, which would otherwise reach every project member. */
+/**
+ * A story losing its share also loses its delivery, which would otherwise reach every project member. A narrower
+ * share keeps the delivery for the recipients it still reaches.
+ */
 async function propagateShareChange(
 	storyIds: string[],
 	projectId: string,
@@ -730,6 +740,9 @@ async function propagateShareChange(
 	const removedGroupIds = audienceGroupIds(change.from).filter((groupId) => !groupIds.includes(groupId));
 	if (change.to.kind === 'groups') {
 		await shareWithTeamGroups(storyIds, projectId, ownerId, { groupIds, removedGroupIds }, executor);
+		if (change.from.kind === 'project' || removedGroupIds.length > 0) {
+			await keepDeliveryRecipientsWithinShare(storyIds, projectId, executor);
+		}
 		return;
 	}
 
@@ -779,6 +792,42 @@ async function propagateShareChange(
 			[...unsharedProjectWide.map((share) => share.storyId), ...unsharedFromGroups],
 			executor,
 		);
+		await keepDeliveryRecipientsWithinShare(storyIds, projectId, executor);
+	}
+}
+
+/** A delivery grants its recipients access to the story, so it must not name anyone the share no longer reaches. */
+async function keepDeliveryRecipientsWithinShare(
+	storyIds: string[],
+	projectId: string,
+	executor: DBExecutor,
+): Promise<void> {
+	for (const storyId of storyIds) {
+		const delivery = await storyDeliveryQueries.getByStoryId(storyId, executor);
+		if (delivery?.recipientMode !== 'specific') {
+			continue;
+		}
+		const share = await getSharedStoryInfo(storyId, projectId, executor);
+		const allowedUserIds = share ? await getSharedStoryAllowedUserIds(share.id, executor) : [];
+		const allowedGroupIds = share ? await getSharedStoryAllowedGroupIds(share.id, executor) : [];
+		const reachedUserIds = new Set([
+			...allowedUserIds,
+			...(await listUserIdsInGroups(allowedGroupIds, executor)),
+			await getStoryOwnerId(storyId, executor),
+		]);
+		const userIds = delivery.recipientUserIds.filter((userId) => reachedUserIds.has(userId));
+		const groupIds = delivery.recipientGroupIds.filter((groupId) => allowedGroupIds.includes(groupId));
+		if (
+			userIds.length === delivery.recipientUserIds.length &&
+			groupIds.length === delivery.recipientGroupIds.length
+		) {
+			continue;
+		}
+		if (userIds.length === 0 && groupIds.length === 0) {
+			await storyDeliveryQueries.disableAndResetRecipients([storyId], executor);
+		} else {
+			await storyDeliveryQueries.setRecipients(storyId, { userIds, groupIds }, executor);
+		}
 	}
 }
 
