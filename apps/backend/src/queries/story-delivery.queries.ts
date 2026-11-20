@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 
 import s, { type DBStoryDelivery, type NewStoryDelivery } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type Lockable } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 
 export const getByStoryId = async (storyId: string): Promise<DBStoryDelivery | null> => {
 	const [row] = await db
@@ -57,6 +58,49 @@ export const disableAndResetRecipients = async (storyId: string): Promise<void> 
 		.where(eq(s.storyDelivery.storyId, storyId))
 		.execute();
 };
+
+export type DeliveryRecipient = { kind: 'user' | 'group'; id: string };
+
+/**
+ * Narrows a delivery to specific recipients under a row lock, so a concurrent save of the delivery or of the share
+ * cannot bring a dropped recipient back. A delivery left with nobody is turned off with its scheduled job, as the
+ * settings refuse an enabled delivery without recipients.
+ */
+export const keepSpecificRecipients = async (
+	storyId: string,
+	keeps: (recipient: DeliveryRecipient) => boolean,
+): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const [delivery] = await lockForUpdate(
+			tx.select().from(s.storyDelivery).where(eq(s.storyDelivery.storyId, storyId)).limit(1),
+		).execute();
+		if (!delivery || delivery.recipientMode !== 'specific') {
+			return;
+		}
+		const recipientUserIds = delivery.recipientUserIds.filter((id) => keeps({ kind: 'user', id }));
+		const recipientGroupIds = delivery.recipientGroupIds.filter((id) => keeps({ kind: 'group', id }));
+		const keptCount = recipientUserIds.length + recipientGroupIds.length;
+		if (keptCount === delivery.recipientUserIds.length + delivery.recipientGroupIds.length) {
+			return;
+		}
+		await tx
+			.update(s.storyDelivery)
+			.set({
+				recipientUserIds,
+				recipientGroupIds,
+				enabled: delivery.enabled && keptCount > 0,
+				updatedAt: new Date(),
+			})
+			.where(eq(s.storyDelivery.storyId, storyId))
+			.execute();
+		if (keptCount === 0 && delivery.scheduledJobId) {
+			await tx.delete(s.scheduledJob).where(eq(s.scheduledJob.id, delivery.scheduledJobId)).execute();
+		}
+	});
+};
+
+const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
+	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
 
 export const setScheduledJobId = async (storyId: string, scheduledJobId: string | null): Promise<void> => {
 	await db.update(s.storyDelivery).set({ scheduledJobId }).where(eq(s.storyDelivery.storyId, storyId)).execute();

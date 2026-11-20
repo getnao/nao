@@ -135,6 +135,46 @@ describe('story edit rights shared through roles', () => {
 		expect(await getStoryShareRole(STORY_ID, EDITOR_ID)).toBeNull();
 	});
 
+	it.each([
+		{
+			name: 'takes the people and groups a save removes off the delivery, and nobody else',
+			shareBefore: { users: [viewer(VIEWER_ID), viewer(EDITOR_ID)], groups: [viewer(GROUP_ID)] },
+			shareAfter: { users: [viewer(EDITOR_ID)] },
+			keptOnDelivery: { recipientUserIds: [EDITOR_ID, GROUP_MEMBER_ID], recipientGroupIds: [] },
+		},
+		{
+			name: 'keeps on the delivery only the people a project-wide share is narrowed to',
+			shareBefore: { visibility: 'project' as const },
+			shareAfter: { users: [viewer(EDITOR_ID)] },
+			keptOnDelivery: { recipientUserIds: [EDITOR_ID], recipientGroupIds: [] },
+		},
+		{
+			name: 'leaves the delivery alone when the story opens to the whole project',
+			shareBefore: { users: [viewer(VIEWER_ID)] },
+			shareAfter: { visibility: 'project' as const },
+			keptOnDelivery: {
+				recipientUserIds: [VIEWER_ID, EDITOR_ID, GROUP_MEMBER_ID],
+				recipientGroupIds: [GROUP_ID],
+			},
+		},
+	])('$name', async ({ shareBefore, shareAfter, keptOnDelivery }) => {
+		await save(shareBefore);
+		await db.delete(s.storyDelivery);
+		await db.insert(s.storyDelivery).values({
+			storyId: STORY_ID,
+			enabled: true,
+			channels: ['email'],
+			recipientMode: 'specific',
+			recipientUserIds: [VIEWER_ID, EDITOR_ID, GROUP_MEMBER_ID],
+			recipientGroupIds: [GROUP_ID],
+		});
+
+		await save(shareAfter);
+
+		const [delivery] = await db.select().from(s.storyDelivery);
+		expect(delivery).toMatchObject({ ...keptOnDelivery, enabled: true });
+	});
+
 	it('tells new recipients what they can do with the story', async () => {
 		await save({ users: [editor(EDITOR_ID), viewer(VIEWER_ID)] });
 
