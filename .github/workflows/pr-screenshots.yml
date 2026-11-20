@@ -51,19 +51,23 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
+                  ref: ${{ github.event.pull_request.head.sha }}
                   fetch-depth: 0
                   persist-credentials: false
 
+            # Compares the PR head with the commit it branched from, so changes that landed on the base
+            # branch since then never show up as part of this PR.
             - name: Prepare the sources and the diff
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   mkdir -p "$APP_DIR" "$BASE_DIR" "$WORK_DIR" "$SHOTS_DIR" "$OUT_DIR" "$RUNNER_TEMP/bin"
+                  FORK_POINT=$(git merge-base "origin/$BASE_REF" HEAD)
                   git archive HEAD | tar -x -C "$APP_DIR"
-                  git archive "$BASE_SHA" | tar -x -C "$BASE_DIR"
-                  git diff "$BASE_SHA...HEAD" -- apps/ > "$WORK_DIR/pr.diff"
+                  git archive "$FORK_POINT" | tar -x -C "$BASE_DIR"
+                  git diff "$FORK_POINT" HEAD -- apps/ > "$WORK_DIR/pr.diff"
 
-            # nao-app runs the PR (after screenshots), nao-base runs the base branch (before screenshots).
+            # nao-app runs the PR head (after screenshots), nao-base runs its fork point (before screenshots).
             - name: Start the apps in isolated containers
               run: |
                   NODE_VERSION=$(tr -d 'v \n' < .nvmrc)
