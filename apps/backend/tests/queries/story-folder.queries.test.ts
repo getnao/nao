@@ -163,6 +163,40 @@ describe('team folders', () => {
 		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toBeNull();
 	});
 
+	it.each([
+		{
+			case: 'keeps the recipients still reached',
+			recipientUserIds: [MEMBER_ID, OUTSIDER_ID],
+			expected: { enabled: true, recipientUserIds: [MEMBER_ID] },
+		},
+		{
+			case: 'turns off when none is left',
+			recipientUserIds: [OUTSIDER_ID],
+			expected: { enabled: false, recipientUserIds: [] },
+		},
+	])('delivery of a story entering a team folder $case', async ({ recipientUserIds, expected }) => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		const placement = { storyOwnerId: OWNER_ID, projectId: PROJECT_ID };
+		await moveStoryToFolder(STORY_ID, null, placement);
+		await db.insert(s.storyDelivery).values({
+			storyId: STORY_ID,
+			projectId: PROJECT_ID,
+			enabled: true,
+			channels: ['email'],
+			recipientMode: 'specific',
+			recipientUserIds,
+		});
+
+		await moveStoryToFolder(STORY_ID, sales.id, placement);
+
+		expect(await getByStoryId(STORY_ID)).toMatchObject(expected);
+	});
+
 	it('lets admins outside its groups open the stories of a team folder, and only while they are filed there', async () => {
 		const sales = await createFolder({
 			ownerId: OWNER_ID,
