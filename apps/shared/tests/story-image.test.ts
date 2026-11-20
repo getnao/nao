@@ -55,10 +55,11 @@ describe('isStoryImageSourceWithin', () => {
 });
 
 describe('findStoryImageSources', () => {
-	it('finds image links in the code and the query rows, keeping bucket links with spaces whole', () => {
+	it('finds image links in the code and the query rows, keeping links with spaces or brackets whole', () => {
 		const code = [
 			'jsx(Image, { src: "gs://acme-assets/marketing/hero.png" })',
 			'jsx(Image, { src: "gs://acme-assets/marketing/Team photo (2).jpg" })',
+			'jsx(Image, { src: "https://cdn.acme.com/brand/photo(1).png" })',
 			'jsx(Image, { src: `gs://acme-assets/marketing/${row.key}.png` })',
 		];
 		const queries = {
@@ -67,15 +68,18 @@ describe('findStoryImageSources', () => {
 				data: [
 					{ image: 's3://acme-products/sku/42.webp', id: 1n },
 					{ image: 's3://acme-products/logos/Acme Corp (1).png', id: 2n },
-					{ image: `https://cdn.acme.com/brand/${'a'.repeat(2048)}.png`, id: 3n },
+					{ image: 'https://cdn.acme.com/brand/logo(dark).png', id: 3n },
+					{ image: `https://cdn.acme.com/brand/${'a'.repeat(2048)}.png`, id: 4n },
 				],
 			},
 		};
 		expect(findStoryImageSources(code, queries)).toEqual([
 			'gs://acme-assets/marketing/hero.png',
 			'gs://acme-assets/marketing/Team photo (2).jpg',
+			'https://cdn.acme.com/brand/photo(1).png',
 			's3://acme-products/sku/42.webp',
 			's3://acme-products/logos/Acme Corp (1).png',
+			'https://cdn.acme.com/brand/logo(dark).png',
 		]);
 	});
 
