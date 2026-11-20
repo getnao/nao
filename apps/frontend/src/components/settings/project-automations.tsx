@@ -195,15 +195,15 @@ function AutomationRow({
 		<TableRow>
 			<TableCell className='min-w-0 overflow-hidden'>
 				<div className='flex min-w-0 flex-col'>
+					<span className='truncate font-medium' title={automation.title}>
+						{automation.title}
+					</span>
 					<div className='flex min-w-0 items-center gap-1.5'>
-						<span className='truncate font-medium' title={automation.title}>
-							{automation.title}
+						<span className='truncate text-xs text-muted-foreground'>
+							{getAutomationTriggerLabel(automation)}
 						</span>
 						{adminModeStatus !== 'off' && <AdminModeBadge isSkipped={adminModeStatus === 'skipped'} />}
 					</div>
-					<span className='truncate text-xs text-muted-foreground'>
-						{getAutomationTriggerLabel(automation)}
-					</span>
 				</div>
 			</TableCell>
 			<TableCell className='min-w-0 overflow-hidden'>
@@ -247,7 +247,7 @@ function AdminModeBadge({ isSkipped }: { isSkipped: boolean }) {
 			<TooltipTrigger asChild>
 				<Badge
 					variant='context_admin'
-					className={cn('shrink-0', isSkipped && 'border-amber-500/40 bg-amber-500/15')}
+					className={cn('shrink-0 py-0', isSkipped && 'border-amber-500/40 bg-amber-500/15')}
 				>
 					{isSkipped ? <AlertTriangle /> : <Shield />}
 					{isSkipped ? 'Admin · skipped' : 'Admin'}
