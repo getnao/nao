@@ -77,6 +77,7 @@ import {
 	getStoryQuerySql,
 	getStoryQuerySqlByStoryId,
 } from '../services/story-filters';
+import { readStoryImages } from '../services/story-image';
 import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
 import { listMostViewedStories } from '../services/story-reference';
 import {
@@ -96,6 +97,7 @@ import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
+	requestedStoryImages,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -719,6 +721,10 @@ export const storyRoutes = {
 	getCustomStoryMapBoundary: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), key: mapBoundaryKey }))
 		.query(({ input }) => readCustomStoryMapBoundary(input.chatId, input.storySlug, input.key)),
+
+	getCustomStoryImages: storyEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), sources: requestedStoryImages }))
+		.query(({ ctx, input }) => readStoryImages(ctx.projectId, input.sources)),
 
 	getCustomStoryState: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
