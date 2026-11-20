@@ -31,6 +31,8 @@ export const KIT_STYLES = `
 .nao-block__state button{margin-left:8px;padding:2px 8px;font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:var(--radius-sm);cursor:pointer}
 .nao-skeleton{width:100%;height:100%;min-height:96px;border-radius:var(--radius-sm);background:linear-gradient(90deg,var(--muted) 25%,var(--card) 50%,var(--muted) 75%);background-size:200% 100%;animation:nao-shimmer 1.4s ease-in-out infinite}
 @keyframes nao-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.nao-image{display:block;max-width:100%;height:auto}
+.nao-image--error{background:color-mix(in srgb, var(--muted) 50%, transparent);border:1px dashed var(--border);border-radius:var(--radius-sm)}
 .nao-narrative--loading{color:transparent;border-radius:var(--radius-sm);-webkit-box-decoration-break:clone;box-decoration-break:clone;background:linear-gradient(90deg,var(--muted) 25%,var(--card) 50%,var(--muted) 75%);background-size:200% 100%;animation:nao-shimmer 1.4s ease-in-out infinite}
 
 .nao-block{break-inside:avoid}
