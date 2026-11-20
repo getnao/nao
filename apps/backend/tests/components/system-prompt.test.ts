@@ -311,6 +311,12 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).not.toContain('**save_to**');
 	});
 
+	it('keeps the no-guess column rule when the columns template is not synced', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ templates: ['preview'], internalSkills: [] }));
+		expect(markdown).not.toContain('`columns.md` —');
+		expect(markdown).toContain('Never guess column names');
+	});
+
 	it('tells custom stories to persist what a viewer would redo on every visit', () => {
 		const markdown = renderToMarkdown(
 			SystemPrompt({
