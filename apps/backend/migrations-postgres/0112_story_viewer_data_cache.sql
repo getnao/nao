@@ -12,6 +12,7 @@ CREATE TABLE "story_viewer_data_cache" (
 );
 --> statement-breakpoint
 ALTER TABLE "project" ADD COLUMN "viewer_cache_revision" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "story" ADD COLUMN "viewer_cache_revision" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "story_viewer_data_cache" ADD CONSTRAINT "story_viewer_data_cache_story_id_story_id_fk" FOREIGN KEY ("story_id") REFERENCES "public"."story"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "story_viewer_data_cache" ADD CONSTRAINT "story_viewer_data_cache_story_version_id_story_version_id_fk" FOREIGN KEY ("story_version_id") REFERENCES "public"."story_version"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "story_viewer_data_cache" ADD CONSTRAINT "story_viewer_data_cache_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

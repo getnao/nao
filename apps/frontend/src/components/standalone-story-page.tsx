@@ -367,6 +367,7 @@ function StandaloneStoryContent({
 	return (
 		<StoryTabbedContent
 			code={code}
+			storyId={storyId}
 			storySlug={storySlug}
 			baselineQueryData={queryData}
 			theme={theme}

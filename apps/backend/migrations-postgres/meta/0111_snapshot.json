@@ -1,5 +1,5 @@
 {
-  "id": "a00427fb-011d-420b-8ca0-c47a6f869bef",
+  "id": "22da9574-6075-434f-938a-f2f650adecd9",
   "prevId": "12b4e100-2b67-40c4-b82f-bf64cdcd1582",
   "version": "7",
   "dialect": "postgresql",
@@ -3624,6 +3624,106 @@
       },
       "isRLSEnabled": false
     },
+    "public.group_budget_notification": {
+      "name": "group_budget_notification",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "group_budget_notification_project_id_project_id_fk": {
+          "name": "group_budget_notification_project_id_project_id_fk",
+          "tableFrom": "group_budget_notification",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "group_budget_notification_group_id_user_group_id_fk": {
+          "name": "group_budget_notification_group_id_user_group_id_fk",
+          "tableFrom": "group_budget_notification",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "group_budget_notification_user_id_user_id_fk": {
+          "name": "group_budget_notification_user_id_user_id_fk",
+          "tableFrom": "group_budget_notification",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "group_budget_notification_group_user_period": {
+          "name": "group_budget_notification_group_user_period",
+          "nullsNotDistinct": false,
+          "columns": [
+            "group_id",
+            "user_id",
+            "period_start"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.jwks": {
       "name": "jwks",
       "schema": "",
@@ -7173,13 +7273,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "viewer_cache_revision": {
-          "name": "viewer_cache_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -7411,6 +7504,94 @@
         "project_group_budget_project_id_project_id_fk": {
           "name": "project_group_budget_project_id_project_id_fk",
           "tableFrom": "project_group_budget",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.project_group_shared_budget": {
+      "name": "project_group_shared_budget",
+      "schema": "",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "limit_usd": {
+          "name": "limit_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "project_group_shared_budget_projectId_idx": {
+          "name": "project_group_shared_budget_projectId_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "project_group_shared_budget_group_id_user_group_id_fk": {
+          "name": "project_group_shared_budget_group_id_user_group_id_fk",
+          "tableFrom": "project_group_shared_budget",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "project_group_shared_budget_project_id_project_id_fk": {
+          "name": "project_group_shared_budget_project_id_project_id_fk",
+          "tableFrom": "project_group_shared_budget",
           "tableTo": "project",
           "columnsFrom": [
             "project_id"
@@ -11020,153 +11201,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.story_viewer_data_cache": {
-      "name": "story_viewer_data_cache",
-      "schema": "",
-      "columns": {
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "story_version_id": {
-          "name": "story_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "permission_revision": {
-          "name": "permission_revision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "code": {
-          "name": "code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "query_sources": {
-          "name": "query_sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "analysis_results": {
-          "name": "analysis_results",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "story_viewer_data_cache_story_id_idx": {
-          "name": "story_viewer_data_cache_story_id_idx",
-          "columns": [
-            {
-              "expression": "story_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "story_viewer_data_cache_user_id_idx": {
-          "name": "story_viewer_data_cache_user_id_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "story_viewer_data_cache_story_id_story_id_fk": {
-          "name": "story_viewer_data_cache_story_id_story_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_viewer_data_cache_story_version_id_story_version_id_fk": {
-          "name": "story_viewer_data_cache_story_version_id_story_version_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "story_version",
-          "columnsFrom": [
-            "story_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_viewer_data_cache_user_id_user_id_fk": {
-          "name": "story_viewer_data_cache_user_id_user_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_viewer_data_cache_story_version_id_user_id_pk": {
-          "name": "story_viewer_data_cache_story_version_id_user_id_pk",
-          "columns": [
-            "story_version_id",
-            "user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

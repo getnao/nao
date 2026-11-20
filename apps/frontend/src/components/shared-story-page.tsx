@@ -338,6 +338,7 @@ function SharedStoryContent({
 			)}
 			<StoryTabbedContent
 				code={restrictedContent.code}
+				storyId={storyId}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
 				theme={theme}

@@ -27,6 +27,9 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 		...trpc.account.getCreditSummary.queryOptions(),
 		enabled: isOrgAdmin,
 	});
+	const isSummaryOfProjectOrganization =
+		managedCreditSummary.data?.organizationId === managedCreditStatus.data?.organization?.id;
+	const projectCreditSummary = isSummaryOfProjectOrganization ? managedCreditSummary.data : undefined;
 	const {
 		projectConfigs,
 		configProviders,
@@ -83,8 +86,8 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 					provider='nao'
 					enabledModels={managedModelIds}
 					status={
-						managedCreditSummary.data
-							? `Remaining credits: ${formatMicroUsd(managedCreditSummary.data.balanceMicroUsd)} of ${formatMicroUsd(managedCreditSummary.data.lifetimeCreditedMicroUsd)}.`
+						projectCreditSummary
+							? `Remaining credits: ${formatMicroUsd(projectCreditSummary.balanceMicroUsd)} of ${formatMicroUsd(projectCreditSummary.lifetimeCreditedMicroUsd)}.`
 							: managedCreditStatus.data.hasCredits
 								? 'Credits available.'
 								: 'No credits remaining.'

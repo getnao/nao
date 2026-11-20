@@ -158,6 +158,9 @@ export type NewProjectMemberBudget = typeof sqliteSchema.projectMemberBudget.$in
 export type DBProjectGroupBudget = typeof sqliteSchema.projectGroupBudget.$inferSelect;
 export type NewProjectGroupBudget = typeof sqliteSchema.projectGroupBudget.$inferInsert;
 
+export type DBProjectGroupSharedBudget = typeof sqliteSchema.projectGroupSharedBudget.$inferSelect;
+export type NewProjectGroupSharedBudget = typeof sqliteSchema.projectGroupSharedBudget.$inferInsert;
+
 export type DBMemberBudgetNotification = typeof sqliteSchema.memberBudgetNotification.$inferSelect;
 export type NewMemberBudgetNotification = typeof sqliteSchema.memberBudgetNotification.$inferInsert;
 

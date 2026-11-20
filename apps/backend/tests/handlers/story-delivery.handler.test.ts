@@ -310,34 +310,18 @@ it('clears recipient retry filters after a successful retry', async () => {
 	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', { storyId: 'story-id' });
 });
 
-it('clears retry filters before a new recurring delivery', async () => {
-	mocks.hasRowSecurity.mockResolvedValue(true);
-	mocks.refreshStoryDataForDelivery.mockResolvedValue({
-		queryData: {},
-		narratives: {},
-		code: 'recipient-code',
-	});
+it.each([
+	{ name: 'succeeds', job: { id: 'job-id', attempts: 2, maxAttempts: 3 }, fails: false },
+	{ name: 'fails on its last attempt', job: { id: 'job-id', attempts: 3, maxAttempts: 3 }, fails: true },
+])('clears what a run already sent once its retry $name, so the next run delivers it again', async ({ job, fails }) => {
+	const skipDeliveries = [{ userId: 'recipient-user-id', channel: 'email' as const }];
+	if (fails) {
+		mocks.notifyUsers.mockRejectedValueOnce(new NotificationChannelDeliveryError([], []));
+	}
 
-	await storyDeliveryHandler(
-		{
-			storyId: 'story-id',
-			recipientUserIds: ['previously-failed'],
-			skipDeliveries: [{ userId: 'recipient-user-id', channel: 'email' }],
-		},
-		{ id: 'job-id', cron: '0 * * * *', attempts: 1 } as never,
-	);
+	await storyDeliveryHandler({ storyId: 'story-id', skipDeliveries }, job as never).catch(() => undefined);
 
-	expect(mocks.updateJobPayload).toHaveBeenCalledOnce();
 	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', { storyId: 'story-id' });
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
-		'story-id',
-		expect.objectContaining({ viewerUserId: 'recipient-user-id' }),
-	);
-	expect(mocks.notifyUsers).toHaveBeenCalledWith(
-		['recipient-user-id'],
-		expect.objectContaining({ channels: ['email'] }),
-		{ skipDeliveries: [], throwOnChannelError: true },
-	);
 });
 
 it('lets the handler no-op when the scheduled story no longer exists', async () => {

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -7,11 +8,12 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { generateOnboardingRules as generateOnboardingRulesTool } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
+import { Effect } from 'effect';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
 import type { DBWarehouseProvisioningJob, NewWarehouseProvisioningJob } from '../db/abstractSchema';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import { contextRecommendationsJobUniqueKey } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
@@ -29,9 +31,11 @@ import {
 	type WarehouseSetup,
 	type WarehouseSetupOutcome,
 } from '../types/warehouse';
+import { fromPromise, repeatInBackground, runEffect, withHeartbeat } from '../utils/effect-runtime';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { describeError, logger, serializeError } from '../utils/logger';
 import { extractConfiguredDatabases } from '../utils/nao-config';
+import { assertSafeHost } from '../utils/safe-fetch';
 import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../utils/warehouse-setup';
 import {
 	deleteManagedGithubRepository,
@@ -181,6 +185,10 @@ export async function validateWarehouseCredentials(
 ): Promise<{ valid: true }> {
 	const connection = warehouseCredentialsSchema.parse(input);
 	try {
+		const hostRefusal = await findWarehouseHostRefusal(connection);
+		if (hostRefusal) {
+			throw new WarehouseValidationError(hostRefusal, 'connection_error');
+		}
 		const result = await requestWarehouseValidation(connection);
 		await recordConnectionCheck(userId, connection.provider, 'ok');
 		return result;
@@ -296,6 +304,44 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 	return preparedWarehouseSchema.parse(await response.json());
 }
 
+const WAREHOUSE_HOST_FIELDS = ['host', 'server_hostname'];
+const BARE_HOST_NAME_PATTERN = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i;
+
+/**
+ * nao Cloud connects to the warehouse from inside its own network, so the host must be a public one, written as a
+ * bare name or address: a port, a path or connection-string syntax could make the connector reach another host
+ * than the one checked here. A self-hosted instance is left free to reach the warehouses of its private network.
+ */
+async function findWarehouseHostRefusal({
+	provider,
+	credentials,
+}: ProjectWarehouseCredentials): Promise<string | null> {
+	if (!isCloud) {
+		return null;
+	}
+	const normalized = normalizeWarehouseCredentials(provider, credentials);
+	for (const field of WAREHOUSE_HOST_FIELDS) {
+		const host = normalized[field];
+		if (host === undefined || host === null || host === '') {
+			continue;
+		}
+		if (!(await isPublicBareHost(host))) {
+			return `nao cannot connect to "${String(host)}": enter only the public host name or address of the warehouse.`;
+		}
+	}
+	return null;
+}
+
+async function isPublicBareHost(host: unknown): Promise<boolean> {
+	if (typeof host !== 'string' || !(BARE_HOST_NAME_PATTERN.test(host) || net.isIPv6(host))) {
+		return false;
+	}
+	return assertSafeHost(host).then(
+		() => true,
+		() => false,
+	);
+}
+
 function normalizeWarehouseCredentials(provider: WarehouseProvider, credentials: object): Record<string, unknown> {
 	const normalized = toSnakeCaseRecord(credentials);
 
@@ -355,6 +401,10 @@ export async function startWarehouseProvisioning(
 		provider: input.provider,
 		credentials: input.credentials,
 	});
+	const hostRefusal = await findWarehouseHostRefusal(connection);
+	if (hostRefusal) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: hostRefusal });
+	}
 	const job = await createQueuedJob({
 		id: crypto.randomUUID(),
 		userId: input.userId,
@@ -984,7 +1034,7 @@ function runNaoCommand(
 		};
 		const clearTimers = () => {
 			clearTimeout(timeout);
-			clearInterval(cancellationCheck);
+			void stopCancellationChecks();
 		};
 		const flushOutput = async () => {
 			if (logUpdate) {
@@ -1017,17 +1067,21 @@ function runNaoCommand(
 						child.kill('SIGTERM');
 						void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
 					}, timeoutMs);
-		const cancellationCheck = setInterval(() => {
-			void logs.assertNotCancelled().catch((error) => {
-				if (error instanceof WarehouseSetupCancelledError) {
-					stopCommand(error);
-					return;
-				}
-				logger.warn(`Could not check whether warehouse setup was cancelled: ${String(error)}`, {
-					source: 'system',
-				});
-			});
-		}, COMMAND_CANCELLATION_CHECK_MS);
+		const stopCancellationChecks = repeatInBackground(
+			'Warehouse setup cancellation check',
+			fromPromise(() =>
+				logs.assertNotCancelled().catch((error) => {
+					if (error instanceof WarehouseSetupCancelledError) {
+						stopCommand(error);
+						return;
+					}
+					logger.warn(`Could not check whether warehouse setup was cancelled: ${String(error)}`, {
+						source: 'system',
+					});
+				}),
+			),
+			COMMAND_CANCELLATION_CHECK_MS,
+		);
 
 		child.once('error', async (error) => {
 			if (settled) {
@@ -1067,11 +1121,12 @@ export function startWarehouseProvisioningReconciler(): void {
 	}
 	reconcilerStarted = true;
 
-	void reconcileWarehouseProvisioningJobs().catch(logReconciliationError);
-	const interval = setInterval(() => {
-		void reconcileWarehouseProvisioningJobs().catch(logReconciliationError);
-	}, JOB_RECONCILIATION_MS);
-	interval.unref?.();
+	repeatInBackground(
+		'Warehouse provisioning reconciliation',
+		fromPromise(() => reconcileWarehouseProvisioningJobs()),
+		JOB_RECONCILIATION_MS,
+		{ immediately: true },
+	);
 }
 
 export async function reconcileWarehouseProvisioningJobs(): Promise<void> {
@@ -1230,17 +1285,18 @@ async function claimJob(
 }
 
 async function withJobLease(jobId: string, operation: () => Promise<void>): Promise<void> {
-	const heartbeat = setInterval(() => {
-		void warehouseProvisioningJobQueries
-			.renewWarehouseProvisioningJobLock(jobId, WORKER_ID)
-			.catch(logReconciliationError);
-	}, JOB_HEARTBEAT_MS);
-	heartbeat.unref?.();
-
 	try {
-		await operation();
+		await runEffect(
+			fromPromise(() => operation()).pipe(
+				withHeartbeat({
+					name: 'Warehouse provisioning job lease renewal',
+					beat: () => warehouseProvisioningJobQueries.renewWarehouseProvisioningJobLock(jobId, WORKER_ID),
+					every: JOB_HEARTBEAT_MS,
+				}),
+				Effect.withSpan('warehouse-provisioning.job', { attributes: { 'job.id': jobId } }),
+			),
+		);
 	} finally {
-		clearInterval(heartbeat);
 		await warehouseProvisioningJobQueries.releaseWarehouseProvisioningJobLock(jobId, WORKER_ID);
 	}
 }

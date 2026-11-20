@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0bfece49-f45a-4f41-bbf2-aaa389d46ebd",
-  "prevId": "6ddfa010-0e88-4e4f-9653-8742e3eeb0b3",
+  "id": "207e5295-92a2-45c5-b26a-03dc26299393",
+  "prevId": "2e2b86ad-a450-4288-a969-b305b678be06",
   "tables": {
     "account": {
       "name": "account",
@@ -3264,6 +3264,109 @@
           "value": "(\"favorite\".\"story_id\" IS NOT NULL) + (\"favorite\".\"folder_id\" IS NOT NULL) = 1"
         }
       }
+    },
+    "group_budget_notification": {
+      "name": "group_budget_notification",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "group_budget_notification_group_user_period": {
+          "name": "group_budget_notification_group_user_period",
+          "columns": [
+            "group_id",
+            "user_id",
+            "period_start"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "group_budget_notification_project_id_project_id_fk": {
+          "name": "group_budget_notification_project_id_project_id_fk",
+          "tableFrom": "group_budget_notification",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "group_budget_notification_group_id_user_group_id_fk": {
+          "name": "group_budget_notification_group_id_user_group_id_fk",
+          "tableFrom": "group_budget_notification",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "group_budget_notification_user_id_user_id_fk": {
+          "name": "group_budget_notification_user_id_user_id_fk",
+          "tableFrom": "group_budget_notification",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "jwks": {
       "name": "jwks",
@@ -6838,6 +6941,88 @@
         "project_group_budget_project_id_project_id_fk": {
           "name": "project_group_budget_project_id_project_id_fk",
           "tableFrom": "project_group_budget",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "project_group_shared_budget": {
+      "name": "project_group_shared_budget",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "limit_usd": {
+          "name": "limit_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "project_group_shared_budget_projectId_idx": {
+          "name": "project_group_shared_budget_projectId_idx",
+          "columns": [
+            "project_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "project_group_shared_budget_group_id_user_group_id_fk": {
+          "name": "project_group_shared_budget_group_id_user_group_id_fk",
+          "tableFrom": "project_group_shared_budget",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "project_group_shared_budget_project_id_project_id_fk": {
+          "name": "project_group_shared_budget_project_id_project_id_fk",
+          "tableFrom": "project_group_shared_budget",
           "tableTo": "project",
           "columnsFrom": [
             "project_id"

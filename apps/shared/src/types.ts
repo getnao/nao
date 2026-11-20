@@ -29,7 +29,14 @@ export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export const NOTIFICATION_CATEGORIES = [
+	'budget',
+	'feedback',
+	'story_refresh',
+	'shared',
+	'subscription',
+	'test_run',
+] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
@@ -38,6 +45,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> 
 	story_refresh: 'Story refreshes',
 	shared: 'Shared with you',
 	subscription: 'Subscriptions',
+	test_run: 'Scheduled tests',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
@@ -46,6 +54,7 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	story_refresh: 'Results of your story refreshes.',
 	shared: 'When someone shares a story or chat with you.',
 	subscription: "When you're added to a story's scheduled delivery.",
+	test_run: 'When a scheduled run of the tests you scheduled fails.',
 };
 
 export const FEEDBACK_VOTES = ['up', 'down'] as const;

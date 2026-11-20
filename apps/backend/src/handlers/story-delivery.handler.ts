@@ -35,6 +35,13 @@ type StoryDeliveryJobPayload = {
 	skipDeliveries?: ChannelDeliveryAttempt[];
 };
 
+type RetryState = {
+	skipDeliveries: ChannelDeliveryAttempt[];
+	recipientUserIds?: string[];
+};
+
+const NO_RETRY_STATE: RetryState = { skipDeliveries: [] };
+
 type DeliveryContext = {
 	delivery: DBStoryDelivery;
 	story: DBStory;
@@ -62,30 +69,44 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job
 		throw new Error('storyId is required.');
 	}
 	const storyId = payload.storyId;
-	const hasRetryState = payload.recipientUserIds !== undefined || payload.skipDeliveries !== undefined;
-	const startsNewScheduledDelivery = job?.cron !== null && job?.cron !== undefined && job.attempts === 1;
-	const previousSkips = startsNewScheduledDelivery ? [] : parseSkipDeliveries(payload.skipDeliveries);
-	const recipientUserIds = startsNewScheduledDelivery ? undefined : payload.recipientUserIds;
-	if (job && startsNewScheduledDelivery && hasRetryState) {
-		await scheduledJobQueries.updateJobPayload(job.id, { storyId });
-	}
+	const previous: RetryState = {
+		skipDeliveries: parseSkipDeliveries(payload.skipDeliveries),
+		recipientUserIds: payload.recipientUserIds,
+	};
 	try {
-		await runScheduledStoryDelivery(storyId, previousSkips, recipientUserIds);
-		if (job && !startsNewScheduledDelivery && hasRetryState) {
-			await scheduledJobQueries.updateJobPayload(job.id, { storyId });
-		}
+		await runScheduledStoryDelivery(storyId, previous.skipDeliveries, previous.recipientUserIds);
 	} catch (error) {
-		if (job && error instanceof NotificationChannelDeliveryError) {
-			await scheduledJobQueries.updateJobPayload(job.id, {
-				storyId,
-				...(error instanceof StoryRecipientDeliveryError
-					? { recipientUserIds: error.failedRecipientUserIds }
-					: {}),
-				skipDeliveries: mergeSkipDeliveries(previousSkips, error.succeeded),
-			});
-		}
+		const isLastAttempt = !!job && job.attempts >= job.maxAttempts;
+		await saveRetryState(job, storyId, isLastAttempt ? NO_RETRY_STATE : retryStateAfter(error, previous));
 		throw error;
 	}
+	if (previous.skipDeliveries.length > 0 || previous.recipientUserIds) {
+		await saveRetryState(job, storyId, NO_RETRY_STATE);
+	}
+}
+
+/**
+ * What a run already sent is skipped by its retries only. The payload belongs to the recurring job, so the retry
+ * state is cleared once the run succeeds or gives up, or every later run would skip the same recipients.
+ */
+async function saveRetryState(job: DBScheduledJob | undefined, storyId: string, state: RetryState): Promise<void> {
+	if (!job) {
+		return;
+	}
+	await scheduledJobQueries.updateJobPayload(job.id, {
+		storyId,
+		...(state.recipientUserIds ? { recipientUserIds: state.recipientUserIds } : {}),
+		...(state.skipDeliveries.length > 0 ? { skipDeliveries: state.skipDeliveries } : {}),
+	});
+}
+
+function retryStateAfter(error: unknown, previous: RetryState): RetryState {
+	const succeeded = error instanceof NotificationChannelDeliveryError ? error.succeeded : [];
+	return {
+		skipDeliveries: mergeSkipDeliveries(previous.skipDeliveries, succeeded),
+		recipientUserIds:
+			error instanceof StoryRecipientDeliveryError ? error.failedRecipientUserIds : previous.recipientUserIds,
+	};
 }
 
 export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string | null> {

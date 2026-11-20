@@ -9,6 +9,7 @@ import type { StoryEditHolder } from '../queries/story-edit-lock.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import type { UserWithRole } from '../types/project';
+import { fromPromise, runEffect, withHeartbeat } from '../utils/effect-runtime';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
@@ -226,15 +227,17 @@ async function whileNobodyEdits<T>(
 	} catch (error) {
 		throw error instanceof StoryEditLockedError ? new StoryTransferError(error.message) : error;
 	}
-	const renewal = setInterval(
-		() => void renewStoryEditLock(story.id, holder).catch(() => false),
-		STORY_EDIT_LOCK_RENEW_MS,
-	);
-	renewal.unref();
 	try {
-		return await run(holder);
+		return await runEffect(
+			fromPromise(() => run(holder)).pipe(
+				withHeartbeat({
+					name: 'Story edit lock renewal',
+					beat: () => renewStoryEditLock(story.id, holder).catch(() => false),
+					every: STORY_EDIT_LOCK_RENEW_MS,
+				}),
+			),
+		);
 	} finally {
-		clearInterval(renewal);
 		await releaseStoryEditLock(story.id, holder);
 	}
 }

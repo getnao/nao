@@ -50,8 +50,9 @@ import {
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
-import { flushTelemetry } from './instrumentation';
+import { flushTelemetry, requestTracingEnabled } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { registerRequestTracing } from './middleware/request-tracing';
 import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
@@ -96,6 +97,13 @@ import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './s
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
+import {
+	resolveTestScheduleProjectId,
+	runScheduledTests,
+	syncAllConfiguredTestSchedules,
+	TEST_SCHEDULE_JOB_NAME,
+	TEST_SCHEDULE_SYNC_JOB_NAME,
+} from './services/test-schedule.service';
 import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
@@ -177,6 +185,10 @@ app.setErrorHandler((error, request, reply) => {
 	}
 	throw error;
 });
+
+if (requestTracingEnabled) {
+	registerRequestTracing(app, [HEALTH_PATH]);
+}
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
@@ -551,6 +563,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	registerJob(TEST_SCHEDULE_JOB_NAME, runScheduledTests, { resolveProjectId: resolveTestScheduleProjectId });
+	registerJob(TEST_SCHEDULE_SYNC_JOB_NAME, syncAllConfiguredTestSchedules);
+	await ensureRecurring({
+		name: TEST_SCHEDULE_SYNC_JOB_NAME,
+		cron: '*/15 * * * *',
+		uniqueKey: TEST_SCHEDULE_SYNC_JOB_NAME,
+	});
 	if (isCloud) {
 		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
 		await ensureRecurring({
@@ -635,7 +654,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		if (isDraining()) {
 			return;
 		}
-		stopScheduler();
+		void stopScheduler();
 		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
 		await handleShutdown();
 	};

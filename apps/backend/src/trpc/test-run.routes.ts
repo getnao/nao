@@ -9,6 +9,7 @@ import {
 	MAX_CONTEXT_FILE_SIZE,
 } from '../services/context-explorer.service';
 import { createSafeFileAccess, createStrictFileAccess } from '../services/context-explorer-access.service';
+import { runReferenceQuery } from '../services/test-evaluation.service';
 import {
 	getLatestOutcomesByTest,
 	getModelStats,
@@ -25,6 +26,14 @@ import {
 	TestRunInputError,
 } from '../services/test-runner.service';
 import {
+	createTestSchedule,
+	deleteTestSchedule,
+	InvalidTestScheduleError,
+	listTestSchedules,
+	setTestScheduleEnabled,
+	updateTestSchedule,
+} from '../services/test-schedule.service';
+import {
 	discoverTests,
 	isInvalidTestFile,
 	newTestFilePaths,
@@ -32,6 +41,7 @@ import {
 	serializeTestFile,
 } from '../services/test-suite.service';
 import {
+	discoverUpstreamTests,
 	listUpstreamBranches,
 	listUpstreamRepos,
 	readUpstreamChanges,
@@ -44,10 +54,11 @@ import {
 	MAX_TEST_RUN_MODELS,
 	MAX_TEST_RUN_THREADS,
 	type TestComparisonTolerances,
+	type TestSuite,
 } from '../types/test-run';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { compareContextVariants, listAddedTestPaths, listComparedResults } from '../utils/test-comparison';
+import { compareContextVariants, listComparedResults, listOneSidedTests } from '../utils/test-comparison';
 import { summarizeModels } from '../utils/test-model-summary';
 import { requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -56,12 +67,24 @@ const NOT_A_TEST_FILE_MESSAGE = `Tests are YAML files in the ${TESTS_FOLDER}/ fo
 
 const upstreamBranchSchema = z.object({ repo: z.string().min(1), branch: z.string().min(1) });
 
+const MAX_REFERENCE_PREVIEW_ROWS = 500;
+
 const draftTestFileSchema = z.object({
 	path: z.string(),
 	content: z.string().refine((content) => Buffer.byteLength(content, 'utf8') <= MAX_CONTEXT_FILE_SIZE, {
 		message: `The test file must be at most ${MAX_CONTEXT_FILE_SIZE} bytes.`,
 	}),
 });
+
+const runModelsSchema = z
+	.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
+	.max(MAX_TEST_RUN_MODELS);
+
+const runAttemptsSchema = z
+	.number()
+	.int()
+	.min(1)
+	.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` });
 
 /**
  * `production` runs against the production context, `changes` against it with the user's changes, and `compare`
@@ -75,30 +98,37 @@ const startRunSchema = z.object({
 		z.object({ testFile: draftTestFileSchema }),
 		z.object({ paths: z.array(z.string()).optional() }).strict(),
 	]),
-	models: z
-		.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
-		.max(MAX_TEST_RUN_MODELS)
-		.optional(),
-	attempts: z
-		.number()
-		.int()
-		.min(1)
-		.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` })
-		.optional(),
+	models: runModelsSchema.optional(),
+	attempts: runAttemptsSchema.optional(),
 	threads: z.number().int().min(1).max(MAX_TEST_RUN_THREADS).optional(),
 	upstream: upstreamBranchSchema.optional(),
 });
 
+const scheduleSchema = z.object({
+	cron: z.string().trim().min(1).max(100),
+	tags: z.array(z.string().trim().min(1).max(50)).max(50),
+	models: runModelsSchema.min(1),
+	attempts: runAttemptsSchema,
+});
+
+const scheduleIdSchema = z.object({ id: z.string().min(1).max(100) });
+
 export const testRunRoutes = {
-	listTests: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const projectFolder = requireProjectPath(ctx.project.path);
-		const suite = discoverTests(projectFolder);
-		return {
-			...suite,
-			settings: extractConfiguredTestSettings(projectFolder),
-			latestOutcomes: await getLatestOutcomesByTest(ctx.project.id, suite.tests),
-		};
-	}),
+	/** The tests of production, or with `upstream` as the branch of a synced repository leaves them. */
+	listTests: contextAdminProtectedProcedure
+		.input(z.object({ upstream: upstreamBranchSchema.optional() }).optional())
+		.query(async ({ ctx, input }) => {
+			const projectFolder = requireProjectPath(ctx.project.path);
+			const suite = await discoverSuite(
+				{ projectId: ctx.project.id, projectFolder, userId: ctx.user.id },
+				input?.upstream,
+			);
+			return {
+				...suite,
+				settings: extractConfiguredTestSettings(projectFolder),
+				latestOutcomes: await getLatestOutcomesByTest(ctx.project.id, suite.tests),
+			};
+		}),
 
 	startRun: cloudBillingContextAdminProcedure.input(startRunSchema).mutation(async ({ ctx, input }) => {
 		const { mode, target, upstream, ...settings } = input;
@@ -114,6 +144,48 @@ export const testRunRoutes = {
 					user: ctx.user,
 				},
 			});
+		} catch (error) {
+			throw toTestRunTrpcError(error, ctx.project.id);
+		}
+	}),
+
+	listSchedules: contextAdminProtectedProcedure.query(async ({ ctx }) => ({
+		schedules: await listTestSchedules(ctx.project.id, requireProjectPath(ctx.project.path)),
+		/** Crons are evaluated in the timezone of the server, which the schedule form names. */
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+	})),
+
+	createSchedule: cloudBillingContextAdminProcedure.input(scheduleSchema).mutation(async ({ ctx, input }) => {
+		try {
+			await createTestSchedule({ projectId: ctx.project.id, userId: ctx.user.id }, input);
+		} catch (error) {
+			throw toTestRunTrpcError(error, ctx.project.id);
+		}
+	}),
+
+	updateSchedule: cloudBillingContextAdminProcedure
+		.input(scheduleSchema.extend(scheduleIdSchema.shape))
+		.mutation(async ({ ctx, input: { id, ...settings } }) => {
+			try {
+				await updateTestSchedule(ctx.project.id, id, settings);
+			} catch (error) {
+				throw toTestRunTrpcError(error, ctx.project.id);
+			}
+		}),
+
+	setScheduleEnabled: cloudBillingContextAdminProcedure
+		.input(scheduleIdSchema.extend({ isEnabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				await setTestScheduleEnabled(ctx.project.id, input.id, input.isEnabled);
+			} catch (error) {
+				throw toTestRunTrpcError(error, ctx.project.id);
+			}
+		}),
+
+	deleteSchedule: contextAdminProtectedProcedure.input(scheduleIdSchema).mutation(async ({ ctx, input }) => {
+		try {
+			await deleteTestSchedule(ctx.project.id, input.id);
 		} catch (error) {
 			throw toTestRunTrpcError(error, ctx.project.id);
 		}
@@ -176,14 +248,14 @@ export const testRunRoutes = {
 		const run = await getProjectRun(ctx.project.id, input.runId);
 		const results = await testRunQueries.listResultOutcomes(run.id);
 		const isComparison = run.trigger === 'comparison';
-		const addedTestPaths = isComparison ? listAddedTestPaths(run.contextChanges) : new Set<string>();
+		const oneSidedTests = listOneSidedTests(isComparison ? run.contextChanges : null);
 		return {
 			...run,
 			results,
 			comparison: isComparison
-				? compareContextVariants(results, run.models.length * run.attempts, addedTestPaths)
+				? compareContextVariants(results, run.models.length * run.attempts, oneSidedTests)
 				: null,
-			modelSummaries: summarizeModels(listComparedResults(results, addedTestPaths)),
+			modelSummaries: summarizeModels(listComparedResults(results, oneSidedTests)),
 			previousModelSummaries: await getPreviousModelSummaries(run, results),
 		};
 	}),
@@ -207,6 +279,27 @@ export const testRunRoutes = {
 	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {
 		const parsed = parseDraftTest(input);
 		return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
+	}),
+
+	/** Runs the reference SQL of the test as it is shown, which need not be saved, like a run of it would. */
+	runReferenceSql: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(async ({ ctx, input }) => {
+		const test = parseValidDraftTest(input);
+		if (!test.sql) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'This test has no reference SQL.' });
+		}
+		try {
+			const result = await runReferenceQuery(ctx.project.id, ctx.user.id, test.sql, test.databaseId ?? undefined);
+			return {
+				columns: result.columns,
+				rows: (result.data as Record<string, unknown>[]).slice(0, MAX_REFERENCE_PREVIEW_ROWS),
+				rowCount: result.row_count,
+			};
+		} catch (error) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}),
 
 	createTestFile: cloudBillingContextAdminProcedure
@@ -286,6 +379,20 @@ async function getProjectRun(projectId: string, runId: string) {
 	return run;
 }
 
+async function discoverSuite(
+	reader: { projectId: string; projectFolder: string; userId: string },
+	upstream: z.infer<typeof upstreamBranchSchema> | undefined,
+): Promise<TestSuite> {
+	if (!upstream) {
+		return discoverTests(reader.projectFolder);
+	}
+	try {
+		return await discoverUpstreamTests({ ...reader, upstream });
+	} catch (error) {
+		throw toTestRunTrpcError(error, reader.projectId);
+	}
+}
+
 function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
 	if (error instanceof TRPCError) {
 		return error;
@@ -296,7 +403,8 @@ function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
 	if (
 		error instanceof TestRunInputError ||
 		error instanceof UpstreamContextError ||
-		error instanceof MissingDraftError
+		error instanceof MissingDraftError ||
+		error instanceof InvalidTestScheduleError
 	) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}

@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useMatchRoute, useNavigate } from '@tanstack/react-router';
 import type { FileTreeEntry } from '@nao/shared/types';
 
@@ -15,9 +14,9 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { useOpenContextFileCallback } from '@/contexts/open-context-file-callback';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { useContextFileTree } from '@/hooks/use-upstream-context';
 import { getFileName } from '@/lib/file-path';
 import { rankPathsByQuery } from '@/lib/path-search';
-import { trpc } from '@/main';
 
 const MAX_SHOWN_FILES = 50;
 
@@ -50,8 +49,8 @@ export function GoToFileDialog() {
 }
 
 function MatchingFiles({ query, onSelect }: { query: string; onSelect: (path: string) => void }) {
-	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
-	const filePaths = useMemo(() => collectFilePaths(fileTree.data?.entries ?? []), [fileTree.data?.entries]);
+	const fileTree = useContextFileTree();
+	const filePaths = useMemo(() => collectFilePaths(fileTree.entries), [fileTree.entries]);
 	const shownPaths = useMemo(() => rankPathsByQuery(filePaths, query).slice(0, MAX_SHOWN_FILES), [filePaths, query]);
 
 	if (fileTree.isLoading) {
