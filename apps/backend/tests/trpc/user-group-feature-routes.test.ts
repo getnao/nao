@@ -125,6 +125,7 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 	getStoryFolderItem: vi.fn(async () => null),
 	resolveFolderAudience: vi.fn(async () => ({ kind: 'project' })),
 	setStoryFolder: vi.fn(),
+	withProjectFolderLock: (_projectId: string, work: () => Promise<unknown>) => work(),
 	moveStoryToFolder: mocks.moveStoryToFolder,
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
 }));

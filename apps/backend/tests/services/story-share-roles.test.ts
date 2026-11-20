@@ -54,6 +54,7 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 	setStoryFolder: vi.fn(async (_storyId: string, folderId: string | null) => {
 		mocks.storyFolderId = folderId;
 	}),
+	withProjectFolderLock: (_projectId: string, work: () => Promise<unknown>) => work(),
 }));
 vi.mock('../../src/services/story-delivery.service', () => ({ teardownStoryDelivery: vi.fn() }));
 vi.mock('../../src/services/standalone-story', () => ({
