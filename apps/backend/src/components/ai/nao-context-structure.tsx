@@ -1,4 +1,4 @@
-import { Block, Br, Code, List, ListItem, Title } from '../../lib/markdown';
+import { Block, Bold, Br, Code, List, ListItem, Span, Title } from '../../lib/markdown';
 import type { ContextPresence } from '../../utils/nao-config';
 
 /** Explains how the nao project context is laid out on disk. Shared by every system prompt. */
@@ -6,10 +6,13 @@ export function NaoContextStructure({
 	templates,
 	repoNames = [],
 	contextPresence,
+	rulesInPrompt = false,
 }: {
 	templates?: string[];
 	repoNames?: string[];
 	contextPresence?: ContextPresence;
+	/** True when the prompt embeds the full RULES.md in a `UserRulesSection`. */
+	rulesInPrompt?: boolean;
 }) {
 	const visibleTemplates =
 		templates && templates.length > 0
@@ -25,7 +28,7 @@ export function NaoContextStructure({
 			<List>
 				{[
 					<ListItem key='rules'>
-						<Code>RULES.md</Code> — project-wide rules; read it for project conventions.
+						<RulesDescription rulesInPrompt={rulesInPrompt} />
 					</ListItem>,
 					isPresent('semantics') && (
 						<ListItem key='semantics'>
@@ -87,6 +90,45 @@ export function NaoContextStructure({
 	);
 }
 
+/** Embeds RULES.md and tells the agent it already holds the file, so it does not read it again. */
+export function UserRulesSection({ rules, isExcerpt = false }: { rules: string; isExcerpt?: boolean }) {
+	return (
+		<Block>
+			<Title level={2}>{USER_RULES_TITLE}</Title>
+			<Span>
+				{isExcerpt ? (
+					<>
+						An excerpt of <Code>RULES.md</Code> with its middle cut out. Read the file only when you need
+						the missing part.
+					</>
+				) : (
+					<>
+						The full content of <Code>RULES.md</Code>, already loaded for you. Follow it from here and never
+						read <Code>RULES.md</Code> with a tool: it would return exactly this text.
+					</>
+				)}
+			</Span>
+			{rules}
+		</Block>
+	);
+}
+
+function RulesDescription({ rulesInPrompt }: { rulesInPrompt: boolean }) {
+	if (!rulesInPrompt) {
+		return (
+			<>
+				<Code>RULES.md</Code> — project-wide rules; read it for project conventions.
+			</>
+		);
+	}
+	return (
+		<>
+			<Code>RULES.md</Code> — project-wide rules. Its full content is already in the{' '}
+			<Bold>{USER_RULES_TITLE}</Bold> section of this prompt, so do not read the file.
+		</>
+	);
+}
+
 function AiSummaryDescription({ visibleTemplateNames }: { visibleTemplateNames: ReadonlySet<string> }) {
 	const referencedTemplates = AI_SUMMARY_REFERENCE_TEMPLATES.filter((name) => visibleTemplateNames.has(name));
 
@@ -110,6 +152,8 @@ function AiSummaryDescription({ visibleTemplateNames }: { visibleTemplateNames: 
 		</>
 	);
 }
+
+const USER_RULES_TITLE = 'User Rules';
 
 const AI_SUMMARY_REFERENCE_TEMPLATES = ['columns', 'profiling'] as const;
 

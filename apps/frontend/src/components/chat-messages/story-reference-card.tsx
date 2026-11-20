@@ -3,6 +3,7 @@ import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 
 import { useOpenStoryInSidePanel } from '@/components/side-panel/open-story-in-side-panel';
 import { StoryCard } from '@/components/story-card';
+import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
 import { useOpenMentionedStory, useResolvedStory } from '@/hooks/use-mentioned-stories';
 
 /** An existing story the agent hands over in its answer. */
@@ -18,6 +19,7 @@ export function StoryReferenceCard({ storyId, title }: { storyId: string; title:
 			summary={story?.summary}
 			canOpen={Boolean(story)}
 			onOpen={() => story && openStory(story)}
+			actions={story && <StoryMoveToFolderButton storyId={story.storyId} />}
 			status={<span className='text-xs text-muted-foreground'>{describeStatus(story, isError)}</span>}
 		/>
 	);

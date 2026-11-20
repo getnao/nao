@@ -73,6 +73,7 @@ export interface UserGroup extends Omit<
 	projectSharing: ProjectSharingPermission;
 	shareTargets: GroupShareTargets;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
@@ -96,6 +97,7 @@ export interface EffectiveUserGroupAccess {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
@@ -202,6 +204,7 @@ export const resolveUserGroupAccess = async (
 			canChange: applicableGroups.some((group) => group.config.toolCallDensity.canChange),
 		},
 		showAllSettings: applicableGroups.some((group) => group.config.showAllSettings),
+		advancedContextExplorer: applicableGroups.some((group) => group.config.advancedContextExplorer),
 		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
 		docsAccess: unionFileTreeAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
 		filesAccess: unionFileTreeAccess(applicableGroups.map((group) => group.contextAccess.filesAccess)),
@@ -318,6 +321,7 @@ export const createUserGroup = async (
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer = false,
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
@@ -346,6 +350,7 @@ export const createUserGroup = async (
 		skillsAccess,
 		columnPolicies,
 		shareTargets,
+		advancedContextExplorer,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -397,6 +402,7 @@ export const createUserGroupWithinLimit = async (
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer = false,
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
@@ -425,6 +431,7 @@ export const createUserGroupWithinLimit = async (
 		skillsAccess,
 		columnPolicies,
 		shareTargets,
+		advancedContextExplorer,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -478,6 +485,7 @@ export const updateUserGroup = async (
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
 		showAllSettings?: boolean;
+		advancedContextExplorer?: boolean;
 		databaseAccess?: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
@@ -534,6 +542,7 @@ export const updateUserGroup = async (
 			data.showAllSettings ?? currentConfig.showAllSettings,
 			data.preloadedSkills ?? currentConfig.preloadedSkills,
 			data.shareTargets ?? currentConfig.shareTargets,
+			data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
 		),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
@@ -590,6 +599,7 @@ export const updateUserGroup = async (
 								data.showAllSettings ?? lockedConfig.showAllSettings,
 								data.preloadedSkills ?? lockedConfig.preloadedSkills,
 								data.shareTargets ?? lockedConfig.shareTargets,
+								data.advancedContextExplorer ?? lockedConfig.advancedContextExplorer,
 							),
 							...(data.databaseAccess === undefined &&
 							data.docsAccess === undefined &&
@@ -874,6 +884,7 @@ function createUserGroupValues(
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer = false,
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	const filteredColumnPolicies = filterUserGroupColumnPoliciesByDatabaseContext(columnPolicies, databaseAccess);
@@ -887,6 +898,7 @@ function createUserGroupValues(
 			showAllSettings,
 			preloadedSkills,
 			shareTargets,
+			advancedContextExplorer,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess,
@@ -1075,6 +1087,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		projectSharing: config.projectSharing,
 		shareTargets: config.shareTargets,
 		showAllSettings: config.showAllSettings,
+		advancedContextExplorer: config.advancedContextExplorer,
 		preloadedSkills: config.preloadedSkills,
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,

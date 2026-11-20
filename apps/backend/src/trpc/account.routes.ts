@@ -12,6 +12,7 @@ import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
+import { getTwoFactorStatus } from '../services/two-factor.service';
 import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
 import {
@@ -19,6 +20,7 @@ import {
 	projectProtectedProcedure,
 	protectedProcedure,
 	resolveOrganizationMembership,
+	sessionProcedure,
 } from './trpc';
 
 const creditLedgerPaginationInput = z
@@ -123,7 +125,10 @@ export const accountRoutes = {
 
 			return { password };
 		}),
-	modifyPassword: protectedProcedure
+	getTwoFactorStatus: sessionProcedure.query(async ({ ctx }) => {
+		return getTwoFactorStatus(ctx.user.id);
+	}),
+	modifyPassword: sessionProcedure
 		.input(
 			z.object({
 				newPassword: z.string(),

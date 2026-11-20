@@ -98,10 +98,13 @@ describe('StoryVersionNav', () => {
 		expect(mocks.openChat).toHaveBeenCalledWith('origin-chat');
 	});
 
-	it('shows only the version date when a single version has no chat', () => {
+	it('shows who made a single version even when it has no chat', async () => {
 		renderNav(vi.fn(), undefined, VERSIONS.slice(2));
 
-		expect(screen.queryByRole('button', { name: 'Version history' })).toBeNull();
+		openDropdownMenu('Version history');
+
+		expect(await screen.findByText('You')).toBeTruthy();
+		expect(screen.getByText('Manual edit')).toBeTruthy();
 	});
 });
 

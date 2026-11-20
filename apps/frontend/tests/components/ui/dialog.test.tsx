@@ -3,7 +3,9 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PortalContainerContext } from '@/contexts/portal-container';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 
 vi.stubGlobal(
@@ -67,6 +69,31 @@ describe('DialogContent', () => {
 		fireEvent.pointerDown(document.body, { ...POINTER, clientX: 800, clientY: 800 });
 
 		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it('mounts popovers on the body when opened inside a themed portal container', () => {
+		const themedContainer = document.createElement('div');
+		document.body.appendChild(themedContainer);
+		render(
+			<PortalContainerContext.Provider value={themedContainer}>
+				<Dialog open>
+					<DialogContent>
+						<DialogTitle>Title</DialogTitle>
+						<DialogDescription>Description</DialogDescription>
+						<Popover open>
+							<PopoverAnchor />
+							<PopoverContent>Suggestions</PopoverContent>
+						</Popover>
+					</DialogContent>
+				</Dialog>
+			</PortalContainerContext.Provider>,
+		);
+
+		const popover = document.querySelector('[data-slot="popover-content"]');
+		const isInThemedContainer = themedContainer.contains(popover);
+		themedContainer.remove();
+		expect(popover).not.toBeNull();
+		expect(isInThemedContainer).toBe(false);
 	});
 });
 

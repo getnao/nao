@@ -5,6 +5,8 @@ import { createTestCaller } from '../helpers/trpc-caller';
 const mocks = vi.hoisted(() => ({
 	addProjectMember: vi.fn(),
 	addTeamMember: vi.fn(),
+	capturePostHogEvent: vi.fn(),
+	dismissGithubStarPrompt: vi.fn(),
 	getUserName: vi.fn(),
 	getUserProfile: vi.fn(),
 	getUserRoleInProject: vi.fn(),
@@ -48,6 +50,17 @@ vi.mock('../../src/services/context-explorer-git.service', () => ({ cleanupConte
 vi.mock('../../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { userGroups: 'user-groups' },
+}));
+vi.mock('../../src/services/github-star-prompt.service', () => ({
+	dismissGithubStarPrompt: mocks.dismissGithubStarPrompt,
+	shouldShowGithubStarPrompt: vi.fn(),
+}));
+vi.mock('../../src/services/posthog', () => ({
+	posthog: { capture: mocks.capturePostHogEvent },
+	PostHogEvent: {
+		GithubStarClicked: 'github_star_clicked',
+		GithubStarPromptDismissed: 'github_star_prompt_dismissed',
+	},
 }));
 vi.mock('../../src/services/membership.service', () => ({
 	addProjectMember: mocks.addProjectMember,
@@ -108,6 +121,18 @@ describe('user.get', () => {
 		mockRoles({ [CALLER_ID]: 'viewer' });
 
 		await expect(caller.get({ userId: CALLER_ID })).resolves.toMatchObject({ id: CALLER_ID });
+	});
+});
+
+describe('user.dismissGithubStarPrompt', () => {
+	it.each([
+		{ starred: true, expectedEvent: 'github_star_clicked' },
+		{ starred: false, expectedEvent: 'github_star_prompt_dismissed' },
+	])('dismisses the prompt and tracks $expectedEvent when starred=$starred', async ({ starred, expectedEvent }) => {
+		await caller.dismissGithubStarPrompt({ starred });
+
+		expect(mocks.dismissGithubStarPrompt).toHaveBeenCalledWith(CALLER_ID);
+		expect(mocks.capturePostHogEvent.mock.calls).toEqual([[CALLER_ID, expectedEvent]]);
 	});
 });
 

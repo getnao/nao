@@ -63,6 +63,12 @@ export async function requireContextAdminOrAdmin() {
 	}
 }
 
+/** Loads whether the file tree is granted before the Context Hub renders, so it opens in the right view. */
+export async function requireContextHubAccess() {
+	await requireContextAdminOrAdmin();
+	await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
+}
+
 export async function requireNonViewer() {
 	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
 	if (!project || project.userRole === 'viewer') {

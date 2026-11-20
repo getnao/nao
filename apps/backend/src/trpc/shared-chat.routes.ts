@@ -1,4 +1,4 @@
-import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
+import { SHARE_VISIBILITY, STORY_DOWNLOAD_FORMATS, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -50,7 +50,10 @@ export const sharedChatRoutes = {
 			chat: UIChat;
 			userRole: UserRole | null;
 		}> => {
-			const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
+			const [chat] = await chatQueries.getChat(ctx.resource.chatId, {
+				includeFeedback: true,
+				queryResultPreviews: true,
+			});
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}
@@ -104,7 +107,7 @@ export const sharedChatRoutes = {
 			z.object({
 				shareId: z.string(),
 				storySlug: z.string(),
-				format: z.enum(DOWNLOAD_FORMATS),
+				format: z.enum(STORY_DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
 			}),
 		)

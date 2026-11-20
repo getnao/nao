@@ -1,5 +1,5 @@
 {
-  "id": "119721c1-35be-4cc9-bc17-f2e53a0c6b2d",
+  "id": "38240ebc-4e78-41c7-9176-f824a3fdcfa2",
   "prevId": "ffc9d7c5-4eba-4d25-81c9-3dbb0cf72b2e",
   "version": "7",
   "dialect": "postgresql",
@@ -6993,14 +6993,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "default_models": {
-          "name": "default_models",
+        "menu_settings": {
+          "name": "menu_settings",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
-        "column_security": {
-          "name": "column_security",
+        "default_models": {
+          "name": "default_models",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
@@ -11254,12 +11254,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

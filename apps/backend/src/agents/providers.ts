@@ -39,6 +39,7 @@ import {
 	EFFORT_TO_BEDROCK,
 	EFFORT_TO_GEMINI_LEVEL,
 	EFFORT_TO_OPENAI,
+	findKnownModel,
 	getModelCapabilities,
 	isAnthropicApiModel,
 	OPENAI_COMPATIBLE_BASE_URLS,
@@ -321,8 +322,7 @@ export function createProviderModel(
 }
 
 export function getContextWindow(provider: LlmProvider, modelId: string): number {
-	const models = LLM_PROVIDERS[providerKind(provider)].models;
-	return models.find((m) => m.id === modelId)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+	return findKnownModel(provider, modelId)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 }
 
 function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOptions: object): object {

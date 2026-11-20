@@ -1,5 +1,12 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
-import { DOWNLOAD_FORMATS, SHARE_ROLES, SHARE_VISIBILITY, type StoryFormat, type UserRole } from '@nao/shared/types';
+import {
+	DOWNLOAD_FORMATS,
+	SHARE_ROLES,
+	SHARE_VISIBILITY,
+	STORY_DOWNLOAD_FORMATS,
+	type StoryFormat,
+	type UserRole,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -19,6 +26,7 @@ import {
 	getSharedCustomStoryQuerySql,
 	getStandaloneCustomStoryNarratives,
 	getStandaloneCustomStoryQueryData,
+	getStandaloneCustomStoryQuerySql,
 	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
@@ -29,12 +37,30 @@ import {
 	setCustomStoryState,
 	setCustomStoryStateByStoryId,
 } from '../services/custom-story-state';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import {
+	executeLiveQuery,
+	executeStoryLiveQuery,
+	getStandaloneStoryLiveQueryData,
+	getStoryQueryData,
+	refreshStoryById,
+} from '../services/live-story';
 import { listShareableGroups } from '../services/project-sharing.service';
 import { filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import { unshareStory } from '../services/shared-story.service';
-import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
-import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
+import {
+	filterOptionsRequestSchema,
+	getStoryFilterOptions,
+	getStoryFilterOptionsByStoryId,
+} from '../services/story-filter-options';
+import {
+	assertStoryFiltersEnabled,
+	getFilteredStoryQueryData,
+	getFilteredStoryQueryDataByStoryId,
+	getStoryQuerySql,
+	getStoryQuerySqlByStoryId,
+} from '../services/story-filters';
+import { readStoryMapBoundary } from '../services/story-map-boundary';
+import { assertStoryCanRefresh } from '../services/story-refresh.service';
 import {
 	assertCanManageStoryShare,
 	getStoryShareSettings,
@@ -44,7 +70,7 @@ import {
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
-	STANDALONE_QUERY_SQL_UNAVAILABLE,
+	mapBoundaryKey,
 	STANDALONE_SQL_UNAVAILABLE,
 	storyModelRequest,
 	storyQueryInputs,
@@ -57,7 +83,7 @@ import {
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { themeFontStylesheets } from '../utils/story-headless-page';
-import { pickQueryData, type StoryQueryDataMap, withKpiPreviewData } from '../utils/story-query-data';
+import { getStandaloneStoryQueryData, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -70,6 +96,11 @@ import {
 } from './trpc';
 
 const shareGrantInput = z.object({ id: z.string(), role: z.enum(SHARE_ROLES) });
+const storyToShareInput = z.union([
+	z.object({ chatId: z.string(), storySlug: z.string() }),
+	z.object({ storyId: z.string() }),
+]);
+type StoryToShare = z.infer<typeof storyToShareInput>;
 
 const shareProcedure = resourceProjectProcedure('storyId', sharedStoryQueries.getSharedStoryByStoryId, 'Shared story');
 const shareAccessProcedure = resourceProjectProcedure(
@@ -136,7 +167,10 @@ export const sharedStoryRoutes = {
 							deferRefresh: canRefresh && lastRefreshFailure !== null,
 							deferFirstRefresh: canRefresh,
 						})
-					: await getStandaloneStoryQueryData(shared.storyId, shared.code);
+					: await getStandaloneStoryLiveQueryData(shared.storyId, shared.code, isLive, cacheSchedule, {
+							deferRefresh: canRefresh && lastRefreshFailure !== null,
+							deferFirstRefresh: canRefresh,
+						});
 
 		if (ctx.user.id !== shared.userId) {
 			logAnalyticsEvent({
@@ -192,16 +226,10 @@ export const sharedStoryRoutes = {
 		)
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: STANDALONE_QUERY_SQL_UNAVAILABLE });
-			}
 			try {
-				const sqlQuery = await getSharedCustomStoryQuerySql(
-					shared.chatId,
-					shared.slug,
-					input.queryId,
-					input.versionNumber,
-				);
+				const sqlQuery = shared.chatId
+					? await getSharedCustomStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.versionNumber)
+					: await getStandaloneCustomStoryQuerySql(shared.storyId, input.queryId, input.versionNumber);
 				return { sqlQuery };
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
@@ -228,12 +256,9 @@ export const sharedStoryRoutes = {
 							input.versionNumber,
 							{ inputs: input.inputs, viewerId: ctx.user.id },
 						)
-					: await getStandaloneCustomStoryQueryData(
-							shared.storyId,
-							input.queryId,
-							input.versionNumber,
-							input.inputs,
-						);
+					: await getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber, {
+							rerun: { inputs: input.inputs, viewerId: ctx.user.id },
+						});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
@@ -299,6 +324,10 @@ export const sharedStoryRoutes = {
 	getCustomStoryChartPlugins: shareAccessProcedure
 		.input(z.object({ storyId: z.string() }))
 		.query(({ ctx }) => readStoryChartPluginSources(ctx.resource.storyId)),
+
+	getCustomStoryMapBoundary: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readStoryMapBoundary(ctx.resource.storyId, input.key)),
 
 	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
@@ -373,16 +402,13 @@ export const sharedStoryRoutes = {
 		.input(z.object({ storyId: z.string(), queryId: z.string() }))
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
 			if (!extractQueryIds(shared.code).has(input.queryId)) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Query not found in this story.' });
 			}
-			return executeLiveQuery(shared.chatId, input.queryId, {
-				billingAccessVerifiedProjectId: shared.projectId,
-				storyCode: shared.code,
-			});
+			const options = { billingAccessVerifiedProjectId: shared.projectId, storyCode: shared.code };
+			return shared.chatId
+				? executeLiveQuery(shared.chatId, input.queryId, options)
+				: executeStoryLiveQuery({ id: shared.storyId, chatId: null }, input.queryId, options);
 		}),
 
 	getFilterOptions: cloudBillingShareAccessProcedure
@@ -390,19 +416,12 @@ export const sharedStoryRoutes = {
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
 			const { filterId, search, parentSelection } = input;
-			return getStoryFilterOptions(
-				shared.chatId,
-				shared.slug,
-				filterId,
-				{ search, parentSelection },
-				{
-					billingAccessVerifiedProjectId: shared.projectId,
-				},
-			);
+			const request = { search, parentSelection };
+			const options = { billingAccessVerifiedProjectId: shared.projectId };
+			return shared.chatId
+				? getStoryFilterOptions(shared.chatId, shared.slug, filterId, request, options)
+				: getStoryFilterOptionsByStoryId(shared.storyId, filterId, request, options);
 		}),
 
 	getFilteredQueryData: cloudBillingShareAccessProcedure
@@ -415,12 +434,10 @@ export const sharedStoryRoutes = {
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
-			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, {
-				billingAccessVerifiedProjectId: shared.projectId,
-			});
+			const options = { billingAccessVerifiedProjectId: shared.projectId };
+			return shared.chatId
+				? getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, options)
+				: getFilteredStoryQueryDataByStoryId(shared.storyId, input.selections, options);
 		}),
 
 	getQuerySql: shareAccessProcedure
@@ -433,52 +450,47 @@ export const sharedStoryRoutes = {
 		)
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
-			return getStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.selections);
+			return shared.chatId
+				? getStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.selections)
+				: getStoryQuerySqlByStoryId(shared.storyId, input.queryId, input.selections);
 		}),
 
 	refreshData: cloudBillingShareAccessProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
-		if (!shared.chatId) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-		}
-		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId, shared.slug);
-		if (!story) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-		}
-		const { storyOwnerId, canRefresh } = await getStoryRefreshAccess(story.id, ctx.user.id, ctx.userRole);
+		const { storyOwnerId, canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
 		if (!storyOwnerId) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Live Story has no execution owner.' });
 		}
 		if (!canRefresh) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Story owner or an admin can refresh this.' });
 		}
+		const story = await storyQueries.getStoryById(shared.storyId);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		assertStoryCanRefresh(story);
 		const activity = await activityQueries.startStoryRefreshActivity({
 			projectId: shared.projectId,
 			userId: storyOwnerId,
-			storyId: story.id,
-			chatId: story.chatId,
+			storyId: shared.storyId,
+			chatId: shared.chatId,
 			trigger: 'manual',
 		});
 		try {
-			return await withKeyedLock(`story:${story.id}`, async () => {
-				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
+			return await withKeyedLock(`story:${shared.storyId}`, async () => {
+				const { queryData, queriesRefreshed } = await refreshStoryById(shared.storyId, {
 					billingAccessVerifiedProjectId: shared.projectId,
 				});
-				await activityQueries.completeActivity(activity.id, {
-					queriesRefreshed: Object.keys(queryData).length,
-				});
+				await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 				logAnalyticsEvent({
 					projectId: shared.projectId,
 					type: 'refresh',
 					assetType: 'story',
 					actorUserId: ctx.user.id,
-					storyId: story.id,
+					storyId: shared.storyId,
 					chatId: shared.chatId,
 					sharedStoryId: shared.id,
-					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed },
 				});
 				return { queryData, cachedAt: new Date() };
 			});
@@ -488,56 +500,52 @@ export const sharedStoryRoutes = {
 		}
 	}),
 
-	getSharedStoryInfo: projectProtectedProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const notShared = {
-				isShared: false as const,
-				storyId: null,
-				visibility: null,
-				allowedUserIds: [],
-				allowedGroupIds: [],
-			};
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			if (!story) {
-				return notShared;
-			}
-			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			if (storyProjectId !== ctx.project.id) {
-				return notShared;
-			}
-			const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
-			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
-				return notShared;
-			}
-			const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);
-			if (!access) {
-				return notShared;
-			}
+	getSharedStoryInfo: projectProtectedProcedure.input(storyToShareInput).query(async ({ input, ctx }) => {
+		const notShared = {
+			isShared: false as const,
+			storyId: null,
+			visibility: null,
+			allowedUserIds: [],
+			allowedGroupIds: [],
+		};
+		const story = await findStoryToShare(input);
+		if (!story) {
+			return notShared;
+		}
+		const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+		if (storyProjectId !== ctx.project.id) {
+			return notShared;
+		}
+		const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+		if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+			return notShared;
+		}
+		const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);
+		if (!access) {
+			return notShared;
+		}
 
-			return {
-				isShared: true as const,
-				storyId: story.id,
-				visibility: access.visibility,
-				allowedUserIds: access.allowedUserIds,
-				allowedGroupIds: await filterShareableUserGroupIds(ctx.project.id, access.allowedGroupIds),
-			};
-		}),
+		return {
+			isShared: true as const,
+			storyId: story.id,
+			visibility: access.visibility,
+			allowedUserIds: access.allowedUserIds,
+			allowedGroupIds: await filterShareableUserGroupIds(ctx.project.id, access.allowedGroupIds),
+		};
+	}),
 
 	listShareableGroups: projectProtectedProcedure.query(async ({ ctx }) => {
 		return listShareableGroups(ctx.project.id, ctx.user.id);
 	}),
 
-	getShareSettings: projectProtectedProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			const projectId = story && (story.projectId ?? (await storyQueries.getStoryProjectId(story.id)));
-			if (!story || projectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-			return getStoryShareSettings(story, toShareActor(ctx));
-		}),
+	getShareSettings: projectProtectedProcedure.input(storyToShareInput).query(async ({ input, ctx }) => {
+		const story = await findStoryToShare(input);
+		const projectId = story && (story.projectId ?? (await storyQueries.getStoryProjectId(story.id)));
+		if (!story || projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		return getStoryShareSettings(story, toShareActor(ctx));
+	}),
 
 	saveShareSettings: canSendProcedure
 		.input(
@@ -589,7 +597,7 @@ export const sharedStoryRoutes = {
 		.input(
 			z.object({
 				storyId: z.string(),
-				format: z.enum(DOWNLOAD_FORMATS),
+				format: z.enum(STORY_DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
 			}),
 		)
@@ -611,7 +619,7 @@ export const sharedStoryRoutes = {
 						version.isLive,
 						version.cacheSchedule,
 					)
-				: await getStandaloneStoryQueryData(shared.storyId, version.code);
+				: await getStandaloneDownloadData(shared.storyId, version, input.versionNumber !== undefined);
 
 			logAnalyticsEvent({
 				projectId: shared.projectId,
@@ -647,13 +655,11 @@ export const sharedStoryRoutes = {
 		}),
 };
 
-/** A standalone story has no chat to run its queries in: it shows the rows saved for the queries its code uses. */
-async function getStandaloneStoryQueryData(storyId: string, code: string) {
-	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
-	const queryData = cache?.queryData
-		? pickQueryData(cache.queryData as StoryQueryDataMap, extractQueryIds(code))
-		: null;
-	return { queryData, cachedAt: cache?.cachedAt ?? null, code, needsRefresh: false };
+/** A story with a chat is found by its chat and slug; a standalone story, which has none, by its id. */
+function findStoryToShare(input: StoryToShare): Promise<DBStory | null> {
+	return 'storyId' in input
+		? storyQueries.getStoryById(input.storyId)
+		: storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 }
 
 async function canUserAccessShare(
@@ -713,4 +719,15 @@ async function loadManagedStory(
 	const actor = toShareActor(ctx);
 	await assertCanManageStoryShare(story, actor);
 	return { story, actor };
+}
+
+/** An older version is downloaded as it was saved: only the latest one is refreshed when live. */
+async function getStandaloneDownloadData(
+	storyId: string,
+	version: { code: string; isLive: boolean; cacheSchedule: string | null },
+	isPickedVersion: boolean,
+) {
+	return isPickedVersion
+		? getStandaloneStoryQueryData(storyId, version.code)
+		: getStandaloneStoryLiveQueryData(storyId, version.code, version.isLive, version.cacheSchedule);
 }

@@ -4,12 +4,12 @@ import type { TestAssertion, TestComparisonTolerances, TestModel, TestVerdict } 
 import type { ToolContext } from '../types/tools';
 import { evaluateTestVerdict, type TestVerification } from '../utils/test-verdict';
 import type { AgentRunResult } from './agent';
-import { hasFeature, LICENSE_FEATURES } from './license.service';
-import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
+import { buildRunSqlQueryTag } from './sql-query-tag.service';
 import { TestAgentService, testAgentService, type ToolCallResult, type VerificationResult } from './test-agent.service';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
+import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
 interface TestAttemptInput {
 	prompt: string;
@@ -77,12 +77,20 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 	if (!projectFolder) {
 		throw new Error('Project path does not exist.');
 	}
-	const [envVars, azureAccessToken, contextAccess, semanticLayerMode] = await Promise.all([
+	const [envVars, warehouseAccessToken, contextAccess, semanticLayerMode] = await Promise.all([
 		getProjectRuntimeEnvVars(projectId),
-		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(userId) : null)),
+		getWarehouseAccessTokenForUser(userId),
 		resolveProjectContextAccess(projectId, userId, projectFolder),
 		resolveReferenceSemanticLayerMode(projectId, userId, projectFolder),
 	]);
+	const sqlQueryTag = await buildRunSqlQueryTag({
+		projectFolder,
+		agentSettings: await getAgentSettings(projectId),
+		projectId,
+		userId,
+		source: 'test',
+		groupAccess: contextAccess.userRulesGroupAccess,
+	});
 	return {
 		projectFolder,
 		chatId: '',
@@ -91,9 +99,10 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		supportsCustomCharts: false,
 		agentSettings: null,
 		semanticLayerMode,
+		sqlQueryTag,
 		adminMode: false,
 		envVars,
-		azureAccessToken,
+		warehouseAccessToken,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		warehouseColumnSecurity: contextAccess.warehouseColumnSecurity,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,

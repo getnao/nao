@@ -93,6 +93,10 @@ def process_secrets(
     return _TEMPLATE_REGEX.sub(replacer, content), missing
 
 
+def contains_secret_reference(content: str) -> bool:
+    return _TEMPLATE_REGEX.search(content) is not None
+
+
 def resolve_env(
     identifier: str,
     extra_env: dict[str, str] | None = None,

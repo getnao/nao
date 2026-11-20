@@ -73,7 +73,7 @@ import {
 } from '../types/chat';
 import type { ModelCosts, ModelInferenceSettings } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
-import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
+import { ChatlessToolContext, McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
 	convertToCost,
 	convertToTokenUsage,
@@ -109,15 +109,14 @@ import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } f
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService, RunCompaction } from './compaction';
 import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
-import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
-import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { posthog, PostHogEvent } from './posthog';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
+import { buildRunSqlQueryTag, type SqlQuerySource } from './sql-query-tag.service';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import {
@@ -139,6 +138,7 @@ import {
 	appendAgentUserGroupRestrictions,
 	resolveAgentUserGroupAccess,
 } from './user-group-feature-access.service';
+import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
 export interface AgentRunResult {
 	text: string;
@@ -215,6 +215,7 @@ export async function buildToolContext(opts: {
 	projectId: string;
 	userId: string;
 	chatId: string;
+	querySource: SqlQuerySource;
 	agentSettings?: AgentSettings | null;
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
@@ -234,12 +235,21 @@ export async function buildToolContext(opts: {
 	};
 }
 
+export async function buildChatlessToolContext(opts: {
+	projectId: string;
+	userId: string;
+	querySource: SqlQuerySource;
+}): Promise<ChatlessToolContext> {
+	const base = await _buildContextBase(opts);
+	return { ...base, chatId: null, adminMode: false };
+}
+
 export async function buildMcpToolContext(opts: {
 	projectId: string;
 	userId: string;
 	agentSettings?: AgentSettings | null;
 }): Promise<McpToolContext> {
-	const base = await _buildContextBase({ ...opts, supportsCustomCharts: false });
+	const base = await _buildContextBase({ ...opts, querySource: 'mcp', supportsCustomCharts: false });
 	return {
 		...base,
 		chatId: null,
@@ -250,6 +260,8 @@ export async function buildMcpToolContext(opts: {
 async function _buildContextBase(opts: {
 	projectId: string;
 	userId: string;
+	chatId?: string;
+	querySource: SqlQuerySource;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
 	/** A copy of the context to run against instead of the project folder, such as a draft being tested. */
@@ -262,11 +274,20 @@ async function _buildContextBase(opts: {
 	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
-	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
+	const [envVars, warehouseAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
-		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
+		getWarehouseAccessTokenForUser(opts.userId),
 		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
 	]);
+	const sqlQueryTag = await buildRunSqlQueryTag({
+		projectFolder,
+		agentSettings,
+		projectId: opts.projectId,
+		userId: opts.userId,
+		chatId: opts.chatId,
+		source: opts.querySource,
+		groupAccess: contextAccess.userRulesGroupAccess,
+	});
 	return {
 		projectFolder,
 		userId: opts.userId,
@@ -274,6 +295,7 @@ async function _buildContextBase(opts: {
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
 		semanticLayerMode: resolveSemanticLayerMode(projectFolder, agentSettings),
+		sqlQueryTag,
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		warehouseColumnSecurity: contextAccess.warehouseColumnSecurity,
@@ -285,7 +307,7 @@ async function _buildContextBase(opts: {
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		preloadedSkillNames: contextAccess.preloadedSkillNames,
-		azureAccessToken,
+		warehouseAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
 	};
@@ -371,6 +393,7 @@ export class AgentService {
 			projectId: chat.projectId,
 			chatId: chat.id,
 			userId: chat.userId,
+			querySource: profile.source,
 			agentSettings,
 			adminMode: profile.queriesAppDatabase,
 			supportsCustomCharts: profile.supportsCustomCharts,
@@ -805,7 +828,9 @@ export class AgentManager {
 		const memories = this._profile.excludesMemories
 			? []
 			: await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
+		const userRules = this._profile.excludesUserRules
+			? undefined
+			: getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
@@ -821,7 +846,7 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets, trustedStories] = await Promise.all([
+		const [mcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
@@ -829,6 +854,7 @@ export class AgentManager {
 			toolNames.includes('list') && toolNames.includes('read')
 				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
 				: Promise.resolve([]),
+			projectQueries.getCustomBoundaries(this.chat.projectId),
 		]);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
@@ -839,6 +865,7 @@ export class AgentManager {
 				skills,
 				preloadedSkills,
 				customCharts,
+				mapBoundaries,
 				mcpServers,
 				sandboxSecrets,
 				trustedStories,
@@ -847,6 +874,7 @@ export class AgentManager {
 				repoNames,
 				contextPresence,
 				timezone,
+				role: this._profile.role,
 				toolNames,
 				options: {
 					savedFilesEnabled: isStorageEnabled(),

@@ -14,6 +14,7 @@ import {
 	MAX_TEST_RUN_THREADS,
 	TEST_CONTEXT_VARIANTS,
 	type TestComparisonTolerances,
+	type TestContextChange,
 	type TestContextVariant,
 	type TestDefinition,
 	type TestModel,
@@ -26,6 +27,7 @@ import {
 import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
+import { listAddedTestPaths } from '../utils/test-comparison';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import type { AgentRunResult } from './agent';
 import {
@@ -35,10 +37,12 @@ import {
 	removeContextSnapshotsOlderThan,
 } from './draft-context.service';
 import { mcpService } from './mcp';
+import { notifyScheduledTestsFailed } from './notification.service';
 import { skillService } from './skill';
 import { testAgentService } from './test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluation.service';
 import { discoverTests, filterTests } from './test-suite.service';
+import { createUpstreamContextSnapshot, type UpstreamBranchRef } from './upstream-context.service';
 
 const TEST_RUN_HEARTBEAT_MS = 30_000;
 /** Several missed heartbeats, so that a slow database write does not fail a run that is still executing. */
@@ -60,7 +64,7 @@ export class TestRunConflictError extends Error {
 	}
 }
 
-interface StartTestRunInput {
+export interface StartTestRunInput {
 	projectId: string;
 	userId: string;
 	paths?: string[];
@@ -70,11 +74,21 @@ interface StartTestRunInput {
 	threads?: number;
 	/** Tests to run instead of the ones of the production context, such as a draft being edited. */
 	tests?: TestDefinition[];
+	/** Started by the project's test schedule rather than by the user. */
+	isScheduled?: boolean;
 }
 
-interface StartComparisonRunInput extends StartTestRunInput {
-	/** The user's File Explorer changes, tested against the production context. */
-	draft: DraftSource;
+/**
+ * The changes tested against the production context: the user's File Explorer changes, or a branch of a repository
+ * that `nao sync` copies into the context.
+ */
+type StartComparisonRunInput = StartTestRunInput & ({ draft: DraftSource } | { upstream: UpstreamBranchRef });
+
+interface RunContextSnapshot {
+	folder: string;
+	ref: string | null;
+	commit: string | null;
+	changes: TestContextChange[];
 }
 
 interface TestSuitePlan {
@@ -95,6 +109,8 @@ interface TestSuitePlan {
 interface TestRunPlan extends TestSuitePlan {
 	variants: TestContextVariant[];
 	draftFolder: string | null;
+	/** Tests the changes add, which only run against the draft, as production does not have them. */
+	addedTestPaths: ReadonlySet<string>;
 }
 
 type TestRunContext = Pick<NewTestRun, 'trigger' | 'contextRef' | 'contextCommit' | 'contextChanges'>;
@@ -115,20 +131,27 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	const plan = await planTestRun(input, projectFolder, suite);
 	return createAndExecuteRun(
 		input,
-		{ ...plan, variants: ['production'], draftFolder: null },
-		{ trigger: input.tests ? 'draft' : 'manual' },
+		{ ...plan, variants: ['production'], draftFolder: null, addedTestPaths: new Set() },
+		{ trigger: getProductionRunTrigger(input) },
 	);
 }
 
+function getProductionRunTrigger(input: StartTestRunInput): 'draft' | 'scheduled' | 'manual' {
+	if (input.tests) {
+		return 'draft';
+	}
+	return input.isScheduled ? 'scheduled' : 'manual';
+}
+
 /**
- * Runs the tests of the user's draft, or the given ones, against both the production context and the production
- * context with the user's changes, interleaving the attempts so both variants face the same warehouse data and model.
+ * Runs the tests of the changes, or the given ones, against both the production context and the production
+ * context with the changes, interleaving the attempts so both variants face the same warehouse data and model.
  */
 export async function startComparisonRun(input: StartComparisonRunInput): Promise<DBTestRun> {
 	return startDraftContextRun(input, [...TEST_CONTEXT_VARIANTS], 'comparison');
 }
 
-/** Runs the tests of the user's draft, or the given ones, against the production context with the user's changes. */
+/** Runs the tests of the changes, or the given ones, against the production context with the changes. */
 export async function startChangesRun(input: StartComparisonRunInput): Promise<DBTestRun> {
 	return startDraftContextRun(input, ['draft'], 'changes');
 }
@@ -141,21 +164,25 @@ async function startDraftContextRun(
 	const projectFolder = await getProjectFolder(input.projectId);
 	await failStaleTestRuns(input.projectId);
 
-	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, draft: input.draft });
+	const snapshot = await createRunContextSnapshot(input, projectFolder);
 	let run: DBTestRun;
 	try {
 		if (snapshot.changes.length === 0) {
-			throw new TestRunInputError(NO_CONTEXT_CHANGES_MESSAGE);
+			throw new TestRunInputError(
+				'upstream' in input
+					? `${snapshot.ref} has no changes compared with production.`
+					: NO_CONTEXT_CHANGES_MESSAGE,
+			);
 		}
 		const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(snapshot.folder);
 		const plan = await planTestRun(input, projectFolder, suite);
 		run = await createAndExecuteRun(
 			input,
-			{ ...plan, variants, draftFolder: snapshot.folder },
+			{ ...plan, variants, draftFolder: snapshot.folder, addedTestPaths: listAddedTestPaths(snapshot.changes) },
 			{
 				trigger,
-				contextRef: snapshot.branch,
-				contextCommit: snapshot.productionCommit,
+				contextRef: snapshot.ref,
+				contextCommit: snapshot.commit,
 				contextChanges: snapshot.changes,
 			},
 		);
@@ -165,6 +192,22 @@ async function startDraftContextRun(
 	}
 	removeLeftoverContextSnapshots(projectFolder, input.projectId);
 	return run;
+}
+
+async function createRunContextSnapshot(
+	input: StartComparisonRunInput,
+	projectFolder: string,
+): Promise<RunContextSnapshot> {
+	if ('upstream' in input) {
+		return createUpstreamContextSnapshot({ ...input, projectFolder });
+	}
+	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, draft: input.draft });
+	return {
+		folder: snapshot.folder,
+		ref: snapshot.branch,
+		commit: snapshot.productionCommit,
+		changes: snapshot.changes,
+	};
 }
 
 /** Runs only once this run is the project's active one, so no other run of the project can still read a snapshot. */
@@ -208,7 +251,7 @@ async function createAndExecuteRun(
 		models: plan.models,
 		attempts: plan.attempts,
 		selection: plan.tests.map((test) => test.path),
-		totalAttempts: plan.tests.length * plan.models.length * plan.attempts * plan.variants.length,
+		totalAttempts: buildAttemptJobs(plan).length,
 	});
 	if (!run) {
 		throw new TestRunConflictError();
@@ -328,6 +371,7 @@ async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>
 async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan): Promise<void> {
 	const jobs = buildAttemptJobs(plan);
 	if (!(await markRunRunningOrFail(run, jobs.length))) {
+		await notifyScheduledRunOutcome(run);
 		return;
 	}
 
@@ -346,6 +390,24 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	} finally {
 		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
+	}
+	await notifyScheduledRunOutcome(run);
+}
+
+async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
+	if (run.trigger !== 'scheduled') {
+		return;
+	}
+	try {
+		const endedRun = await testRunQueries.getRun(run.projectId, run.id);
+		if (endedRun) {
+			await notifyScheduledTestsFailed(endedRun, await testRunQueries.listResultOutcomes(run.id));
+		}
+	} catch (error) {
+		logger.error(`Could not notify the outcome of scheduled test run ${run.id}: ${String(error)}`, {
+			source: 'agent',
+			projectId: run.projectId,
+		});
 	}
 }
 
@@ -384,10 +446,14 @@ function buildAttemptJobs(plan: TestRunPlan): TestAttemptJob[] {
 	return plan.tests.flatMap((test) =>
 		plan.models.flatMap((model) =>
 			Array.from({ length: plan.attempts }, (_, index) => index + 1).flatMap((attempt) =>
-				plan.variants.map((variant) => ({ test, model, attempt, variant })),
+				listTestVariants(test, plan).map((variant) => ({ test, model, attempt, variant })),
 			),
 		),
 	);
+}
+
+function listTestVariants(test: TestDefinition, plan: TestRunPlan): TestContextVariant[] {
+	return plan.addedTestPaths.has(test.path) ? plan.variants.filter((variant) => variant === 'draft') : plan.variants;
 }
 
 async function runAttemptUnlessCancelled(

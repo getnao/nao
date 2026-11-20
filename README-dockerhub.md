@@ -38,7 +38,8 @@ docker run -d \
 
 | Variable                   | Required | Description                                                                   |
 | -------------------------- | -------- | ----------------------------------------------------------------------------- |
-| `NAO_DEFAULT_PROJECT_PATH` | Yes      | Path to your nao project (default: `/app/example`)                            |
+| `NAO_DEFAULT_PROJECT_PATH` | Yes      | Path to your nao project (`/app/example` unless `NAO_PROJECT_PATHS` is set)   |
+| `NAO_PROJECT_PATHS`        | No       | Comma-separated project paths to load with a project selector (Enterprise)    |
 | `OPENAI_API_KEY`           | No\*     | OpenAI API key                                                                |
 | `ANTHROPIC_API_KEY`        | No\*     | Anthropic API key                                                             |
 | `BETTER_AUTH_SECRET`       | No       | Secret key for authentication                                                 |

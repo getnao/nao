@@ -53,38 +53,6 @@ export const isToolInputStreaming = (part: ToolUIPart) => {
  * Check if the agent is actively generating content (streaming text or executing tools).
  * Returns true if any part is streaming or any tool is not yet settled.
  */
-export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return isMessageStreaming(lastMessage) || isSummarizing(lastMessage);
-};
-
-const isSummarizing = ({ parts }: UIMessage) => {
-	return parts.at(-1)?.type === 'data-compactionSummaryStarted';
-};
-
-export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return lastMessage.parts.some((part) => isToolUIPart(part) && isToolExecuting(part));
-};
-
-const isToolExecuting = (part: UIToolPart) => {
-	return part.state === 'input-available' || (part.state === 'output-available' && part.preliminary === true);
-};
-
-export const isMessageStreaming = (message: UIMessage) => {
-	return message.parts.some((part) => {
-		if ('state' in part && (part.state === 'streaming' || part.state === 'input-streaming')) {
-			return true;
-		}
-	});
-};
-
 export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'status'>) => {
 	return agent.status === 'streaming' || agent.status === 'submitted';
 };

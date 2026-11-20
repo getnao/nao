@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { executeSemanticQuery, executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ import {
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
 } from '../../services/semantic-layer.service';
+import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { generateStorySlug } from '../../utils/story-mount';
@@ -186,6 +188,9 @@ function registerExecuteSql(
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
 		formatResult: (result) => formatQueryResult(ctx, result),
+		errorMessage: (error) => {
+			return error instanceof Error ? error.message : 'execute_sql failed. Please try again.';
+		},
 	});
 }
 
@@ -344,7 +349,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					return errorResult(story.error);
 				}
 
-				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);
+				await saveStandaloneStoryQuerySql(story, code, ctx);
 
 				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 				const output: StoryMcpToolPayload = {
@@ -445,7 +451,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
-			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx);
+			await cacheStoryQueryData(story, newCode, query_data, effectiveChatId, ctx);
+			await saveStandaloneStoryQuerySql(story, newCode, ctx);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
@@ -471,12 +478,13 @@ function errorResult(message: string): ToolResult {
 }
 
 async function cacheStoryQueryData(
-	storyId: string,
+	story: { id: string; isLive: boolean },
 	code: string,
 	queryData: StoryQueryDataMap | undefined,
 	chatId: string | null | undefined,
 	ctx: McpContext,
 ): Promise<void> {
+	const storyId = story.id;
 	const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyId);
 	const seededQueryData: StoryQueryDataMap = {
 		...((existingCache?.queryData as StoryQueryDataMap | null) ?? {}),
@@ -490,9 +498,21 @@ async function cacheStoryQueryData(
 	if (!resolvedQueryData) {
 		return;
 	}
-	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData);
+	const keptQuerySources = story.isLive ? (existingCache?.querySources ?? null) : null;
+	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData, undefined, keptQuerySources);
 	if (chatId) {
 		await pinQueryDataToChat(chatId, resolvedQueryData);
+	}
+}
+
+/** A standalone story keeps the SQL of its MCP queries, so it can go live without a chat to read it from. */
+async function saveStandaloneStoryQuerySql(
+	story: { id: string; chatId: string | null },
+	code: string,
+	ctx: McpContext,
+): Promise<void> {
+	if (!story.chatId) {
+		await copyMcpQueriesToStory(story.id, extractQueryIds(code), ctx);
 	}
 }
 

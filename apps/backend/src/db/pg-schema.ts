@@ -17,9 +17,11 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
+import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
+import type { executeSemanticQuery } from '@nao/shared/tools';
 import type {
 	AnalyticsEventMetadata,
 	AutomationEventTriggers,
@@ -131,6 +133,7 @@ import {
 	type WarehouseProvisioningModelSelection,
 	type WarehouseProvisioningStep,
 } from '../types/warehouse';
+import { pgEncryptedText } from './encrypted-text';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -144,6 +147,7 @@ export const user = pgTable('user', {
 	githubAccessToken: text('github_access_token'),
 	gitlabAccessToken: text('gitlab_access_token'),
 	deactivatedAt: timestamp('deactivated_at'),
+	twoFactorEnabled: boolean('two_factor_enabled').default(false).notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
@@ -222,6 +226,24 @@ export const verification = pgTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
+export const twoFactor = pgTable(
+	'two_factor',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		secret: text('secret').notNull(),
+		backupCodes: text('backup_codes').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		verified: boolean('verified').default(true).notNull(),
+		failedVerificationCount: integer('failed_verification_count').default(0).notNull(),
+		lockedUntil: timestamp('locked_until'),
+	},
+	(table) => [uniqueIndex('two_factor_user_id_unique').on(table.userId)],
+);
+
 export const organization = pgTable('organization', {
 	id: text('id')
 		.$defaultFn(() => crypto.randomUUID())
@@ -234,6 +256,8 @@ export const organization = pgTable('organization', {
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
 	bypassBilling: boolean('bypass_billing').default(false).notNull(),
 	license: text('license'),
+	twoFactorRequired: boolean('two_factor_required').default(false).notNull(),
+	twoFactorEmailCodes: boolean('two_factor_email_codes').default(true).notNull(),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
@@ -314,6 +338,7 @@ export const project = pgTable(
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
+		menuSettings: jsonb('menu_settings').$type<SidebarMenu>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
 		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
@@ -561,6 +586,10 @@ export const messagePart = pgTable(
 		toolRawInput: jsonb('tool_raw_input').$type<unknown>(),
 		toolOutput: jsonb('tool_output').$type<unknown>(),
 
+		// query tool columns: the result id, and its first rows when the result is too large to load with the chat
+		queryId: text('query_id'),
+		toolOutputPreview: jsonb('tool_output_preview').$type<unknown>(),
+
 		// tool approval columns
 		toolApprovalId: text('tool_approval_id'),
 		toolApprovalApproved: boolean('tool_approval_approved'),
@@ -579,6 +608,7 @@ export const messagePart = pgTable(
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
 		index('parts_message_id_order_idx').on(t.messageId, t.order),
+		index('parts_query_id_idx').on(t.queryId),
 		check(
 			'text_required_if_type_is_text',
 			sql`CASE WHEN ${t.type} = 'text' THEN ${t.text} IS NOT NULL ELSE TRUE END`,
@@ -707,6 +737,7 @@ export const projectLlmConfig = pgTable(
 						inputCacheWrite?: number;
 						output?: number;
 					};
+					contextWindow?: number;
 				}[]
 			>()
 			.default([])
@@ -1074,6 +1105,7 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
 	repoProvider: text('repo_provider').$type<RepoProvider>(),
+	encryptedGithubAccessToken: text('encrypted_github_access_token'),
 	autoCreatePrs: boolean('auto_create_prs'),
 	maxAutoPrsPerRun: integer('max_auto_prs_per_run'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -1299,6 +1331,8 @@ export const story = pgTable(
 		archivedAt: timestamp('archived_at'),
 		certifiedAt: timestamp('certified_at'),
 		certifiedBy: text('certified_by').references(() => user.id, { onDelete: 'set null' }),
+		transferredFromChatId: text('transferred_from_chat_id'),
+		transferredFromSlug: text('transferred_from_slug'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -1318,6 +1352,7 @@ export const story = pgTable(
 		index('story_projectId_idx').on(t.projectId),
 		index('story_userId_idx').on(t.userId),
 		index('story_scheduledJobId_idx').on(t.scheduledJobId),
+		index('story_transferredFrom_idx').on(t.transferredFromChatId, t.transferredFromSlug),
 	],
 );
 
@@ -1483,6 +1518,27 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const storyQuery = pgTable(
+	'story_query',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		queryId: text('query_id').notNull(),
+		sqlQuery: text('sql_query').notNull(),
+		databaseId: text('database_id'),
+		dialect: text('dialect'),
+		adminMode: boolean('admin_mode').default(false).notNull(),
+		semanticQuery: jsonb('semantic_query').$type<executeSemanticQuery.SemanticQuery>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.queryId] })],
+);
 
 export const storyFilterOptionsCache = pgTable(
 	'story_filter_options_cache',
@@ -2107,6 +2163,29 @@ export const oauthConsent = pgTable(
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
 
+/** OIDC providers of the better-auth SSO plugin, one per cloud organization, written by the backoffice only. */
+export const ssoProvider = pgTable('sso_provider', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	providerId: text('provider_id').notNull().unique(),
+	issuer: text('issuer').notNull(),
+	domain: text('domain').notNull(),
+	domainVerified: boolean('domain_verified').default(false).notNull(),
+	oidcConfig: pgEncryptedText('oidc_config'),
+	samlConfig: text('saml_config'),
+	userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+	organizationId: text('organization_id')
+		.notNull()
+		.unique()
+		.references(() => organization.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
 export const projectStoryTheme = pgTable(
 	'project_story_theme',
 	{
@@ -2344,4 +2423,26 @@ export const sandboxSecret = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date()),
 	},
 	(t) => [uniqueIndex('sandbox_secret_user_project_name_idx').on(t.userId, t.projectId, t.name)],
+);
+
+/** The web agent run of a chat, so a reader on another instance can find the instance running it. */
+export const agentStreamRun = pgTable('agent_stream_run', {
+	chatId: text('chat_id')
+		.primaryKey()
+		.references(() => chat.id, { onDelete: 'cascade' }),
+	streamId: text('stream_id').notNull(),
+	heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
+});
+
+/** Chunks of an agent run relayed for readers on other instances, kept only while they read them. */
+export const agentStreamChunk = pgTable(
+	'agent_stream_chunk',
+	{
+		streamId: text('stream_id').notNull(),
+		seq: integer('seq').notNull(),
+		chunks: jsonb('chunks').$type<unknown[]>().notNull(),
+		isFinal: boolean('is_final').default(false).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.streamId, t.seq] }), index('agent_stream_chunk_createdAt_idx').on(t.createdAt)],
 );

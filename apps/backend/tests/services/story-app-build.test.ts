@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 import { buildStoryApp, type StoryBuildResult, type StorySourceFile } from '../../src/services/story-app-build';
 
+const MACRO_IMPORT = 'import { label } from "./label.js" with { type: "macro" };';
+
 describe('buildStoryApp entry', () => {
 	it('builds an entry that default-exports a component', async () => {
 		const result = await buildStoryApp([
@@ -37,6 +39,41 @@ describe('buildStoryApp entry', () => {
 		const result = await buildStoryApp([{ path: 'index.html', content: documentWithBody('') }]);
 
 		expect(result).toEqual({ ok: false, errors: [expect.stringContaining('No entry file')] });
+	});
+
+	it.each<[string, StorySourceFile[]]>([
+		[
+			'a script entry',
+			[{ path: 'app.jsx', content: `${MACRO_IMPORT}\nexport default function App() { return label(); }` }],
+		],
+		[
+			'an inline html script',
+			[
+				{ path: 'nao.json', content: '{"entry": "index.html"}' },
+				{
+					path: 'index.html',
+					content: documentWithBody(
+						`<script type="module">${MACRO_IMPORT}\ndocument.title = label();</script>`,
+					),
+				},
+			],
+		],
+	])('refuses a build-time macro called from %s', async (_name, files) => {
+		const result = await buildStoryApp([
+			...files,
+			{ path: 'label.js', content: 'export function label() { return "built"; }' },
+		]);
+
+		expect(result).toEqual({ ok: false, errors: [expect.stringContaining('Macros are disabled')] });
+	});
+
+	it('reports a script that does not parse with its position', async () => {
+		const result = await buildStoryApp([{ path: 'app.jsx', content: 'export default function App( {' }]);
+
+		expect(result).toEqual({
+			ok: false,
+			errors: expect.arrayContaining([expect.stringMatching(/^app\.jsx:1:\d+ — /)]),
+		});
 	});
 });
 

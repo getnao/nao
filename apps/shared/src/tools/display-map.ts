@@ -1,6 +1,6 @@
 import z from 'zod/v3';
 
-import type { CustomBoundarySet } from '../map';
+import { BUILTIN_BOUNDARY_REGION_KEY_HINTS, type CustomBoundarySet } from '../map';
 
 export const MapTypeEnum = z.enum(['points', 'scatter_bubble', 'choropleth']);
 
@@ -24,7 +24,7 @@ export function buildInputObjectSchema(customSets?: CustomBoundarySet[]) {
 		` Omit when providing boundaries_url or geometry_key instead.`;
 
 	const regionKeyDescription =
-		`Column identifying each region for a "choropleth". For "world_countries" match an ISO 3166-1 alpha-3/alpha-2 code or country name; for "france_regions" match the region code or name.` +
+		`Column identifying each region for a "choropleth". For "world_countries" match ${BUILTIN_BOUNDARY_REGION_KEY_HINTS.world_countries}; for "france_regions" match ${BUILTIN_BOUNDARY_REGION_KEY_HINTS.france_regions}.` +
 		customGuidance;
 
 	return z.object({
@@ -141,6 +141,38 @@ export function buildInputSchema(customSets?: CustomBoundarySet[]) {
 }
 
 export const InputSchema = buildInputSchema();
+
+/** Lists the columns `InputSchema` requires for the input's map_type that the input leaves out. */
+export function getMissingMapAttributes(input: Input): string[] {
+	const result = InputSchema.safeParse(withBuiltinRegionBoundaries(input));
+	if (result.success) {
+		return [];
+	}
+	return result.error.issues.flatMap(describeMissingAttribute);
+}
+
+const CHOROPLETH_BOUNDARY_ATTRIBUTES = 'region_key with region_boundaries or boundaries_url, or geometry_key';
+
+/**
+ * Only the presence of region_boundaries matters for missing columns. A project's custom set fails the
+ * built-in enum, which would stop the schema before it checks the required columns.
+ */
+function withBuiltinRegionBoundaries(input: Input): Input {
+	if (!input.region_boundaries) {
+		return input;
+	}
+	return { ...input, region_boundaries: RegionBoundariesEnum.options[0] };
+}
+
+function describeMissingAttribute(issue: z.ZodIssue): string[] {
+	if (issue.code === z.ZodIssueCode.invalid_type && issue.received === 'undefined') {
+		return [issue.path.join('.')];
+	}
+	if (issue.message === CHOROPLETH_BOUNDARY_MESSAGE.message) {
+		return [CHOROPLETH_BOUNDARY_ATTRIBUTES];
+	}
+	return [];
+}
 
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),

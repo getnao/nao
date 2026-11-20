@@ -726,6 +726,7 @@ describe('user group queries', () => {
 				stalePolicies,
 				undefined,
 				undefined,
+				undefined,
 				validatedRegistry,
 			),
 		).rejects.toMatchObject({ code: 'CONFLICT' });
@@ -879,6 +880,7 @@ describe('user group queries', () => {
 			shareTargets: { includeOwnGroup: true, groupIds: [] },
 			showAllSettings: false,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 		expect(storedUpdated.contextGrants).toEqual({
 			version: 7,
@@ -1186,6 +1188,7 @@ describe('user group queries', () => {
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			showAllSettings: true,
+			advancedContextExplorer: true,
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
@@ -1420,28 +1423,34 @@ describe('user group queries', () => {
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual(['automationCreation']);
 	});
 
-	it('shows all settings through All Users until it is turned off', async () => {
-		const overview = await getUserGroupOverview(PROJECT_ID);
-		expect(overview.groups[0].showAllSettings).toBe(true);
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
+		'grants %s through All Users until it is turned off',
+		async (setting) => {
+			const overview = await getUserGroupOverview(PROJECT_ID);
+			expect(overview.groups[0][setting]).toBe(true);
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(true);
 
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
+			await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], [setting]: false });
 
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
-	});
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(false);
+		},
+	);
 
-	it('follows the current group memberships when granting all settings', async () => {
-		const overview = await getUserGroupOverview(PROJECT_ID);
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
-		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
-		await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: [], showAllSettings: true });
+	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
+		'follows the current group memberships when granting %s',
+		async (setting) => {
+			const overview = await getUserGroupOverview(PROJECT_ID);
+			await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], [setting]: false });
+			const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+			await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: [], [setting]: true });
 
-		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+			await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(true);
 
-		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
-	});
+			await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(false);
+		},
+	);
 
 	it('adds and removes several users at once while keeping SSO memberships', async () => {
 		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');

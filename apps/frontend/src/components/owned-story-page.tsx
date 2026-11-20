@@ -187,8 +187,12 @@ export function OwnedStoryPage({
 					isRestoreDisabled: !presence.canEdit,
 				}}
 				elementSelection={
-					canSelectElements
-						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+					showAskBar
+						? {
+								isSelecting: canSelectElements && isSelectingElements,
+								onSelectingChange: setIsSelectingElements,
+								disabled: !canSelectElements,
+							}
 						: undefined
 				}
 			/>
@@ -268,8 +272,7 @@ export function OwnedStoryPage({
 					<LiveStorySettingsDialog
 						open={isLiveSettingsOpen}
 						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
+						story={{ chatId, storySlug }}
 						isLive={isLive}
 						isLiveTextDynamic={isLiveTextDynamic}
 						cacheSchedule={liveCacheSchedule}

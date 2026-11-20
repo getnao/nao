@@ -19,7 +19,7 @@ import {
 import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
-import { useCustomStory } from '@/components/custom-story/use-custom-story';
+import { useCustomStory, useStandaloneCustomStoryVersions } from '@/components/custom-story/use-custom-story';
 import { useCustomStoryDownload } from '@/components/custom-story/use-custom-story-download';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareDialog } from '@/components/share-dialog';
@@ -224,8 +224,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 					<LiveStorySettingsDialog
 						open={isLiveSettingsOpen}
 						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
+						story={{ chatId, storySlug }}
 						isLive={live.isLive}
 						isLiveTextDynamic={live.isLiveTextDynamic}
 						cacheSchedule={live.cacheSchedule}
@@ -241,9 +240,14 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 
 /** A custom story of the user outside any chat: it renders from the rows saved with it and is edited in a new chat. */
 export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
-	const storyQuery = useQuery(trpc.standaloneCustomStory.listVersions.queryOptions({ storyId }));
-	const contentQuery = useQuery(trpc.standaloneCustomStory.getVersion.queryOptions({ storyId }));
-	const story = storyQuery.data;
+	const versionNav = useStandaloneCustomStoryVersions(storyId);
+	const contentQuery = useQuery(
+		trpc.standaloneCustomStory.getVersion.queryOptions({
+			storyId,
+			versionNumber: versionNav.selectedVersion ?? undefined,
+		}),
+	);
+	const story = versionNav.storyQuery.data;
 	const content = contentQuery.data;
 	const versionNumber = content?.version.number;
 	const storySlug = story?.slug ?? '';
@@ -252,9 +256,18 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 		[storyId, storySlug, versionNumber],
 	);
 	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
+	const sharing = useStoryViewerSharing({ storyId });
+	const live = useStoryViewerLiveSettings({ storyId });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: content?.needsRefresh ?? false,
+		isRefreshing: live.isRefreshing,
+		refresh: live.handleRefreshData,
+	});
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const renderExport = useCallback(
 		(format: DownloadFormat, html: string) =>
 			trpcClient.standaloneCustomStory.download.mutate({ storyId, format, html, versionNumber }),
@@ -289,14 +302,33 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 					isOpeningInChat: openInChat.isOpening,
 				}}
 				canDuplicate={!isArchived && customStoryCreationEnabled}
+				viewedVersionNumber={versionNumber}
+				live={{
+					isLive: live.isLive,
+					cachedAt: content?.cachedAt,
+					lastRefreshFailure: content?.lastRefreshFailure,
+					isRefreshing: live.isRefreshing,
+					isUpdating: live.isUpdating,
+					onRefresh: live.handleRefreshData,
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
 				download={{ storyId, isOwner: true, onDownload: download }}
 				storyId={storyId}
 				canRename
+				isShared={sharing.isShared}
+				onShare={() => sharing.setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
 				elementSelection={
 					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
 				}
+				versionControls={{
+					currentVersion: versionNav.currentVersion,
+					versions: versionNav.versions,
+					versionDate: versionNav.versionDate,
+					isViewingLatest: versionNav.isViewingLatest,
+					onSelectVersion: versionNav.goToVersion,
+				}}
 			/>
 
 			<div className='relative flex min-h-0 flex-1 flex-col'>
@@ -328,11 +360,27 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				{!isArchived && <StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />}
 			</div>
 
+			<ShareDialog
+				open={sharing.isShareDialogOpen}
+				onOpenChange={sharing.setIsShareDialogOpen}
+				target={{ kind: 'standalone-story', storyId }}
+			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
 				onOpenChange={setIsAnalyticsOpen}
 				assetType='story'
 				storyId={storyId}
+			/>
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				story={{ storyId }}
+				isLive={live.isLive}
+				isLiveTextDynamic={live.isLiveTextDynamic}
+				cacheSchedule={live.cacheSchedule}
+				cacheScheduleDescription={live.cacheScheduleDescription}
+				isUpdating={live.isUpdating}
+				onSaveSettings={live.handleSaveSettings}
 			/>
 		</div>
 	);

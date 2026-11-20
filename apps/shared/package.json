@@ -16,10 +16,13 @@
 		"./chart-types": "./src/chart-types.ts",
 		"./chart-values": "./src/chart-values.ts",
 		"./color": "./src/color.ts",
+		"./context-file-header": "./src/context-file-header.ts",
+		"./context-editor": "./src/context-editor.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
 		"./map": "./src/map.ts",
+		"./sidebar-menu": "./src/sidebar-menu.ts",
 		"./test-paths": "./src/test-paths.ts",
 		"./types": "./src/types.ts",
 		"./member-budget": "./src/member-budget.ts",
@@ -49,6 +52,7 @@
 		"./story-validation": "./src/story-validation.ts",
 		"./rules-template": "./src/rules-template.ts",
 		"./slack-channels": "./src/slack-channels.ts",
+		"./sql-query-tag": "./src/sql-query-tag.ts",
 		"./sql-template": "./src/sql-template.ts",
 		"./execute-sql-parts": "./src/execute-sql-parts.ts",
 		"./user-group-license": "./src/user-group-license.ts"
@@ -62,6 +66,7 @@
 	"dependencies": {
 		"culori": "^4.0.2",
 		"d3-format": "^3.1.0",
+		"yaml": "^2.8.3",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {

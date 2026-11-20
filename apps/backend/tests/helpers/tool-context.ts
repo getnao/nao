@@ -20,7 +20,7 @@ export function createToolContext(overrides: Partial<ToolContext> = {}): ToolCon
 		skillsAccess: { mode: 'all' },
 		userGroupFeatures: [],
 		userRulesGroupAccess: { enforced: false },
-		azureAccessToken: null,
+		warehouseAccessToken: null,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
 		...overrides,

@@ -16,6 +16,7 @@ import {
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
+	readFileHeads,
 	searchFileContents,
 	writeFileContent,
 } from '../../src/services/context-explorer.service';
@@ -29,6 +30,15 @@ import {
 	writeFiles,
 } from '../helpers/context-git-fixture';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
+
+const LIVE_NAO_CONFIG = [
+	'name: live',
+	'repos:',
+	'  - name: business',
+	'    url: https://github.com/acme/business',
+	'    targets: [{ source: nao/tests, target: tests/business }]',
+	'',
+].join('\n');
 
 describe('context explorer worktree writes', () => {
 	const createTemporaryFolder = useTemporaryFolders();
@@ -48,10 +58,11 @@ describe('context explorer worktree writes', () => {
 			'docs/notion/page.md': 'notion\n',
 			'docs/confluence/page.md': 'confluence\n',
 			'docs/obsidian/note.md': 'obsidian\n',
+			'tests/business/orders.yml': 'prompt: orders\n',
 			'.gitignore': 'ignored\n',
 		});
 		writeFiles(fixture.live, {
-			'nao_config.yaml': 'name: live\n',
+			'nao_config.yaml': LIVE_NAO_CONFIG,
 			'context.md': 'live content\n',
 			'generated.md': '---\ntype: generated\n---\nlive generated\n',
 			'annotations.md': 'live notes\n',
@@ -61,6 +72,7 @@ describe('context explorer worktree writes', () => {
 			'docs/notion/page.md': 'live notion\n',
 			'docs/confluence/page.md': 'live confluence\n',
 			'docs/obsidian/note.md': 'live obsidian\n',
+			'tests/business/orders.yml': 'prompt: live orders\n',
 			'untracked.md': 'live only\n',
 			'.env': 'secret\n',
 			'nested/.env.local': 'nested secret\n',
@@ -84,6 +96,15 @@ describe('context explorer worktree writes', () => {
 		expectLiveUnchanged(fixture.live, liveSnapshot);
 	});
 
+	it('reads the head of each file where the explorer reads it, leaving out the files it cannot read', async () => {
+		const heads = await readFileHeads(['/context.md', '/untracked.md', '/missing.md', '/../outside.md'], access);
+
+		expect(heads).toEqual([
+			{ path: '/context.md', content: 'repository content\n' },
+			{ path: '/untracked.md', content: 'live only\n' },
+		]);
+	});
+
 	it('creates new files as editable worktree drafts without touching the live project', async () => {
 		const created = await createDraftFile('/tests/new/revenue.yml', 'name: revenue\n', access);
 		const draft = await readFileContent('/tests/new/revenue.yml', access);
@@ -98,6 +119,9 @@ describe('context explorer worktree writes', () => {
 			code: 'CONFLICT',
 		});
 		await expect(createDraftFile('/.env.test', 'secret\n', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(createDraftFile('/tests/business/refunds.yml', 'synced\n', access)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
 		await expect(createDraftFile('../outside.yml', 'outside\n', access)).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
@@ -213,6 +237,7 @@ describe('context explorer worktree writes', () => {
 		['/docs/notion/page.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/docs/confluence/page.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/docs/obsidian/note.md', 'synced-source', 'file', '/nao_config.yaml'],
+		['/tests/business/orders.yml', 'synced-source', 'file', '/nao_config.yaml'],
 		['/untracked.md', 'not-tracked', null, null],
 	])('reports guidance for %s', async (filePath, reason, actionKind, actionPath) => {
 		const file = await readFileContent(filePath, access);

@@ -260,6 +260,12 @@ class RedshiftConfig(DatabaseConfig):
                 )
         return self
 
+    def requires_user_access_token(self) -> bool:
+        return self.auth_mode == RedshiftAuthMode.AZURE_ENTRA_ID
+
+    def has_sync_credentials(self) -> bool:
+        return self.auth_mode == RedshiftAuthMode.IAM or bool(self.user and self.password)
+
     @classmethod
     def promptConfig(cls) -> "RedshiftConfig":
         """Interactively prompt the user for Redshift configuration."""

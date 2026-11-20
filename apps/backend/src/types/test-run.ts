@@ -6,8 +6,11 @@ import type { ActiveEffort, ReasoningEffort } from './llm';
 export const TEST_RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
 export type TestRunStatus = (typeof TEST_RUN_STATUSES)[number];
 
-/** `changes` runs tests against the production context with the user's changes only, without comparing. */
-export const TEST_RUN_TRIGGERS = ['manual', 'draft', 'comparison', 'changes'] as const;
+/**
+ * `changes` runs tests against the production context with the user's changes only, without comparing. `scheduled`
+ * runs are the ones the project's test schedule starts against the production context.
+ */
+export const TEST_RUN_TRIGGERS = ['manual', 'draft', 'comparison', 'changes', 'scheduled'] as const;
 export type TestRunTrigger = (typeof TEST_RUN_TRIGGERS)[number];
 
 /** The context an attempt ran against: the production one, or the production one with the user's changes. */
@@ -214,8 +217,30 @@ export interface ConfiguredTestSettings {
 	/** Null when the project does not set the threads, so the run picks them from its models. */
 	threads: number | null;
 	tolerances: TestComparisonTolerances;
+	schedules: TestScheduleSettings[];
 	/** Invalid values of the `test` block, which `nao test` rejects too. */
 	errors: string[];
+}
+
+/**
+ * When a schedule runs the tests, and which: the ones with one of the tags, or the whole suite without any. Its models
+ * and attempts are null when it leaves them to the test settings of the project, as a schedule of nao_config.yaml may.
+ */
+export interface TestScheduleSettings {
+	/** In the timezone of the server. */
+	cron: string;
+	tags: string[];
+	models: TestModelSelection[] | null;
+	attempts: number | null;
+}
+
+export interface TestSchedule extends TestScheduleSettings {
+	id: string;
+	/** Schedules of the `test.schedules` list of nao_config.yaml are changed there, the others in the app. */
+	source: 'app' | 'config';
+	isEnabled: boolean;
+	/** Null while the schedule is paused. */
+	nextRunAt: Date | null;
 }
 
 export interface TestDefinition {

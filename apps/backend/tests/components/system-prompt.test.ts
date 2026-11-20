@@ -5,6 +5,10 @@ import { SystemPrompt } from '../../src/components/ai/system-prompt';
 import { renderToMarkdown } from '../../src/lib/markdown';
 import { formatCurrentDate, resolveTimezone } from '../../src/utils/date';
 
+function getRulesLine(markdown: string): string {
+	return markdown.split('\n').find((line) => line.startsWith('- `RULES.md` —')) ?? '';
+}
+
 function getTemplateLine(markdown: string, template: string): string {
 	return markdown.split('\n').find((line) => line.includes(`\`${template}.md\` —`)) ?? '';
 }
@@ -254,6 +258,23 @@ describe('SystemPrompt context structure', () => {
 
 		expect(markdown).not.toContain('`repos/<name>/`');
 		expect(markdown).not.toContain('— source repositories;');
+	});
+
+	it('tells the agent not to read RULES.md once its content is injected', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ userRules: 'Always answer in euros.', internalSkills: [] }));
+		const rulesSection = markdown.slice(markdown.indexOf('## User Rules'));
+
+		expect(getRulesLine(markdown)).toContain('already in the **User Rules** section');
+		expect(getRulesLine(markdown)).not.toContain('read it for project conventions');
+		expect(rulesSection).toContain('never read `RULES.md` with a tool');
+		expect(rulesSection).toContain('Always answer in euros.');
+	});
+
+	it('tells the agent to read RULES.md when its content is not injected', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
+
+		expect(getRulesLine(markdown)).toContain('read it for project conventions');
+		expect(markdown).not.toContain('## User Rules');
 	});
 });
 
@@ -548,6 +569,35 @@ describe('SystemPrompt follow-up suggestions rules', () => {
 
 	it('omits the rule when the run excludes the tool', () => {
 		expect(renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }))).not.toContain('suggest_follow_ups');
+	});
+});
+
+describe('SystemPrompt map boundaries', () => {
+	const uploadedSet = {
+		key: 'french_postal_codes',
+		label: 'French postal codes',
+		file: { name: 'postal.geojson', size: 1024, storageKey: 'projects/p1/map-boundaries/a.geojson' },
+		joinProperty: 'code_postal',
+		regionKeyHint: '5-digit French postal code',
+		featureCount: 6000,
+	};
+
+	it('lists built-in and custom sets with how to join them, without their geometry', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({ mapBoundaries: [uploadedSet], options: { customStoriesEnabled: true } }),
+		);
+
+		expect(markdown).toContain('## Map boundaries');
+		expect(markdown).toContain('**world_countries** (built-in)');
+		expect(markdown).toContain(
+			'**french_postal_codes** (uploaded, 6000 features): French postal codes. Join property: code_postal.',
+		);
+		expect(markdown).toContain('useMapBoundary("key")');
+		expect(markdown).not.toContain(uploadedSet.file.storageKey);
+	});
+
+	it('leaves the prompt unchanged when the project has no custom set', () => {
+		expect(renderToMarkdown(SystemPrompt({}))).not.toContain('## Map boundaries');
 	});
 });
 

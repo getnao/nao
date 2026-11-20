@@ -1,7 +1,10 @@
 import { LangfuseSpanProcessor } from '@langfuse/otel';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { resourceFromAttributes } from '@opentelemetry/resources';
+import { BatchSpanProcessor, NodeTracerProvider, type SpanProcessor } from '@opentelemetry/sdk-trace-node';
 
 import { env } from './env';
+import { REQUEST_TRACER_NAME } from './middleware/request-tracing';
 import { DataToolRedactingSpanProcessor } from './utils/langfuse-redaction';
 
 /**
@@ -15,7 +18,7 @@ import { DataToolRedactingSpanProcessor } from './utils/langfuse-redaction';
 const keysPresent = Boolean(env.LANGFUSE_PUBLIC_KEY && env.LANGFUSE_SECRET_KEY);
 const baseUrl = env.LANGFUSE_BASE_URL;
 
-export const langfuseSpanProcessor = keysPresent && baseUrl ? new LangfuseSpanProcessor({ baseUrl }) : undefined;
+const langfuseSpanProcessor = keysPresent && baseUrl ? new LangfuseSpanProcessor({ baseUrl }) : undefined;
 
 if (keysPresent && !baseUrl) {
 	console.warn(
@@ -24,13 +27,29 @@ if (keysPresent && !baseUrl) {
 	);
 }
 
-if (langfuseSpanProcessor) {
+/**
+ * Request traces go to any OpenTelemetry backend once OTEL_EXPORTER_OTLP_ENDPOINT is set; the
+ * exporter reads its credentials from OTEL_EXPORTER_OTLP_HEADERS. Only request spans are exported:
+ * LLM spans carry prompts and responses, so they only ever reach Langfuse.
+ */
+export const requestTracingEnabled = Boolean(env.OTEL_EXPORTER_OTLP_ENDPOINT);
+
+const spanProcessors: SpanProcessor[] = [
+	...(langfuseSpanProcessor ? [new DataToolRedactingSpanProcessor(langfuseSpanProcessor)] : []),
+	...(requestTracingEnabled ? [onlyRequestSpans(new BatchSpanProcessor(new OTLPTraceExporter()))] : []),
+];
+
+if (spanProcessors.length > 0) {
 	const tracerProvider = new NodeTracerProvider({
-		spanProcessors: [new DataToolRedactingSpanProcessor(langfuseSpanProcessor)],
+		resource: resourceFromAttributes({
+			'service.name': env.OTEL_SERVICE_NAME,
+			'service.version': env.APP_VERSION,
+		}),
+		spanProcessors,
 	});
 	tracerProvider.register();
 
-	// The processor batches and flushes on its own interval; this only guards
+	// The processors batch and flush on their own interval; this only guards
 	// the final buffer on a clean exit. Signal-driven shutdown (SIGTERM/SIGINT,
 	// the normal path in Docker) does not fire `beforeExit`, so the server's
 	// graceful shutdown hook calls `flushTelemetry` explicitly.
@@ -38,13 +57,41 @@ if (langfuseSpanProcessor) {
 		void flushTelemetry();
 	});
 
-	console.log(`✓ Langfuse tracing enabled → ${baseUrl}`);
+	if (langfuseSpanProcessor) {
+		console.log(`✓ Langfuse tracing enabled → ${baseUrl}`);
+	}
+	if (requestTracingEnabled) {
+		console.log(`✓ Request tracing enabled → ${env.OTEL_EXPORTER_OTLP_ENDPOINT}`);
+	}
 }
 
 export async function flushTelemetry(): Promise<void> {
 	try {
-		await langfuseSpanProcessor?.forceFlush();
+		await Promise.all(
+			spanProcessors.map((processor) => {
+				return processor.forceFlush();
+			}),
+		);
 	} catch {
 		// Flushing traces must never block or fail shutdown.
 	}
+}
+
+export function onlyRequestSpans(processor: SpanProcessor): SpanProcessor {
+	return {
+		onStart(span, parentContext) {
+			processor.onStart(span, parentContext);
+		},
+		onEnd(span) {
+			if (span.instrumentationScope.name === REQUEST_TRACER_NAME) {
+				processor.onEnd(span);
+			}
+		},
+		forceFlush() {
+			return processor.forceFlush();
+		},
+		shutdown() {
+			return processor.shutdown();
+		},
+	};
 }

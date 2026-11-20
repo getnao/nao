@@ -27,6 +27,7 @@ const GROUP_ID = 'group-share-group';
 const SHARE_ID = 'group-share-share';
 
 beforeAll(seed);
+beforeAll(loadLockedGroupAvailability);
 
 afterAll(() => {
 	db.$client.close();
@@ -93,4 +94,12 @@ async function seed() {
 	await db.insert(s.sharedChat).values({ id: SHARE_ID, chatId: 'group-share-chat', visibility: 'specific' });
 	await db.insert(s.sharedChatAccess).values({ sharedChatId: SHARE_ID, userId: DIRECT_RECIPIENT_ID });
 	await db.insert(s.sharedChatGroupAccess).values({ sharedChatId: SHARE_ID, groupId: GROUP_ID });
+}
+
+/**
+ * The access checks import the user group availability on first use, which loads much of the app. Loading it here
+ * keeps that cold import out of the time limit of the first test.
+ */
+async function loadLockedGroupAvailability() {
+	await import('../../src/services/user-group-availability.service');
 }

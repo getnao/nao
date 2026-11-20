@@ -179,7 +179,7 @@ describe('project accessible users', () => {
 				orgId: null,
 				name: 'Jaffle Shop',
 				type: 'local',
-				path: '/tmp/jaffle-shop',
+				path: '/tmp/pau',
 			})
 			.onConflictDoNothing();
 		await db
@@ -188,7 +188,7 @@ describe('project accessible users', () => {
 
 		const projects = await listUserProjectsWithRoles('pau-direct');
 
-		expect(projects.map(({ project }) => project.id)).toEqual(['pau-proj', 'pau-solo']);
+		expect(projects.map(({ project }) => project.id)).toEqual(['pau-proj']);
 	});
 
 	it('returns inherited organization roles in organization project listings', async () => {
