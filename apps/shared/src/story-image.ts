@@ -47,7 +47,7 @@ const BUCKET_SOURCE_PATTERN = /^(gs|s3):\/\/([^/?#]+)(\/[^?#]*)?$/i;
 const SOURCE_CANDIDATE_PATTERN = /\b(?:gs|s3|https):\/\/[^\s"'`<>()[\]{}\\^|]+/gi;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 const ENCODED_SEPARATOR_PATTERN = /%2f|%5c/i;
-const IMAGE_CALL_PATTERN = /<Image\b|\(Image\b|\.image\(/;
+const IMAGE_CALL_PATTERN = /\bImage\b|\.image\(/;
 
 /** Data and blob URLs already live in the frame: the story shows them without asking the host. */
 export function isInlineStoryImage(src: string): boolean {
