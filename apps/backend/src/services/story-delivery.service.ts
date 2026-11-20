@@ -3,6 +3,7 @@ import type { NotificationChannel } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
 import type { DBStory } from '../db/abstractSchema';
+import { STORY_DELIVERY_JOB_NAME } from '../handlers/story-delivery.handler';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
@@ -22,8 +23,6 @@ import {
 import { nextCronTick } from './scheduler.service';
 import { assertShareableUserGroupIds } from './shareable-user-groups.service';
 import { resolveSpecificRecipientUserIds } from './story-recipients';
-
-export const STORY_DELIVERY_JOB_NAME = 'story.deliver';
 
 export interface StoryDeliverySettings {
 	enabled: boolean;

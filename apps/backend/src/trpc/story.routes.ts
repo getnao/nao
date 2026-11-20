@@ -14,6 +14,7 @@ import * as storyQueries from '../queries/story.queries';
 import type { StoryEditHolder } from '../queries/story-edit-lock.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import { agentService } from '../services/agent';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
@@ -43,6 +44,7 @@ import {
 	requireStoryById,
 } from '../services/live-story';
 import { listShareableGroups } from '../services/project-sharing.service';
+import { listSharedStoriesForViewer } from '../services/shared-story.service';
 import {
 	appendCustomStoryBlock,
 	editCustomStoryBlock,
@@ -91,7 +93,6 @@ import {
 	transferStory,
 } from '../services/story-transfer.service';
 import { listStoryVersionChanges } from '../services/story-version-history';
-import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
@@ -1104,7 +1105,7 @@ export const storyRoutes = {
 			actorUserId: ctx.user.id,
 			billingAccessVerifiedProjectId: ctx.projectId,
 		});
-		await storyQueries.deleteStoryViewerDataCache(story.id);
+		await storyViewerDataCacheQueries.deleteStoryViewerDataCache(story.id);
 		return result;
 	}),
 
@@ -1116,7 +1117,7 @@ export const storyRoutes = {
 				actorUserId: ctx.user.id,
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
-			await storyQueries.deleteStoryViewerDataCache(story.id);
+			await storyViewerDataCacheQueries.deleteStoryViewerDataCache(story.id);
 			return result;
 		}),
 
@@ -1269,25 +1270,7 @@ export const storyRoutes = {
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
-		const items = stories.map((story) => ({
-			...story,
-			storySlug: story.slug,
-			summary: extractStorySummary(story.code),
-			sharing: {
-				visibility: story.visibility,
-				sharedWithCount: story.sharedWithCount,
-				sharedWithGroupCount: story.sharedWithGroupCount,
-				isPinned: story.isPinned,
-			},
-		}));
-		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(ctx.project.id, ctx.user.id);
-		const storiesWithPreview = hasViewerRestrictions
-			? items.map((story) => ({ ...story, kpiPreviewData: null }))
-			: await withKpiPreviewData(items, (story) => story.storyId);
-		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
-			...story,
-			canShowThumbnail: !hasViewerRestrictions || ownerUserId === ctx.user.id,
-		}));
+		return listSharedStoriesForViewer(stories, ctx.project.id, ctx.user.id);
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {

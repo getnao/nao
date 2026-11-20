@@ -12,13 +12,15 @@ import { env } from '../env';
 import type { StoredSqlQuery } from '../queries/execute-sql.queries';
 import * as storyQueries from '../queries/story.queries';
 import {
-	availableStoryQueryData,
 	createOwnerExecutionContext,
 	createStoryExecutionContext,
+	createViewerExecutionContext,
 	executeStoryQueries,
-	requiresViewerStoryData,
+	omitAccessDeniedQueries,
 	resolveChatQueryScope,
+	resolveRestrictedViewerId,
 	resolveStoryQueryScope,
+	runBy,
 	type StoryExecutionContext,
 	type StoryQueryData,
 	type StoryQueryScope,
@@ -97,21 +99,17 @@ async function executeFilteredQueries(
 	selections: StoryFilterSelections,
 	executionOptions: StoryFilterExecutionOptions,
 ): Promise<StoryQueryData> {
-	const viewerUserId =
-		executionOptions.viewerUserId &&
-		story.chatId &&
-		(await requiresViewerStoryData(story.chatId, executionOptions.viewerUserId))
-			? executionOptions.viewerUserId
-			: undefined;
-	const baseScope = await story.resolveScope();
-	const scope = viewerUserId ? { ...baseScope, ownerId: viewerUserId } : baseScope;
-	const executionContext =
-		viewerUserId && story.chatId
-			? await createStoryExecutionContext(story.chatId, viewerUserId)
-			: await story.createExecutionContext();
+	const viewerUserId = story.chatId
+		? await resolveRestrictedViewerId(story.chatId, executionOptions.viewerUserId)
+		: undefined;
+	const ownerScope = await story.resolveScope();
+	const scope = viewerUserId ? runBy(ownerScope, viewerUserId) : ownerScope;
+	const executionContext = viewerUserId
+		? await createViewerExecutionContext(scope, viewerUserId)
+		: await story.createExecutionContext();
 	const specs = filterSpecsFromCode(story.code);
 
-	return availableStoryQueryData(
+	return omitAccessDeniedQueries(
 		await executeStoryQueries(scope, story.sqlQueries, {
 			executionContext,
 			renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),

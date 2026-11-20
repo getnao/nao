@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "207e5295-92a2-45c5-b26a-03dc26299393",
+  "id": "216243fa-8b55-4ab7-8d54-194f07c77de0",
   "prevId": "2e2b86ad-a450-4288-a969-b305b678be06",
   "tables": {
     "account": {
@@ -8850,14 +8850,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "viewer_cache_revision": {
-          "name": "viewer_cache_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "scheduled_job_id": {
           "name": "scheduled_job_id",
           "type": "text",
@@ -10465,14 +10457,7 @@
           "name": "code",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "query_sources": {
-          "name": "query_sources",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "analysis_results": {

@@ -37,6 +37,7 @@ vi.mock('../../src/queries/shared-story.queries', () => ({
 vi.mock('../../src/queries/story.queries', () => ({
 	getStoryDataCacheByStoryId: mocks.getStoryDataCacheByStoryId,
 	getVersionByStoryIdAndNumber: mocks.getVersionByStoryIdAndNumber,
+	getStoryQueryDataByStoryIds: vi.fn(async () => new Map()),
 }));
 vi.mock('../../src/queries/story-folder.queries', () => ({}));
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
@@ -225,6 +226,7 @@ describe('storyShare custom story readers', () => {
 			'q_revenue',
 			undefined,
 			'viewer-1',
+			undefined,
 		);
 		expect(mocks.getSharedCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue', 'viewer-1');
 		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();

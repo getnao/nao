@@ -45,7 +45,9 @@ vi.mock('../../src/services/live-story', () => ({
 	resolveChatQueryScope: mocks.resolveChatQueryScope,
 	resolveStoryQueryScope: mocks.resolveStoryQueryScope,
 	executeRawSql: mocks.executeRawSql,
-	requiresViewerStoryData: mocks.hasRowSecurity,
+	resolveRestrictedViewerId: async (chatId: string, viewerUserId?: string) =>
+		viewerUserId && (await mocks.hasRowSecurity(chatId, viewerUserId)) ? viewerUserId : undefined,
+	runBy: (scope: object, userId: string) => ({ ...scope, ownerId: userId }),
 	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
 	isCacheExpired: () => false,
 }));
@@ -327,6 +329,30 @@ describe('getStoryFilterOptions', () => {
 				'LIMIT 101 OFFSET 101',
 			);
 		}
+	});
+
+	it('stops paging a query-backed search whose pattern keeps matching rows the text does not', async () => {
+		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_customer_options: {
+				sqlQuery: 'SELECT customer AS value FROM customers',
+				dialect: 'bigquery',
+				adminMode: false,
+			},
+		});
+		mocks.executeStoryQueries.mockResolvedValue({
+			query_customer_options: {
+				columns: ['value'],
+				data: Array.from({ length: 101 }, (_, index) => ({ value: `customer ${index}` })),
+			},
+		});
+
+		await expect(getStoryFilterOptions('chat-1', 'story', 'customer', { search: '_' })).resolves.toEqual({
+			options: [],
+			isComplete: true,
+		});
+		expect(mocks.executeStoryQueries).toHaveBeenCalledTimes(10);
 	});
 
 	it('applies the parent selection to a query-backed child filter', async () => {

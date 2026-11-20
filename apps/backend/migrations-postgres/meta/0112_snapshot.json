@@ -1,5 +1,5 @@
 {
-  "id": "86f378ef-b9b8-44c9-80ad-3d2b3998b0e7",
+  "id": "ca31121d-3a76-49ee-bcf2-54c67a43cb96",
   "prevId": "22da9574-6075-434f-938a-f2f650adecd9",
   "version": "7",
   "dialect": "postgresql",
@@ -9507,13 +9507,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "viewer_cache_revision": {
-          "name": "viewer_cache_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "scheduled_job_id": {
           "name": "scheduled_job_id",
           "type": "text",
@@ -11257,13 +11250,7 @@
           "name": "code",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "query_sources": {
-          "name": "query_sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "analysis_results": {
           "name": "analysis_results",

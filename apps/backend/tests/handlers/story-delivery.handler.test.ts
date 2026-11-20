@@ -1,3 +1,4 @@
+import { STORY_VIEWER_RESTRICTED_CODE_MARKER, VIEWER_NARRATIVE_PLACEHOLDER } from '@nao/shared/story-viewer-restrictions';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import type { DBStory } from '../../src/db/abstractSchema';
@@ -6,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryById: vi.fn<(_storyId: string) => Promise<DBStory | undefined>>(),
 	notifyUsers: vi.fn(),
 	refreshStoryById: vi.fn(),
-	refreshStoryDataForDelivery: vi.fn(),
+	refreshStoryForViewer: vi.fn(),
 	hasRowSecurity: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	resolveDeliveryRecipientUserIds: vi.fn(),
@@ -44,7 +45,9 @@ vi.mock('../../src/services/custom-story-export', () => ({
 }));
 vi.mock('../../src/services/live-story', () => ({
 	refreshStoryById: mocks.refreshStoryById,
-	refreshStoryDataForDelivery: mocks.refreshStoryDataForDelivery,
+	refreshStoryForViewer: mocks.refreshStoryForViewer,
+	omitAccessDeniedQueries: (queryData: Record<string, { accessDenied?: true }>) =>
+		Object.fromEntries(Object.entries(queryData).filter(([, result]) => !result.accessDenied)),
 }));
 vi.mock('../../src/services/notification.service', () => ({
 	NotificationChannelDeliveryError: class extends Error {
@@ -79,7 +82,6 @@ import {
 	resolveStoryDeliveryProjectId,
 	runScheduledStoryDelivery,
 	storyDeliveryHandler,
-	StoryRecipientDeliveryError,
 } from '../../src/handlers/story-delivery.handler';
 import { NotificationChannelDeliveryError } from '../../src/services/notification.service';
 
@@ -99,6 +101,11 @@ beforeEach(() => {
 	mocks.getUserRoleInProject.mockResolvedValue('viewer');
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-user-id']);
 	mocks.refreshStoryById.mockResolvedValue({ queryData: {}, queriesRefreshed: 0 });
+	mocks.refreshStoryForViewer.mockImplementation(async (_story: DBStory, viewerUserId: string) => ({
+		queryData: { query_users: rows(viewerUserId) },
+		narratives: {},
+		code: `code-${viewerUserId}`,
+	}));
 	mocks.buildStoryEmailHtml.mockResolvedValue(null);
 	mocks.buildStoryPdfAttachment.mockResolvedValue([]);
 	mocks.renderCustomStoryPdf.mockResolvedValue({ filename: 'story.pdf', buffer: Buffer.from('pdf') });
@@ -123,61 +130,64 @@ it.each([
 	);
 });
 
-it('renders and sends a separate standalone snapshot with each recipient row-security context', async () => {
-	mocks.getStoryById.mockResolvedValue({ ...STORY, chatId: null });
-	mocks.hasRowSecurity.mockResolvedValue(true);
-	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-1', 'recipient-2']);
-	mocks.refreshStoryDataForDelivery.mockImplementation(
-		async (_storyId: string, options: { viewerUserId: string }) => ({
-			queryData: { query_users: { columns: ['viewer'], data: [{ viewer: options.viewerUserId }] } },
-			narratives: {},
-			code: `code-${options.viewerUserId}`,
-		}),
-	);
+it('shares the owner refresh with unrestricted recipients and rebuilds the story only for restricted ones', async () => {
+	mockRestrictedRecipients(['restricted-1', 'restricted-2']);
+	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['open-user', 'restricted-1', 'restricted-2']);
+	mocks.refreshStoryById.mockResolvedValue({ queryData: { query_users: rows('owner') }, queriesRefreshed: 1 });
 
 	await runScheduledStoryDelivery('story-id');
 
-	expect(mocks.refreshStoryById).not.toHaveBeenCalled();
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledTimes(2);
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(1, 'story-id', {
-		billingAccessVerifiedProjectId: 'project-id',
-		generateViewerCode: true,
-		viewerUserId: 'recipient-1',
+	expect(mocks.refreshStoryById).toHaveBeenCalledOnce();
+	expect(mocks.refreshStoryForViewer.mock.calls).toEqual([
+		[STORY, 'restricted-1', { billingAccessVerifiedProjectId: 'project-id' }],
+		[STORY, 'restricted-2', { billingAccessVerifiedProjectId: 'project-id' }],
+	]);
+	expect(mocks.buildStoryPdfAttachment.mock.calls).toEqual([
+		['Story title', 'export default {}', { query_users: rows('owner') }, 'project-id'],
+		['Story title', 'code-restricted-1', { query_users: rows('restricted-1') }, 'project-id'],
+		['Story title', 'code-restricted-2', { query_users: rows('restricted-2') }, 'project-id'],
+	]);
+	expect(mocks.notifyUsers.mock.calls.map(([recipients]) => recipients)).toEqual([
+		['open-user'],
+		['restricted-1'],
+		['restricted-2'],
+	]);
+});
+
+it('sends the owner their own copy, even when their warehouse access is restricted', async () => {
+	mocks.hasRowSecurity.mockResolvedValue(true);
+	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue([STORY.userId]);
+
+	await runScheduledStoryDelivery('story-id');
+
+	expect(mocks.refreshStoryForViewer).not.toHaveBeenCalled();
+	expect(mocks.notifyUsers).toHaveBeenCalledWith([STORY.userId], expect.anything(), expect.anything());
+});
+
+it('removes the restricted marker and the queries a restricted recipient cannot read', async () => {
+	mockRestrictedRecipients(['recipient-user-id']);
+	mocks.refreshStoryForViewer.mockResolvedValue({
+		code: [STORY_VIEWER_RESTRICTED_CODE_MARKER, VIEWER_NARRATIVE_PLACEHOLDER, '<table query_id="query_users" />'].join(
+			'\n',
+		),
+		queryData: {
+			query_users: rows('recipient-user-id'),
+			query_salaries: { columns: [], data: [], accessDenied: true },
+		},
+		narratives: {},
 	});
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenNthCalledWith(2, 'story-id', {
-		billingAccessVerifiedProjectId: 'project-id',
-		generateViewerCode: true,
-		viewerUserId: 'recipient-2',
-	});
-	expect(mocks.buildStoryPdfAttachment).toHaveBeenNthCalledWith(
-		1,
+
+	await runScheduledStoryDelivery('story-id');
+
+	expect(mocks.buildStoryPdfAttachment).toHaveBeenCalledWith(
 		'Story title',
-		'code-recipient-1',
-		{ query_users: { columns: ['viewer'], data: [{ viewer: 'recipient-1' }] } },
+		'<table query_id="query_users" />',
+		{ query_users: rows('recipient-user-id') },
 		'project-id',
-	);
-	expect(mocks.buildStoryPdfAttachment).toHaveBeenNthCalledWith(
-		2,
-		'Story title',
-		'code-recipient-2',
-		{ query_users: { columns: ['viewer'], data: [{ viewer: 'recipient-2' }] } },
-		'project-id',
-	);
-	expect(mocks.notifyUsers).toHaveBeenNthCalledWith(
-		1,
-		['recipient-1'],
-		expect.objectContaining({ channels: ['email'] }),
-		{ skipDeliveries: [], throwOnChannelError: true },
-	);
-	expect(mocks.notifyUsers).toHaveBeenNthCalledWith(
-		2,
-		['recipient-2'],
-		expect.objectContaining({ channels: ['email'] }),
-		{ skipDeliveries: [], throwOnChannelError: true },
 	);
 });
 
-it('skips a removed recipient before generating their row-security snapshot', async () => {
+it('skips a removed recipient before checking their warehouse access', async () => {
 	mocks.hasRowSecurity.mockImplementation(async (_projectId: string, userId: string) => {
 		if (userId === 'removed-user') {
 			throw new Error('You do not have access to this project.');
@@ -188,55 +198,29 @@ it('skips a removed recipient before generating their row-security snapshot', as
 	mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) =>
 		userId === 'removed-user' ? null : 'viewer',
 	);
-	mocks.refreshStoryDataForDelivery.mockResolvedValue({
-		queryData: {},
-		narratives: {},
-		code: 'recipient-code',
-	});
 
 	await runScheduledStoryDelivery('story-id');
 
-	expect(mocks.hasRowSecurity).toHaveBeenCalledWith('project-id', 'active-user');
 	expect(mocks.hasRowSecurity).not.toHaveBeenCalledWith('project-id', 'removed-user');
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
-		'story-id',
-		expect.objectContaining({ viewerUserId: 'active-user' }),
-	);
+	expect(mocks.refreshStoryForViewer).toHaveBeenCalledOnce();
 	expect(mocks.notifyUsers).toHaveBeenCalledWith(['active-user'], expect.anything(), expect.anything());
 });
 
-it('skips a recipient removed after snapshot generation but before sending', async () => {
-	mocks.hasRowSecurity.mockResolvedValue(true);
-	mocks.getUserRoleInProject
-		.mockResolvedValueOnce('viewer')
-		.mockResolvedValueOnce('viewer')
-		.mockResolvedValueOnce(null);
-	mocks.refreshStoryDataForDelivery.mockResolvedValue({
-		queryData: {},
-		narratives: {},
-		code: 'recipient-code',
-	});
+it('skips a recipient removed while their copy was being built', async () => {
+	mockRestrictedRecipients(['recipient-user-id']);
+	mocks.getUserRoleInProject.mockResolvedValueOnce('viewer').mockResolvedValueOnce(null);
 
 	await runScheduledStoryDelivery('story-id');
 
-	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
+	expect(mocks.refreshStoryForViewer).toHaveBeenCalledOnce();
 	expect(mocks.notifyUsers).not.toHaveBeenCalled();
 });
 
-it('renders a custom story PDF with the recipient narratives', async () => {
-	mocks.hasRowSecurity.mockResolvedValue(true);
-	mocks.getStoryById.mockResolvedValueOnce({
-		id: 'story-id',
-		archivedAt: null,
-		chatId: 'chat-id',
-		format: 'custom',
-		projectId: 'project-id',
-		slug: 'story-slug',
-		userId: 'user-id',
-	} as DBStory);
-	mocks.refreshStoryDataForDelivery.mockResolvedValue({
-		queryData: { query_users: { columns: ['viewer'], data: [{ viewer: 'recipient-user-id' }] } },
+it('renders a custom story PDF with the narratives of a restricted recipient', async () => {
+	mockRestrictedRecipients(['recipient-user-id']);
+	mocks.getStoryById.mockResolvedValue({ ...STORY, format: 'custom' } as DBStory);
+	mocks.refreshStoryForViewer.mockResolvedValue({
+		queryData: { query_users: rows('recipient-user-id') },
 		narratives: { summary: 'Recipient summary' },
 		code: 'custom-code',
 	});
@@ -245,69 +229,50 @@ it('renders a custom story PDF with the recipient narratives', async () => {
 
 	expect(mocks.renderCustomStoryPdf).toHaveBeenCalledWith(
 		'story-id',
-		{ query_users: { columns: ['viewer'], data: [{ viewer: 'recipient-user-id' }] } },
+		{ query_users: rows('recipient-user-id') },
 		{ summary: 'Recipient summary' },
 	);
 });
 
-it('continues after a recipient failure and retries only failed recipients', async () => {
-	mocks.hasRowSecurity.mockResolvedValue(true);
+it('delivers to the other recipients when one copy fails, and retries only what was not sent', async () => {
+	mockRestrictedRecipients(['recipient-failed', 'recipient-sent']);
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-failed', 'recipient-sent']);
-	mocks.refreshStoryDataForDelivery.mockImplementation(
-		async (_storyId: string, options: { viewerUserId: string }) => {
-			if (options.viewerUserId === 'recipient-failed') {
-				throw new Error('Warehouse denied the recipient query.');
-			}
-			return {
-				queryData: { query_users: { columns: ['viewer'], data: [{ viewer: options.viewerUserId }] } },
-				narratives: {},
-				code: 'recipient-code',
-			};
-		},
+	mocks.refreshStoryForViewer.mockImplementation(async (_story: DBStory, viewerUserId: string) => {
+		if (viewerUserId === 'recipient-failed') {
+			throw new Error('Warehouse denied the recipient query.');
+		}
+		return { queryData: {}, narratives: {}, code: 'recipient-code' };
+	});
+	const job = { id: 'job-id', attempts: 1, maxAttempts: 3 };
+
+	await expect(storyDeliveryHandler({ storyId: 'story-id' }, job as never)).rejects.toBeInstanceOf(
+		NotificationChannelDeliveryError,
 	);
 
-	await expect(storyDeliveryHandler({ storyId: 'story-id' }, { id: 'job-id' } as never)).rejects.toBeInstanceOf(
-		StoryRecipientDeliveryError,
-	);
-
-	expect(mocks.notifyUsers).toHaveBeenCalledOnce();
-	expect(mocks.notifyUsers).toHaveBeenCalledWith(
-		['recipient-sent'],
-		expect.objectContaining({ channels: ['email'] }),
-		{ skipDeliveries: [], throwOnChannelError: true },
-	);
+	expect(mocks.notifyUsers.mock.calls.map(([recipients]) => recipients)).toEqual([['recipient-sent']]);
 	expect(mocks.logError).toHaveBeenCalledWith(
-		'Failed to refresh story delivery for recipient: Error: Warehouse denied the recipient query.',
+		'Failed to deliver story to 1 recipient(s): Error: Warehouse denied the recipient query.',
 		{
 			source: 'system',
 			projectId: 'project-id',
-			context: {
-				storyId: 'story-id',
-				recipientUserId: 'recipient-failed',
-				stage: 'refresh',
-			},
+			context: { storyId: 'story-id', recipientUserIds: ['recipient-failed'] },
 		},
 	);
 	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', {
 		storyId: 'story-id',
-		recipientUserIds: ['recipient-failed'],
 		skipDeliveries: [{ userId: 'recipient-sent', channel: 'email' }],
 	});
 });
 
-it('clears recipient retry filters after a successful retry', async () => {
-	mocks.hasRowSecurity.mockResolvedValue(true);
-	mocks.refreshStoryDataForDelivery.mockResolvedValue({
-		queryData: {},
-		narratives: {},
-		code: 'recipient-code',
-	});
+it('does not rebuild the story for a restricted recipient who already received it', async () => {
+	mockRestrictedRecipients(['recipient-failed', 'recipient-sent']);
+	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-failed', 'recipient-sent']);
 
-	await storyDeliveryHandler({ storyId: 'story-id', recipientUserIds: ['recipient-user-id'], skipDeliveries: [] }, {
-		id: 'job-id',
-	} as never);
+	await runScheduledStoryDelivery('story-id', [{ userId: 'recipient-sent', channel: 'email' }]);
 
-	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', { storyId: 'story-id' });
+	expect(mocks.refreshStoryForViewer.mock.calls.map(([, viewerUserId]) => viewerUserId)).toEqual([
+		'recipient-failed',
+	]);
 });
 
 it.each([
@@ -356,3 +321,13 @@ it('preserves successful channels when the scheduler retries delivery', async ()
 		skipDeliveries: [...previousSkips, ...newlySucceeded],
 	});
 });
+
+function mockRestrictedRecipients(restrictedUserIds: string[]): void {
+	mocks.hasRowSecurity.mockImplementation(async (_projectId: string, userId: string) =>
+		restrictedUserIds.includes(userId),
+	);
+}
+
+function rows(viewer: string) {
+	return { columns: ['viewer'], data: [{ viewer }] };
+}

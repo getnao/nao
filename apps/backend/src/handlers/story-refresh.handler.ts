@@ -2,6 +2,7 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import { refreshStoryById } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
@@ -13,7 +14,7 @@ import { warmStoryFilterOptionsByStoryId } from '../services/story-filter-option
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
-import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME, StoryRecipientDeliveryError } from './story-delivery.handler';
+import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME } from './story-delivery.handler';
 
 export const STORY_REFRESH_JOB_NAME = 'story.refresh';
 
@@ -62,6 +63,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!story.isLive || story.archivedAt) {
 		return;
 	}
+
 	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 	const userId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
 	if (!projectId || !userId) {
@@ -79,7 +81,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 		const { queryData, queriesRefreshed } = await refreshStoryById(storyId, {
 			billingAccessVerifiedProjectId: projectId,
 		});
-		await storyQueries.deleteStoryViewerDataCache(story.id);
+		await storyViewerDataCacheQueries.deleteStoryViewerDataCache(story.id);
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 		await warmFilterOptionsAfterRefresh(projectId, storyId);
 		if (queriesRefreshed > 0) {
@@ -117,9 +119,6 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 				name: STORY_DELIVERY_JOB_NAME,
 				payload: {
 					storyId,
-					...(error instanceof StoryRecipientDeliveryError
-						? { recipientUserIds: error.failedRecipientUserIds }
-						: {}),
 					skipDeliveries: error instanceof NotificationChannelDeliveryError ? error.succeeded : [],
 				},
 				uniqueKey: `story-delivery-retry:${activity.id}`,

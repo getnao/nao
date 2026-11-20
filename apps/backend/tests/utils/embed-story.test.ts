@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
 	getStoryQueryData: vi.fn(),
+	getStandaloneStoryLiveQueryData: vi.fn(),
 	backfillMissingQueryDataForSandbox: vi.fn(),
 	getActiveThemeForProject: vi.fn(),
 	hasEffectiveWarehouseRestrictions: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 }));
 vi.mock('../../src/services/live-story', () => ({
 	getStoryQueryData: mocks.getStoryQueryData,
+	getStandaloneStoryLiveQueryData: mocks.getStandaloneStoryLiveQueryData,
 }));
 vi.mock('../../src/services/user-group-context-access.service', () => ({
 	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
@@ -234,6 +236,18 @@ describe('embedded Story query data', () => {
 
 		expect(mocks.hasEffectiveWarehouseRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+	});
+
+	it('rejects restricted viewers for live standalone stories before reading the owner rows', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.getLatestVersionByStoryId.mockResolvedValue(storyVersion({ chatId: null, isLive: true }));
+
+		await expect(loadEmbedStoryContent('story-1', 'token', 'viewer-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+		});
+
+		expect(mocks.getStandaloneStoryLiveQueryData).not.toHaveBeenCalled();
 	});
 
 	it('executes live embeds as the Story owner', async () => {

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
-import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
+import { prepareRestrictedStoryCode } from '@nao/shared/story-viewer-restrictions';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
@@ -348,30 +348,6 @@ function SharedStoryContent({
 			/>
 		</div>
 	);
-}
-
-export function prepareRestrictedStoryCode(code: string): { code: string; hasRestrictedContent: boolean } {
-	if (!code.split('\n').some((line) => line.trim() === STORY_VIEWER_RESTRICTED_CODE_MARKER)) {
-		return { code, hasRestrictedContent: false };
-	}
-
-	const lines = code.split('\n').flatMap((line) => {
-		if (line.trim() === STORY_VIEWER_RESTRICTED_CODE_MARKER) {
-			return [];
-		}
-		if (line.trim() === 'Viewer-specific narrative.') {
-			return [];
-		}
-		const withoutPlaceholderHeading = line.replace(/^\s*#{1,6}\s+Viewer-specific section\s*/, '');
-		return [withoutPlaceholderHeading];
-	});
-	return {
-		code: lines
-			.join('\n')
-			.replace(/\n{3,}/g, '\n\n')
-			.trim(),
-		hasRestrictedContent: true,
-	};
 }
 
 /** Archived stories cannot be referenced or duplicated, and viewers cannot chat. */

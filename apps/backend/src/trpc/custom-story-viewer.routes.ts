@@ -90,22 +90,13 @@ export const customStoryViewerRoutes = {
 		.input(z.object({ queryId: z.string(), versionNumber, inputs: storyQueryInputs }))
 		.query(async ({ ctx, input }) => {
 			try {
-				if (input.inputs) {
-					return await getSharedCustomStoryQueryData(
-						ctx.viewer.chatId,
-						input.storySlug,
-						input.queryId,
-						input.versionNumber,
-						ctx.user.id,
-						{ inputs: input.inputs, viewerId: ctx.user.id },
-					);
-				}
 				return await getSharedCustomStoryQueryData(
 					ctx.viewer.chatId,
 					input.storySlug,
 					input.queryId,
 					input.versionNumber,
 					ctx.user.id,
+					input.inputs,
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);

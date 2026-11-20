@@ -46,20 +46,12 @@ export async function resolveProjectContextAccess(
 	userRulesGroupAccess: UserRulesGroupAccess;
 	preloadedSkillNames: string[];
 }> {
-	if (!(await getUserRoleInProject(projectId, userId))) {
-		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
-	}
-
-	const [effectiveAccess, catalog, rowSecurityLicensed, rowSecurity] = await Promise.all([
-		resolveAvailableUserGroupAccess(projectId, userId),
-		Promise.resolve().then(() => getDatabaseContextCatalog(projectFolder)),
-		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
-		getProjectRowSecurity(projectId),
-	]);
+	const { effectiveAccess, warehouseRowSecurity } = await resolveMemberWarehouseAccess(projectId, userId);
+	const catalog = getDatabaseContextCatalog(projectFolder);
 	const skillsAccess = await resolveSkillsAccess(projectId, effectiveAccess.skillsAccess);
 	return {
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
-		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
+		warehouseRowSecurity,
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
 		filesContextAccess: { enforced: true, access: effectiveAccess.filesAccess },
 		mcpAccess: effectiveAccess.mcpAccess,
@@ -99,7 +91,16 @@ export async function resolveWarehouseTableAccess(
 	return (await resolveProjectContextAccess(projectId, userId, projectFolder)).warehouseTableAccess;
 }
 
+/** Whether the member reads less of the warehouse than someone with every table and every row. */
 export async function hasEffectiveWarehouseRestrictions(projectId: string, userId: string): Promise<boolean> {
+	const { effectiveAccess, warehouseRowSecurity } = await resolveMemberWarehouseAccess(projectId, userId);
+	if (effectiveAccess.databaseAccess.mode !== 'all' || effectiveAccess.databaseAccess.strict) {
+		return true;
+	}
+	return warehouseRowSecurity.enforced && warehouseRowSecurity.tables.some(({ access }) => access !== 'full');
+}
+
+async function resolveMemberWarehouseAccess(projectId: string, userId: string) {
 	if (!(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
@@ -108,11 +109,10 @@ export async function hasEffectiveWarehouseRestrictions(projectId: string, userI
 		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
 		getProjectRowSecurity(projectId),
 	]);
-	if (effectiveAccess.databaseAccess.mode !== 'all' || effectiveAccess.databaseAccess.strict) {
-		return true;
-	}
-	const resolved = resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed);
-	return resolved.enforced && resolved.tables.some(({ access }) => access !== 'full');
+	return {
+		effectiveAccess,
+		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
+	};
 }
 
 async function resolveSkillsAccess(projectId: string, access: SkillsAccess): Promise<ResolvedSkillsAccess> {

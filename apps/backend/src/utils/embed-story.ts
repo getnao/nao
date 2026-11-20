@@ -1,5 +1,6 @@
 import type { DateFormatSettings } from '@nao/shared/date';
 import type { StoryThemePair } from '@nao/shared/story-theme';
+import { prepareRestrictedStoryCode } from '@nao/shared/story-viewer-restrictions';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -91,18 +92,18 @@ async function loadEmbedStoryData(
 	if (!version) {
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
 	}
-	if (!version.chatId && version.isLive) {
-		const live = await getStandaloneStoryLiveQueryData(
-			version.storyId,
-			version.code,
-			version.isLive,
-			version.cacheSchedule,
-		);
-		return { code: live.code, queryData: live.queryData };
-	}
 	if (!version.chatId) {
 		if (viewerId && viewerId !== ownerId && (await hasEffectiveWarehouseRestrictions(projectId, viewerId))) {
 			throw new HandlerError('FORBIDDEN', 'Standalone story embeds are unavailable with restricted data access.');
+		}
+		if (version.isLive) {
+			const live = await getStandaloneStoryLiveQueryData(
+				version.storyId,
+				version.code,
+				version.isLive,
+				version.cacheSchedule,
+			);
+			return { code: live.code, queryData: live.queryData };
 		}
 		return {
 			code: version.code,
@@ -130,5 +131,5 @@ async function loadEmbedStoryData(
 				userId: ownerId,
 			})
 		: result.queryData;
-	return { code: result.code, queryData };
+	return { code: prepareRestrictedStoryCode(result.code).code, queryData };
 }

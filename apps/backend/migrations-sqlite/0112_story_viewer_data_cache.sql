@@ -4,8 +4,7 @@ CREATE TABLE `story_viewer_data_cache` (
 	`user_id` text NOT NULL,
 	`permission_revision` text NOT NULL,
 	`query_data` text NOT NULL,
-	`code` text,
-	`query_sources` text,
+	`code` text NOT NULL,
 	`analysis_results` text,
 	`cached_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	PRIMARY KEY(`story_version_id`, `user_id`),
@@ -16,5 +15,4 @@ CREATE TABLE `story_viewer_data_cache` (
 --> statement-breakpoint
 CREATE INDEX `story_viewer_data_cache_story_id_idx` ON `story_viewer_data_cache` (`story_id`);--> statement-breakpoint
 CREATE INDEX `story_viewer_data_cache_user_id_idx` ON `story_viewer_data_cache` (`user_id`);--> statement-breakpoint
-ALTER TABLE `project` ADD `viewer_cache_revision` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE `story` ADD `viewer_cache_revision` integer DEFAULT 0 NOT NULL;
+ALTER TABLE `project` ADD `viewer_cache_revision` integer DEFAULT 0 NOT NULL;

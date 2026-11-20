@@ -17,6 +17,8 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
 	getStoryProjectId: mocks.getStoryProjectId,
 	getStoryOwnerId: mocks.getStoryOwnerId,
+}));
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
 	deleteStoryViewerDataCache: mocks.deleteStoryViewerDataCache,
 }));
 vi.mock('../../src/queries/activity.queries', () => ({

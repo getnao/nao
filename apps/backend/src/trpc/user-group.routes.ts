@@ -40,7 +40,7 @@ import { z } from 'zod';
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
-import * as storyQueries from '../queries/story.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
@@ -319,7 +319,7 @@ export const userGroupRoutes = {
 		await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
 		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
 		const updated = await handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
-		await storyQueries.invalidateProjectViewerCaches(ctx.project.id);
+		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 		return updated;
 	}),
 
@@ -481,7 +481,7 @@ export const userGroupRoutes = {
 				}),
 			);
 			if (rowPolicies !== undefined || databaseAccess !== undefined || input.ssoMappings !== undefined) {
-				await storyQueries.invalidateProjectViewerCaches(ctx.project.id);
+				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			}
 			await saveGroupBudget(ctx.project.id, input.groupId, input);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
@@ -491,7 +491,7 @@ export const userGroupRoutes = {
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
-		await storyQueries.invalidateProjectViewerCaches(ctx.project.id);
+		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 		await revokeUnauthorizedProjectWideShares(ctx.project.id);
 	}),
 
@@ -508,7 +508,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
 			);
-			await storyQueries.invalidateUserViewerCaches(ctx.project.id, input.userId);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 
@@ -525,7 +525,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
 			);
-			await storyQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };

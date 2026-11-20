@@ -1456,7 +1456,6 @@ export const story = sqliteTable(
 		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
-		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		certifiedAt: integer('certified_at', { mode: 'timestamp_ms' }),
@@ -1707,8 +1706,7 @@ export const storyViewerDataCache = sqliteTable(
 		queryData: text('query_data', { mode: 'json' })
 			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 			.notNull(),
-		code: text('code'),
-		querySources: text('query_sources', { mode: 'json' }).$type<StoryQuerySources>(),
+		code: text('code').notNull(),
 		analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
 		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

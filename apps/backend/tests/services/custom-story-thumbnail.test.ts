@@ -1,6 +1,5 @@
 import '../../src/env';
 
-import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import { DEFAULT_DARK_STORY_THEME, DEFAULT_STORY_THEME, type StoryThemePair } from '@nao/shared/story-theme';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
@@ -17,6 +16,7 @@ import {
 	getViewerCustomStoryThumbnail,
 	queueCustomStoryThumbnail,
 } from '../../src/services/custom-story-thumbnail';
+import type { ViewerStoryRequest, ViewerStorySnapshot } from '../../src/services/live-story';
 import type { StoryScreenshot } from '../../src/utils/story-screenshot';
 
 vi.mock('../../src/db/db', async () => {
@@ -79,25 +79,11 @@ const versionIds = vi.hoisted(() => ({ current: '' }));
 const queries = vi.hoisted(() => ({ ids: [] as string[], saved: [] as string[] }));
 const themes = vi.hoisted(() => ({ active: null as StoryThemePair | null }));
 const viewer = vi.hoisted(() => ({
-	queryData: {} as Record<string, { data: unknown[]; columns: string[] }>,
-	ownerQueryData: {} as Record<string, { data: unknown[]; columns: string[] }>,
-	narratives: {} as Record<string, string>,
-	ownerNarratives: {} as Record<string, string>,
-	revision: 'revision-1',
-	deniedQueryIds: new Set<string>(),
-	narrativeGate: null as Promise<void> | null,
-	narrativeGateSlug: null as string | null,
-	queryCalls: [] as {
-		chatId: string;
-		storySlug: string;
-		queryId: string;
-		options?: { storyVersionId?: string; viewerUserId?: string };
-	}[],
-	narrativeCalls: [] as {
-		chatId: string;
-		storySlug: string;
-		options?: { storyVersionId?: string; viewerUserId?: string };
-	}[],
+	snapshot: null as unknown as ViewerStorySnapshot,
+	error: null as Error | null,
+	gate: null as Promise<void> | null,
+	gateSlug: null as string | null,
+	requests: [] as ViewerStoryRequest[],
 }));
 vi.mock('../../src/services/custom-story', async (importOriginal) => {
 	const original = await importOriginal<typeof import('../../src/services/custom-story')>();
@@ -115,29 +101,6 @@ vi.mock('../../src/services/custom-story', async (importOriginal) => {
 			};
 		},
 		getActiveThemeForStory: async () => themes.active,
-		getCustomStoryQueryData: async (
-			chatId: string,
-			storySlug: string,
-			queryId: string,
-			options?: { storyVersionId?: string; viewerUserId?: string },
-		) => {
-			viewer.queryCalls.push({ chatId, storySlug, queryId, options });
-			if (viewer.deniedQueryIds.has(queryId)) {
-				throw new original.CustomStoryQueryExecutionError(STORY_QUERY_ACCESS_DENIED_MESSAGE);
-			}
-			return options?.viewerUserId ? viewer.queryData[queryId] : viewer.ownerQueryData[queryId];
-		},
-		getCustomStoryNarratives: async (
-			chatId: string,
-			storySlug: string,
-			options?: { storyVersionId?: string; viewerUserId?: string },
-		) => {
-			viewer.narrativeCalls.push({ chatId, storySlug, options });
-			if (viewer.narrativeGate && viewer.narrativeGateSlug === storySlug) {
-				await viewer.narrativeGate;
-			}
-			return options?.viewerUserId ? viewer.narratives : viewer.ownerNarratives;
-		},
 		getStoredCustomStoryQueryDataByStoryId: async () =>
 			Object.fromEntries(queries.saved.map((queryId) => [queryId, { data: [], columns: [] }])),
 	};
@@ -147,7 +110,16 @@ vi.mock('../../src/services/custom-story-state', () => ({
 }));
 vi.mock('../../src/services/live-story', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/services/live-story')>()),
-	createStoryExecutionContext: async () => ({ permissionRevision: viewer.revision }),
+	loadViewerStorySnapshot: async (request: ViewerStoryRequest) => {
+		viewer.requests.push(request);
+		if (viewer.gate && viewer.gateSlug === request.slug) {
+			await viewer.gate;
+		}
+		if (viewer.error) {
+			throw viewer.error;
+		}
+		return viewer.snapshot;
+	},
 }));
 
 const STORY_ID = 'story-1';
@@ -200,16 +172,11 @@ describe('custom story thumbnails', () => {
 		documents.modes = [];
 		documents.queryData = [];
 		documents.options = [];
-		viewer.queryData = {};
-		viewer.ownerQueryData = {};
-		viewer.narratives = {};
-		viewer.ownerNarratives = {};
-		viewer.revision = crypto.randomUUID();
-		viewer.deniedQueryIds.clear();
-		viewer.narrativeGate = null;
-		viewer.narrativeGateSlug = null;
-		viewer.queryCalls = [];
-		viewer.narrativeCalls = [];
+		viewer.snapshot = { queryData: {}, narratives: {}, code: '', cachedAt: new Date('2026-10-01T10:00:00.000Z') };
+		viewer.error = null;
+		viewer.gate = null;
+		viewer.gateSlug = null;
+		viewer.requests = [];
 		versionIds.current = await publishVersion();
 	});
 
@@ -231,34 +198,23 @@ describe('custom story thumbnails', () => {
 		expect(documents.modes).toEqual(['light', 'dark']);
 	});
 
-	it('renders restricted thumbnails from viewer-scoped data and narratives', async () => {
+	it('renders restricted thumbnails from the viewer snapshot of the story', async () => {
 		queries.ids = ['orders'];
-		viewer.queryData = { orders: { data: [{ total: 12 }], columns: ['total'] } };
-		viewer.ownerQueryData = { orders: { data: [{ total: 999 }], columns: ['total'] } };
-		viewer.narratives = { summary: 'Viewer-safe summary' };
-		viewer.ownerNarratives = { summary: 'Owner-only summary' };
+		viewer.snapshot = {
+			...viewer.snapshot,
+			queryData: { orders: { data: [{ total: 12 }], columns: ['total'] } },
+			narratives: { summary: 'Viewer-safe summary' },
+		};
 		const story = await storyQueries.getStoryById(STORY_ID);
 
 		const thumbnail = await getViewerCustomStoryThumbnail(story!, 'user-2');
 
 		expect((await sharp(thumbnail!).metadata()).format).toBe('webp');
-		expect(viewer.queryCalls).toEqual([
-			{
-				chatId: 'chat-1',
-				storySlug: 'revenue',
-				queryId: 'orders',
-				options: { storyVersionId: versionIds.current, viewerUserId: 'user-2' },
-			},
+		expect(viewer.requests).toEqual([
+			{ chatId: 'chat-1', slug: 'revenue', storyVersionId: versionIds.current, viewerUserId: 'user-2' },
 		]);
-		expect(viewer.narrativeCalls).toEqual([
-			{
-				chatId: 'chat-1',
-				storySlug: 'revenue',
-				options: { storyVersionId: versionIds.current, viewerUserId: 'user-2' },
-			},
-		]);
-		expect(documents.queryData).toEqual([viewer.queryData]);
-		expect(documents.options).toEqual([expect.objectContaining({ narratives: viewer.narratives })]);
+		expect(documents.queryData).toEqual([viewer.snapshot.queryData]);
+		expect(documents.options).toEqual([expect.objectContaining({ narratives: viewer.snapshot.narratives })]);
 	});
 
 	it('renders only one viewer thumbnail at a time', async () => {
@@ -276,22 +232,22 @@ describe('custom story thumbnails', () => {
 	});
 
 	it('does not let slow viewer data preparation block a ready screenshot', async () => {
-		let releaseNarratives!: () => void;
-		viewer.narrativeGateSlug = 'revenue';
-		viewer.narrativeGate = new Promise((resolve) => {
-			releaseNarratives = resolve;
+		let releaseSnapshot!: () => void;
+		viewer.gateSlug = 'revenue';
+		viewer.gate = new Promise((resolve) => {
+			releaseSnapshot = resolve;
 		});
 		const slowStory = await storyQueries.getStoryById(STORY_ID);
 		const readyStory = await storyQueries.getStoryById(LIVE_STORY_ID);
 
 		const slowThumbnail = getViewerCustomStoryThumbnail(slowStory!, 'user-2', 'light');
-		await vi.waitUntil(() => viewer.narrativeCalls.some(({ storySlug }) => storySlug === 'revenue'));
+		await vi.waitUntil(() => viewer.requests.some(({ slug }) => slug === 'revenue'));
 		const readyThumbnail = getViewerCustomStoryThumbnail(readyStory!, 'user-2', 'dark');
 
 		await vi.waitUntil(() => screenshots.calls === 1);
 		expect(documents.modes).toEqual(['dark']);
 
-		releaseNarratives();
+		releaseSnapshot();
 		await expect(Promise.all([slowThumbnail, readyThumbnail])).resolves.toHaveLength(2);
 		expect(screenshots.calls).toBe(2);
 		expect(screenshots.maxActiveCalls).toBe(1);
@@ -299,7 +255,10 @@ describe('custom story thumbnails', () => {
 
 	it('renders restricted thumbnails with a safe result for denied queries', async () => {
 		queries.ids = ['orders'];
-		viewer.deniedQueryIds.add('orders');
+		viewer.snapshot = {
+			...viewer.snapshot,
+			queryData: { orders: { columns: [], data: [], accessDenied: true } },
+		};
 		const story = await storyQueries.getStoryById(STORY_ID);
 
 		const thumbnail = await getViewerCustomStoryThumbnail(story!, 'user-2');
@@ -323,19 +282,70 @@ describe('custom story thumbnails', () => {
 		await expect(getViewerCustomStoryThumbnail(story!, 'user-2')).resolves.toBeNull();
 	});
 
-	it('reads thumbnails stored with metadata', async () => {
+	it('shares one render between concurrent requests for the same viewer thumbnail', async () => {
+		screenshots.delayMs = 25;
 		const story = await storyQueries.getStoryById(STORY_ID);
-		const original = await vi.waitUntil(() => getCustomStoryThumbnail(story!));
-		const stored = await storyFileQueries.getVersionThumbnail(versionIds.current);
-		await storyFileQueries.setVersionThumbnail(
-			versionIds.current,
-			JSON.stringify({ images: JSON.parse(stored!.thumbnail), styles: {} }),
-			stored!.renderKey,
-		);
 
-		const thumbnail = await getCustomStoryThumbnail(story!);
+		const [first, second] = await Promise.all([
+			getViewerCustomStoryThumbnail(story!, 'user-2'),
+			getViewerCustomStoryThumbnail(story!, 'user-2'),
+		]);
 
-		expect(thumbnail?.image.equals(original.image)).toBe(true);
+		expect(first).not.toBeNull();
+		expect(second).toBe(first);
+		expect(viewer.requests).toHaveLength(1);
+		expect(screenshots.calls).toBe(1);
+	});
+
+	it('reuses a viewer thumbnail until the viewer snapshot changes', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		const first = await getViewerCustomStoryThumbnail(story!, 'user-2');
+		vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+		const reused = await getViewerCustomStoryThumbnail(story!, 'user-2');
+
+		expect(reused).toBe(first);
+		expect(viewer.requests).toHaveLength(2);
+		expect(screenshots.calls).toBe(1);
+
+		viewer.snapshot = { ...viewer.snapshot, cachedAt: new Date(viewer.snapshot.cachedAt.getTime() + 1000) };
+		const rendered = await getViewerCustomStoryThumbnail(story!, 'user-2');
+
+		expect(rendered).not.toBeNull();
+		expect(screenshots.calls).toBe(2);
+	});
+
+	it.each([
+		[
+			'a broken render',
+			() => {
+				screenshots.brokenModes = ['light'];
+			},
+		],
+		[
+			'a failed snapshot',
+			() => {
+				viewer.error = new Error('Warehouse unavailable');
+			},
+		],
+	])('waits out the cool-down before retrying a viewer thumbnail after %s', async (_label, breakThumbnail) => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		breakThumbnail();
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		await expect(getViewerCustomStoryThumbnail(story!, 'user-2')).resolves.toBeNull();
+		screenshots.brokenModes = [];
+		viewer.error = null;
+		vi.setSystemTime(Date.now() + 60 * 1000);
+
+		await expect(getViewerCustomStoryThumbnail(story!, 'user-2')).resolves.toBeNull();
+		expect(viewer.requests).toHaveLength(1);
+
+		vi.setSystemTime(Date.now() + 61 * 1000);
+
+		await expect(getViewerCustomStoryThumbnail(story!, 'user-2')).resolves.not.toBeNull();
+		expect(viewer.requests).toHaveLength(2);
 	});
 
 	it('hides stored thumbnails from restricted non-owners', async () => {

@@ -1,5 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
-import { STORY_QUERY_ACCESS_DENIED_MESSAGE, type StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryQueryResult } from '@nao/shared/story-app';
 import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
 import { createHash } from 'crypto';
 
@@ -15,17 +15,14 @@ import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import { listStoryChartPlugins } from './chart-plugin';
 import {
 	CustomStoryNotFoundError,
-	CustomStoryQueryExecutionError,
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
-	getCustomStoryNarratives,
-	getCustomStoryQueryData,
 	getLatestCustomStoryVersionByStoryId,
 	getStoredCustomStoryQueryDataByStoryId,
 } from './custom-story';
 import { buildCustomStoryDocumentByStoryId } from './custom-story-export';
 import { getCustomStoryStateByStoryId } from './custom-story-state';
-import { createStoryExecutionContext } from './live-story';
+import { isCacheExpired, loadViewerStorySnapshot, type ViewerStorySnapshot } from './live-story';
 import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 
 const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
@@ -34,7 +31,6 @@ const THUMBNAIL_QUALITY = 80;
 const RETRY_AFTER_MS = 2 * 60 * 1000;
 const MISSING_DATA_RETRY_AFTER_MS = 15 * 1000;
 const MAX_BROKEN_RENDERS = 3;
-const VIEWER_THUMBNAIL_TTL_MS = 60 * 1000;
 const MAX_VIEWER_THUMBNAILS = 100;
 /** Stored in place of a mode's image when the version has no app or that mode kept rendering broken: never retried. */
 const UNRENDERABLE = '';
@@ -54,9 +50,16 @@ interface RenderFailure {
 	retryAfterMs: number;
 }
 
+/** A viewer's image lasts as long as the snapshot of their data it shows; a failed render is not retried right away. */
+interface ViewerThumbnail {
+	snapshotAt: number | null;
+	image: Buffer | null;
+	failedAt?: number;
+}
+
 const queuedVersionIds = new Set<string>();
 const failuresByStoryId = new Map<string, RenderFailure>();
-const viewerThumbnails = new Map<string, { image: Buffer; expiresAt: number }>();
+const viewerThumbnails = new Map<string, ViewerThumbnail>();
 const pendingViewerThumbnails = new Map<string, Promise<Buffer | null>>();
 let renderQueue: Promise<void> = Promise.resolve();
 let viewerScreenshotQueue: Promise<void> = Promise.resolve();
@@ -118,13 +121,13 @@ export async function getCustomStoryThumbnail(
 	};
 }
 
+/** Rendered from the viewer's own snapshot of the story, since the stored image shows the owner's rows. */
 export async function getViewerCustomStoryThumbnail(
 	story: DBStory,
 	viewerUserId: string,
 	mode: StoryThemeMode = 'light',
 ): Promise<Buffer | null> {
-	const chatId = story.chatId;
-	if (!chatId) {
+	if (!story.chatId) {
 		return null;
 	}
 	let version: CustomStoryVersionView;
@@ -136,30 +139,45 @@ export async function getViewerCustomStoryThumbnail(
 		}
 		throw error;
 	}
-	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
-	const key = `${version.version.id}:${viewerUserId}:${executionContext.permissionRevision}:${mode}`;
-	const cached = viewerThumbnails.get(key);
-	if (cached && cached.expiresAt > Date.now()) {
-		return cached.image;
+	const key = `${version.version.id}:${viewerUserId}:${mode}`;
+	const failedAt = viewerThumbnails.get(key)?.failedAt;
+	if (failedAt && Date.now() - failedAt < RETRY_AFTER_MS) {
+		return null;
 	}
-	const pending = pendingViewerThumbnails.get(key);
-	if (pending) {
-		return pending;
-	}
-	const rendering = renderViewerThumbnail(story, version, viewerUserId, mode)
-		.catch((error) => {
-			logFailure(version.version.id, error);
-			return null;
-		})
-		.then((image) => {
-			if (image) {
-				cacheViewerThumbnail(key, image);
-			}
-			return image;
-		})
-		.finally(() => pendingViewerThumbnails.delete(key));
+	const rendering =
+		pendingViewerThumbnails.get(key) ??
+		refreshViewerThumbnail(key, { ...story, chatId: story.chatId }, version, viewerUserId, mode).finally(() =>
+			pendingViewerThumbnails.delete(key),
+		);
 	pendingViewerThumbnails.set(key, rendering);
 	return rendering;
+}
+
+async function refreshViewerThumbnail(
+	key: string,
+	story: DBStory & { chatId: string },
+	version: CustomStoryVersionView,
+	viewerUserId: string,
+	mode: StoryThemeMode,
+): Promise<Buffer | null> {
+	try {
+		const snapshot = await loadViewerStorySnapshot(
+			{ chatId: story.chatId, slug: story.slug, storyVersionId: version.version.id, viewerUserId },
+			(cache) => !isCacheExpired(cache.cachedAt, story.cacheSchedule),
+		);
+		const snapshotAt = snapshot.cachedAt.getTime();
+		const known = viewerThumbnails.get(key);
+		if (known?.image && known.snapshotAt === snapshotAt) {
+			return known.image;
+		}
+		const image = await renderViewerThumbnail(story, version, snapshot, viewerUserId, mode);
+		rememberViewerThumbnail(key, image ? { snapshotAt, image } : { snapshotAt, image, failedAt: Date.now() });
+		return image;
+	} catch (error) {
+		logFailure(version.version.id, error);
+		rememberViewerThumbnail(key, { snapshotAt: null, image: null, failedAt: Date.now() });
+		return null;
+	}
 }
 
 function queueViewerThumbnailScreenshot(render: () => Promise<Buffer | null>): Promise<Buffer | null> {
@@ -174,45 +192,13 @@ function queueViewerThumbnailScreenshot(render: () => Promise<Buffer | null>): P
 async function renderViewerThumbnail(
 	story: DBStory,
 	version: CustomStoryVersionView,
+	snapshot: ViewerStorySnapshot,
 	viewerUserId: string,
 	mode: StoryThemeMode,
 ): Promise<Buffer | null> {
-	if (!story.chatId) {
-		return null;
-	}
-	const chatId = story.chatId;
-	const [queryEntries, narratives, state] = await Promise.all([
-		Promise.all(
-			version.queryIds.map(async (queryId): Promise<[string, StoryQueryResult] | null> => {
-				try {
-					const result = await getCustomStoryQueryData(chatId, story.slug, queryId, {
-						storyVersionId: version.version.id,
-						viewerUserId,
-					});
-					return [queryId, result];
-				} catch (error) {
-					if (
-						error instanceof CustomStoryQueryExecutionError &&
-						error.message === STORY_QUERY_ACCESS_DENIED_MESSAGE
-					) {
-						return [queryId, { columns: [], data: [], accessDenied: true }];
-					}
-					throw error;
-				}
-			}),
-		),
-		getCustomStoryNarratives(chatId, story.slug, {
-			storyVersionId: version.version.id,
-			viewerUserId,
-		}),
-		getCustomStoryStateByStoryId(story.id, viewerUserId),
-	]);
-	const queryData = Object.fromEntries(
-		queryEntries.filter((entry): entry is [string, StoryQueryResult] => entry !== null),
-	);
-	const html = await buildCustomStoryDocumentByStoryId(story.id, version, queryData, mode, {
-		narratives,
-		state,
+	const html = await buildCustomStoryDocumentByStoryId(story.id, version, snapshot.queryData, mode, {
+		narratives: snapshot.narratives,
+		state: await getCustomStoryStateByStoryId(story.id, viewerUserId),
 	});
 	return queueViewerThumbnailScreenshot(async () => {
 		const { image, ...render } = await renderStoryScreenshot(
@@ -224,11 +210,12 @@ async function renderViewerThumbnail(
 	});
 }
 
-function cacheViewerThumbnail(key: string, image: Buffer): void {
+function rememberViewerThumbnail(key: string, thumbnail: ViewerThumbnail): void {
+	viewerThumbnails.delete(key);
 	if (viewerThumbnails.size >= MAX_VIEWER_THUMBNAILS) {
 		viewerThumbnails.delete(viewerThumbnails.keys().next().value!);
 	}
-	viewerThumbnails.set(key, { image, expiresAt: Date.now() + VIEWER_THUMBNAIL_TTL_MS });
+	viewerThumbnails.set(key, thumbnail);
 }
 
 /** Renders thumbnails in the background one at a time so they do not compete with viewers. */
@@ -420,11 +407,7 @@ async function mapBoundariesFingerprint(storyId: string): Promise<string | undef
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {
-	if (!raw) {
-		return {};
-	}
-	const parsed = JSON.parse(raw) as ModeThumbnails & { images?: ModeThumbnails };
-	return parsed.images ?? parsed;
+	return raw ? (JSON.parse(raw) as ModeThumbnails) : {};
 }
 
 function logFailure(versionId: string, error: unknown): void {

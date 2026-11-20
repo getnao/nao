@@ -4,11 +4,10 @@ import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import {
 	STORY_NARRATIVES_REDACT_MISSING_KEY,
 	STORY_QUERY_ACCESS_DENIED_MESSAGE,
-	STORY_VIEWER_RESTRICTED_CODE_MARKER,
 	type StoryNarratives,
 } from '@nao/shared/story-app';
-import { extractQueryIds, TAG_ATTRS } from '@nao/shared/story-segments';
-import { formatColumnLabel } from '@nao/shared/story-table-utils';
+import { extractQueryIds } from '@nao/shared/story-segments';
+import { VIEWER_NARRATIVE_PLACEHOLDER } from '@nao/shared/story-viewer-restrictions';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { StoryFormat } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
@@ -19,7 +18,7 @@ import { z } from 'zod';
 import { llmTelemetry } from '../agents/telemetry';
 import { queryAppDb } from '../agents/tools/query-app-db';
 import { LiveCustomStoryNarrativesPrompt, LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
-import type { DBStoryDataCache } from '../db/abstractSchema';
+import type { DBStoryDataCache, DBStoryViewerDataCache } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
@@ -27,6 +26,7 @@ import * as projectQueries from '../queries/project.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { ChatlessToolContext, QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
@@ -35,7 +35,7 @@ import { describeError, logger } from '../utils/logger';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
 import type { StoryNarrativeSource } from '../utils/story-kit-narratives';
-import { extractStoryNarratives } from '../utils/story-kit-narratives';
+import { extractStoryNarrativeIds, extractStoryNarratives } from '../utils/story-kit-narratives';
 import {
 	backfillMissingQueryData,
 	extractCustomStoryQueryIds,
@@ -43,6 +43,13 @@ import {
 	getStandaloneStoryQueryData,
 	pickQueryData,
 } from '../utils/story-query-data';
+import {
+	buildViewerSafeStorySource,
+	extractStructureTokens,
+	markViewerRestricted,
+	stripHardcodedFilterOptions,
+	stripViewerSensitiveTagCopy,
+} from '../utils/story-structure';
 import { buildChatlessToolContext, buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
@@ -64,6 +71,8 @@ import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.s
 import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
+
+const ACCESS_DENIED_RESULT = { data: [], columns: [], accessDenied: true as const };
 
 interface StoryRefreshTarget {
 	projectId: string;
@@ -152,14 +161,17 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
-	generateViewerCode?: boolean;
+}
+
+interface ViewerStoryRefreshOptions extends StoryRefreshOptions {
 	storyVersionId?: string;
-	viewerUserId?: string;
+	executionContext?: ViewerExecutionContext;
 }
 
 interface LiveQueryOptions extends StoryRefreshOptions {
 	/** The story displaying the query, so its parameter defaults apply to semantic-layer queries. */
 	storyCode?: string;
+	viewerUserId?: string;
 }
 
 export async function refreshStoryData(
@@ -174,23 +186,6 @@ export async function refreshStoryData(
 	return { queryData, narratives, queriesRefreshed };
 }
 
-export async function refreshStoryDataForDelivery(
-	storyId: string,
-	options: StoryRefreshOptions = {},
-): Promise<Omit<RefreshResult, 'queriesRefreshed'> & { code: string }> {
-	const result = await refreshStory(await requireStoryById(storyId), options);
-	return { queryData: result.queryData, narratives: result.narratives, code: result.code };
-}
-
-async function refreshStoryDataWithContext(
-	chatId: string,
-	slug: string,
-	executionContext: StoryExecutionContext,
-	options: StoryRefreshOptions = {},
-): Promise<RefreshResult & { code: string }> {
-	return refreshStory(await requireStoryByChatAndSlug(chatId, slug), options, executionContext);
-}
-
 /** Refreshes a story, in a chat or standalone, with the access of its owner. */
 export async function refreshStoryById(storyId: string, options: StoryRefreshOptions = {}): Promise<RefreshResult> {
 	const { queryData, narratives, queriesRefreshed } = await refreshStory(await requireStoryById(storyId), options);
@@ -198,93 +193,26 @@ export async function refreshStoryById(storyId: string, options: StoryRefreshOpt
 }
 
 async function refreshStory(
-	story: StoryQueryOrigin & { slug?: string },
+	story: StoryQueryOrigin,
 	options: StoryRefreshOptions = {},
-	existingExecutionContext?: StoryExecutionContext,
 ): Promise<RefreshResult & { code: string }> {
-	const version =
-		options.storyVersionId && story.chatId && story.slug
-			? await storyQueries.getVersionById(story.chatId, story.slug, options.storyVersionId)
-			: await storyQueries.getLatestVersionByStoryId(story.id);
+	const version = await storyQueries.getLatestVersionByStoryId(story.id);
 	if (!version) {
 		throw new Error('Story not found');
 	}
 
 	const queryIds = await getVersionQueryIds(version);
-	const sqlQueries = await loadVersionSqlQueries(story, version, queryIds);
-	const shouldGenerateViewerCode = options.viewerUserId !== undefined && options.generateViewerCode === true;
+	const sqlQueries = await loadStorySqlQueries(story, queryIds);
 	if (Object.keys(sqlQueries).length === 0) {
-		if (shouldGenerateViewerCode && version.format === 'classic') {
-			throw new Error('Cannot generate viewer story text without query data');
-		}
-		if (options.viewerUserId) {
-			const narratives = version.format === 'custom' ? await redactCustomStoryNarratives(version.id) : {};
-			return { queryData: {}, code: version.code, narratives, queriesRefreshed: 0 };
-		}
 		return unrefreshedResult(story, queryIds, version.code);
 	}
 
-	const storyViewerCacheRevision = options.viewerUserId
-		? await storyQueries.getStoryViewerCacheRevision(version.storyId)
-		: undefined;
-	const ownerScope = await resolveStoryQueryScope(story);
-	const scope = options.viewerUserId ? { ...ownerScope, ownerId: options.viewerUserId } : ownerScope;
-	const executionContext =
-		existingExecutionContext ?? (options.viewerUserId ? await createOwnerExecutionContext(scope, true) : undefined);
+	const scope = await resolveStoryQueryScope(story);
 	const freshData = await executeStoryQueries(scope, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
 		semanticBindings: semanticBindingsFromCode(version.code),
-		executionContext,
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 	});
-	if (options.viewerUserId) {
-		if (!executionContext) {
-			throw new Error('Viewer story refresh has no execution context');
-		}
-		const queryData = availableStoryQueryData(freshData);
-		const target = {
-			projectId: scope.projectId,
-			userId: options.viewerUserId,
-			chatId: story.chatId,
-		};
-		let code = version.code;
-		if (shouldGenerateViewerCode && version.format === 'classic') {
-			const generationSource = buildViewerSafeStorySource(version.code);
-			code =
-				(await generateDynamicStoryCode(target, 'Story', generationSource, queryData, true).catch(
-					() => null,
-				)) ?? generationSource;
-		}
-		code = stripHardcodedFilterOptions(code);
-		let narratives: StoryNarratives = {};
-		if (version.format === 'custom') {
-			narratives = version.isLiveTextDynamic
-				? await regenerateCustomStoryNarratives(target, version, queryData, true)
-				: await redactCustomStoryNarratives(version.id);
-		}
-		const currentPermissionRevision = (await createOwnerExecutionContext(scope, true)).permissionRevision;
-		if (currentPermissionRevision !== executionContext.permissionRevision) {
-			throw new Error('Viewer permissions changed during story refresh');
-		}
-		const saved = await storyQueries.upsertStoryViewerDataCache(
-			version.storyId,
-			version.id,
-			options.viewerUserId,
-			executionContext.toolContext.projectId,
-			executionContext.viewerCacheRevision,
-			storyViewerCacheRevision!,
-			executionContext.permissionRevision,
-			freshData,
-			buildQuerySources(sqlQueries),
-			narratives,
-			code,
-		);
-		if (!saved) {
-			throw new Error('Viewer permissions changed during story refresh');
-		}
-		return { queryData, code, narratives, queriesRefreshed: Object.keys(queryData).length };
-	}
-
 	if (Object.keys(freshData).length === 0) {
 		return unrefreshedResult(story, queryIds, version.code);
 	}
@@ -314,22 +242,6 @@ async function refreshStory(
 		narratives: generatedNarratives ?? {},
 		queriesRefreshed: Object.keys(freshData).length,
 	};
-}
-
-async function loadVersionSqlQueries(
-	story: StoryQueryOrigin,
-	version: { code: string; format: StoryFormat },
-	queryIds: Set<string>,
-): Promise<StorySqlQueries> {
-	if (!story.chatId) {
-		return loadStorySqlQueries(story, queryIds);
-	}
-	const fromChat =
-		version.format === 'classic'
-			? ((await storyQueries.getSqlQueriesFromCode(story.chatId, version.code)) ?? {})
-			: ((await storyQueries.getSqlQueriesByIds(story.chatId, queryIds)) ?? {});
-	const missingIds = new Set([...queryIds].filter((queryId) => !(queryId in fromChat)));
-	return missingIds.size > 0 ? { ...(await loadStorySqlQueries(story, missingIds)), ...fromChat } : fromChat;
 }
 
 /** A standalone story reads queries that none of its saved SQL can rerun, so going live would change nothing. */
@@ -427,17 +339,18 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 	options: StoryQueryDataOptions = {},
 ): Promise<StoryQueryDataResult> {
-	const viewerUserId =
-		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
-			? options.viewerUserId
-			: undefined;
+	const viewerUserId = await resolveRestrictedViewerId(chatId, options.viewerUserId);
 	if (viewerUserId) {
-		const storyVersionId =
-			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, slug))?.id;
-		if (!storyVersionId) {
-			throw new Error('Story not found');
-		}
-		return getViewerStoryQueryData(chatId, slug, storyVersionId, code, cacheSchedule, viewerUserId);
+		const snapshot = await loadViewerStorySnapshot(
+			{ chatId, slug, storyVersionId: options.storyVersionId, viewerUserId },
+			(cache) => !isCacheExpired(cache.cachedAt, cacheSchedule),
+		);
+		const queryData = omitAccessDeniedQueries(snapshot.queryData);
+		return {
+			queryData: Object.keys(queryData).length > 0 ? queryData : null,
+			cachedAt: snapshot.cachedAt,
+			code: snapshot.code,
+		};
 	}
 	if (!isLive) {
 		return {
@@ -538,72 +451,194 @@ async function getLiveStoryQueryData(
 	}
 }
 
-/** Never falls back to the chat's stored results: they were produced with the owner's row-level security. */
-async function getViewerStoryQueryData(
+/**
+ * The viewer a story has to be rebuilt for: someone other than its owner whose warehouse access is restricted.
+ * Everyone else reads the copy built with the owner's access.
+ */
+export async function resolveRestrictedViewerId(
 	chatId: string,
-	slug: string,
-	storyVersionId: string,
-	code: string,
-	cacheSchedule: string | null,
-	viewerUserId: string,
-): Promise<StoryQueryDataResult> {
-	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
-	const cache = await storyQueries.getStoryViewerDataCache(
-		chatId,
-		slug,
-		storyVersionId,
+	viewerUserId: string | undefined,
+): Promise<string | undefined> {
+	if (!viewerUserId) {
+		return undefined;
+	}
+	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
+	if (viewerUserId === ownerId) {
+		return undefined;
+	}
+	return (await hasEffectiveWarehouseRestrictions(projectId, viewerUserId)) ? viewerUserId : undefined;
+}
+
+export interface ViewerStoryRequest {
+	chatId: string;
+	slug: string;
+	storyVersionId?: string;
+	viewerUserId: string;
+}
+
+/** A story as one restricted viewer sees it. A query they cannot read stays in `queryData`, flagged `accessDenied`. */
+export interface ViewerStorySnapshot {
+	queryData: StoryQueryData;
+	narratives: StoryNarratives;
+	code: string;
+	cachedAt: Date;
+}
+
+const pendingViewerRefreshes = new Map<string, Promise<ViewerStorySnapshot>>();
+
+/**
+ * The viewer's copy of a story: their cache while `isUsable` accepts it, otherwise rebuilt with their access. Blocks
+ * of one page asking at once share a single rebuild, and a failed rebuild falls back to what the cache holds. The
+ * owner's stored results are never used: they were produced with the owner's row-level security.
+ */
+export async function loadViewerStorySnapshot(
+	request: ViewerStoryRequest,
+	isUsable: (cache: DBStoryViewerDataCache) => boolean,
+): Promise<ViewerStorySnapshot> {
+	const { chatId, slug, viewerUserId } = request;
+	const story = await requireStoryByChatAndSlug(chatId, slug);
+	const storyVersionId = request.storyVersionId ?? (await storyQueries.getLatestVersionByStoryId(story.id))?.id;
+	if (!storyVersionId) {
+		throw new Error('Story not found');
+	}
+	const executionContext = await createViewerExecutionContext(
+		{ projectId: await requireChatProjectId(chatId), chatId },
 		viewerUserId,
-		executionContext.permissionRevision,
 	);
-	if (
-		cache !== null &&
-		cache.code !== null &&
-		!isCacheExpired(cache.cachedAt, cacheSchedule) &&
-		findMissingQueryIds(code, cache.queryData).length === 0
-	) {
-		return {
-			queryData: availableStoryQueryData(cache.queryData),
-			cachedAt: cache.cachedAt,
-			code: stripHardcodedFilterOptions(cache.code),
-		};
+	const cacheKey = {
+		storyId: story.id,
+		storyVersionId,
+		userId: viewerUserId,
+		permissionRevision: executionContext.permissionRevision,
+	};
+	const cache = await storyViewerDataCacheQueries.getStoryViewerDataCache(cacheKey);
+	if (cache && isUsable(cache)) {
+		return toViewerStorySnapshot(cache);
 	}
 
+	const pendingKey = Object.values(cacheKey).join(':');
+	const refresh =
+		pendingViewerRefreshes.get(pendingKey) ??
+		refreshStoryForViewer(story, viewerUserId, { storyVersionId, executionContext }).finally(() =>
+			pendingViewerRefreshes.delete(pendingKey),
+		);
+	pendingViewerRefreshes.set(pendingKey, refresh);
 	try {
-		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, executionContext, {
-			storyVersionId,
-			viewerUserId,
-			generateViewerCode: true,
-		});
-		return {
-			queryData: Object.keys(queryData).length > 0 ? queryData : null,
-			cachedAt: new Date(),
-			code: refreshedCode,
-		};
+		return await refresh;
 	} catch (error) {
-		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
-		const currentCache =
-			currentExecutionContext.permissionRevision === executionContext.permissionRevision
-				? cache
-				: await storyQueries.getStoryViewerDataCache(
-						chatId,
-						slug,
-						storyVersionId,
-						viewerUserId,
-						currentExecutionContext.permissionRevision,
-					);
-		if (currentCache?.code !== null && currentCache?.code !== undefined) {
-			return {
-				queryData: availableStoryQueryData(currentCache.queryData),
-				cachedAt: currentCache.cachedAt,
-				code: stripHardcodedFilterOptions(currentCache.code),
-			};
+		if (cache) {
+			return toViewerStorySnapshot(cache);
 		}
 		throw error;
 	}
 }
 
-export async function requiresViewerStoryData(chatId: string, userId: string): Promise<boolean> {
-	return hasEffectiveWarehouseRestrictions(await requireChatProjectId(chatId), userId);
+function toViewerStorySnapshot(cache: DBStoryViewerDataCache): ViewerStorySnapshot {
+	return {
+		queryData: cache.queryData,
+		narratives: cache.analysisResults ?? {},
+		code: cache.code,
+		cachedAt: cache.cachedAt,
+	};
+}
+
+/**
+ * Rebuilds a story for a viewer whose warehouse access is restricted: its queries run as that viewer and its text is
+ * rewritten from the rows they may read, never from the owner's.
+ */
+export async function refreshStoryForViewer(
+	story: StoryQueryOrigin,
+	viewerUserId: string,
+	options: ViewerStoryRefreshOptions = {},
+): Promise<ViewerStorySnapshot> {
+	const version = options.storyVersionId
+		? await storyQueries.getVersionById(story.id, options.storyVersionId)
+		: await storyQueries.getLatestVersionByStoryId(story.id);
+	if (!version) {
+		throw new Error('Story not found');
+	}
+
+	const queryIds = await getVersionQueryIds(version);
+	const sqlQueries = await loadStorySqlQueries(story, queryIds);
+	const scope = runBy(await resolveStoryQueryScope(story), viewerUserId);
+	const executionContext = options.executionContext ?? (await createViewerExecutionContext(scope, viewerUserId));
+	const freshData =
+		Object.keys(sqlQueries).length > 0
+			? await executeStoryQueries(scope, sqlQueries, {
+					renderSql: stripSqlFilterBlocks,
+					semanticBindings: semanticBindingsFromCode(version.code),
+					executionContext,
+					billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+				})
+			: {};
+	const queryData = Object.fromEntries([...queryIds].map((id) => [id, freshData[id] ?? ACCESS_DENIED_RESULT]));
+	const readableData = omitAccessDeniedQueries(queryData);
+	const target = { projectId: scope.projectId, userId: viewerUserId, chatId: story.chatId };
+	const [code, narratives] = await Promise.all([
+		buildViewerStoryCode(target, version, queryIds, readableData),
+		buildViewerNarratives(target, version, readableData),
+	]);
+
+	const cachedAt = new Date();
+	await storyViewerDataCacheQueries.upsertStoryViewerDataCache({
+		storyId: version.storyId,
+		storyVersionId: version.id,
+		userId: viewerUserId,
+		permissionRevision: executionContext.permissionRevision,
+		queryData,
+		code,
+		analysisResults: narratives,
+		cachedAt,
+	});
+	return { queryData, narratives, code, cachedAt };
+}
+
+/** The owner's prose may quote rows the viewer cannot read, so it is rewritten from a source stripped of it. */
+async function buildViewerStoryCode(
+	target: StoryRefreshTarget,
+	version: { code: string; format: StoryFormat },
+	queryIds: Set<string>,
+	readableData: StoryQueryData,
+): Promise<string> {
+	if (version.format !== 'classic') {
+		return version.code;
+	}
+	const safeSource = buildViewerSafeStorySource(version.code);
+	const hasRowsToWriteAbout = queryIds.size > 0 && Object.keys(readableData).length > 0;
+	const rewritten = hasRowsToWriteAbout
+		? await generateDynamicStoryCode(target, 'Story', safeSource, readableData, true).catch(() => null)
+		: null;
+	return stripHardcodedFilterOptions(rewritten ? markViewerRestricted(rewritten) : safeSource);
+}
+
+/** The model only gets the narratives' ids and the viewer's rows; a narrative it does not rewrite stays blank. */
+async function buildViewerNarratives(
+	target: StoryRefreshTarget,
+	version: { id: string; format: StoryFormat; isLiveTextDynamic: boolean },
+	readableData: StoryQueryData,
+): Promise<StoryNarratives> {
+	if (version.format !== 'custom') {
+		return {};
+	}
+	const narrativeIds = extractStoryNarrativeIds(await storyFileQueries.listVersionFiles(version.id));
+	const canRewrite = version.isLiveTextDynamic && Object.keys(readableData).length > 0;
+	const placeholders = narrativeIds.map((id) => ({ id, text: VIEWER_NARRATIVE_PLACEHOLDER }));
+	const rewritten = canRewrite
+		? await rewriteNarratives(target, 'Story', placeholders, readableData).catch(() => ({}))
+		: {};
+	return blankMissingNarratives(narrativeIds, rewritten);
+}
+
+/** Every narrative of the version, blank: what a restricted viewer gets in place of the owner's static text. */
+export async function blankViewerNarratives(storyVersionId: string): Promise<StoryNarratives> {
+	return blankMissingNarratives(extractStoryNarrativeIds(await storyFileQueries.listVersionFiles(storyVersionId)));
+}
+
+function blankMissingNarratives(narrativeIds: string[], narratives: StoryNarratives = {}): StoryNarratives {
+	return {
+		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+		...Object.fromEntries(narrativeIds.map((id) => [id, narratives[id] ?? ''])),
+	};
 }
 
 function shouldDeferRefresh(options: StoryQueryDataOptions, cache: DBStoryDataCache | null, code: string): boolean {
@@ -634,7 +669,7 @@ async function resolveLegacyCache(
 	const missing = findMissingQueryIds(code, cache.queryData);
 	const queryData =
 		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
-	return { queryData: queryData ? availableStoryQueryData(queryData) : null, cachedAt: cache.cachedAt, code };
+	return { queryData, cachedAt: cache.cachedAt, code };
 }
 
 function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
@@ -659,7 +694,7 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	);
 }
 
-export function availableStoryQueryData(queryData: StoryQueryData): StoryQueryData {
+export function omitAccessDeniedQueries(queryData: StoryQueryData): StoryQueryData {
 	return Object.fromEntries(Object.entries(queryData).filter(([, result]) => !result.accessDenied));
 }
 
@@ -670,8 +705,12 @@ function normalizeEffectiveSql(sql: string): string {
 export interface StoryExecutionContext {
 	toolContext: ToolContext | ChatlessToolContext;
 	enforceExcludedColumns: boolean;
+	/** Runs as a restricted viewer: a query the warehouse refuses comes back `accessDenied` instead of failing. */
 	isViewerScoped: boolean;
-	viewerCacheRevision: number;
+}
+
+export interface ViewerExecutionContext extends StoryExecutionContext {
+	/** Identifies the access the viewer's rows were read with, so a cache written under other access never matches. */
 	permissionRevision: string;
 }
 
@@ -707,7 +746,7 @@ export async function executeStoryQueries(
 	};
 	const runnableIds = findRunnableQueryIds(queries, {
 		canRunAdminQueries: await canRunAdminQueriesAs(scope, queries),
-		hasChat: scope.chatId !== null,
+		hasChat: scope.chatId !== null && !options.executionContext?.isViewerScoped,
 		renderSql: options.renderSql,
 	});
 	const executionContext = Object.values(queries).some((query) => !query.adminMode)
@@ -746,7 +785,7 @@ export async function executeStoryQueries(
 		);
 		const upstreamResults = await Promise.all(upstreamIds.map(async (id) => [id, await run(id, lineage)] as const));
 		if (upstreamResults.some(([, result]) => result.accessDenied)) {
-			return { data: [], columns: [], accessDenied: true };
+			return ACCESS_DENIED_RESULT;
 		}
 		upstreamResults.forEach(([id, result]) => executionContext.toolContext.queryResults.set(id, result));
 		return executeLocalSql(sql, executionContext.toolContext);
@@ -762,7 +801,7 @@ export async function executeStoryQueries(
 
 interface RunnableQueryRules {
 	canRunAdminQueries: boolean;
-	/** A chat keeps the rows of queries run there, so a local query can read one without its SQL. */
+	/** A chat keeps the rows its owner got from queries run there, so the owner's local query can read one without its SQL. */
 	hasChat: boolean;
 	renderSql: (sqlQuery: string) => string;
 }
@@ -818,31 +857,31 @@ async function executeSingleStoryQuery(
 	query: StorySqlQuery,
 	options: LiveQueryOptions,
 ): Promise<StoryQueryResult> {
-	const viewerUserId =
-		options.viewerUserId && scope.chatId && (await requiresViewerStoryData(scope.chatId, options.viewerUserId))
-			? options.viewerUserId
-			: undefined;
-	const effectiveScope = viewerUserId ? { ...scope, ownerId: viewerUserId } : scope;
-	const executionContext =
-		viewerUserId && scope.chatId ? await createStoryExecutionContext(scope.chatId, viewerUserId) : undefined;
+	const viewerUserId = scope.chatId ? await resolveRestrictedViewerId(scope.chatId, options.viewerUserId) : undefined;
+	const runScope = viewerUserId ? runBy(scope, viewerUserId) : scope;
 	const queryData = await executeStoryQueries(
-		effectiveScope,
+		runScope,
 		{ [queryId]: query },
 		{
 			renderSql: stripSqlFilterBlocks,
 			semanticBindings: options.storyCode ? semanticBindingsFromCode(options.storyCode) : undefined,
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
-			executionContext,
+			executionContext: viewerUserId ? await createViewerExecutionContext(runScope, viewerUserId) : undefined,
 		},
 	);
-	if (viewerUserId) {
-		const result = queryData[queryId];
-		if (!result || result.accessDenied) {
-			throw new Error(STORY_QUERY_ACCESS_DENIED_MESSAGE);
-		}
-		return result;
+	if (!viewerUserId) {
+		return resultOrStoredRows(scope, queryData, queryId);
 	}
-	return resultOrStoredRows(scope, queryData, queryId);
+	const result = queryData[queryId];
+	if (!result || result.accessDenied) {
+		throw new Error(STORY_QUERY_ACCESS_DENIED_MESSAGE);
+	}
+	return result;
+}
+
+/** The same queries run by `userId` in place of the story owner, so warehouse and admin access follow that user. */
+export function runBy(scope: StoryQueryScope, userId: string): StoryQueryScope {
+	return { ...scope, ownerId: userId };
 }
 
 export async function resolveChatQueryScope(chatId: string): Promise<StoryQueryScope> {
@@ -872,14 +911,7 @@ export async function resolveStoryQueryScope(story: StoryQueryOrigin): Promise<S
 		projectId,
 		ownerId,
 		chatId: story.chatId,
-		loadSqlQueries: async (queryIds) => {
-			if (!story.chatId) {
-				return loadStorySqlQueries(story, queryIds);
-			}
-			const fromChat = (await storyQueries.getSqlQueriesByIds(story.chatId, queryIds)) ?? {};
-			const missingIds = new Set([...queryIds].filter((queryId) => !(queryId in fromChat)));
-			return missingIds.size > 0 ? { ...(await loadStorySqlQueries(story, missingIds)), ...fromChat } : fromChat;
-		},
+		loadSqlQueries: (queryIds) => loadStorySqlQueries(story, queryIds),
 		loadStoredQueryData: (queryIds) => loadStoredStoryQueryData(story, queryIds),
 	};
 }
@@ -927,7 +959,7 @@ async function executeBillingValidatedRawSql(
 		return { data: data.data, columns: data.columns };
 	} catch (error) {
 		if (options.executionContext.isViewerScoped && error instanceof WarehouseSqlError && error.status === 403) {
-			return { data: [], columns: [], accessDenied: true };
+			return ACCESS_DENIED_RESULT;
 		}
 		throw error;
 	}
@@ -984,47 +1016,56 @@ async function executeLocalSql(sqlQuery: string, context: ToolContext | Chatless
 	return { data: result.data, columns: result.columns };
 }
 
-/** Queries run with the access of `userId`, the chat owner by default. */
-export async function createStoryExecutionContext(chatId: string, userId?: string): Promise<StoryExecutionContext> {
-	const [projectId, runAsUserId] = await Promise.all([
-		requireChatProjectId(chatId),
-		userId ?? chatQueries.getChatOwnerId(chatId),
-	]);
-	if (!runAsUserId) {
+/** Queries run with the access of `viewerUserId` when given, of the chat owner otherwise. */
+export async function createStoryExecutionContext(
+	chatId: string,
+	viewerUserId?: string,
+): Promise<StoryExecutionContext> {
+	const projectId = await requireChatProjectId(chatId);
+	if (viewerUserId) {
+		return createViewerExecutionContext({ projectId, chatId }, viewerUserId);
+	}
+	const ownerId = await chatQueries.getChatOwnerId(chatId);
+	if (!ownerId) {
 		throw new Error('Chat owner not found');
 	}
-	return createOwnerExecutionContext({ projectId, ownerId: runAsUserId, chatId }, userId !== undefined);
+	return createOwnerExecutionContext({ projectId, ownerId, chatId });
 }
 
-export async function createOwnerExecutionContext(
+export async function createOwnerExecutionContext(principal: StoryExecutionPrincipal): Promise<StoryExecutionContext> {
+	return buildExecutionContext(principal, false);
+}
+
+/**
+ * The project revision is read before the viewer's access, so access that changes in between yields a revision no
+ * later read computes again, rather than rows of the old access filed under the new one.
+ */
+export async function createViewerExecutionContext(
+	story: Pick<StoryExecutionPrincipal, 'projectId' | 'chatId'>,
+	viewerUserId: string,
+): Promise<ViewerExecutionContext> {
+	const { projectId, chatId } = story;
+	const viewerCacheRevision = await storyViewerDataCacheQueries.getProjectViewerCacheRevision(projectId);
+	const context = await buildExecutionContext({ projectId, chatId, ownerId: viewerUserId }, true);
+	const permissions = [
+		context.toolContext.warehouseTableAccess,
+		context.toolContext.warehouseRowSecurity,
+		context.enforceExcludedColumns,
+		viewerCacheRevision,
+	];
+	return { ...context, permissionRevision: createHash('sha256').update(JSON.stringify(permissions)).digest('hex') };
+}
+
+async function buildExecutionContext(
 	principal: StoryExecutionPrincipal,
-	isViewerScoped = false,
+	isViewerScoped: boolean,
 ): Promise<StoryExecutionContext> {
 	const { projectId, ownerId: userId, chatId } = principal;
-	const viewerCacheRevision = await storyQueries.getProjectViewerCacheRevision(projectId);
 	const toolContext = chatId
 		? await buildToolContext({ projectId, userId, chatId, querySource: 'story' })
 		: await buildChatlessToolContext({ projectId, userId, querySource: 'story' });
-	if ((await storyQueries.getProjectViewerCacheRevision(projectId)) !== viewerCacheRevision) {
-		throw new Error('Viewer permissions changed while building the execution context');
-	}
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings);
-	return {
-		toolContext,
-		enforceExcludedColumns,
-		isViewerScoped,
-		viewerCacheRevision,
-		permissionRevision: createHash('sha256')
-			.update(
-				JSON.stringify([
-					toolContext.warehouseTableAccess,
-					toolContext.warehouseRowSecurity,
-					enforceExcludedColumns,
-					viewerCacheRevision,
-				]),
-			)
-			.digest('hex'),
-	};
+	return { toolContext, enforceExcludedColumns, isViewerScoped };
 }
 
 async function requireChatProjectId(chatId: string): Promise<string> {
@@ -1131,25 +1172,30 @@ async function getCachedNarratives(storyId: string): Promise<StoryNarratives> {
 async function regenerateCustomStoryNarratives(
 	target: StoryRefreshTarget,
 	version: { id: string; title: string },
-	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-	viewerSafe = false,
+	queryData: StoryQueryData,
 ): Promise<StoryNarratives> {
 	const sources = extractStoryNarratives(await storyFileQueries.listVersionFiles(version.id));
+	return rewriteNarratives(target, version.title, sources, queryData);
+}
+
+async function rewriteNarratives(
+	target: StoryRefreshTarget,
+	title: string,
+	sources: StoryNarrativeSource[],
+	queryData: StoryQueryData,
+): Promise<StoryNarratives> {
 	if (sources.length === 0) {
 		return {};
 	}
-	if (viewerSafe && Object.keys(queryData).length === 0) {
-		return redactViewerNarratives(sources);
-	}
 	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
-		return viewerSafe ? redactViewerNarratives(sources) : {};
+		return {};
 	}
 
 	const systemPrompt = renderToMarkdown(
 		LiveCustomStoryNarrativesPrompt({
-			title: viewerSafe ? 'Story' : version.title,
-			narratives: viewerSafe ? sources.map(({ id }) => ({ id, text: 'Viewer-specific narrative.' })) : sources,
+			title,
+			narratives: sources,
 			querySummaries: buildQueryDataSummary(queryData),
 		}),
 	);
@@ -1160,19 +1206,7 @@ async function regenerateCustomStoryNarratives(
 		'Rewrite every narrative with the latest query results.',
 		z.object({ narratives: z.array(z.object({ id: z.string(), text: z.string() })) }),
 	);
-	const narratives = keepKnownNarratives(sources, output.narratives);
-	return viewerSafe ? redactViewerNarratives(sources, narratives) : narratives;
-}
-
-function redactViewerNarratives(sources: StoryNarrativeSource[], narratives: StoryNarratives = {}): StoryNarratives {
-	return {
-		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
-		...Object.fromEntries(sources.map(({ id }) => [id, narratives[id] ?? ''])),
-	};
-}
-
-async function redactCustomStoryNarratives(storyVersionId: string): Promise<StoryNarratives> {
-	return redactViewerNarratives(extractStoryNarratives(await storyFileQueries.listVersionFiles(storyVersionId)));
+	return keepKnownNarratives(sources, output.narratives);
 }
 
 function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNarrativeSource[]): StoryNarratives {
@@ -1337,10 +1371,6 @@ function preservesStoryStructure(
 	);
 }
 
-function extractStructureTokens(code: string): string[] {
-	return code.match(storyStructureTokenRegex()) ?? [];
-}
-
 function extractHeadingTokens(code: string): string[] {
 	return code
 		.split('\n')
@@ -1350,89 +1380,4 @@ function extractHeadingTokens(code: string): string[] {
 
 function extractHeadingLevels(code: string): number[] {
 	return extractHeadingTokens(code).map((heading) => heading.match(/^#+/)![0].length);
-}
-
-function buildViewerSafeStorySource(code: string): string {
-	const tags: string[] = [];
-	const tokenized = code.replace(storyStructureTokenRegex(), (tag) => {
-		const index = tags.push(redactViewerStoryTag(tag)) - 1;
-		return `@@NAO_STORY_TAG_${index}@@`;
-	});
-	const redacted = tokenized
-		.split('\n')
-		.map((line) => {
-			const placeholders = line.match(/@@NAO_STORY_TAG_\d+@@/g) ?? [];
-			const heading = line.match(/^\s*(#{1,6})\s+/);
-			if (heading) {
-				return [`${heading[1]} Viewer-specific section`, ...placeholders].join(' ');
-			}
-			if (placeholders.length > 0) {
-				return placeholders.join(' ');
-			}
-			return line.trim() ? 'Viewer-specific narrative.' : '';
-		})
-		.join('\n');
-	return `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${redacted.replace(
-		/@@NAO_STORY_TAG_(\d+)@@/g,
-		(_placeholder, index: string) => tags[Number(index)] ?? '',
-	)}`;
-}
-
-function storyStructureTokenRegex(): RegExp {
-	return new RegExp(
-		String.raw`<grid(?:\s+${TAG_ATTRS})?>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>|<map\s+${TAG_ATTRS}\/?>|<parameter\s+${TAG_ATTRS}\/?>|<tab\s+${TAG_ATTRS}>|<\/tab>`,
-		'g',
-	);
-}
-
-function redactViewerStoryTag(tag: string): string {
-	const redacted = stripViewerSensitiveTagCopy(tag);
-	if (redacted.startsWith('<tab ') && !/\stitle\s*=/.test(redacted)) {
-		return redacted.replace(/>$/, ' title="Section">');
-	}
-	return redacted;
-}
-
-function stripViewerSensitiveTagCopy(tag: string): string {
-	const sensitiveAttributeRegex = new RegExp(
-		String.raw`\s+(?:title|label|x_axis_label|y_axis_label|y_axis_right_label)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
-		'g',
-	);
-	const withoutDisplayCopy = redactViewerSeriesLabels(tag.replace(sensitiveAttributeRegex, ''));
-	return withoutDisplayCopy.startsWith('<filter ')
-		? withoutDisplayCopy.replace(
-				new RegExp(String.raw`\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`, 'g'),
-				'',
-			)
-		: withoutDisplayCopy;
-}
-
-function redactViewerSeriesLabels(tag: string): string {
-	let foundSeries = false;
-	const redacted = tag.replace(/(\s+series\s*=\s*)'([^']*)'/g, (attribute, prefix: string, value: string) => {
-		foundSeries = true;
-		try {
-			const series = JSON.parse(value);
-			if (!Array.isArray(series)) {
-				return attribute.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
-			}
-			const safeSeries = series.map((item) => {
-				if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.label !== 'string') {
-					return item;
-				}
-				const dataKey = typeof item.data_key === 'string' && /^\w+$/.test(item.data_key) ? item.data_key : '';
-				return { ...item, label: dataKey ? formatColumnLabel(dataKey) : 'Series' };
-			});
-			return `${prefix}'${JSON.stringify(safeSeries)}'`;
-		} catch {
-			return attribute.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
-		}
-	});
-	return foundSeries ? redacted : redacted.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
-}
-
-function stripHardcodedFilterOptions(code: string): string {
-	const filterTagRegex = new RegExp(String.raw`<filter\s+${TAG_ATTRS}\/?>`, 'g');
-	const optionsAttributeRegex = /\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
-	return code.replace(filterTagRegex, (tag) => tag.replace(optionsAttributeRegex, ''));
 }

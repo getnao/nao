@@ -25,7 +25,6 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	invalidateProjectViewerCaches: vi.fn(),
-	invalidateUserViewerCaches: vi.fn(),
 	listUserGroups: vi.fn(),
 	listActiveUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
@@ -59,9 +58,8 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
-vi.mock('../../src/queries/story.queries', () => ({
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
 	invalidateProjectViewerCaches: mocks.invalidateProjectViewerCaches,
-	invalidateUserViewerCaches: mocks.invalidateUserViewerCaches,
 }));
 vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
@@ -979,7 +977,7 @@ describe('user group routes', () => {
 	it('unshares project-wide content no longer allowed after membership changes and group deletion', async () => {
 		await caller.setMembership({ groupId: 'group-id', userId: 'target-user-id', isMember: false });
 		expect(mocks.setUserGroupMembership).toHaveBeenCalled();
-		expect(mocks.invalidateUserViewerCaches).toHaveBeenCalledWith('project-id', 'target-user-id');
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 
 		mocks.revokeUnauthorizedProjectWideShares.mockClear();

@@ -1,4 +1,5 @@
 import type { StoryNarratives } from '@nao/shared/story-app';
+import { prepareRestrictedStoryCode } from '@nao/shared/story-viewer-restrictions';
 import {
 	NOTIFICATION_CHANNELS,
 	type NotificationChannel,
@@ -13,9 +14,8 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
-import { refreshStoryById, refreshStoryDataForDelivery } from '../services/live-story';
+import { omitAccessDeniedQueries, refreshStoryById, refreshStoryForViewer } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
-import { STORY_DELIVERY_JOB_NAME } from '../services/story-delivery.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
 import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import type { EmailAttachment } from '../types/email';
@@ -25,22 +25,14 @@ import { logger } from '../utils/logger';
 import { buildStoryEmailHtml, buildStoryPdfAttachment } from '../utils/story-email';
 import { storyPath } from '../utils/story-links';
 
-export { STORY_DELIVERY_JOB_NAME };
+export const STORY_DELIVERY_JOB_NAME = 'story.deliver';
 
 type StoryQueryData = Record<string, { data: unknown[]; columns: string[] }>;
 
 type StoryDeliveryJobPayload = {
 	storyId?: string;
-	recipientUserIds?: string[];
 	skipDeliveries?: ChannelDeliveryAttempt[];
 };
-
-type RetryState = {
-	skipDeliveries: ChannelDeliveryAttempt[];
-	recipientUserIds?: string[];
-};
-
-const NO_RETRY_STATE: RetryState = { skipDeliveries: [] };
 
 type DeliveryContext = {
 	delivery: DBStoryDelivery;
@@ -49,64 +41,47 @@ type DeliveryContext = {
 	recipientUserIds: string[];
 };
 
-export class StoryRecipientDeliveryError extends NotificationChannelDeliveryError {
-	readonly failedRecipientUserIds: string[];
-
-	constructor(
-		succeeded: ChannelDeliveryAttempt[],
-		failed: ChannelDeliveryAttempt[],
-		failedRecipientUserIds: string[],
-	) {
-		super(succeeded, failed);
-		this.name = 'StoryRecipientDeliveryError';
-		this.message = `Failed to deliver story to ${failedRecipientUserIds.length} recipient(s).`;
-		this.failedRecipientUserIds = failedRecipientUserIds;
-	}
-}
+/** What a delivery shows; the latest version's code and the story's cached narratives unless given. */
+type DeliveryContent = {
+	queryData: StoryQueryData;
+	code?: string;
+	narratives?: StoryNarratives;
+};
 
 export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job?: DBScheduledJob): Promise<void> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
 	const storyId = payload.storyId;
-	const previous: RetryState = {
-		skipDeliveries: parseSkipDeliveries(payload.skipDeliveries),
-		recipientUserIds: payload.recipientUserIds,
-	};
+	const previousSkips = parseSkipDeliveries(payload.skipDeliveries);
 	try {
-		await runScheduledStoryDelivery(storyId, previous.skipDeliveries, previous.recipientUserIds);
+		await runScheduledStoryDelivery(storyId, previousSkips);
 	} catch (error) {
 		const isLastAttempt = !!job && job.attempts >= job.maxAttempts;
-		await saveRetryState(job, storyId, isLastAttempt ? NO_RETRY_STATE : retryStateAfter(error, previous));
+		const succeeded = error instanceof NotificationChannelDeliveryError ? error.succeeded : [];
+		await saveRetrySkips(job, storyId, isLastAttempt ? [] : mergeSkipDeliveries(previousSkips, succeeded));
 		throw error;
 	}
-	if (previous.skipDeliveries.length > 0 || previous.recipientUserIds) {
-		await saveRetryState(job, storyId, NO_RETRY_STATE);
+	if (previousSkips.length > 0) {
+		await saveRetrySkips(job, storyId, []);
 	}
 }
 
 /**
- * What a run already sent is skipped by its retries only. The payload belongs to the recurring job, so the retry
- * state is cleared once the run succeeds or gives up, or every later run would skip the same recipients.
+ * What a run already sent is skipped by its retries only. The payload belongs to the recurring job, so the list is
+ * cleared once the run succeeds or gives up, or every later run would skip the same recipients.
  */
-async function saveRetryState(job: DBScheduledJob | undefined, storyId: string, state: RetryState): Promise<void> {
-	if (!job) {
-		return;
+async function saveRetrySkips(
+	job: DBScheduledJob | undefined,
+	storyId: string,
+	skipDeliveries: ChannelDeliveryAttempt[],
+): Promise<void> {
+	if (job) {
+		await scheduledJobQueries.updateJobPayload(
+			job.id,
+			skipDeliveries.length > 0 ? { storyId, skipDeliveries } : { storyId },
+		);
 	}
-	await scheduledJobQueries.updateJobPayload(job.id, {
-		storyId,
-		...(state.recipientUserIds ? { recipientUserIds: state.recipientUserIds } : {}),
-		...(state.skipDeliveries.length > 0 ? { skipDeliveries: state.skipDeliveries } : {}),
-	});
-}
-
-function retryStateAfter(error: unknown, previous: RetryState): RetryState {
-	const succeeded = error instanceof NotificationChannelDeliveryError ? error.succeeded : [];
-	return {
-		skipDeliveries: mergeSkipDeliveries(previous.skipDeliveries, succeeded),
-		recipientUserIds:
-			error instanceof StoryRecipientDeliveryError ? error.failedRecipientUserIds : previous.recipientUserIds,
-	};
 }
 
 export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string | null> {
@@ -127,21 +102,16 @@ export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPay
 export async function runScheduledStoryDelivery(
 	storyId: string,
 	skipDeliveries: ChannelDeliveryAttempt[] = [],
-	recipientUserIds?: string[],
 ): Promise<void> {
 	await withKeyedLock(`story:${storyId}`, async () => {
-		const context = await loadDeliveryContext(storyId, recipientUserIds);
+		const context = await loadDeliveryContext(storyId);
 		if (!context) {
-			return;
-		}
-		if (await requiresRecipientSnapshots(context)) {
-			await deliverRecipientSnapshots(context, skipDeliveries);
 			return;
 		}
 		const { queryData } = await refreshStoryById(storyId, {
 			billingAccessVerifiedProjectId: context.projectId,
 		});
-		await deliver(context, queryData, skipDeliveries);
+		await deliverToRecipients(context, queryData, skipDeliveries);
 	});
 }
 
@@ -161,25 +131,11 @@ export async function deliverStoryOnRefresh(
 
 	const context = await loadDeliveryContext(storyId);
 	if (context) {
-		if (await requiresRecipientSnapshots(context)) {
-			await deliverRecipientSnapshots(context);
-		} else {
-			await deliver(context, queryData);
-		}
+		await deliverToRecipients(context, queryData);
 	}
 }
 
-async function requiresRecipientSnapshots(context: DeliveryContext): Promise<boolean> {
-	const restrictions = await Promise.all(
-		context.recipientUserIds.map((userId) => hasEffectiveWarehouseRestrictions(context.projectId, userId)),
-	);
-	return restrictions.some(Boolean);
-}
-
-async function loadDeliveryContext(
-	storyId: string,
-	requestedRecipientUserIds?: string[],
-): Promise<DeliveryContext | null> {
+async function loadDeliveryContext(storyId: string): Promise<DeliveryContext | null> {
 	const delivery = await storyDeliveryQueries.getByStoryId(storyId);
 	if (!delivery || !delivery.enabled) {
 		return null;
@@ -195,112 +151,107 @@ async function loadDeliveryContext(
 		throw new Error(`Story ${storyId} is missing a project; cannot deliver.`);
 	}
 
-	const resolvedRecipientUserIds = await resolveDeliveryRecipientUserIds(
-		delivery,
-		storyId,
+	const recipientUserIds = await filterCurrentProjectMembers(
 		projectId,
-		story.userId ?? null,
+		await resolveDeliveryRecipientUserIds(delivery, storyId, projectId, story.userId ?? null),
 	);
-	const requested = requestedRecipientUserIds ? new Set(requestedRecipientUserIds) : null;
-	const recipientUserIds = requested
-		? resolvedRecipientUserIds.filter((recipientUserId) => requested.has(recipientUserId))
-		: resolvedRecipientUserIds;
-	const currentRecipientUserIds = await filterCurrentProjectMembers(projectId, recipientUserIds);
-	if (currentRecipientUserIds.length === 0) {
+	if (recipientUserIds.length === 0) {
 		return null;
 	}
 
-	return { delivery, story, projectId, recipientUserIds: currentRecipientUserIds };
+	return { delivery, story, projectId, recipientUserIds };
 }
 
-async function deliverRecipientSnapshots(
+/**
+ * Recipients who read the story with its owner's access share the copy that was just refreshed. One whose warehouse
+ * access is restricted gets a copy rebuilt with their own, and a failure for one recipient does not hold back the rest.
+ */
+async function deliverToRecipients(
 	context: DeliveryContext,
+	queryData: StoryQueryData,
 	skipDeliveries: ChannelDeliveryAttempt[] = [],
 ): Promise<void> {
-	const succeeded: ChannelDeliveryAttempt[] = [];
-	const failed: ChannelDeliveryAttempt[] = [];
-	const failedRecipientUserIds: string[] = [];
-	for (const recipientUserId of context.recipientUserIds) {
-		if (!(await projectQueries.getUserRoleInProject(context.projectId, recipientUserId))) {
-			continue;
-		}
-		const skippedChannels = new Set(
-			skipDeliveries.filter((attempt) => attempt.userId === recipientUserId).map((attempt) => attempt.channel),
-		);
-		if (context.delivery.channels.every((channel) => skippedChannels.has(channel))) {
-			continue;
-		}
-		const pendingAttempts = context.delivery.channels
-			.filter((channel) => !skippedChannels.has(channel))
-			.map((channel) => ({ userId: recipientUserId, channel }));
-
-		let snapshot: Awaited<ReturnType<typeof refreshStoryDataForDelivery>>;
-		try {
-			snapshot = await refreshStoryDataForDelivery(context.story.id, {
-				viewerUserId: recipientUserId,
-				billingAccessVerifiedProjectId: context.projectId,
-				generateViewerCode: true,
-			});
-		} catch (error) {
-			failedRecipientUserIds.push(recipientUserId);
-			failed.push(...pendingAttempts);
-			logRecipientDeliveryFailure(context, recipientUserId, 'refresh', error);
-			continue;
-		}
-
-		try {
-			await deliver(
-				{ ...context, recipientUserIds: [recipientUserId] },
-				snapshot.queryData,
-				skipDeliveries,
-				snapshot.code,
-				snapshot.narratives,
-			);
-			succeeded.push(...pendingAttempts);
-		} catch (error) {
-			failedRecipientUserIds.push(recipientUserId);
-			if (error instanceof NotificationChannelDeliveryError) {
-				succeeded.push(...error.succeeded);
-				failed.push(...error.failed);
-			} else {
-				failed.push(...pendingAttempts);
-			}
-			logRecipientDeliveryFailure(context, recipientUserId, 'send', error);
-		}
+	const restrictedUserIds = await listRestrictedRecipientIds(context);
+	if (restrictedUserIds.length === 0) {
+		await deliver(context, { queryData }, skipDeliveries);
+		return;
 	}
 
-	if (failedRecipientUserIds.length > 0) {
-		throw new StoryRecipientDeliveryError(mergeSkipDeliveries([], succeeded), mergeSkipDeliveries([], failed), [
-			...new Set(failedRecipientUserIds),
-		]);
+	const unrestrictedUserIds = context.recipientUserIds.filter((userId) => !restrictedUserIds.includes(userId));
+	const outcomes = [
+		await attemptDelivery(context, unrestrictedUserIds, skipDeliveries, async () => ({ queryData })),
+	];
+	for (const userId of restrictedUserIds) {
+		outcomes.push(
+			await attemptDelivery(context, [userId], skipDeliveries, () => buildRestrictedRecipientContent(context, userId)),
+		);
+	}
+
+	const failed = outcomes.flatMap((outcome) => outcome.failed);
+	if (failed.length > 0) {
+		throw new NotificationChannelDeliveryError(
+			outcomes.flatMap((outcome) => outcome.succeeded),
+			failed,
+		);
 	}
 }
 
-function logRecipientDeliveryFailure(
-	context: DeliveryContext,
-	recipientUserId: string,
-	stage: 'refresh' | 'send',
-	error: unknown,
-): void {
-	logger.error(`Failed to ${stage} story delivery for recipient: ${String(error)}`, {
-		source: 'system',
-		projectId: context.projectId,
-		context: { storyId: context.story.id, recipientUserId, stage },
+async function listRestrictedRecipientIds(context: DeliveryContext): Promise<string[]> {
+	const ownerId = context.story.userId ?? (await storyQueries.getStoryOwnerId(context.story.id));
+	const isRestricted = await Promise.all(
+		context.recipientUserIds.map(
+			async (userId) => userId !== ownerId && (await hasEffectiveWarehouseRestrictions(context.projectId, userId)),
+		),
+	);
+	return context.recipientUserIds.filter((_userId, index) => isRestricted[index]);
+}
+
+async function buildRestrictedRecipientContent(context: DeliveryContext, userId: string): Promise<DeliveryContent> {
+	const snapshot = await refreshStoryForViewer(context.story, userId, {
+		billingAccessVerifiedProjectId: context.projectId,
 	});
+	return {
+		queryData: omitAccessDeniedQueries(snapshot.queryData),
+		code: prepareRestrictedStoryCode(snapshot.code).code,
+		narratives: snapshot.narratives,
+	};
+}
+
+type DeliveryOutcome = Pick<NotificationChannelDeliveryError, 'succeeded' | 'failed'>;
+
+async function attemptDelivery(
+	context: DeliveryContext,
+	recipientUserIds: string[],
+	skipDeliveries: ChannelDeliveryAttempt[],
+	buildContent: () => Promise<DeliveryContent>,
+): Promise<DeliveryOutcome> {
+	const skipped = new Set(skipDeliveries.map(deliveryAttemptKey));
+	const pending = recipientUserIds
+		.flatMap((userId) => context.delivery.channels.map((channel) => ({ userId, channel })))
+		.filter((attempt) => !skipped.has(deliveryAttemptKey(attempt)));
+	if (pending.length === 0) {
+		return { succeeded: [], failed: [] };
+	}
+	try {
+		await deliver({ ...context, recipientUserIds }, await buildContent(), skipDeliveries);
+		return { succeeded: pending, failed: [] };
+	} catch (error) {
+		logger.error(`Failed to deliver story to ${recipientUserIds.length} recipient(s): ${String(error)}`, {
+			source: 'system',
+			projectId: context.projectId,
+			context: { storyId: context.story.id, recipientUserIds },
+		});
+		return error instanceof NotificationChannelDeliveryError ? error : { succeeded: [], failed: pending };
+	}
 }
 
 async function deliver(
 	context: DeliveryContext,
-	queryData: StoryQueryData,
+	content: DeliveryContent,
 	skipDeliveries: ChannelDeliveryAttempt[] = [],
-	code?: string,
-	narratives?: StoryNarratives,
 ): Promise<void> {
-	const { delivery, story, projectId } = context;
-	const recipientUserIds = await filterCurrentProjectMembers(projectId, context.recipientUserIds);
-	if (recipientUserIds.length === 0) {
-		return;
-	}
+	const { delivery, story, projectId, recipientUserIds } = context;
+	const { queryData, narratives } = content;
 
 	const version = await storyQueries.getLatestVersionByStoryId(story.id);
 	if (!version) {
@@ -312,7 +263,7 @@ async function deliver(
 	await ensureRecipientsCanOpenStory(story.id, projectId, ownerId, recipientUserIds);
 	const linkUrl = storyPath(story.id);
 	const isCustom = story.format === 'custom';
-	const renderedCode = code ?? version.code;
+	const renderedCode = content.code ?? version.code;
 	const [attachments, storyEmail] = await Promise.all([
 		isCustom
 			? buildCustomStoryPdfAttachment(story, queryData, projectId, narratives)
@@ -428,10 +379,13 @@ function mergeSkipDeliveries(
 	previous: ChannelDeliveryAttempt[],
 	newlySucceeded: ChannelDeliveryAttempt[],
 ): ChannelDeliveryAttempt[] {
-	const key = (attempt: ChannelDeliveryAttempt): string => `${attempt.userId}:${attempt.channel}`;
 	const merged = new Map<string, ChannelDeliveryAttempt>();
 	for (const attempt of [...previous, ...newlySucceeded]) {
-		merged.set(key(attempt), attempt);
+		merged.set(deliveryAttemptKey(attempt), attempt);
 	}
 	return [...merged.values()];
+}
+
+function deliveryAttemptKey(attempt: ChannelDeliveryAttempt): string {
+	return `${attempt.userId}:${attempt.channel}`;
 }

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	createStoryExecutionContext: vi.fn(),
+	createViewerExecutionContext: vi.fn(),
 	executeStoryQueries: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
@@ -16,10 +17,13 @@ vi.mock('../../src/queries/story.queries', () => ({
 }));
 
 vi.mock('../../src/services/live-story', () => ({
-	availableStoryQueryData: (queryData: unknown) => queryData,
+	omitAccessDeniedQueries: (queryData: unknown) => queryData,
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
+	createViewerExecutionContext: mocks.createViewerExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
-	requiresViewerStoryData: mocks.hasRowSecurity,
+	resolveRestrictedViewerId: async (chatId: string, viewerUserId?: string) =>
+		viewerUserId && (await mocks.hasRowSecurity(chatId, viewerUserId)) ? viewerUserId : undefined,
+	runBy: (scope: object, userId: string) => ({ ...scope, ownerId: userId }),
 	resolveChatQueryScope: mocks.resolveChatQueryScope,
 }));
 
@@ -99,7 +103,8 @@ describe('getFilteredStoryQueryData', () => {
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
 			query_orders: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
 		});
-		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { userId: 'viewer-1' } });
+		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { userId: 'owner-1' } });
+		mocks.createViewerExecutionContext.mockResolvedValue({ toolContext: { userId: 'viewer-1' } });
 		mocks.executeStoryQueries.mockResolvedValue({});
 		mocks.resolveChatQueryScope.mockResolvedValue({
 			chatId: 'chat-1',
@@ -118,7 +123,10 @@ describe('getFilteredStoryQueryData', () => {
 			{ billingAccessVerifiedProjectId: 'project-1', viewerUserId: 'viewer-1' },
 		);
 
-		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
+		expect(mocks.createViewerExecutionContext).toHaveBeenCalledWith(
+			{ chatId: 'chat-1', ownerId: 'viewer-1', projectId: 'project-1' },
+			'viewer-1',
+		);
 		expect(mocks.executeStoryQueries).toHaveBeenCalledWith(
 			{ chatId: 'chat-1', ownerId: 'viewer-1', projectId: 'project-1' },
 			expect.anything(),

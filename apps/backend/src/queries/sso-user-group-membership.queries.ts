@@ -5,7 +5,7 @@ import {
 	type SsoGroupProvider,
 } from '@nao/shared';
 import type { UserRole } from '@nao/shared/types';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -20,6 +20,7 @@ import {
 	resolveOidcGroupNaoGroupMappingTargets,
 	resolveStrongestUserRole,
 } from '../utils/sso-group-mapping';
+import { bumpProjectViewerCacheRevision } from './story-viewer-data-cache.queries';
 
 export interface SsoUserGroupMapping {
 	groupId: string;
@@ -104,14 +105,7 @@ export async function reconcileSsoUserGroupMemberships(
 				if (changes.stale.length > 0 || changes.added.length > 0) {
 					const projectIds = changedMembershipProjectIds(mappings, existingMemberships, changes);
 					if (projectIds.length > 0) {
-						transaction
-							.update(s.project)
-							.set({
-								viewerCacheRevision: sql`${s.project.viewerCacheRevision} + 1`,
-								updatedAt: sql`${s.project.updatedAt}`,
-							})
-							.where(inArray(s.project.id, projectIds))
-							.run();
+						bumpProjectViewerCacheRevision(transaction, projectIds).run();
 					}
 					transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.userId, userId)).run();
 				}
@@ -169,14 +163,7 @@ export async function reconcileSsoUserGroupMemberships(
 		if (changes.stale.length > 0 || changes.added.length > 0) {
 			const projectIds = changedMembershipProjectIds(mappings, existingMemberships, changes);
 			if (projectIds.length > 0) {
-				await transaction
-					.update(s.project)
-					.set({
-						viewerCacheRevision: sql`${s.project.viewerCacheRevision} + 1`,
-						updatedAt: sql`${s.project.updatedAt}`,
-					})
-					.where(inArray(s.project.id, projectIds))
-					.execute();
+				await bumpProjectViewerCacheRevision(transaction, projectIds).execute();
 			}
 			await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.userId, userId)).execute();
 		}

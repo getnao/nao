@@ -1559,6 +1559,7 @@ describe('user group queries', () => {
 			userId: DIRECT_USER_ID,
 			permissionRevision: 'permissions-a',
 			queryData: {},
+			code: '<story />',
 		};
 		await db.insert(storyViewerDataCache).values(cache);
 

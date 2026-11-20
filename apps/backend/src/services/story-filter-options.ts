@@ -28,10 +28,11 @@ import {
 	executeRawSql,
 	executeStoryQueries,
 	isCacheExpired,
-	requiresViewerStoryData,
 	resolveChatQueryScope,
 	resolveRawSqlDatabaseType,
+	resolveRestrictedViewerId,
 	resolveStoryQueryScope,
+	runBy,
 	type StoryExecutionContext,
 	type StoryQueryScope,
 } from './live-story';
@@ -40,6 +41,8 @@ import { canFilterMetrics, dimensionExpression, semanticBindingsFromCode } from 
 import { loadStorySqlQueries } from './story-sql-queries';
 
 const FILTER_OPTIONS_LIMIT = 100;
+/** A search pattern can match in SQL what the exact text filter then drops, so the pages read to fill a result are capped. */
+const MAX_OPTIONS_SEARCH_PAGES = 10;
 const FILTER_OPTIONS_MAX_AGE_MS = 60 * 60 * 1000;
 const FILTER_OPTIONS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const PARENT_FILTER_TYPES = new Set<ParsedFilterBlock['filterType']>(['select', 'multi_select', 'text']);
@@ -140,19 +143,17 @@ async function getFilterOptions(
 	context: StoryFilterContext,
 	filterId: string,
 	request: FilterOptionsRequest,
-	executionOptions: FilterOptionsExecutionOptions,
+	requestOptions: FilterOptionsExecutionOptions,
 ): Promise<FilterOptionsResult> {
 	const filter = context.filters.find((candidate) => candidate.id === filterId);
 	if (!filter) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
 	}
 
-	const viewerUserId =
-		executionOptions.viewerUserId &&
-		context.chatId &&
-		(await requiresViewerStoryData(context.chatId, executionOptions.viewerUserId))
-			? executionOptions.viewerUserId
-			: undefined;
+	const viewerUserId = context.chatId
+		? await resolveRestrictedViewerId(context.chatId, requestOptions.viewerUserId)
+		: undefined;
+	const executionOptions = { ...requestOptions, viewerUserId };
 	if (filter.options?.length && !viewerUserId && !filter.optionsQueryId) {
 		return { options: [...new Set(filter.options)], isComplete: true };
 	}
@@ -347,20 +348,17 @@ async function fetchQueryOptionValues(
 	const databaseType =
 		query.dialect ??
 		(query.adminMode ? dbConfig.dialect : await resolveRawSqlDatabaseType(executionContext, query.databaseId));
+	const ownerScope = await context.resolveScope();
+	const scope = executionOptions.viewerUserId ? runBy(ownerScope, executionOptions.viewerUserId) : ownerScope;
 	const values: Array<string | null> = [];
-	let offset = 0;
-	while (true) {
+	for (let page = 0; page < MAX_OPTIONS_SEARCH_PAGES; page++) {
 		const optionsQuery = {
 			...query,
-			sqlQuery: buildQueryOptionsSql(renderedSql, databaseType, search, offset),
+			sqlQuery: buildQueryOptionsSql(renderedSql, databaseType, search, page * (FILTER_OPTIONS_LIMIT + 1)),
 			semanticQuery: undefined,
 		};
-		const scope = await context.resolveScope();
-		const effectiveScope = executionOptions.viewerUserId
-			? { ...scope, ownerId: executionOptions.viewerUserId }
-			: scope;
 		const queryData = await executeStoryQueries(
-			effectiveScope,
+			scope,
 			{ [source.queryId]: optionsQuery },
 			{
 				executionContext,
@@ -389,8 +387,8 @@ async function fetchQueryOptionValues(
 		if (!searchText || values.length > FILTER_OPTIONS_LIMIT || result.data.length <= FILTER_OPTIONS_LIMIT) {
 			return values;
 		}
-		offset += FILTER_OPTIONS_LIMIT + 1;
 	}
+	return values;
 }
 
 async function fetchWarehouseOptionValues(
