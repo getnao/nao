@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 import s, { type DBStoryDelivery, type NewStoryDelivery } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 
 export const getByStoryId = async (storyId: string): Promise<DBStoryDelivery | null> => {
 	const [row] = await db
@@ -44,8 +44,11 @@ export const setEnabled = async (storyId: string, enabled: boolean): Promise<voi
 		.execute();
 };
 
-export const disableAndResetRecipients = async (storyId: string): Promise<void> => {
-	await db
+export const disableAndResetRecipients = async (storyIds: string[], executor: DBExecutor = db): Promise<void> => {
+	if (storyIds.length === 0) {
+		return;
+	}
+	await executor
 		.update(s.storyDelivery)
 		.set({
 			enabled: false,
@@ -54,7 +57,7 @@ export const disableAndResetRecipients = async (storyId: string): Promise<void> 
 			recipientGroupIds: [],
 			updatedAt: new Date(),
 		})
-		.where(eq(s.storyDelivery.storyId, storyId))
+		.where(inArray(s.storyDelivery.storyId, storyIds))
 		.execute();
 };
 
