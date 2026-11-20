@@ -37,7 +37,7 @@ def clone_or_pull_repo(repo: RepoConfig, base_path: Path) -> bool:
         if tmp_path.exists():
             shutil.rmtree(tmp_path)
 
-        cmd = ["git", "clone"]
+        cmd = ["git", "clone", "--depth", "1", "--single-branch"]
         if repo.branch:
             cmd.extend(["-b", repo.branch])
         if repo.url:

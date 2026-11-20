@@ -16,6 +16,7 @@ import { env } from '../../src/env';
 import { REVIEW_REQUEST_PROVIDERS } from '../../src/services/review-request-provider';
 import {
 	createUpstreamContextSnapshot,
+	discoverUpstreamTests,
 	listUpstreamBranches,
 	listUpstreamRepos,
 	readUpstreamChanges,
@@ -350,6 +351,15 @@ describe('repository targets', () => {
 			{ path: 'tests/business/refunds.yml', kind: 'added' },
 		]);
 		expect(upstreamChanges.changes.at(-1)?.branchContent).toBe('prompt: How many refunds?\n');
+	});
+
+	it('lists the tests of the target folders at the branch with the other tests of production', async () => {
+		writeFiles(projectFolder, { 'tests/business/removed-on-branch.yml': 'prompt: How many returns?\n' });
+
+		const suite = await discoverUpstreamTests(netRevenueInput());
+
+		expect(suite.tests.map((test) => test.path)).toEqual(['business/refunds.yml', 'hand-written.yml']);
+		expect(suite.invalidFiles).toEqual([]);
 	});
 
 	it('swaps the target folders in the snapshot and keeps the other tests', async () => {

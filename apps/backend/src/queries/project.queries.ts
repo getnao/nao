@@ -327,16 +327,21 @@ export const getDefaultProject = async (): Promise<DBProject | null> => {
 	return project ?? null;
 };
 
+/**
+ * A selected project the user cannot access is swapped for their default one, so a stale selection still
+ * loads the app. A write must not follow that swap: `fallbackWhenInaccessible: false` answers null instead.
+ */
 export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
+	{ fallbackWhenInaccessible = true }: { fallbackWhenInaccessible?: boolean } = {},
 ): Promise<DBProject | null> => {
 	if (isCloud || (await isSelfHostedMultiProjectEnabled())) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
-			if (selectedProject) {
-				return selectedProject;
+			if (selectedProject || !fallbackWhenInaccessible) {
+				return selectedProject ?? null;
 			}
 		}
 		return projects.find((project) => project.path === getDefaultProjectPath()) ?? projects[0] ?? null;

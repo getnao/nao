@@ -239,6 +239,11 @@ export function UserGroupEditor({
 		: null;
 	const [groupBudgetUsd, setGroupBudgetUsd] = useState<number | null>(savedGroupBudgetUsd);
 	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
+	const savedGroupSharedBudgetUsd = hasMemberBudget
+		? resolveSavedGroupSharedBudget(existingGroup, memberBudgetOverview.data)
+		: null;
+	const [groupSharedBudgetUsd, setGroupSharedBudgetUsd] = useState<number | null>(savedGroupSharedBudgetUsd);
+	const hasGroupSharedBudgetChanges = hasMemberBudget && groupSharedBudgetUsd !== savedGroupSharedBudgetUsd;
 	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
 	const allUsersGroup = defaultGroup && !defaultGroup.isLocked ? defaultGroup : null;
 	const columnSecurity = useQuery(trpc.userGroup.columnSecurity.queryOptions());
@@ -325,6 +330,7 @@ export function UserGroupEditor({
 	const hasUnsavedChanges =
 		editorGroup === null ||
 		hasGroupBudgetChanges ||
+		hasGroupSharedBudgetChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
@@ -420,6 +426,10 @@ export function UserGroupEditor({
 	}, [existingGroup?.id, savedGroupBudgetUsd]);
 
 	useEffect(() => {
+		setGroupSharedBudgetUsd(savedGroupSharedBudgetUsd);
+	}, [existingGroup?.id, savedGroupSharedBudgetUsd]);
+
+	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
 			onTabChange('features');
 		}
@@ -475,7 +485,10 @@ export function UserGroupEditor({
 	};
 
 	const saveGroup = async (): Promise<boolean> => {
-		const budgetInput = hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {};
+		const budgetInput = {
+			...(hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {}),
+			...(hasGroupSharedBudgetChanges ? { sharedBudgetLimitUsd: groupSharedBudgetUsd } : {}),
+		};
 		try {
 			if (existingGroup) {
 				await updateGroup.mutateAsync({
@@ -563,6 +576,7 @@ export function UserGroupEditor({
 		}
 		resetForm();
 		setGroupBudgetUsd(savedGroupBudgetUsd);
+		setGroupSharedBudgetUsd(savedGroupSharedBudgetUsd);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -669,11 +683,13 @@ export function UserGroupEditor({
 								isLoading={memberBudgetOverview.isLoading || userGroupOverview.isLoading}
 								isError={memberBudgetOverview.isError || userGroupOverview.isError}
 								limitUsd={groupBudgetUsd}
+								sharedLimitUsd={groupSharedBudgetUsd}
 								defaultLimitUsd={memberBudgetOverview.data?.defaultLimitUsd ?? 0}
 								period={memberBudgetOverview.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
 								members={groupBudgetMembers}
 								groups={memberBudgetOverview.data?.groups ?? []}
 								onLimitChange={setGroupBudgetUsd}
+								onSharedLimitChange={setGroupSharedBudgetUsd}
 							/>
 						)}
 						{activeTab === 'advanced' && (
@@ -1155,6 +1171,16 @@ function resolveSavedGroupBudget(
 		return overview.defaultLimitUsd;
 	}
 	return overview.groups.find((candidate) => candidate.id === group.id)?.limitUsd ?? null;
+}
+
+function resolveSavedGroupSharedBudget(
+	group: UserGroupEditorGroup | null,
+	overview: { groups: Array<{ id: string; sharedLimitUsd: number | null }> } | undefined,
+): number | null {
+	if (!group || !overview) {
+		return null;
+	}
+	return overview.groups.find((candidate) => candidate.id === group.id)?.sharedLimitUsd ?? null;
 }
 
 function buildGroupBudgetMembers(

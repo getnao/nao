@@ -9,6 +9,7 @@ import * as ssoProviderQueries from '../queries/sso-provider.queries';
 import type { OrganizationSso, OrganizationSsoConfigInput } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
+import { assertSafeHost, isPrivateHostname } from '../utils/safe-fetch';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 
@@ -119,8 +120,9 @@ async function buildOidcConfig(input: OrganizationSsoConfigInput, clientSecret: 
 }
 
 async function discoverIssuer(issuer: string, discoveryUrl: string | undefined) {
+	await assertPublicHost(discoveryUrl ?? issuer);
 	try {
-		return await discoverOIDCConfig({ issuer, discoveryEndpoint: discoveryUrl, isTrustedOrigin: isHttpsUrl });
+		return await discoverOIDCConfig({ issuer, discoveryEndpoint: discoveryUrl, isTrustedOrigin: isPublicHttpsUrl });
 	} catch (error) {
 		if (error instanceof DiscoveryError) {
 			throw new HandlerError('BAD_REQUEST', `OIDC discovery failed: ${error.message}`);
@@ -129,8 +131,22 @@ async function discoverIssuer(issuer: string, discoveryUrl: string | undefined) 
 	}
 }
 
-function isHttpsUrl(url: string): boolean {
-	return URL.parse(url)?.protocol === 'https:';
+/** The server fetches this URL for an organization admin, so it must not lead inside the server's own network. */
+async function assertPublicHost(url: string): Promise<void> {
+	const hostname = URL.parse(url)?.hostname;
+	if (!hostname) {
+		return;
+	}
+	try {
+		await assertSafeHost(hostname);
+	} catch (error) {
+		throw new HandlerError('BAD_REQUEST', `OIDC discovery failed: ${(error as Error).message}`);
+	}
+}
+
+function isPublicHttpsUrl(url: string): boolean {
+	const parsed = URL.parse(url);
+	return parsed?.protocol === 'https:' && !isPrivateHostname(parsed.hostname);
 }
 
 function buildProviderId(organization: DBOrganization): string {

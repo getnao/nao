@@ -46,13 +46,30 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job
 	try {
 		await runScheduledStoryDelivery(storyId, previousSkips);
 	} catch (error) {
-		if (job && error instanceof NotificationChannelDeliveryError) {
-			await scheduledJobQueries.updateJobPayload(job.id, {
-				storyId,
-				skipDeliveries: mergeSkipDeliveries(previousSkips, error.succeeded),
-			});
-		}
+		const isLastAttempt = !!job && job.attempts >= job.maxAttempts;
+		const succeeded = error instanceof NotificationChannelDeliveryError ? error.succeeded : [];
+		await saveRetrySkips(job, storyId, isLastAttempt ? [] : mergeSkipDeliveries(previousSkips, succeeded));
 		throw error;
+	}
+	if (previousSkips.length > 0) {
+		await saveRetrySkips(job, storyId, []);
+	}
+}
+
+/**
+ * What a run already sent is skipped by its retries only. The payload belongs to the recurring job, so the list is
+ * cleared once the run succeeds or gives up, or every later run would skip the same recipients.
+ */
+async function saveRetrySkips(
+	job: DBScheduledJob | undefined,
+	storyId: string,
+	skipDeliveries: ChannelDeliveryAttempt[],
+): Promise<void> {
+	if (job) {
+		await scheduledJobQueries.updateJobPayload(
+			job.id,
+			skipDeliveries.length > 0 ? { storyId, skipDeliveries } : { storyId },
+		);
 	}
 }
 

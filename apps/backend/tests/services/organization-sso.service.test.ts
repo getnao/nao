@@ -2,7 +2,9 @@
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ discoverOIDCConfig: vi.fn(), hasFeature: vi.fn() }));
+const mocks = vi.hoisted(() => ({ discoverOIDCConfig: vi.fn(), hasFeature: vi.fn(), lookup: vi.fn() }));
+
+vi.mock('dns/promises', () => ({ default: { lookup: mocks.lookup } }));
 
 vi.mock('@better-auth/sso', async (importOriginal) => ({
 	...(await importOriginal<typeof import('@better-auth/sso')>()),
@@ -35,6 +37,7 @@ const OKTA = { issuer: 'https://acme.okta.com', clientId: 'okta-client', clientS
 describe('organization SSO configured by an organization admin', () => {
 	beforeEach(async () => {
 		mocks.hasFeature.mockReset().mockResolvedValue(true);
+		mocks.lookup.mockReset().mockResolvedValue([{ address: '93.184.216.34' }]);
 		mocks.discoverOIDCConfig.mockReset().mockImplementation(async ({ issuer }: { issuer: string }) => ({
 			issuer,
 			discoveryEndpoint: `${issuer}/.well-known/openid-configuration`,
@@ -100,6 +103,24 @@ describe('organization SSO configured by an organization admin', () => {
 			error: 'OIDC discovery failed: Discovery endpoint not found',
 		},
 		{
+			name: 'an issuer on a loopback address',
+			input: { ...OKTA, issuer: 'https://127.0.0.1:8443' },
+			setup: () => undefined,
+			error: 'OIDC discovery failed: Access to private address "127.0.0.1" is not allowed.',
+		},
+		{
+			name: 'an issuer whose name resolves inside the network',
+			input: OKTA,
+			setup: () => mocks.lookup.mockResolvedValue([{ address: '10.0.0.5' }]),
+			error: 'OIDC discovery failed: Hostname "acme.okta.com" resolves to a private IP address, which is not allowed.',
+		},
+		{
+			name: 'a discovery URL on the cloud metadata address',
+			input: { ...OKTA, discoveryUrl: 'https://169.254.169.254/.well-known/openid-configuration' },
+			setup: () => undefined,
+			error: 'OIDC discovery failed: Access to private address "169.254.169.254" is not allowed.',
+		},
+		{
 			name: 'a first setup without a client secret',
 			input: { issuer: OKTA.issuer, clientId: OKTA.clientId },
 			setup: () => undefined,
@@ -111,6 +132,22 @@ describe('organization SSO configured by an organization admin', () => {
 
 		await expect(configureOrganizationSso(ORG_ID, input)).rejects.toMatchObject({ message: error });
 		expect((await ssoProviderQueries.getSsoProviderByOrganizationId(ORG_ID))?.oidcConfig).toBeNull();
+	});
+
+	it.each([
+		{ endpoint: 'https://acme.okta.com/oauth2/v1/token', isTrusted: true },
+		{ endpoint: 'https://10.0.0.5/oauth2/v1/token', isTrusted: false },
+		{ endpoint: 'https://metadata.google.internal/token', isTrusted: false },
+		{ endpoint: 'http://acme.okta.com/oauth2/v1/token', isTrusted: false },
+	])('trusts the endpoint $endpoint of a discovery document: $isTrusted', async ({ endpoint, isTrusted }) => {
+		await activateOrganizationSso(ORG_ID, ['acme.com']);
+
+		await configureOrganizationSso(ORG_ID, OKTA);
+
+		const [{ isTrustedOrigin }] = mocks.discoverOIDCConfig.mock.lastCall as [
+			{ isTrustedOrigin: (url: string) => boolean },
+		];
+		expect(isTrustedOrigin(endpoint)).toBe(isTrusted);
 	});
 });
 

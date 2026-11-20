@@ -1,7 +1,8 @@
 import { context, type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import type { FastifyInstance } from 'fastify';
 
-export const REQUEST_TRACER_NAME = 'nao-http';
+import { REQUEST_TRACER_NAME } from '../utils/tracer-names';
+
 const UNMATCHED_ROUTE = 'unmatched';
 const SERVER_FAILURE_CODE = 'INTERNAL_SERVER_ERROR';
 

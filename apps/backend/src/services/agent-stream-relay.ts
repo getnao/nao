@@ -1,9 +1,11 @@
 import type { InferUIMessageChunk } from 'ai';
+import { Effect } from 'effect';
 
 import type { DatabaseNotifications } from '../db/postgres-notifications';
 import * as agentStreamQueries from '../queries/agent-stream.queries';
 import type { UIMessage } from '../types/chat';
 import type { ChunkBuffer } from '../utils/chunk-buffer';
+import { fromPromise, repeatInBackground, runInBackground } from '../utils/effect-runtime';
 import { logger } from '../utils/logger';
 
 export type UIMessageChunk = InferUIMessageChunk<UIMessage>;
@@ -83,15 +85,15 @@ export class AgentStreamRelay {
 		await agentStreamQueries.upsertStreamRun(chatId, streamId);
 		const published: PublishedStream = { buffer, relayed: { seq: 0, index: 0, isComplete: false } };
 		this._published.set(streamId, published);
-		const heartbeat = setInterval(
-			() => void agentStreamQueries.touchStreamRun(streamId).catch(logRelayError),
+		const stopHeartbeat = repeatInBackground(
+			'Agent stream heartbeat',
+			fromPromise(() => agentStreamQueries.touchStreamRun(streamId)),
 			this._timings.heartbeatIntervalMs,
 		);
-		heartbeat.unref();
 
 		return {
 			end: async () => {
-				clearInterval(heartbeat);
+				void stopHeartbeat();
 				await published.relaying;
 				if (published.relayed.seq > 0 && !published.relayed.isComplete) {
 					this._startRelay(streamId);
@@ -257,19 +259,20 @@ export class AgentStreamRelay {
 	}
 
 	private _deleteChunksLater(streamId: string): void {
-		const timer = setTimeout(
-			() => void agentStreamQueries.deleteStreamChunks(streamId).catch(logRelayError),
-			this._timings.chunkRetentionMs,
+		runInBackground(
+			fromPromise(() => agentStreamQueries.deleteStreamChunks(streamId)).pipe(
+				Effect.delay(this._timings.chunkRetentionMs),
+				Effect.catch((error) => Effect.sync(() => logRelayError(error))),
+			),
 		);
-		timer.unref();
 	}
 
 	private _sweepRegularly(): void {
-		const timer = setInterval(
-			() => void agentStreamQueries.deleteExpiredStreams(STALE_STREAM_MAX_AGE_MS).catch(logRelayError),
+		repeatInBackground(
+			'Agent stream sweep',
+			fromPromise(() => agentStreamQueries.deleteExpiredStreams(STALE_STREAM_MAX_AGE_MS)),
 			this._timings.sweepIntervalMs,
 		);
-		timer.unref();
 	}
 }
 

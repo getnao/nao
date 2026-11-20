@@ -39,6 +39,7 @@ describe('executeWarehouseSql', () => {
 			databaseId: 'lake',
 			enforceExcludedColumns: false,
 			tableAccess: { enforced: false },
+			columnSecurity: { enforced: false },
 			rowSecurity: { enforced: false },
 			queryTag,
 		});

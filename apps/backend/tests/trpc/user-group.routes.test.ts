@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
 	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setGroupBudget: vi.fn(),
+	setGroupSharedBudget: vi.fn(),
 	setUserGroupMembership: vi.fn(),
 	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
@@ -84,7 +85,10 @@ vi.mock('../../src/services/license.service', () => ({
 		userGroups: 'user-groups',
 	},
 }));
-vi.mock('../../src/services/member-budget.service', () => ({ setGroupBudget: mocks.setGroupBudget }));
+vi.mock('../../src/services/member-budget.service', () => ({
+	setGroupBudget: mocks.setGroupBudget,
+	setGroupSharedBudget: mocks.setGroupSharedBudget,
+}));
 vi.mock('../../src/services/project-sharing.service', () => ({
 	getShareAudience: mocks.getShareAudience,
 	previewProjectWideShareRevocation: mocks.previewProjectWideShareRevocation,
@@ -1473,10 +1477,11 @@ describe('user group routes', () => {
 });
 
 describe('user group budget', () => {
-	it('saves the budget of a new group with the group itself', async () => {
-		await caller.create({ name: 'Analysts', budgetLimitUsd: 300 });
+	it('saves the budgets of a new group with the group itself', async () => {
+		await caller.create({ name: 'Analysts', budgetLimitUsd: 300, sharedBudgetLimitUsd: 2000 });
 
 		expect(mocks.setGroupBudget).toHaveBeenCalledWith('project-id', 'group-id', 300);
+		expect(mocks.setGroupSharedBudget).toHaveBeenCalledWith('project-id', 'group-id', 2000);
 	});
 
 	it('leaves the group budget untouched when no limit is sent', async () => {
@@ -1489,15 +1494,19 @@ describe('user group budget', () => {
 		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
 	});
 
-	it('rejects a group budget without the license before creating the group', async () => {
-		mocks.hasFeature.mockImplementation(async (feature) => feature !== 'user-budget');
+	it.each(['budgetLimitUsd', 'sharedBudgetLimitUsd'] as const)(
+		'rejects a %s without the license before creating the group',
+		async (budgetField) => {
+			mocks.hasFeature.mockImplementation(async (feature) => feature !== 'user-budget');
 
-		await expect(caller.create({ name: 'Analysts', budgetLimitUsd: 300 })).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-		});
-		expect(mocks.createUserGroup).not.toHaveBeenCalled();
-		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
-	});
+			await expect(caller.create({ name: 'Analysts', [budgetField]: 300 })).rejects.toMatchObject({
+				code: 'FORBIDDEN',
+			});
+			expect(mocks.createUserGroup).not.toHaveBeenCalled();
+			expect(mocks.setGroupBudget).not.toHaveBeenCalled();
+			expect(mocks.setGroupSharedBudget).not.toHaveBeenCalled();
+		},
+	);
 });
 
 function updateWithConditions(conditions: Array<{ column: string; operator: string; value?: string }>) {

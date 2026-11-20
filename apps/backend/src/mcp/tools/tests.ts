@@ -10,7 +10,7 @@ import { startRunInMode, type TestRunMode } from '../../services/test-run-start.
 import { cancelTestRun, failStaleTestRuns } from '../../services/test-runner.service';
 import { discoverTests } from '../../services/test-suite.service';
 import { MAX_TEST_RUN_ATTEMPTS, TEST_RUN_STATUSES, TEST_RUN_TRIGGERS } from '../../types/test-run';
-import { compareContextVariants, listAddedTestPaths } from '../../utils/test-comparison';
+import { compareContextVariants, listOneSidedTests } from '../../utils/test-comparison';
 import { countAttemptsByTest, toAttemptCounts } from '../../utils/test-run-totals';
 import type { McpContext } from '../logging';
 import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
@@ -39,7 +39,7 @@ const GET_TEST_RUN_DESCRIPTION =
 	'Fetch a test run: its status and progress, and each test with its passed attempts and first failure ' +
 	'(admins and context admins only).\n\n' +
 	'For a `comparison` run, each test also says how the changes moved it: `regressed`, `worsened`, `fixed`, ' +
-	'`improved`, `new` (only on the changes), `unchanged`, or `pending` while it runs.';
+	'`improved`, `new` (only on the changes), `removed` (deleted by the changes), `unchanged`, or `pending` while it runs.';
 
 const CANCEL_TEST_RUN_DESCRIPTION =
 	'Cancel a queued or running test run of this nao project (admins and context admins only).';
@@ -286,7 +286,7 @@ function summarizeComparison(run: DBTestRun, results: RunResult[]) {
 	const comparison = compareContextVariants(
 		results,
 		run.models.length * run.attempts,
-		listAddedTestPaths(run.contextChanges),
+		listOneSidedTests(run.contextChanges),
 	);
 	return {
 		production: comparison.production,

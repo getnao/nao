@@ -182,6 +182,7 @@ describe('live story SQL execution', () => {
 			envVars: {},
 			agentSettings: null,
 			warehouseTableAccess: { enforced: false, strict: false, tables: [] },
+			warehouseColumnSecurity: { enforced: false },
 			warehouseRowSecurity: { enforced: false, tables: [] },
 		}));
 		mocks.buildToolContext.mockImplementation(async () => ({
