@@ -1,6 +1,33 @@
 import { renderSqlTemplate, stripSqlFilterBlocks } from '@nao/shared/sql-template';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({
+	createStoryExecutionContext: vi.fn(),
+	createViewerExecutionContext: vi.fn(),
+	executeStoryQueries: vi.fn(),
+	getLatestVersionByChatAndSlug: vi.fn(),
+	getSqlQueriesFromCode: vi.fn(),
+	hasRowSecurity: vi.fn(),
+	resolveChatQueryScope: vi.fn(),
+}));
+
+vi.mock('../../src/queries/story.queries', () => ({
+	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
+	getSqlQueriesFromCode: mocks.getSqlQueriesFromCode,
+}));
+
+vi.mock('../../src/services/live-story', () => ({
+	omitAccessDeniedQueries: (queryData: unknown) => queryData,
+	createStoryExecutionContext: mocks.createStoryExecutionContext,
+	createViewerExecutionContext: mocks.createViewerExecutionContext,
+	executeStoryQueries: mocks.executeStoryQueries,
+	resolveRestrictedViewerId: async (chatId: string, viewerUserId?: string) =>
+		viewerUserId && (await mocks.hasRowSecurity(chatId, viewerUserId)) ? viewerUserId : undefined,
+	runBy: (scope: object, userId: string) => ({ ...scope, ownerId: userId }),
+	resolveChatQueryScope: mocks.resolveChatQueryScope,
+}));
+
+import { getFilteredStoryQueryData } from '../../src/services/story-filters';
 import { toSafeSqlIdentifier } from '../../src/utils/sql-identifiers';
 
 describe('story filter SQL templates', () => {
@@ -63,6 +90,50 @@ describe('toSafeSqlIdentifier', () => {
 	it('backtick-quotes unquoted hyphenated table parts', () => {
 		expect(toSafeSqlIdentifier('nao-production.prod_silver.dim_products', 'table')).toBe(
 			'`nao-production`.prod_silver.dim_products',
+		);
+	});
+});
+
+describe('getFilteredStoryQueryData', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<filter id="country" type="select" table="orders" column="country" />',
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_orders: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
+		});
+		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { userId: 'owner-1' } });
+		mocks.createViewerExecutionContext.mockResolvedValue({ toolContext: { userId: 'viewer-1' } });
+		mocks.executeStoryQueries.mockResolvedValue({});
+		mocks.resolveChatQueryScope.mockResolvedValue({
+			chatId: 'chat-1',
+			ownerId: 'owner-1',
+			projectId: 'project-1',
+		});
+	});
+
+	it('executes filtered queries with the viewer context when row security is enabled', async () => {
+		mocks.hasRowSecurity.mockResolvedValue(true);
+
+		await getFilteredStoryQueryData(
+			'chat-1',
+			'story',
+			{ country: 'US' },
+			{ billingAccessVerifiedProjectId: 'project-1', viewerUserId: 'viewer-1' },
+		);
+
+		expect(mocks.createViewerExecutionContext).toHaveBeenCalledWith(
+			{ chatId: 'chat-1', ownerId: 'viewer-1', projectId: 'project-1' },
+			'viewer-1',
+		);
+		expect(mocks.executeStoryQueries).toHaveBeenCalledWith(
+			{ chatId: 'chat-1', ownerId: 'viewer-1', projectId: 'project-1' },
+			expect.anything(),
+			expect.objectContaining({
+				executionContext: { toolContext: { userId: 'viewer-1' } },
+				billingAccessVerifiedProjectId: 'project-1',
+			}),
 		);
 	});
 });

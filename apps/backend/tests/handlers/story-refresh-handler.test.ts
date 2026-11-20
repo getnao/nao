@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
+	deleteStoryViewerDataCache: vi.fn(),
+	deliverStoryOnRefresh: vi.fn(),
 	refreshStoryById: vi.fn(),
 	warmStoryFilterOptionsByStoryId: vi.fn(),
 }));
@@ -15,6 +17,9 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
 	getStoryProjectId: mocks.getStoryProjectId,
 	getStoryOwnerId: mocks.getStoryOwnerId,
+}));
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
+	deleteStoryViewerDataCache: mocks.deleteStoryViewerDataCache,
 }));
 vi.mock('../../src/queries/activity.queries', () => ({
 	startStoryRefreshActivity: mocks.startStoryRefreshActivity,
@@ -28,8 +33,9 @@ vi.mock('../../src/services/story-filter-options', () => ({
 	warmStoryFilterOptionsByStoryId: mocks.warmStoryFilterOptionsByStoryId,
 }));
 vi.mock('../../src/handlers/story-delivery.handler', () => ({
-	deliverStoryOnRefresh: vi.fn(async () => undefined),
+	deliverStoryOnRefresh: mocks.deliverStoryOnRefresh,
 	STORY_DELIVERY_JOB_NAME: 'story-delivery',
+	StoryRecipientDeliveryError: class extends Error {},
 }));
 vi.mock('../../src/services/scheduler.service', () => ({
 	enqueueOnce: vi.fn(),
@@ -58,6 +64,7 @@ describe('scheduled Story refresh principal', () => {
 		vi.clearAllMocks();
 		mocks.getStoryById.mockResolvedValue(LIVE_STORY);
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
+		mocks.deliverStoryOnRefresh.mockResolvedValue(undefined);
 		mocks.refreshStoryById.mockResolvedValue({ queryData: {}, queriesRefreshed: 0 });
 		mocks.warmStoryFilterOptionsByStoryId.mockResolvedValue(undefined);
 	});
@@ -74,6 +81,16 @@ describe('scheduled Story refresh principal', () => {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 0 });
+	});
+
+	it('invalidates viewer caches and delivers recipient snapshots after every refresh', async () => {
+		await runScheduledStoryRefresh('story-1');
+
+		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
+			billingAccessVerifiedProjectId: 'project-1',
+		});
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
+		expect(mocks.deliverStoryOnRefresh).toHaveBeenCalledWith('story-1', undefined, {});
 	});
 
 	it('warms story filter options after refreshing the data', async () => {

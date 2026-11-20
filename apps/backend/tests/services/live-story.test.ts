@@ -1,40 +1,49 @@
 import { createHash } from 'node:crypto';
 
+import { STORY_NARRATIVES_REDACT_MISSING_KEY, STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
+import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-viewer-restrictions';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getChatInfo: vi.fn(),
 	getChatOwnerId: vi.fn(),
 	getChatProjectId: vi.fn(),
+	getVersionById: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
 	getStoryById: vi.fn(),
 	getStoryOwnerId: vi.fn(),
 	getStoryProjectId: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
-	getLatestSqlQueriesByIds: vi.fn(),
 	getLatestSqlQueryDataByIds: vi.fn(),
 	listStoryQueries: vi.fn(),
 	getSqlQueriesByIds: vi.fn(),
 	getSqlQueryById: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
+	listVersionFiles: vi.fn(),
 	getStoryDataCacheByChatAndSlug: vi.fn(),
+	getStoryViewerDataCache: vi.fn(),
+	getProjectViewerCacheRevision: vi.fn(),
 	getStoryDataCacheByStoryId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
+	getProjectRowSecurity: vi.fn(),
 	queryAppDb: vi.fn(),
 	runQueryOnLocalFiles: vi.fn(),
 	buildToolContext: vi.fn(),
 	buildChatlessToolContext: vi.fn(),
+	hasEffectiveWarehouseRestrictions: vi.fn(),
 	resolveExcludedColumnEnforcement: vi.fn(),
+	upsertStoryViewerDataCache: vi.fn(),
 	upsertStoryDataCacheByStoryId: vi.fn(),
 	updateVersionCodeIfLatest: vi.fn(),
 	findMissingQueryIds: vi.fn(),
 	backfillMissingQueryData: vi.fn(),
+	extractCustomStoryQueryIds: vi.fn(),
 	generateText: vi.fn(),
+	getProjectModelProvider: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
 	resolveProviderModel: vi.fn(),
-	extractCustomStoryQueryIds: vi.fn(),
-	listVersionFiles: vi.fn(),
 }));
 
 vi.mock('ai', async (importOriginal) => ({
@@ -66,6 +75,7 @@ vi.mock('../../src/queries/story-query.queries', () => ({
 }));
 
 vi.mock('../../src/queries/story.queries', () => ({
+	getVersionById: mocks.getVersionById,
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getStoryById: mocks.getStoryById,
 	getStoryOwnerId: mocks.getStoryOwnerId,
@@ -79,8 +89,18 @@ vi.mock('../../src/queries/story.queries', () => ({
 	updateVersionCodeIfLatest: mocks.updateVersionCodeIfLatest,
 }));
 
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
+	getStoryViewerDataCache: mocks.getStoryViewerDataCache,
+	getProjectViewerCacheRevision: mocks.getProjectViewerCacheRevision,
+	upsertStoryViewerDataCache: mocks.upsertStoryViewerDataCache,
+}));
+
 vi.mock('../../src/queries/shared-story.queries', () => ({
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
+}));
+
+vi.mock('../../src/queries/user-group.queries', () => ({
+	getProjectRowSecurity: mocks.getProjectRowSecurity,
 }));
 
 vi.mock('../../src/services/agent', () => ({
@@ -99,6 +119,10 @@ vi.mock('../../src/services/local-query.service', () => ({
 
 vi.mock('../../src/services/excluded-columns.service', () => ({
 	resolveExcludedColumnEnforcement: mocks.resolveExcludedColumnEnforcement,
+}));
+
+vi.mock('../../src/services/user-group-context-access.service', () => ({
+	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
 }));
 
 vi.mock('../../src/utils/llm', () => ({
@@ -130,6 +154,7 @@ vi.mock('../../src/queries/story-file.queries', () => ({
 import { assertProjectCloudBillingAccess } from '../../src/services/cloud-billing-access.service';
 import {
 	createStoryExecutionContext,
+	createViewerExecutionContext,
 	executeLiveQuery,
 	executeRawSql,
 	executeStoryLiveQuery,
@@ -137,10 +162,14 @@ import {
 	hasOnlyFrozenQueries,
 	refreshStoryById,
 	refreshStoryData,
+	refreshStoryForViewer,
 } from '../../src/services/live-story';
 import { logger } from '../../src/utils/logger';
 
 const WAREHOUSE_STORY_CODE = '<table query_id="query_warehouse" />';
+const CHAT_STORY = { id: 'story-1', chatId: 'chat-1' };
+const STANDALONE_STORY = { id: 'story-standalone', chatId: null };
+const ACCESS_DENIED = { columns: [], data: [], accessDenied: true };
 
 function stubSemanticLayerFetch(compiledSql: string, result: { columns: string[]; data: unknown[] }) {
 	const fetchMock = vi.fn(async (url: string, _init: { body: string }) =>
@@ -154,6 +183,47 @@ function stubSemanticLayerFetch(compiledSql: string, result: { columns: string[]
 	return fetchMock;
 }
 
+function toolContext(rowPredicate = 'tenant_id = 1') {
+	return {
+		projectFolder: '/project',
+		projectId: 'project-1',
+		userId: 'owner-1',
+		chatId: 'chat-1',
+		queryResults: new Map(),
+		envVars: { TOKEN: 'secret' },
+		azureAccessToken: 'owner-token',
+		agentSettings: null,
+		warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+		warehouseColumnSecurity: { enforced: false },
+		warehouseRowSecurity: {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'analytics',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+					access: 'predicate',
+					predicate: rowPredicate,
+				},
+			],
+		},
+	};
+}
+
+const VIEWER_PERMISSION_REVISION = createHash('sha256')
+	.update(
+		JSON.stringify([
+			toolContext().warehouseTableAccess,
+			toolContext().warehouseColumnSecurity,
+			toolContext().warehouseRowSecurity,
+			false,
+			0,
+		]),
+	)
+	.digest('hex');
+
 describe('live story SQL execution', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
@@ -164,8 +234,15 @@ describe('live story SQL execution', () => {
 		});
 		mocks.getChatOwnerId.mockResolvedValue('owner-1');
 		mocks.getChatProjectId.mockResolvedValue('project-1');
-		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', chatId: 'chat-1' });
-		mocks.getStoryById.mockResolvedValue({ id: 'story-standalone', chatId: null });
+		mocks.getStoryByChatAndSlug.mockImplementation(async (_chatId, slug) => ({
+			id: 'story-1',
+			chatId: 'chat-1',
+			slug,
+		}));
+		mocks.getStoryById.mockImplementation(async (storyId) => ({
+			id: storyId,
+			chatId: storyId === 'story-standalone' ? null : 'chat-1',
+		}));
 		mocks.getStoryProjectId.mockResolvedValue('project-1');
 		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
@@ -173,10 +250,12 @@ describe('live story SQL execution', () => {
 		mocks.listStoryQueries.mockResolvedValue({});
 		mocks.getLatestSqlQueriesByIds.mockResolvedValue({});
 		mocks.getSqlQueriesByIds.mockResolvedValue({});
-		mocks.buildChatlessToolContext.mockImplementation(async () => ({
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set());
+		mocks.listVersionFiles.mockResolvedValue([]);
+		mocks.buildChatlessToolContext.mockImplementation(async ({ userId }: { userId: string }) => ({
 			projectFolder: '/project',
 			projectId: 'project-1',
-			userId: 'owner-1',
+			userId,
 			chatId: null,
 			queryResults: new Map(),
 			envVars: {},
@@ -214,11 +293,19 @@ describe('live story SQL execution', () => {
 		mocks.resolveExcludedColumnEnforcement.mockResolvedValue(false);
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);
+		mocks.getStoryViewerDataCache.mockResolvedValue(null);
+		mocks.getProjectViewerCacheRevision.mockResolvedValue(0);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
+			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
+		);
 		mocks.findMissingQueryIds.mockReturnValue([]);
 		mocks.upsertStoryDataCacheByStoryId.mockResolvedValue({});
 		mocks.updateVersionCodeIfLatest.mockResolvedValue(true);
 		mocks.resolveDefaultModelSelection.mockResolvedValue(null);
-		mocks.resolveDefaultChatModel.mockResolvedValue(null);
+		mocks.resolveDefaultChatModel.mockImplementation(async () =>
+			(await mocks.getProjectModelProvider()) ? { provider: 'openai', modelId: 'model-1' } : null,
+		);
 		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set());
 	});
 
@@ -235,6 +322,71 @@ describe('live story SQL execution', () => {
 			chatId: 'chat-1',
 			querySource: 'story',
 		});
+		expect(mocks.getProjectViewerCacheRevision).not.toHaveBeenCalled();
+	});
+
+	it('builds a viewer execution context whose permission revision follows the project cache revision', async () => {
+		await expect(createStoryExecutionContext('chat-1', 'viewer-1')).resolves.toMatchObject({
+			isViewerScoped: true,
+			permissionRevision: VIEWER_PERMISSION_REVISION,
+		});
+		expect(mocks.getProjectViewerCacheRevision).toHaveBeenCalledOnce();
+		expect(mocks.getProjectViewerCacheRevision).toHaveBeenCalledWith('project-1');
+
+		mocks.getProjectViewerCacheRevision.mockResolvedValue(1);
+
+		const { permissionRevision } = await createViewerExecutionContext(
+			{ projectId: 'project-1', chatId: 'chat-1' },
+			'viewer-1',
+		);
+		expect(permissionRevision).not.toBe(VIEWER_PERMISSION_REVISION);
+	});
+
+	it('runs a live query with the viewer context when row security is enabled', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ databaseType: 'duckdb', database: 'analytics', schema: 'main', table: 'orders' }],
+		});
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT * FROM query_orders',
+			databaseId: 'duckdb_local',
+			adminMode: false,
+		});
+		mocks.getSqlQueriesByIds.mockResolvedValue({
+			query_orders: { sqlQuery: 'SELECT * FROM orders', databaseId: 'analytics', adminMode: false },
+		});
+		stubWarehouseFetch({ columns: ['id'], data: [{ id: 1 }] });
+		mocks.runQueryOnLocalFiles.mockResolvedValue({
+			result: { columns: ['id'], data: [{ id: 1 }] },
+		});
+
+		await expect(executeLiveQuery('chat-1', 'query_local', { viewerUserId: 'viewer-1' })).resolves.toEqual({
+			columns: ['id'],
+			data: [{ id: 1 }],
+		});
+
+		expect(mocks.buildToolContext).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			chatId: 'chat-1',
+			querySource: 'story',
+		});
+	});
+
+	it('denies a viewer a local live query reading a query that has no SQL to rerun', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT * FROM query_orders',
+			databaseId: 'duckdb_local',
+			adminMode: false,
+		});
+
+		await expect(executeLiveQuery('chat-1', 'query_local', { viewerUserId: 'viewer-1' })).rejects.toThrow(
+			STORY_QUERY_ACCESS_DENIED_MESSAGE,
+		);
+
+		expect(mocks.runQueryOnLocalFiles).not.toHaveBeenCalled();
+		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
 	});
 
 	it('rejects execution when the chat owner is missing', async () => {
@@ -458,6 +610,37 @@ describe('live story SQL execution', () => {
 		);
 	});
 
+	it('fails an owner refresh when the warehouse denies table access', async () => {
+		const code = '<table query_id="query_orders" />\n<table query_id="query_customers" />';
+		mocks.getLatestVersionByStoryId.mockResolvedValue(storyVersion(code));
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_orders: {
+				sqlQuery: 'SELECT count(*) AS order_count FROM orders',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+			query_customers: {
+				sqlQuery: 'SELECT first_name FROM customers',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init: { body: string }) => {
+				const { sql } = JSON.parse(init.body) as { sql: string };
+				return sql.includes('customers')
+					? Response.json({ detail: 'Query blocked by Context table permissions.' }, { status: 403 })
+					: Response.json({ columns: ['order_count'], data: [{ order_count: 99 }], row_count: 1 });
+			}),
+		);
+
+		await expect(refreshStoryData('chat-1', 'orders')).rejects.toThrow(
+			'Warehouse SQL request denied: Query blocked by Context table permissions.',
+		);
+		expect(mocks.upsertStoryDataCacheByStoryId).not.toHaveBeenCalled();
+	});
+
 	it('refreshes a local query in DuckDB after re-running the warehouse query it reads from', async () => {
 		const code = '<chart query_id="query_local" />';
 		mocks.getLatestVersionByStoryId.mockResolvedValue(storyVersion(code));
@@ -506,6 +689,71 @@ describe('live story SQL execution', () => {
 			'SELECT region, sum(amount) AS total FROM query_upstream GROUP BY region',
 			expect.objectContaining({ chatId: 'chat-1' }),
 		);
+	});
+
+	it('propagates denied upstream access without running dependent local queries', async () => {
+		const code = '<chart query_id="query_local" />\n<chart query_id="query_allowed" />';
+		const allowedRows = { columns: ['order_count'], data: [{ order_count: 99 }] };
+		mocks.getLatestVersionByStoryId.mockResolvedValue(storyVersion(code));
+		mocks.getLatestSqlQueriesByIds.mockResolvedValueOnce({
+			query_local: {
+				sqlQuery: 'SELECT count(*) AS customer_count FROM query_customers',
+				databaseId: 'duckdb_local',
+				adminMode: false,
+			},
+			query_allowed: {
+				sqlQuery: 'SELECT count(*) AS order_count FROM orders',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValueOnce({
+			query_customers: {
+				sqlQuery: 'SELECT * FROM customers',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init: { body: string }) => {
+				const { sql } = JSON.parse(init.body) as { sql: string };
+				return sql.includes('customers')
+					? Response.json({ detail: 'Query blocked by Context table permissions.' }, { status: 403 })
+					: Response.json({ columns: ['order_count'], data: [{ order_count: 99 }], row_count: 1 });
+			}),
+		);
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toEqual({
+			queryData: { query_local: ACCESS_DENIED, query_allowed: allowedRows },
+			narratives: {},
+			code: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${code}`,
+			cachedAt: expect.any(Date),
+		});
+
+		expect(mocks.runQueryOnLocalFiles).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![0].queryData).toEqual({
+			query_local: ACCESS_DENIED,
+			query_allowed: allowedRows,
+		});
+		expect(mocks.upsertStoryDataCacheByStoryId).not.toHaveBeenCalled();
+	});
+
+	it('denies a viewer a local query reading a query that has no SQL to rerun', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue(storyVersion('<chart query_id="query_local" />'));
+		mocks.getLatestSqlQueriesByIds.mockResolvedValueOnce({
+			query_local: {
+				sqlQuery: 'SELECT count(*) AS customer_count FROM query_customers',
+				databaseId: 'duckdb_local',
+				adminMode: false,
+			},
+		});
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toMatchObject({
+			queryData: { query_local: ACCESS_DENIED },
+		});
+
+		expect(mocks.runQueryOnLocalFiles).not.toHaveBeenCalled();
 	});
 
 	it('compiles a semantic story query again so the current metric definitions apply', async () => {
@@ -627,7 +875,7 @@ describe('live story SQL execution', () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it('returns non-live stored data regardless of row security', async () => {
+	it('returns non-live stored data when no viewer is provided', async () => {
 		const code = WAREHOUSE_STORY_CODE;
 		const queryData = {
 			query_warehouse: {
@@ -646,6 +894,563 @@ describe('live story SQL execution', () => {
 
 		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('chat-1', code);
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
+	});
+
+	it('returns stored data to a viewer with full access to every RLS table', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		const queryData = {
+			query_warehouse: {
+				columns: ['region'],
+				data: [{ region: 'all-regions' }],
+			},
+		};
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(false);
+		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, false, null, { viewerUserId: 'viewer-1' }),
+		).resolves.toMatchObject({ queryData, code });
+
+		expect(mocks.hasEffectiveWarehouseRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
+		expect(mocks.getStoryViewerDataCache).not.toHaveBeenCalled();
+		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('chat-1', code);
+	});
+
+	it('renders a safe story shell when every viewer query is access denied', async () => {
+		const ownerCode = 'Owner-only customer narrative.\n<table query_id="query_customers" />';
+		const safeCode = `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer-specific narrative.\n<table query_id="query_customers" />`;
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+		mocks.getVersionById.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			code: ownerCode,
+			title: 'Customers',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_customers: {
+				sqlQuery: 'SELECT first_name FROM customers',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				Response.json({ detail: 'Query blocked by Context table permissions.' }, { status: 403 }),
+			),
+		);
+
+		await expect(
+			getStoryQueryData('chat-1', 'customers', ownerCode, false, null, { viewerUserId: 'viewer-1' }),
+		).resolves.toMatchObject({
+			queryData: null,
+			code: safeCode,
+		});
+
+		expect(mocks.generateText).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![0]).toMatchObject({
+			queryData: { query_customers: ACCESS_DENIED },
+			code: safeCode,
+		});
+	});
+
+	it('serves a cached viewer snapshot without the queries the viewer cannot read', async () => {
+		const ownerCode = 'Owner narrative\n<table query_id="query_warehouse" />\n<table query_id="query_customers" />';
+		const viewerCode =
+			'Viewer narrative\n<table query_id="query_warehouse" />\n<table query_id="query_customers" />';
+		const cachedAt = new Date(0);
+		const queryData = {
+			query_warehouse: {
+				columns: ['region'],
+				data: [{ region: 'viewer-region' }],
+			},
+		};
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ table: 'orders' }],
+		});
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData: { ...queryData, query_customers: ACCESS_DENIED },
+			cachedAt,
+			code: viewerCode,
+			analysisResults: null,
+		});
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', ownerCode, false, null, { viewerUserId: 'viewer-1' }),
+		).resolves.toEqual({
+			queryData,
+			cachedAt,
+			code: viewerCode,
+		});
+
+		expect(mocks.getStoryViewerDataCache).toHaveBeenCalledWith({
+			storyId: 'story-1',
+			storyVersionId: 'version-1',
+			userId: 'viewer-1',
+			permissionRevision: VIEWER_PERMISSION_REVISION,
+		});
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryViewerDataCache).not.toHaveBeenCalled();
+		expect(mocks.buildToolContext).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			chatId: 'chat-1',
+			querySource: 'story',
+		});
+	});
+
+	it('reads the owner copy when the restricted viewer is the chat owner', async () => {
+		const code = WAREHOUSE_STORY_CODE;
+		const queryData = {
+			query_warehouse: {
+				columns: ['region'],
+				data: [{ region: 'owner-region' }],
+			},
+		};
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, false, null, { viewerUserId: 'owner-1' }),
+		).resolves.toMatchObject({ queryData, code });
+
+		expect(mocks.getStoryViewerDataCache).not.toHaveBeenCalled();
+		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('chat-1', code);
+	});
+
+	it('falls back to the stale viewer snapshot when a viewer refresh fails', async () => {
+		const ownerCode = 'Owner narrative\n<table query_id="query_admin" />';
+		const viewerCode = 'Viewer narrative\n<table query_id="query_admin" />';
+		const cachedAt = new Date(0);
+		const queryData = {
+			query_admin: {
+				columns: ['id'],
+				data: [{ id: 1 }],
+			},
+		};
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ table: 'orders' }],
+		});
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData,
+			cachedAt,
+			code: viewerCode,
+			analysisResults: null,
+		});
+		mocks.getVersionById.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			code: ownerCode,
+			title: 'Orders',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockRejectedValue(new Error('refresh failed'));
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', ownerCode, true, '* * * * *', {
+				viewerUserId: 'viewer-1',
+			}),
+		).resolves.toEqual({
+			queryData,
+			cachedAt,
+			code: viewerCode,
+		});
+
+		expect(mocks.getLatestSqlQueriesByIds).toHaveBeenCalled();
+		expect(mocks.getStoryViewerDataCache).toHaveBeenCalledOnce();
+		expect(mocks.buildToolContext).toHaveBeenCalledOnce();
+	});
+
+	it('does not fall back to the owner copy when a viewer refresh fails without a viewer snapshot', async () => {
+		const ownerCode = 'Owner narrative\n<table query_id="query_admin" />';
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ table: 'orders' }],
+		});
+		mocks.getVersionById.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			code: ownerCode,
+			title: 'Orders',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockRejectedValue(new Error('refresh failed'));
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', ownerCode, false, null, {
+				viewerUserId: 'viewer-1',
+			}),
+		).rejects.toThrow('refresh failed');
+
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
+		expect(mocks.getStoryDataCacheByChatAndSlug).not.toHaveBeenCalled();
+	});
+
+	it('shares one refresh between the blocks of a page asking for the same viewer snapshot', async () => {
+		const code = '<table query_id="query_admin" />';
+		const queryData = { query_admin: { columns: ['id'], data: [{ id: 1 }] } };
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+		mocks.getVersionById.mockResolvedValue(storyVersion(code));
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT id FROM orders', adminMode: true },
+		});
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['id'], rows: [{ id: 1 }], rowCount: 1 });
+		const readSnapshot = () =>
+			getStoryQueryData('chat-1', 'orders', code, false, null, { viewerUserId: 'viewer-1' });
+
+		const snapshots = await Promise.all([readSnapshot(), readSnapshot()]);
+
+		expect(snapshots[0]).toMatchObject({ queryData });
+		expect(snapshots[1]).toEqual(snapshots[0]);
+		expect(mocks.queryAppDb).toHaveBeenCalledOnce();
+		expect(mocks.upsertStoryViewerDataCache).toHaveBeenCalledOnce();
+	});
+
+	it('refreshes and caches the exact requested story version for a viewer', async () => {
+		const code = '<table query_id="query_historical" />';
+		const queryData = {
+			query_historical: {
+				columns: ['version'],
+				data: [{ version: 'historical' }],
+			},
+		};
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ table: 'orders' }],
+		});
+		mocks.getVersionById.mockResolvedValue({
+			id: 'version-historical',
+			storyId: 'story-1',
+			version: 1,
+			code,
+			title: 'Historical story',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_historical: {
+				sqlQuery: 'SELECT version FROM historical_rows',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['version'],
+			rows: [{ version: 'historical' }],
+			rowCount: 1,
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockResolvedValue({
+			output: { code },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+
+		const viewerCode = `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${code}`;
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, false, null, {
+				storyVersionId: 'version-historical',
+				viewerUserId: 'viewer-1',
+			}),
+		).resolves.toMatchObject({ queryData, code: viewerCode });
+
+		expect(mocks.getVersionById).toHaveBeenCalledWith('story-1', 'version-historical');
+		expect(mocks.getLatestVersionByStoryId).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryViewerDataCache).toHaveBeenCalledWith({
+			storyId: 'story-1',
+			storyVersionId: 'version-historical',
+			userId: 'viewer-1',
+			permissionRevision: VIEWER_PERMISSION_REVISION,
+			queryData,
+			code: viewerCode,
+			analysisResults: {},
+			cachedAt: expect.any(Date),
+		});
+	});
+
+	it('generates and caches viewer-specific classic story text, marked as restricted even when the rewrite drops the marker', async () => {
+		const ownerCode =
+			`Owner narrative\n<filter id="customer" type="select" table="customers" column="name" ` +
+			`options='["Alice","Bob"]' />\n<table query_id="query_admin" />`;
+		const viewerCode =
+			`Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" ` +
+			`options='["Alice","Bob"]' />\n<table query_id="query_admin" />`;
+		const safeViewerCode =
+			`${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer narrative\n` +
+			'<filter id="customer" type="select" table="customers" column="name" />\n' +
+			'<table query_id="query_admin" />';
+		const queryData = {
+			query_admin: {
+				columns: ['customer'],
+				data: [{ customer: 'Visible customer' }],
+			},
+		};
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: ownerCode,
+			title: 'Customers',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT customer FROM customers',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['customer'],
+			rows: [{ customer: 'Visible customer' }],
+			rowCount: 1,
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockResolvedValue({
+			output: { code: viewerCode },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+
+		const cachedAt = expect.any(Date);
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toEqual({
+			queryData,
+			code: safeViewerCode,
+			narratives: {},
+			cachedAt,
+		});
+
+		expect(mocks.updateVersionCodeIfLatest).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryDataCacheByStoryId).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryViewerDataCache).toHaveBeenCalledWith({
+			storyId: 'story-1',
+			storyVersionId: 'version-1',
+			userId: 'viewer-1',
+			permissionRevision: VIEWER_PERMISSION_REVISION,
+			queryData,
+			code: safeViewerCode,
+			analysisResults: {},
+			cachedAt,
+		});
+	});
+
+	it('rewrites owner-derived headings and chart labels from a viewer-safe source', async () => {
+		const ownerCode =
+			'## Acme revenue: $2m\n' +
+			`<chart query_id="query_admin" chart_type="kpi_card" title="Acme revenue: $2m" ` +
+			`series='[{"data_key":"revenue","label":"Acme revenue: $2m"}]' />`;
+		const viewerCode =
+			'## Revenue available to you\n' +
+			`<chart query_id="query_admin" chart_type="kpi_card" title="Visible revenue" ` +
+			`series='[{"data_key":"revenue","label":"Visible revenue"}]' />`;
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: ownerCode,
+			title: 'Acme revenue: $2m',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT revenue FROM revenue',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['revenue'],
+			rows: [{ revenue: 10 }],
+			rowCount: 1,
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockResolvedValue({
+			output: { code: viewerCode },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toMatchObject({
+			code: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${viewerCode}`,
+		});
+
+		const systemPrompt = mocks.generateText.mock.calls[0]![0].system;
+		expect(systemPrompt).not.toContain('Acme');
+		expect(systemPrompt).not.toContain('$2m');
+		expect(systemPrompt).toContain('Viewer-specific section');
+		expect(systemPrompt).toContain('"label":"Revenue"');
+		expect(systemPrompt).not.toContain('"label":"Series"');
+	});
+
+	it('regenerates viewer custom narratives without owner-authored text', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: 'export default {}',
+			title: 'Acme has 100 customers',
+			isLiveTextDynamic: true,
+			format: 'custom',
+		});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set(['query_admin']));
+		mocks.listVersionFiles.mockResolvedValue([
+			{
+				path: 'app.tsx',
+				content:
+					"import { Narrative } from '@nao/story-kit'; export default () => <Narrative id='summary'>Acme has 100 customers</Narrative>;",
+			},
+		]);
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT customer_count FROM customer_summary',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['customer_count'],
+			rows: [{ customer_count: 1 }],
+			rowCount: 1,
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockResolvedValue({
+			output: { narratives: [{ id: 'summary', text: 'One customer is available to you.' }] },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toMatchObject({
+			narratives: { summary: 'One customer is available to you.' },
+		});
+
+		const systemPrompt = mocks.generateText.mock.calls[0]![0].system;
+		expect(systemPrompt).not.toContain('Acme');
+		expect(systemPrompt).not.toContain('100 customers');
+		expect(systemPrompt).toContain('Viewer-specific narrative.');
+	});
+
+	it('redacts static custom narratives in viewer snapshots', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: 'export default {}',
+			title: 'Customers',
+			isLiveTextDynamic: false,
+			format: 'custom',
+		});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set(['query_admin']));
+		mocks.listVersionFiles.mockResolvedValue([
+			{
+				path: 'app.tsx',
+				content:
+					"import { Narrative } from '@nao/story-kit'; export default () => <Narrative id='summary'>Acme has 100 customers</Narrative>;",
+			},
+		]);
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT customer_count FROM customer_summary',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['customer_count'],
+			rows: [{ customer_count: 1 }],
+			rowCount: 1,
+		});
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toMatchObject({
+			narratives: {
+				[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+				summary: '',
+			},
+		});
+
+		expect(mocks.generateText).not.toHaveBeenCalled();
+	});
+
+	it('falls back to redacted source when viewer classic story generation fails', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: 'Owner-only narrative.\n<table query_id="query_admin" />',
+			title: 'Orders',
+			isLiveTextDynamic: false,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT * FROM orders',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['id'],
+			rows: [{ id: 1 }],
+			rowCount: 1,
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockRejectedValue(new Error('Generation failed'));
+
+		const safeCode = `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer-specific narrative.\n<table query_id="query_admin" />`;
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toMatchObject({ code: safeCode });
+
+		expect(mocks.generateText).toHaveBeenCalledOnce();
+		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![0].code).toBe(safeCode);
+	});
+
+	it('gives a viewer the viewer-safe source of a classic story that has no SQL to run', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue(
+			storyVersion('Owner-only narrative.\n<table query_id="query_frozen" />'),
+		);
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+
+		await expect(refreshStoryForViewer(CHAT_STORY, 'viewer-1')).resolves.toMatchObject({
+			queryData: { query_frozen: ACCESS_DENIED },
+			code: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer-specific narrative.\n<table query_id="query_frozen" />`,
+		});
+
+		expect(mocks.generateText).not.toHaveBeenCalled();
+		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
 	});
 
 	it('serves a fresh shared cache without building an execution context', async () => {
@@ -946,6 +1751,31 @@ describe('live story SQL execution', () => {
 		);
 	});
 
+	it('refreshes a standalone viewer snapshot with the viewer context and without a chat', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			...storyVersion(WAREHOUSE_STORY_CODE),
+			storyId: 'story-standalone',
+		});
+		mocks.listStoryQueries.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', databaseId: 'analytics', adminMode: false },
+		});
+		stubWarehouseFetch({ columns: ['order_id'], data: [{ order_id: 1 }] });
+
+		await expect(refreshStoryForViewer(STANDALONE_STORY, 'viewer-1')).resolves.toEqual({
+			queryData: { query_warehouse: { columns: ['order_id'], data: [{ order_id: 1 }] } },
+			narratives: {},
+			code: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${WAREHOUSE_STORY_CODE}`,
+			cachedAt: expect.any(Date),
+		});
+
+		expect(mocks.buildChatlessToolContext).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			querySource: 'story',
+		});
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
+	});
+
 	it('runs the SQL of a chat story from its chat and reads only the queries the chat lacks from the story', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue(
 			storyVersion('<table query_id="query_saved" />\n<table query_id="query_chat" />'),
@@ -1110,7 +1940,7 @@ describe('live story SQL execution', () => {
 			mocks.getLatestVersionByStoryId.mockResolvedValue(storyVersion(code));
 			mocks.listStoryQueries.mockResolvedValue(savedQueries);
 
-			await expect(hasOnlyFrozenQueries({ id: 'story-standalone', chatId: null })).resolves.toBe(expected);
+			await expect(hasOnlyFrozenQueries(STANDALONE_STORY)).resolves.toBe(expected);
 		},
 	);
 
@@ -1118,9 +1948,7 @@ describe('live story SQL execution', () => {
 		const savedRows = { columns: ['order_id'], data: [{ order_id: 7 }] };
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_frozen: savedRows } });
 
-		await expect(executeStoryLiveQuery({ id: 'story-standalone', chatId: null }, 'query_frozen')).resolves.toEqual(
-			savedRows,
-		);
+		await expect(executeStoryLiveQuery(STANDALONE_STORY, 'query_frozen')).resolves.toEqual(savedRows);
 	});
 });
 
@@ -1133,7 +1961,14 @@ function querySource(sql: string, databaseId: string | null = null, adminMode = 
 }
 
 function storyVersion(code: string) {
-	return { code, isLiveTextDynamic: false, format: 'classic' };
+	return {
+		id: 'version-1',
+		storyId: 'story-1',
+		version: 1,
+		code,
+		isLiveTextDynamic: false,
+		format: 'classic',
+	};
 }
 
 function expiredCache() {

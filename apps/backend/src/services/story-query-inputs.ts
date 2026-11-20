@@ -1,4 +1,5 @@
 import { renderSqlTemplate } from '@nao/shared/sql-template';
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import {
 	type StoryQueryFilterBindings,
 	type StoryQueryInputs,
@@ -97,6 +98,9 @@ async function executeQueryWithInputs(
 	const result = queryData[queryId];
 	if (!result) {
 		throw new Error(`Query ${queryId} cannot be rerun with your access, so its filters cannot apply.`);
+	}
+	if (result.accessDenied) {
+		throw new Error(STORY_QUERY_ACCESS_DENIED_MESSAGE);
 	}
 	return result;
 }

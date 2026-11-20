@@ -757,6 +757,10 @@ export function getVersionByNumber(
 	);
 }
 
+export function getVersionById(storyId: string, storyVersionId: string): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(and(eq(s.story.id, storyId), eq(s.storyVersion.id, storyVersionId))!);
+}
+
 export function getVersionByStoryIdAndNumber(
 	storyId: string,
 	versionNumber: number,
