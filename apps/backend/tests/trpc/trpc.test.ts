@@ -2,9 +2,21 @@ import { trace } from '@opentelemetry/api';
 import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/auth', () => ({ getSession: vi.fn() }));
+const getProjectByUserId = vi.hoisted(() => vi.fn());
 
-import { protectedProcedure, publicProcedure, router, sessionProcedure } from '../../src/trpc/trpc';
+vi.mock('../../src/auth', () => ({ getSession: vi.fn() }));
+vi.mock('../../src/queries/project.queries', () => ({
+	getProjectByUserId,
+	getUserRoleInProject: vi.fn(async () => 'admin'),
+}));
+
+import {
+	projectProtectedProcedure,
+	protectedProcedure,
+	publicProcedure,
+	router,
+	sessionProcedure,
+} from '../../src/trpc/trpc';
 
 const testRouter = router({
 	protected: protectedProcedure.query(() => 'app data'),
@@ -30,6 +42,29 @@ describe('procedures of a signed-in user', () => {
 
 	it('rejects a visitor who is not signed in', async () => {
 		await expect(createCaller(null).session()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+	});
+});
+
+describe('procedures of a selected project', () => {
+	const projectRouter = router({
+		read: projectProtectedProcedure.query(({ ctx }) => ctx.project.id),
+		write: projectProtectedProcedure.mutation(({ ctx }) => ctx.project.id),
+	});
+	const caller = projectRouter.createCaller({
+		session: { user: { id: 'user-1' } },
+		selectedProjectId: 'lost-project',
+	} as never);
+
+	it('reads the fallback of a project the user lost, but refuses to write on it', async () => {
+		getProjectByUserId.mockImplementation(async (_userId, _selectedProjectId, { fallbackWhenInaccessible }) =>
+			fallbackWhenInaccessible ? { id: 'own-project' } : null,
+		);
+
+		expect(await caller.read()).toBe('own-project');
+		await expect(caller.write()).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: expect.stringContaining('no longer have access'),
+		});
 	});
 });
 
