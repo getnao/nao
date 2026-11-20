@@ -10,14 +10,13 @@ import * as storyQueries from '../../queries/story.queries';
 import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
+import { getAvailableModelsForUser, getDefaultChatModelForUser } from '../../services/user-group-llm-access.service';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
 import {
 	describeModelInput,
-	getProjectAvailableModels,
+	pickRequestedModel,
 	RequestedModelError,
-	resolveDefaultChatModel,
-	resolvePinnedModel,
-	resolveRequestedModel,
+	resolveAvailableModelSelection,
 } from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
@@ -185,8 +184,9 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 			const modelSelection = await agentService.resolveModelSelection(
 				ctx.projectId,
 				model !== undefined
-					? await resolveRequestedModel(ctx.projectId, model)
+					? pickRequestedModel(await getAvailableModelsForUser(ctx.projectId, ctx.userId), model)
 					: await resolveSubAgentModel(ctx),
+				ctx.userId,
 			);
 			const modelLabel = `${modelSelection.provider}/${modelSelection.modelId}`;
 			await mcpService.initializeMcpState(ctx.projectId);
@@ -251,10 +251,10 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 async function describeAvailableModels(ctx: McpContext): Promise<string> {
 	try {
 		const [available, pinned] = await Promise.all([
-			getProjectAvailableModels(ctx.projectId),
+			getAvailableModelsForUser(ctx.projectId, ctx.userId),
 			resolveSubAgentModel(ctx),
 		]);
-		const defaultModel = pinned ?? (await resolveDefaultChatModel(ctx.projectId));
+		const defaultModel = pinned ?? (await getDefaultChatModelForUser(ctx.projectId, ctx.userId));
 		return describeModelInput(available, defaultModel);
 	} catch (error) {
 		// The catalog is a convenience for the caller; a failed lookup must not keep `ask_nao` from registering.
@@ -264,15 +264,16 @@ async function describeAvailableModels(ctx: McpContext): Promise<string> {
 }
 
 /**
- * The model pinned for `ask_nao` in the MCP settings; undefined lets the agent use the project's
- * chat default. A `model` named by the caller takes precedence over both.
+ * The model pinned for `ask_nao` in the MCP settings, when the user can run it; undefined lets the
+ * agent use the user's chat default. A `model` named by the caller takes precedence over both.
  */
 async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel | undefined> {
 	const pinned = ctx.settings.subAgentModel;
 	if (!pinned) {
 		return undefined;
 	}
-	return (await resolvePinnedModel(ctx.projectId, pinned)) ?? undefined;
+	const available = await getAvailableModelsForUser(ctx.projectId, ctx.userId);
+	return resolveAvailableModelSelection(available, pinned) ?? undefined;
 }
 
 /**

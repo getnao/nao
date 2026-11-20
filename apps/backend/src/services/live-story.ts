@@ -54,6 +54,7 @@ import {
 	type SqlQueryLoader,
 	type StoryQueryOrigin,
 } from './story-sql-queries';
+import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
@@ -918,25 +919,34 @@ type LiveStoryModel = NonNullable<Awaited<ReturnType<typeof resolveLiveStoryMode
 
 /** The pinned live story model, otherwise the project's default chat model, so a refresh never lands on a model the chat cannot use. */
 async function resolveLiveStoryModel(target: StoryRefreshTarget) {
-	const selection =
+	const requested =
 		(await resolveDefaultModelSelection(target.projectId, 'live_story')) ??
 		(await resolveDefaultChatModel(target.projectId));
-	if (!selection) {
+	if (!requested) {
 		return null;
 	}
 
-	const model = await resolveProviderModel(target.projectId, selection.provider, selection.modelId, true, {
-		userId: target.userId,
-		projectId: target.projectId,
-		chatId: target.chatId ?? undefined,
-		category: 'story',
-	});
-	return model ? { provider: selection.provider, model } : null;
+	const selection = await resolveUserBackgroundModelSelection(target.projectId, target.userId, requested);
+	const model = await resolveProviderModel(
+		target.projectId,
+		selection.provider,
+		selection.modelId,
+		true,
+		{
+			userId: target.userId,
+			projectId: target.projectId,
+			chatId: target.chatId ?? undefined,
+			category: 'story',
+		},
+		undefined,
+		selection.llmConfigId,
+	);
+	return model ? { provider: selection.provider, model, llmConfigId: selection.llmConfigId } : null;
 }
 
 async function generateLiveStoryOutput<T>(
 	target: StoryRefreshTarget,
-	{ provider, model }: LiveStoryModel,
+	{ provider, model, llmConfigId }: LiveStoryModel,
 	systemPrompt: string,
 	instruction: string,
 	schema: z.ZodType<T>,
@@ -957,6 +967,7 @@ async function generateLiveStoryOutput<T>(
 		chatId: target.chatId,
 		llmProvider: provider,
 		llmModelId: model.model.modelId,
+		llmConfigId,
 		...convertToTokenUsage(usage),
 	});
 

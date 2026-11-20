@@ -4,9 +4,9 @@ import { generateText } from 'ai';
 
 import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { type ContextExplorerGitContext, readContextChangesPatch } from './context-explorer-git.service';
+import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 const MAX_PATCH_LENGTH = 12_000;
 const MAX_MESSAGE_LENGTH = 120;
@@ -54,15 +54,26 @@ async function resolveModelForProject(
 	userId: string,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
-	if (!provider) {
-		return null;
-	}
-	const modelId = pinned?.modelId ?? getProviderMeta(provider).summaryModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false, {
-		userId,
+	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
+	const provider = selection.provider;
+	const modelId = await resolveUserBackgroundModelId(
 		projectId,
-		category: 'title',
-	});
+		userId,
+		selection,
+		pinned ? selection.modelId : getProviderMeta(provider).summaryModelId,
+	);
+	const model = await resolveProviderModel(
+		projectId,
+		provider,
+		modelId,
+		false,
+		{
+			userId,
+			projectId,
+			category: 'title',
+		},
+		undefined,
+		selection.llmConfigId,
+	);
 	return model ? { provider, model } : null;
 }

@@ -20,6 +20,7 @@ export const upsertProjectMattermostConfig = async (data: {
 	botToken: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 	interactiveButtonsEnabled?: boolean;
 	callbackUrl?: string;
 }): Promise<MattermostConfig> => {
@@ -32,6 +33,7 @@ export const upsertProjectMattermostConfig = async (data: {
 					mattermostBotToken: data.botToken,
 					mattermostLlmProvider: data.modelProvider ?? '',
 					mattermostLlmModelId: data.modelId ?? '',
+					mattermostLlmConfigId: data.llmConfigId,
 					mattermostInteractiveButtonsEnabled: data.interactiveButtonsEnabled ?? false,
 					mattermostCallbackUrl: data.callbackUrl || undefined,
 				},
@@ -53,12 +55,14 @@ export const updateProjectMattermostModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
 	await updateProjectSettings(projectId, 'mattermostSettings', (existing) => ({
 		mattermostBaseUrl: existing?.mattermostBaseUrl ?? '',
 		mattermostBotToken: existing?.mattermostBotToken ?? '',
 		mattermostLlmProvider: modelProvider ?? '',
 		mattermostLlmModelId: modelId ?? '',
+		mattermostLlmConfigId: llmConfigId ?? undefined,
 		mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? false,
 		mattermostCallbackUrl: existing?.mattermostCallbackUrl,
 	}));
@@ -88,7 +92,11 @@ function toMattermostConfig(
 		baseUrl: settings.mattermostBaseUrl,
 		botToken: settings.mattermostBotToken,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.mattermostLlmProvider, settings.mattermostLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings.mattermostLlmProvider,
+			settings.mattermostLlmModelId,
+			settings.mattermostLlmConfigId,
+		),
 		interactiveButtonsEnabled: settings.mattermostInteractiveButtonsEnabled ?? false,
 		callbackUrl: settings.mattermostCallbackUrl,
 	};
@@ -97,12 +105,13 @@ function toMattermostConfig(
 function toLlmSelectedModel(
 	provider: string | null | undefined,
 	modelId: string | null | undefined,
+	llmConfigId?: string,
 ): LlmSelectedModel | undefined {
 	if (!provider || !modelId) {
 		return undefined;
 	}
 	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
+	return parsed.success ? { provider: parsed.data, modelId, ...(llmConfigId && { llmConfigId }) } : undefined;
 }
 
 export interface MattermostConfig {

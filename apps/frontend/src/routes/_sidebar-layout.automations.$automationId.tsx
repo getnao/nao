@@ -4,7 +4,6 @@ import { ArrowLeft, Check, Loader2, Mail, Play, Trash, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import type { AutomationFormHandle, AutomationFormValue } from '@/components/automations-form';
-import GithubIcon from '@/components/icons/github-icon.svg';
 import {
 	AutomationChatPanel,
 	OpenAutomationChatButton,
@@ -12,6 +11,7 @@ import {
 } from '@/components/automation-chat-panel';
 import { AutomationEditorLayout } from '@/components/automation-editor-layout';
 import { AutomationForm } from '@/components/automations-form';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -179,6 +179,7 @@ function AutomationDetailPage() {
 						scheduleDescription: automation.scheduleDescription ?? undefined,
 						modelProvider: automation.modelProvider ?? undefined,
 						modelId: automation.modelId ?? undefined,
+						llmConfigId: automation.llmConfigId ?? undefined,
 						enabled: automation.enabled,
 						mcpEnabled: automation.mcpEnabled,
 						mcpServers: automation.mcpServers ?? undefined,

@@ -34,12 +34,29 @@ describe('summarizeRunTests', () => {
 		]);
 		expect(totals[1].models.map((model) => model.modelId)).toEqual([HAIKU.modelId, SONNET.modelId]);
 	});
+
+	it('keeps credentials for the same model in separate totals', () => {
+		const clientA = { ...SONNET, llmConfigId: 'config-a' };
+		const clientB = { ...SONNET, llmConfigId: 'config-b' };
+		const [production] = summarizeRunTests(
+			[
+				attempts('revenue.yml', 'production', clientA, 1, 1),
+				attempts('revenue.yml', 'production', clientB, 0, 1),
+			],
+			[clientA, clientB],
+		);
+
+		expect(production.models).toMatchObject([
+			{ llmConfigId: 'config-a', passedAttempts: 1 },
+			{ llmConfigId: 'config-b', passedAttempts: 0 },
+		]);
+	});
 });
 
 function attempts(
 	testPath: string,
 	contextVariant: TestAttemptTotals['contextVariant'],
-	model: typeof SONNET,
+	model: typeof SONNET & { llmConfigId?: string },
 	passedAttempts: number,
 	totalAttempts: number,
 ): TestAttemptTotals {

@@ -43,6 +43,6 @@ export type StoryModelResult = StoryLlmResult;
 export const STORY_LLM_DEFAULT_OUTPUT_TOKENS = 1_024;
 export const STORY_LLM_MAX_OUTPUT_TOKENS = 4_096;
 
-export function toStoryModelId(model: { provider: LlmProvider; modelId: string }): string {
-	return `${model.provider}:${model.modelId}`;
+export function toStoryModelId(model: { provider: LlmProvider; modelId: string; llmConfigId?: string }): string {
+	return [model.provider, model.modelId, model.llmConfigId].filter(Boolean).join(':');
 }

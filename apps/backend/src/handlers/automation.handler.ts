@@ -101,6 +101,7 @@ async function createAutomationRun(
 	}
 	const run = await automationQueries.createAutomationRun({
 		automationId,
+		llmConfigId: automation.llmConfigId,
 		status: 'running',
 		trigger,
 		integrationResults: [],
@@ -165,11 +166,16 @@ async function finishAutomationRun(
 		const agent = await agentService.create(
 			{ ...uiChat, userId: automation.userId, projectId: automation.projectId },
 			automation.modelProvider && automation.modelId
-				? { provider: automation.modelProvider, modelId: automation.modelId }
+				? {
+						provider: automation.modelProvider,
+						modelId: automation.modelId,
+						...(automation.llmConfigId && { llmConfigId: automation.llmConfigId }),
+					}
 				: undefined,
 			automationAgent(automation, integrationTools),
 			{ billingAccessVerifiedProjectId },
 		);
+		await automationQueries.setRunLlmConfig(run.id, agent.getModelSelection().llmConfigId ?? null);
 
 		logger.info('Automation run starting', {
 			source: 'system',
