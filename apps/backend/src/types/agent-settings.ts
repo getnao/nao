@@ -9,6 +9,9 @@ export interface AgentSettings {
 	memoryEnabled?: boolean;
 	mapEnabled?: boolean;
 	requireConversationFeedback?: boolean;
+	storyImages?: {
+		allowedSources?: string[];
+	};
 	experimental?: {
 		codemode?: boolean;
 		sandboxes?: boolean;
