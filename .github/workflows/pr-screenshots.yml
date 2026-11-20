@@ -189,11 +189,13 @@ jobs:
                      or element is new, or the before shot is broken.
                   EOF
                   )
+                  # Absolute edit rule: a relative one follows the shell's cwd, so a cd into the sources would block writes.
+                  SETTINGS=$(jq -nc --arg edit "Edit(/$WORK_DIR/**)" '{permissions: {allow: ["Bash(capture-screens)", $edit], deny: ["Read(//proc/**)"]}}')
                   PATH="$RUNNER_TEMP/bin:$PATH" npx -y @anthropic-ai/claude-code@2.1.323 -p "$PROMPT" \
                       --model claude-sonnet-5-5 \
                       --max-turns 60 \
                       --add-dir "$GITHUB_WORKSPACE" "$SHOTS_DIR" \
-                      --settings '{"permissions":{"allow":["Bash(capture-screens)","Edit(./**)"],"deny":["Read(//proc/**)"]}}'
+                      --settings "$SETTINGS"
 
             - name: Collect screenshots
               id: collect
