@@ -146,7 +146,7 @@ export const chatRoutes = {
 	delete: chatOwnerProcedure
 		.input(z.object({ chatId: z.string() }))
 		.mutation(async ({ input, ctx }): Promise<void> => {
-			const { projectId } = await chatQueries.deleteChat(input.chatId);
+			const { projectId } = await chatQueries.softDeleteChat(input.chatId);
 			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { project_id: projectId, chat_id: input.chatId });
 		}),
 

@@ -9,6 +9,7 @@ import {
 	MAX_CONTEXT_FILE_SIZE,
 } from '../services/context-explorer.service';
 import { createSafeFileAccess, createStrictFileAccess } from '../services/context-explorer-access.service';
+import { runReferenceQuery } from '../services/test-evaluation.service';
 import {
 	getLatestOutcomesByTest,
 	getModelStats,
@@ -40,6 +41,7 @@ import {
 	serializeTestFile,
 } from '../services/test-suite.service';
 import {
+	discoverUpstreamTests,
 	listUpstreamBranches,
 	listUpstreamRepos,
 	readUpstreamChanges,
@@ -52,10 +54,11 @@ import {
 	MAX_TEST_RUN_MODELS,
 	MAX_TEST_RUN_THREADS,
 	type TestComparisonTolerances,
+	type TestSuite,
 } from '../types/test-run';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { compareContextVariants, listAddedTestPaths, listComparedResults } from '../utils/test-comparison';
+import { compareContextVariants, listComparedResults, listOneSidedTests } from '../utils/test-comparison';
 import { summarizeModels } from '../utils/test-model-summary';
 import { requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -63,6 +66,8 @@ import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } fro
 const NOT_A_TEST_FILE_MESSAGE = `Tests are YAML files in the ${TESTS_FOLDER}/ folder.`;
 
 const upstreamBranchSchema = z.object({ repo: z.string().min(1), branch: z.string().min(1) });
+
+const MAX_REFERENCE_PREVIEW_ROWS = 500;
 
 const draftTestFileSchema = z.object({
 	path: z.string(),
@@ -109,15 +114,21 @@ const scheduleSchema = z.object({
 const scheduleIdSchema = z.object({ id: z.string().min(1).max(100) });
 
 export const testRunRoutes = {
-	listTests: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const projectFolder = requireProjectPath(ctx.project.path);
-		const suite = discoverTests(projectFolder);
-		return {
-			...suite,
-			settings: extractConfiguredTestSettings(projectFolder),
-			latestOutcomes: await getLatestOutcomesByTest(ctx.project.id, suite.tests),
-		};
-	}),
+	/** The tests of production, or with `upstream` as the branch of a synced repository leaves them. */
+	listTests: contextAdminProtectedProcedure
+		.input(z.object({ upstream: upstreamBranchSchema.optional() }).optional())
+		.query(async ({ ctx, input }) => {
+			const projectFolder = requireProjectPath(ctx.project.path);
+			const suite = await discoverSuite(
+				{ projectId: ctx.project.id, projectFolder, userId: ctx.user.id },
+				input?.upstream,
+			);
+			return {
+				...suite,
+				settings: extractConfiguredTestSettings(projectFolder),
+				latestOutcomes: await getLatestOutcomesByTest(ctx.project.id, suite.tests),
+			};
+		}),
 
 	startRun: cloudBillingContextAdminProcedure.input(startRunSchema).mutation(async ({ ctx, input }) => {
 		const { mode, target, upstream, ...settings } = input;
@@ -237,14 +248,14 @@ export const testRunRoutes = {
 		const run = await getProjectRun(ctx.project.id, input.runId);
 		const results = await testRunQueries.listResultOutcomes(run.id);
 		const isComparison = run.trigger === 'comparison';
-		const addedTestPaths = isComparison ? listAddedTestPaths(run.contextChanges) : new Set<string>();
+		const oneSidedTests = listOneSidedTests(isComparison ? run.contextChanges : null);
 		return {
 			...run,
 			results,
 			comparison: isComparison
-				? compareContextVariants(results, run.models.length * run.attempts, addedTestPaths)
+				? compareContextVariants(results, run.models.length * run.attempts, oneSidedTests)
 				: null,
-			modelSummaries: summarizeModels(listComparedResults(results, addedTestPaths)),
+			modelSummaries: summarizeModels(listComparedResults(results, oneSidedTests)),
 			previousModelSummaries: await getPreviousModelSummaries(run, results),
 		};
 	}),
@@ -268,6 +279,27 @@ export const testRunRoutes = {
 	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {
 		const parsed = parseDraftTest(input);
 		return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
+	}),
+
+	/** Runs the reference SQL of the test as it is shown, which need not be saved, like a run of it would. */
+	runReferenceSql: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(async ({ ctx, input }) => {
+		const test = parseValidDraftTest(input);
+		if (!test.sql) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'This test has no reference SQL.' });
+		}
+		try {
+			const result = await runReferenceQuery(ctx.project.id, ctx.user.id, test.sql, test.databaseId ?? undefined);
+			return {
+				columns: result.columns,
+				rows: (result.data as Record<string, unknown>[]).slice(0, MAX_REFERENCE_PREVIEW_ROWS),
+				rowCount: result.row_count,
+			};
+		} catch (error) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}),
 
 	createTestFile: cloudBillingContextAdminProcedure
@@ -345,6 +377,20 @@ async function getProjectRun(projectId: string, runId: string) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Test run not found: ${runId}` });
 	}
 	return run;
+}
+
+async function discoverSuite(
+	reader: { projectId: string; projectFolder: string; userId: string },
+	upstream: z.infer<typeof upstreamBranchSchema> | undefined,
+): Promise<TestSuite> {
+	if (!upstream) {
+		return discoverTests(reader.projectFolder);
+	}
+	try {
+		return await discoverUpstreamTests({ ...reader, upstream });
+	} catch (error) {
+		throw toTestRunTrpcError(error, reader.projectId);
+	}
 }
 
 function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {

@@ -227,7 +227,7 @@ class TestCloneOrPullRepo:
 
         assert result is True
         git_run.assert_called_once()
-        assert "clone" in git_run.call_args[0][0]
+        assert git_run.call_args[0][0][:5] == ["git", "clone", "--depth", "1", "--single-branch"]
 
     def test_clones_with_branch(self, git_run, tmp_path: Path):
         repo = RepoConfig(

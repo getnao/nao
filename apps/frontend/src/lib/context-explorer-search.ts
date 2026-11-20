@@ -1,6 +1,8 @@
+import { isTestFilePath } from '@nao/shared/test-paths';
+
 /**
- * Where the Tests drawer is, kept in the URL so the browser's back and forward buttons move through it:
- * the test whose tab is shown, or none for all the tests, and the run opened in that tab.
+ * Where the tests are, kept in the URL so the browser's back and forward buttons move through them: the test shown,
+ * or none for all the tests, and the run opened with it.
  */
 export interface TestDrawerSearch {
 	test?: string;
@@ -11,11 +13,13 @@ export interface ContextExplorerSearch extends TestDrawerSearch {
 	path?: string;
 	from?: string;
 	to?: string;
-	/** Opens the Tests drawer once, as links from outside the page do, then leaves the URL. */
+	/** Shows all the tests: the Tests page of the doc view, or the drawer of the file tree, which then drops it. */
 	tests?: 'open';
 	/** The recommendation whose proposed change to the file is shown when the file opens. */
 	recommendation?: string;
 }
+
+export type DocViewTestsPage = { type: 'suite' } | { type: 'test'; path: string };
 
 export interface HistoricalContextDiffTarget {
 	path: string;
@@ -32,9 +36,17 @@ export function validateContextExplorerSearch(search: Record<string, unknown>): 
 	};
 }
 
-/** Links to a past diff only make sense in the file tree, while both views have the Tests drawer. */
+/** Links to a past diff only make sense in the file tree, while both views show the tests. */
 export function requiresFileTree(search: ContextExplorerSearch): boolean {
 	return getHistoricalContextDiffTarget(search) !== null;
+}
+
+/** The tests the doc view shows in place of a file: one test, or all of them while a run of the suite is open. */
+export function getDocViewTestsPage(search: ContextExplorerSearch): DocViewTestsPage | null {
+	if (search.test && isTestFilePath(search.test)) {
+		return { type: 'test', path: search.test };
+	}
+	return search.tests === 'open' || search.testRun ? { type: 'suite' } : null;
 }
 
 export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): HistoricalContextDiffTarget | null {

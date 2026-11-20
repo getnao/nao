@@ -89,6 +89,17 @@ describe('two-factor sign-in', () => {
 		expect((await signIn.json('/get-session')).user.email).toBe(EMAIL);
 	});
 
+	it('refuses a new setup on an account already enabled, so its app keeps signing in', async () => {
+		const setup = await startSetup();
+		await setup.json('/two-factor/verify-totp', { code: await totpCode() });
+		const confirmedSecret = state.db.twoFactor[0].secret;
+
+		const restart = await setup.send('/two-factor/enable', { password: PASSWORD });
+
+		expect(restart.status).toBe(400);
+		expect(state.db.twoFactor.map((row) => row.secret)).toEqual([confirmedSecret]);
+	});
+
 	it.each([
 		{ reason: 'the organization forbids email codes', policy: { required: false, emailCodes: false } },
 		{ reason: 'no email provider is configured', emailEnabled: false },
@@ -161,6 +172,12 @@ class Browser {
 	private readonly cookies = new Map<string, string>();
 
 	async json(path: string, body?: object) {
+		const response = await this.send(path, body);
+		expect(response.status, `${path} responded ${response.status}`).toBe(200);
+		return response.json();
+	}
+
+	async send(path: string, body?: object): Promise<Response> {
 		const response = await auth.handler(
 			new Request(`${BASE_URL}/api/auth${path}`, {
 				method: body ? 'POST' : 'GET',
@@ -169,8 +186,7 @@ class Browser {
 			}),
 		);
 		this.storeCookies(response);
-		expect(response.status, `${path} responded ${response.status}`).toBe(200);
-		return response.json();
+		return response;
 	}
 
 	private cookieHeader(): string {

@@ -33,7 +33,9 @@ import {
 	getContextRepositoryStatus,
 	getHistoricalContextDiffActions,
 	listContextRepositoryBranches,
+	pullContextBranch,
 	pullLiveContext,
+	resolveContextExplorerGitSafely,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
@@ -57,6 +59,7 @@ import {
 	getNaoDraftFileTree,
 	hasContextRepository,
 	listNaoDraftChanges,
+	moveNaoDraftToWorktree,
 	searchNaoDraftContents,
 } from '../services/nao-draft.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
@@ -195,7 +198,12 @@ export const contextExplorerRoutes = {
 					message: `Connect your ${getRepoProviderDisplayName(input.provider)} account first.`,
 				});
 			}
-			return connectContextRepository({ ...context, token: context.token, ...input });
+			const connection = await connectContextRepository({ ...context, token: context.token, ...input });
+			const git = await resolveContextExplorerGitSafely(context);
+			if (git.status === 'available') {
+				await moveNaoDraftToWorktree(draftOwnerOf(ctx), git.repo);
+			}
+			return connection;
 		}),
 
 	disconnectRepository: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
@@ -348,6 +356,10 @@ export const contextExplorerRoutes = {
 				input.branch,
 			);
 		}),
+
+	pullBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await pullContextBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
 
 	createBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))

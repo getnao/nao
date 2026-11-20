@@ -349,7 +349,7 @@ function getTestTabLabel(
 	return editedTestName ?? savedTestName ?? getFileName(testPath) ?? testPath;
 }
 
-function ActiveRunStatus({ run }: { run: TestRunSummary }) {
+export function ActiveRunStatus({ run }: { run: TestRunSummary }) {
 	return (
 		<span className='flex items-center gap-1.5 text-muted-foreground'>
 			<Spinner className='size-3' />

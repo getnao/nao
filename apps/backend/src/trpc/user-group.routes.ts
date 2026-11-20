@@ -45,7 +45,7 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { setGroupBudget } from '../services/member-budget.service';
+import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
 import {
 	getShareAudience,
 	previewProjectWideShareRevocation,
@@ -390,10 +390,11 @@ export const userGroupRoutes = {
 				llmConfigIds: llmConfigIdsSchema.default([]),
 				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+			await assertGroupBudgetEditable(ctx.project.id, input);
 			const llmAccess = await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
@@ -439,7 +440,7 @@ export const userGroupRoutes = {
 					? createUserGroup(...values)
 					: createUserGroup(...values, llmAccess.llmModelIdsByConfig);
 			});
-			await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
+			await saveGroupBudget(ctx.project.id, group.id, input);
 			return group;
 		}),
 
@@ -465,11 +466,12 @@ export const userGroupRoutes = {
 				llmConfigIds: llmConfigIdsSchema.optional(),
 				llmModelIdsByConfig: llmModelIdsByConfigSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+			await assertGroupBudgetEditable(ctx.project.id, input);
 			const llmAccess =
 				input.llmConfigIds === undefined
 					? undefined
@@ -535,7 +537,7 @@ export const userGroupRoutes = {
 					...(llmAccess === undefined ? {} : llmAccess),
 				}),
 			);
-			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
+			await saveGroupBudget(ctx.project.id, input.groupId, input);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
 		}),
@@ -600,19 +602,23 @@ export const userGroupRoutes = {
 		}),
 };
 
-async function assertGroupBudgetEditable(projectId: string, budgetLimitUsd: number | null | undefined): Promise<void> {
-	if (budgetLimitUsd !== undefined) {
+interface GroupBudgetsInput {
+	budgetLimitUsd?: number | null;
+	sharedBudgetLimitUsd?: number | null;
+}
+
+async function assertGroupBudgetEditable(projectId: string, input: GroupBudgetsInput): Promise<void> {
+	if (input.budgetLimitUsd !== undefined || input.sharedBudgetLimitUsd !== undefined) {
 		await assertMemberBudgetLicensed(projectId);
 	}
 }
 
-async function saveGroupBudget(
-	projectId: string,
-	groupId: string,
-	budgetLimitUsd: number | null | undefined,
-): Promise<void> {
-	if (budgetLimitUsd !== undefined) {
-		await setGroupBudget(projectId, groupId, budgetLimitUsd);
+async function saveGroupBudget(projectId: string, groupId: string, input: GroupBudgetsInput): Promise<void> {
+	if (input.budgetLimitUsd !== undefined) {
+		await setGroupBudget(projectId, groupId, input.budgetLimitUsd);
+	}
+	if (input.sharedBudgetLimitUsd !== undefined) {
+		await setGroupSharedBudget(projectId, groupId, input.sharedBudgetLimitUsd);
 	}
 }
 

@@ -4,8 +4,8 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchSpanProcessor, NodeTracerProvider, type SpanProcessor } from '@opentelemetry/sdk-trace-node';
 
 import { env } from './env';
-import { REQUEST_TRACER_NAME } from './middleware/request-tracing';
 import { DataToolRedactingSpanProcessor } from './utils/langfuse-redaction';
+import { EFFECT_TRACER_NAME, REQUEST_TRACER_NAME } from './utils/tracer-names';
 
 /**
  * Langfuse tracing is opt-in and requires an explicit destination: it only
@@ -29,14 +29,16 @@ if (keysPresent && !baseUrl) {
 
 /**
  * Request traces go to any OpenTelemetry backend once OTEL_EXPORTER_OTLP_ENDPOINT is set; the
- * exporter reads its credentials from OTEL_EXPORTER_OTLP_HEADERS. Only request spans are exported:
- * LLM spans carry prompts and responses, so they only ever reach Langfuse.
+ * exporter reads its credentials from OTEL_EXPORTER_OTLP_HEADERS. Only request spans and the spans of
+ * Effect programs are exported: LLM spans carry prompts and responses, so they only ever reach Langfuse.
  */
+const EXPORTED_TRACER_NAMES = new Set([REQUEST_TRACER_NAME, EFFECT_TRACER_NAME]);
+
 export const requestTracingEnabled = Boolean(env.OTEL_EXPORTER_OTLP_ENDPOINT);
 
 const spanProcessors: SpanProcessor[] = [
 	...(langfuseSpanProcessor ? [new DataToolRedactingSpanProcessor(langfuseSpanProcessor)] : []),
-	...(requestTracingEnabled ? [onlyRequestSpans(new BatchSpanProcessor(new OTLPTraceExporter()))] : []),
+	...(requestTracingEnabled ? [onlyAppSpans(new BatchSpanProcessor(new OTLPTraceExporter()))] : []),
 ];
 
 if (spanProcessors.length > 0) {
@@ -77,13 +79,13 @@ export async function flushTelemetry(): Promise<void> {
 	}
 }
 
-export function onlyRequestSpans(processor: SpanProcessor): SpanProcessor {
+export function onlyAppSpans(processor: SpanProcessor): SpanProcessor {
 	return {
 		onStart(span, parentContext) {
 			processor.onStart(span, parentContext);
 		},
 		onEnd(span) {
-			if (span.instrumentationScope.name === REQUEST_TRACER_NAME) {
+			if (EXPORTED_TRACER_NAMES.has(span.instrumentationScope.name)) {
 				processor.onEnd(span);
 			}
 		},

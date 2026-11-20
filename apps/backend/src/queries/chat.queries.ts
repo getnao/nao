@@ -754,6 +754,7 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T>
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
+/** Erases a chat that never reached its user, such as a fork that failed. A chat its user removes is soft-deleted. */
 export const deleteChat = async (chatId: string): Promise<{ projectId: string }> => {
 	const [result] = await db
 		.delete(s.chat)
@@ -762,6 +763,55 @@ export const deleteChat = async (chatId: string): Promise<{ projectId: string }>
 		.execute();
 	return result;
 };
+
+/**
+ * Removes a chat for its owner and for everyone it was shared with, yet keeps its row and its messages: budgets and
+ * usage are summed from them, so erasing them would hand the money already spent back to the budget.
+ */
+export const softDeleteChat = async (chatId: string): Promise<{ projectId: string }> => {
+	return db.transaction(async (t) => {
+		await releaseStandaloneStories(chatId, t);
+		await t.delete(s.story).where(eq(s.story.chatId, chatId)).execute();
+		await t.delete(s.sharedChat).where(eq(s.sharedChat.chatId, chatId)).execute();
+		const [result] = await t
+			.update(s.chat)
+			.set({ deletedAt: new Date() })
+			.where(eq(s.chat.id, chatId))
+			.returning({ projectId: s.chat.projectId })
+			.execute();
+		return result;
+	});
+};
+
+/**
+ * A story created outside any chat outlives the chat it was opened in. When another standalone story of its owner
+ * took its slug meanwhile, its id makes the slug its own again.
+ */
+async function releaseStandaloneStories(chatId: string, t: DBTransaction): Promise<void> {
+	const stories = await t
+		.select({ id: s.story.id, slug: s.story.slug, projectId: s.story.projectId, userId: s.story.userId })
+		.from(s.story)
+		.where(and(eq(s.story.chatId, chatId), isNotNull(s.story.projectId), isNotNull(s.story.userId)))
+		.execute();
+
+	for (const story of stories) {
+		const [slugTaker] = await t
+			.select({ id: s.story.id })
+			.from(s.story)
+			.where(
+				and(
+					isNull(s.story.chatId),
+					eq(s.story.projectId, story.projectId!),
+					eq(s.story.userId, story.userId!),
+					eq(s.story.slug, story.slug),
+				),
+			)
+			.limit(1)
+			.execute();
+		const slug = slugTaker ? `${story.slug}-${story.id}` : story.slug;
+		await t.update(s.story).set({ chatId: null, slug }).where(eq(s.story.id, story.id)).execute();
+	}
+}
 
 export const softDeleteNonStarredChats = async (userId: string): Promise<{ count: number }> => {
 	const result = await db

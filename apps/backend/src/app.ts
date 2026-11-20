@@ -661,7 +661,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		if (isDraining()) {
 			return;
 		}
-		stopScheduler();
+		void stopScheduler();
 		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
 		await handleShutdown();
 	};

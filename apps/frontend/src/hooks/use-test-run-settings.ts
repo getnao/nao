@@ -12,6 +12,7 @@ import type { TestModelSelection } from '@nao/backend/test-run';
 import type { ActiveEffort } from '@nao/backend/llm';
 
 import { createLocalStorage } from '@/lib/local-storage';
+import { useTestSuite } from '@/hooks/use-upstream-context';
 import { trpc } from '@/main';
 
 export { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS, MAX_TEST_RUN_THREADS } from '@nao/backend/test-run';
@@ -38,7 +39,7 @@ export interface TestRunSettings extends Required<StoredTestRunSettings> {
  */
 export function useTestRunSettings(): TestRunSettings {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const suite = useQuery(trpc.testRun.listTests.queryOptions());
+	const suite = useTestSuite();
 	const defaultModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const projectId = project.data?.id;

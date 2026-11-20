@@ -66,7 +66,13 @@ export async function evaluateTestAttempt(input: {
 	return { toolCalls, verification, verdict };
 }
 
-async function runReferenceQuery(projectId: string, userId: string, sql: string, databaseId: string | undefined) {
+/** Runs the reference SQL of a test as a run would, to show the data the agent's answer must match. */
+export async function runReferenceQuery(
+	projectId: string,
+	userId: string,
+	sql: string,
+	databaseId: string | undefined,
+) {
 	const toolContext = await buildVerificationToolContext(projectId, userId);
 	return executeQuery({ sql_query: sql, database_id: databaseId }, toolContext);
 }
