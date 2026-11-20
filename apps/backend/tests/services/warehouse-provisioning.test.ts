@@ -32,7 +32,14 @@ type MockWarehouseJob = {
 };
 
 const warehouseJobs = vi.hoisted(() => new Map<string, MockWarehouseJob>());
-const controls = vi.hoisted(() => ({ failReadyUpdate: false }));
+const controls = vi.hoisted(() => ({ failReadyUpdate: false, isCloud: false }));
+
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return controls.isCloud;
+	},
+}));
 
 vi.mock('../../src/handlers/context-recommendations.handler', () => ({
 	contextRecommendationsJobUniqueKey: (projectId: string) => `context.recommendations:${projectId}`,
@@ -275,6 +282,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	warehouseJobs.clear();
 	controls.failReadyUpdate = false;
+	controls.isCloud = false;
 	vi.mocked(projectQueries.listUserProjects).mockResolvedValue([]);
 });
 
@@ -407,6 +415,39 @@ describe('warehouse provisioning', () => {
 			code: 'BAD_REQUEST',
 			message: 'Could not connect. Check Username and Password.',
 		});
+	});
+
+	it.each([
+		{ name: 'a loopback address', credentials: { host: '127.0.0.1', port: 5432, password: 'secret' } },
+		{ name: 'the cloud metadata address', credentials: { serverHostname: 'https://169.254.169.254/sql' } },
+		{ name: 'a unix socket path', credentials: { host: '/var/run/postgresql', password: 'secret' } },
+	])('refuses $name as a warehouse host on nao Cloud, before any connection', async ({ credentials }) => {
+		controls.isCloud = true;
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		const connection = { provider: 'postgres' as const, credentials };
+
+		await expect(validateWarehouseCredentials('user-1', connection)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(
+			startWarehouseProvisioning({ userId: 'user-1', orgId: 'org-1', projectName: 'analytics', ...connection }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(warehouseJobs.size).toBe(0);
+	});
+
+	it('lets a self-hosted instance reach a warehouse of its private network', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(new Response(JSON.stringify({ valid: true }), { status: 200 })),
+		);
+
+		await expect(
+			validateWarehouseCredentials('user-1', {
+				provider: 'postgres',
+				credentials: { host: '10.0.0.12', password: 'secret' },
+			}),
+		).resolves.toEqual({ valid: true });
 	});
 
 	it('exposes queued job state only to its owner without leaking credentials', async () => {

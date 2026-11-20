@@ -11,7 +11,7 @@ import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
 import type { DBWarehouseProvisioningJob, NewWarehouseProvisioningJob } from '../db/abstractSchema';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import { contextRecommendationsJobUniqueKey } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
@@ -32,6 +32,7 @@ import {
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { describeError, logger, serializeError } from '../utils/logger';
 import { extractConfiguredDatabases } from '../utils/nao-config';
+import { assertSafeHost } from '../utils/safe-fetch';
 import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../utils/warehouse-setup';
 import {
 	deleteManagedGithubRepository,
@@ -180,6 +181,7 @@ export async function validateWarehouseCredentials(
 	input: ProjectWarehouseCredentials,
 ): Promise<{ valid: true }> {
 	const connection = warehouseCredentialsSchema.parse(input);
+	await assertWarehouseHostIsPublic(connection);
 	try {
 		const result = await requestWarehouseValidation(connection);
 		await recordConnectionCheck(userId, connection.provider, 'ok');
@@ -296,6 +298,38 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 	return preparedWarehouseSchema.parse(await response.json());
 }
 
+const WAREHOUSE_HOST_FIELDS = ['host', 'server_hostname'];
+
+/**
+ * nao Cloud connects to the warehouse from inside its own network, so the host must be a public one.
+ * A self-hosted instance is left free to reach the warehouses of its private network.
+ */
+async function assertWarehouseHostIsPublic({ provider, credentials }: ProjectWarehouseCredentials): Promise<void> {
+	if (!isCloud) {
+		return;
+	}
+	const normalized = normalizeWarehouseCredentials(provider, credentials);
+	for (const field of WAREHOUSE_HOST_FIELDS) {
+		const host = normalized[field];
+		if (typeof host !== 'string' || !host) {
+			continue;
+		}
+		const hostname = URL.parse(host.includes('://') ? host : `tcp://${host}`)?.hostname;
+		const isPublic =
+			!!hostname &&
+			(await assertSafeHost(hostname).then(
+				() => true,
+				() => false,
+			));
+		if (!isPublic) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `nao cannot connect to "${host}": use a public host name or address.`,
+			});
+		}
+	}
+}
+
 function normalizeWarehouseCredentials(provider: WarehouseProvider, credentials: object): Record<string, unknown> {
 	const normalized = toSnakeCaseRecord(credentials);
 
@@ -355,6 +389,7 @@ export async function startWarehouseProvisioning(
 		provider: input.provider,
 		credentials: input.credentials,
 	});
+	await assertWarehouseHostIsPublic(connection);
 	const job = await createQueuedJob({
 		id: crypto.randomUUID(),
 		userId: input.userId,
