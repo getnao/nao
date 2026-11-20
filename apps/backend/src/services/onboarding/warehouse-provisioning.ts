@@ -307,12 +307,13 @@ async function prepareWarehouseConfig(provider: WarehouseProvider, credentials: 
 }
 
 const WAREHOUSE_HOST_FIELDS = ['host', 'server_hostname'];
+const SSH_TUNNEL_PROVIDERS = new Set<WarehouseProvider>(['redshift', 'postgres', 'mysql', 'mssql']);
 const BARE_HOST_NAME_PATTERN = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i;
 
 /**
- * nao Cloud connects to the warehouse from inside its own network, so the host must be a public one, written as a
- * bare name or address: a port, a path or connection-string syntax could make the connector reach another host
- * than the one checked here. A self-hosted instance is left free to reach the warehouses of its private network.
+ * nao Cloud must reach either the warehouse or its SSH bastion over the public internet. Hosts must be written as
+ * bare names or addresses: a port, a path or connection-string syntax could make the connector reach another host
+ * than the one checked here. A self-hosted instance is left free to reach hosts on its private network.
  */
 async function findWarehouseHostRefusal({
 	provider,
@@ -322,6 +323,13 @@ async function findWarehouseHostRefusal({
 		return null;
 	}
 	const normalized = normalizeWarehouseCredentials(provider, credentials);
+	if (SSH_TUNNEL_PROVIDERS.has(provider) && isRecord(normalized.ssh_tunnel)) {
+		const host = normalized.ssh_tunnel.ssh_host;
+		if (!(await isPublicBareHost(host))) {
+			return `nao cannot connect to "${String(host)}": enter only the public host name or address of the SSH bastion.`;
+		}
+		return null;
+	}
 	for (const field of WAREHOUSE_HOST_FIELDS) {
 		const host = normalized[field];
 		if (host === undefined || host === null || host === '') {
@@ -347,7 +355,7 @@ async function isPublicBareHost(host: unknown): Promise<boolean> {
 function normalizeWarehouseCredentials(provider: WarehouseProvider, credentials: object): Record<string, unknown> {
 	const normalized = toSnakeCaseRecord(credentials);
 
-	if (provider === 'redshift' && isRecord(normalized.ssh_tunnel)) {
+	if (SSH_TUNNEL_PROVIDERS.has(provider) && isRecord(normalized.ssh_tunnel)) {
 		normalized.ssh_tunnel = toSnakeCaseRecord(normalized.ssh_tunnel);
 	}
 

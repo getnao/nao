@@ -42,6 +42,13 @@ const values: WarehouseCredentialsFormValues = {
 	awsAccessKeyId: 'access-key',
 	awsSecretAccessKey: 'secret-key',
 	awsSessionToken: 'session-token',
+	useSshTunnel: false,
+	sshHost: 'bastion.example.com',
+	sshPort: '22',
+	sshUsername: 'nao-ssh',
+	sshPrivateKey: '-----BEGIN OPENSSH PRIVATE KEY-----',
+	sshPrivateKeyPassphrase: 'ssh-key-passphrase',
+	sshHostKey: 'ssh-ed25519 host-key',
 };
 
 const providerCases: Array<{
@@ -198,6 +205,24 @@ describe('buildWarehouseCredentials', () => {
 	it.each(providerCases)('builds the $provider backend payload', ({ provider, expected }) => {
 		expect(buildWarehouseCredentials(provider, values)).toEqual(expected);
 	});
+
+	it.each(['mssql', 'mysql', 'postgres', 'redshift'] as const)(
+		'adds SSH tunnel credentials to %s only when enabled',
+		(provider) => {
+			const credentials = buildWarehouseCredentials(provider, { ...values, useSshTunnel: true });
+
+			expect(credentials).toMatchObject({
+				sshTunnel: {
+					sshHost: 'bastion.example.com',
+					sshPort: 22,
+					sshUsername: 'nao-ssh',
+					sshPrivateKey: '-----BEGIN OPENSSH PRIVATE KEY-----',
+					sshPrivateKeyPassphrase: 'ssh-key-passphrase',
+					sshHostKey: 'ssh-ed25519 host-key',
+				},
+			});
+		},
+	);
 
 	it('omits empty optional Athena values over the wire', () => {
 		const credentials = buildWarehouseCredentials('athena', getWarehouseCredentialsDefaults('athena'));

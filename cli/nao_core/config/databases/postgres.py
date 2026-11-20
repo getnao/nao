@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
+from .ssh_tunnel import SSHTunnelConfig, connect_through_ssh_tunnel
 
 
 class PostgresDatabaseContext(DatabaseContext):
@@ -73,6 +74,7 @@ class PostgresConfig(DatabaseConfig):
     user: str = Field(description="Username")
     password: str = Field(description="Password")
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
+    ssh_tunnel: SSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
     @classmethod
     def promptConfig(cls) -> "PostgresConfig":
@@ -106,19 +108,26 @@ class PostgresConfig(DatabaseConfig):
         require_database_backend("postgres")
         import ibis
 
-        kwargs: dict = {
-            "host": self.host,
-            "port": self.port,
-            "database": self.database,
-            "user": self.user,
-            "password": self.password,
-        }
+        def connect_to_postgres(host: str, port: int) -> BaseBackend:
+            kwargs: dict = {
+                "host": host,
+                "port": port,
+                "database": self.database,
+                "user": self.user,
+                "password": self.password,
+            }
 
-        if self.schema_name:
-            kwargs["schema"] = self.schema_name
+            if self.schema_name:
+                kwargs["schema"] = self.schema_name
 
-        return ibis.postgres.connect(
-            **kwargs,
+            return ibis.postgres.connect(**kwargs)
+
+        return connect_through_ssh_tunnel(
+            self.ssh_tunnel,
+            self.host,
+            self.port,
+            connect_to_postgres,
+            "postgres",
         )
 
     def get_database_name(self) -> str:

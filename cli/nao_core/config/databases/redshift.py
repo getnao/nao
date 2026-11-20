@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import questionary
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
 from nao_core.config.exceptions import InitError
 from nao_core.ui import ask_confirm, ask_select, ask_text
@@ -16,6 +15,7 @@ if TYPE_CHECKING:
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
+from .ssh_tunnel import SSHTunnelConfig, connect_through_ssh_tunnel
 
 
 class RedshiftAuthMode(str, Enum):
@@ -289,16 +289,6 @@ def _get_redshift_sortkey_columns(conn: BaseBackend, schema: str, table: str) ->
     return [row[0] for row in result]
 
 
-class RedshiftSSHTunnelConfig(BaseModel):
-    """SSH tunnel configuration for Redshift connection."""
-
-    ssh_host: str = Field(description="SSH host")
-    ssh_port: int = Field(default=22, description="SSH port")
-    ssh_username: str = Field(description="SSH username")
-    ssh_private_key_path: str = Field(description="Path to SSH private key file")
-    ssh_private_key_passphrase: str | None = Field(default=None, description="SSH private key passphrase (optional)")
-
-
 class RedshiftConfig(DatabaseConfig):
     """Amazon Redshift-specific configuration."""
 
@@ -325,7 +315,7 @@ class RedshiftConfig(DatabaseConfig):
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
     sslmode: str = Field(default="require", description="SSL mode for the connection")
-    ssh_tunnel: RedshiftSSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
+    ssh_tunnel: SSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
     cluster_id: str | None = Field(
         default=None,
@@ -434,13 +424,18 @@ class RedshiftConfig(DatabaseConfig):
             ssh_username = ask_text("SSH username:", required_field=True)
             ssh_private_key_path = ask_text("Path to SSH private key:", required_field=True)
             ssh_private_key_passphrase = ask_text("SSH private key passphrase (optional):", password=True)
+            ssh_host_key = ask_text(
+                "SSH bastion host key (one OpenSSH known_hosts line):",
+                required_field=True,
+            )
 
-            ssh_tunnel = RedshiftSSHTunnelConfig(
+            ssh_tunnel = SSHTunnelConfig(
                 ssh_host=ssh_host or "",
                 ssh_port=int(ssh_port_str),
                 ssh_username=ssh_username or "",
                 ssh_private_key_path=ssh_private_key_path or "",
                 ssh_private_key_passphrase=ssh_private_key_passphrase or None,
+                ssh_host_key=ssh_host_key or "",
             )
 
         return RedshiftConfig(
@@ -487,44 +482,29 @@ class RedshiftConfig(DatabaseConfig):
         require_database_backend("postgres", extra="redshift", database_type="redshift")
         import ibis
 
-        connect_host = self.host
-        connect_port = self.port
+        def connect_to_redshift(host: str, port: int) -> BaseBackend:
+            kwargs: dict = {
+                "host": host,
+                "port": port,
+                "database": self.database,
+                "user": db_user,
+                "password": db_password,
+                "client_encoding": "utf8",
+                "sslmode": self.sslmode,
+            }
 
-        if self.ssh_tunnel:
-            from nao_core.deps import require_dependency
+            if self.schema_name:
+                kwargs["schema"] = self.schema_name
 
-            require_dependency("sshtunnel", "redshift", "for SSH tunnel connections")
-            from sshtunnel import SSHTunnelForwarder
+            return _RedshiftBackend(ibis.postgres.connect(**kwargs))  # type: ignore[return-value]
 
-            ssh_pkey_path = Path(self.ssh_tunnel.ssh_private_key_path).expanduser()
-
-            tunnel = SSHTunnelForwarder(
-                (self.ssh_tunnel.ssh_host, self.ssh_tunnel.ssh_port),
-                ssh_username=self.ssh_tunnel.ssh_username,
-                ssh_pkey=str(ssh_pkey_path),
-                ssh_private_key_password=self.ssh_tunnel.ssh_private_key_passphrase,
-                remote_bind_address=(self.host, self.port),
-                local_bind_address=("127.0.0.1", 0),
-            )
-            tunnel.start()
-
-            connect_host = "127.0.0.1"
-            connect_port = tunnel.local_bind_port
-
-        kwargs: dict = {
-            "host": connect_host,
-            "port": connect_port,
-            "database": self.database,
-            "user": db_user,
-            "password": db_password,
-            "client_encoding": "utf8",
-            "sslmode": self.sslmode,
-        }
-
-        if self.schema_name:
-            kwargs["schema"] = self.schema_name
-
-        return _RedshiftBackend(ibis.postgres.connect(**kwargs))  # type: ignore[return-value]
+        return connect_through_ssh_tunnel(
+            self.ssh_tunnel,
+            self.host,
+            self.port,
+            connect_to_redshift,
+            "redshift",
+        )
 
     def _get_iam_credentials(self) -> tuple[str, str]:
         from nao_core.deps import require_dependency

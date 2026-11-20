@@ -10,6 +10,7 @@ from nao_core.config.databases import parse_database_config
 from nao_core.config.databases.fabric import FabricConfig
 from nao_core.config.databases.mssql import MssqlAuthMode, MssqlConfig
 from nao_core.config.databases.row_security_guard import enforce_row_security
+from nao_core.config.databases.ssh_tunnel import SSHTunnelConfig
 
 AZURE_HOST = "myserver.database.windows.net"
 
@@ -78,6 +79,37 @@ def test_token_based_entra_id_modes_need_no_credentials(auth_mode: str):
 
     assert config.user is None
     assert config.client_id is None
+
+
+@pytest.mark.parametrize(
+    ("auth_mode", "credentials"),
+    [
+        (
+            MssqlAuthMode.AZURE_SERVICE_PRINCIPAL,
+            {"client_id": "my-client-id", "client_secret": "my-secret"},
+        ),
+        (MssqlAuthMode.AZURE_CLI, {}),
+        (MssqlAuthMode.AZURE_INTERACTIVE, {}),
+    ],
+)
+def test_entra_id_rejects_ssh_tunnel(auth_mode: MssqlAuthMode, credentials: dict[str, str]):
+    ssh_tunnel = SSHTunnelConfig(
+        ssh_host="bastion.example.com",
+        ssh_username="nao",
+        ssh_private_key_path="/keys/id_ed25519",
+    )
+
+    with pytest.raises(ValidationError, match="SSH tunnels are only supported with SQL password authentication"):
+        MssqlConfig.model_validate(
+            {
+                "name": "azure-sql",
+                "host": AZURE_HOST,
+                "database": "sales",
+                "auth_mode": auth_mode,
+                "ssh_tunnel": ssh_tunnel,
+                **credentials,
+            }
+        )
 
 
 def test_entra_id_modes_default_to_microsoft_odbc_driver(monkeypatch: pytest.MonkeyPatch):
@@ -173,6 +205,40 @@ def test_sql_password_connect_uses_ibis_mssql_backend(monkeypatch: pytest.Monkey
     assert config.connect() == "connection"
     assert calls == [
         {"host": "localhost", "port": 1433, "database": "db", "user": "sa", "password": "secret", "driver": "FreeTDS"}
+    ]
+
+
+def test_sql_password_connect_uses_tunnel_host_and_port(monkeypatch: pytest.MonkeyPatch):
+    calls: list[dict] = []
+    fake_ibis = SimpleNamespace(mssql=SimpleNamespace(connect=lambda **kwargs: calls.append(kwargs) or "connection"))
+    ssh_tunnel = SSHTunnelConfig(
+        ssh_host="bastion.example.com",
+        ssh_username="nao",
+        ssh_private_key_path="/keys/id_ed25519",
+    )
+    config = MssqlConfig(
+        name="onprem",
+        host="mssql.internal",
+        database="db",
+        user="sa",
+        password="secret",
+        driver="FreeTDS",
+        ssh_tunnel=ssh_tunnel,
+    )
+
+    def connect_through_tunnel(tunnel_config, remote_host, remote_port, connect, dependency_extra):
+        assert tunnel_config is ssh_tunnel
+        assert (remote_host, remote_port) == ("mssql.internal", 1433)
+        assert dependency_extra == "mssql"
+        return connect("127.0.0.1", 43127)
+
+    monkeypatch.setattr("nao_core.deps.require_database_backend", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mssql_module, "connect_through_ssh_tunnel", connect_through_tunnel)
+    monkeypatch.setitem(sys.modules, "ibis", fake_ibis)
+
+    assert config.connect() == "connection"
+    assert calls == [
+        {"host": "127.0.0.1", "port": 43127, "database": "db", "user": "sa", "password": "secret", "driver": "FreeTDS"}
     ]
 
 

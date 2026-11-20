@@ -4,6 +4,15 @@ import re
 from nao_core.config.databases import parse_database_config
 from pydantic import ValidationError
 
+ALLOWED_SSH_TUNNEL_FIELDS = {
+    "ssh_host",
+    "ssh_port",
+    "ssh_username",
+    "ssh_private_key",
+    "ssh_private_key_passphrase",
+    "ssh_host_key",
+}
+
 ALLOWED_FIELDS = {
     "athena": {
         "region_name",
@@ -49,9 +58,26 @@ ALLOWED_FIELDS = {
         "password",
         "schema_name",
         "driver",
+        "ssh_tunnel",
     },
-    "mysql": {"host", "port", "user", "database", "password", "schema_name"},
-    "postgres": {"host", "port", "user", "database", "password", "schema_name"},
+    "mysql": {
+        "host",
+        "port",
+        "user",
+        "database",
+        "password",
+        "schema_name",
+        "ssh_tunnel",
+    },
+    "postgres": {
+        "host",
+        "port",
+        "user",
+        "database",
+        "password",
+        "schema_name",
+        "ssh_tunnel",
+    },
     "redshift": {
         "host",
         "port",
@@ -61,6 +87,7 @@ ALLOWED_FIELDS = {
         "schema_name",
         "auth_mode",
         "sslmode",
+        "ssh_tunnel",
     },
     "snowflake": {
         "database",
@@ -156,6 +183,38 @@ def sanitize_warehouse_credentials(
         {"type": "extra_forbidden", "loc": (field,), "input": None}
         for field in sorted(credentials.keys() - ALLOWED_FIELDS[provider])
     ]
+
+    ssh_tunnel = credentials.get("ssh_tunnel")
+    if (
+        provider in ("redshift", "postgres", "mysql", "mssql")
+        and ssh_tunnel is not None
+    ):
+        if not isinstance(ssh_tunnel, dict):
+            issues.append(
+                {
+                    "type": "dict_type",
+                    "loc": ("ssh_tunnel",),
+                    "input": None,
+                }
+            )
+        else:
+            issues += [
+                {
+                    "type": "extra_forbidden",
+                    "loc": ("ssh_tunnel", field),
+                    "input": None,
+                }
+                for field in sorted(ssh_tunnel.keys() - ALLOWED_SSH_TUNNEL_FIELDS)
+            ]
+            if not ssh_tunnel.get("ssh_host_key"):
+                issues.append(
+                    {
+                        "type": "missing",
+                        "loc": ("ssh_tunnel", "ssh_host_key"),
+                        "input": None,
+                    }
+                )
+
     issues += [
         {"type": "missing", "loc": (field,), "input": None}
         for field in REQUIRED_SECRET_FIELDS.get(provider, ())
