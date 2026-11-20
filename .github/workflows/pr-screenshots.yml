@@ -51,19 +51,23 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
+                  ref: ${{ github.event.pull_request.head.sha }}
                   fetch-depth: 0
                   persist-credentials: false
 
+            # Compares the PR head with the commit it branched from, so changes that landed on the base
+            # branch since then never show up as part of this PR.
             - name: Prepare the sources and the diff
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   mkdir -p "$APP_DIR" "$BASE_DIR" "$WORK_DIR" "$SHOTS_DIR" "$OUT_DIR" "$RUNNER_TEMP/bin"
+                  FORK_POINT=$(git merge-base "origin/$BASE_REF" HEAD)
                   git archive HEAD | tar -x -C "$APP_DIR"
-                  git archive "$BASE_SHA" | tar -x -C "$BASE_DIR"
-                  git diff "$BASE_SHA...HEAD" -- apps/ > "$WORK_DIR/pr.diff"
+                  git archive "$FORK_POINT" | tar -x -C "$BASE_DIR"
+                  git diff "$FORK_POINT" HEAD -- apps/ > "$WORK_DIR/pr.diff"
 
-            # nao-app runs the PR (after screenshots), nao-base runs the base branch (before screenshots).
+            # nao-app runs the PR head (after screenshots), nao-base runs its fork point (before screenshots).
             - name: Start the apps in isolated containers
               run: |
                   NODE_VERSION=$(tr -d 'v \n' < .nvmrc)
@@ -245,33 +249,43 @@ jobs:
                       }
 
                       const commitSha = await commitScreenshots(shots.flatMap(toCommittedFiles));
-                      const imageUrl = (side, file) => `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${folder}/${side}/${file}`;
+                      const imageBaseUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${folder}`;
                       await upsertComment(
-                          `${marker}\n## 📸 UI Screenshots\n\nCaptured by Claude from the frontend diff at \`${sha}\`.\n\n${renderScreenshots(shots, imageUrl)}`,
+                          `${marker}\n## 📸 UI Screenshots\n\nCaptured by Claude from the frontend diff at \`${sha}\`.\n\n${renderScreenshots(shots, imageBaseUrl)}`,
                       );
 
-                      /** Keeps the manifest order: before/after pairs get a table each, consecutive screens without a before go two per row. */
-                      function renderScreenshots(shots, imageUrl) {
-                          const image = (side, { file, caption }) => `![${caption}](${imageUrl(side, file)})`;
-                          const blocks = [];
-                          let pendingSingles = [];
-                          const flushSingles = () => {
-                              for (let index = 0; index < pendingSingles.length; index += 2) {
-                                  const row = pendingSingles.slice(index, index + 2);
-                                  blocks.push(renderTable(row.map((shot) => shot.caption), row.map((shot) => image('after', shot))));
-                              }
-                              pendingSingles = [];
-                          };
+                      function renderScreenshots(shots, baseUrl) {
+                          return groupScreenshots(shots)
+                              .map((group) => (Array.isArray(group) ? renderRow(group, baseUrl) : renderComparison(group, baseUrl)))
+                              .join('\n\n');
+                      }
+
+                      /** Keeps the manifest order: a before/after pair stands alone, consecutive screens without a before go two per row. */
+                      function groupScreenshots(shots) {
+                          const groups = [];
                           for (const shot of shots) {
-                              if (!shot.before) {
-                                  pendingSingles.push(shot);
-                                  continue;
+                              const previous = groups.at(-1);
+                              if (!shot.before && Array.isArray(previous) && previous.length < 2) {
+                                  previous.push(shot);
+                              } else {
+                                  groups.push(shot.before ? shot : [shot]);
                               }
-                              flushSingles();
-                              blocks.push(`#### ${shot.caption}\n\n${renderTable(['Before', 'After'], [image('before', shot), image('after', shot)])}`);
                           }
-                          flushSingles();
-                          return blocks.join('\n\n');
+                          return groups;
+                      }
+
+                      function renderComparison(shot, baseUrl) {
+                          const cells = [renderImage(baseUrl, 'before', shot), renderImage(baseUrl, 'after', shot)];
+                          return `#### ${shot.caption}\n\n${renderTable(['Before', 'After'], cells)}`;
+                      }
+
+                      function renderRow(row, baseUrl) {
+                          const captions = row.map((shot) => shot.caption);
+                          return renderTable(captions, row.map((shot) => renderImage(baseUrl, 'after', shot)));
+                      }
+
+                      function renderImage(baseUrl, side, { file, caption }) {
+                          return `![${caption}](${baseUrl}/${side}/${file})`;
                       }
 
                       function renderTable(headers, cells) {
