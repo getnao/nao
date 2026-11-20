@@ -178,12 +178,12 @@ async function deliverToRecipients(
 	}
 
 	const unrestrictedUserIds = context.recipientUserIds.filter((userId) => !restrictedUserIds.includes(userId));
-	const outcomes = [
-		await attemptDelivery(context, unrestrictedUserIds, skipDeliveries, async () => ({ queryData })),
-	];
+	const outcomes = [await attemptDelivery(context, unrestrictedUserIds, skipDeliveries, async () => ({ queryData }))];
 	for (const userId of restrictedUserIds) {
 		outcomes.push(
-			await attemptDelivery(context, [userId], skipDeliveries, () => buildRestrictedRecipientContent(context, userId)),
+			await attemptDelivery(context, [userId], skipDeliveries, () =>
+				buildRestrictedRecipientContent(context, userId),
+			),
 		);
 	}
 
@@ -200,7 +200,8 @@ async function listRestrictedRecipientIds(context: DeliveryContext): Promise<str
 	const ownerId = context.story.userId ?? (await storyQueries.getStoryOwnerId(context.story.id));
 	const isRestricted = await Promise.all(
 		context.recipientUserIds.map(
-			async (userId) => userId !== ownerId && (await hasEffectiveWarehouseRestrictions(context.projectId, userId)),
+			async (userId) =>
+				userId !== ownerId && (await hasEffectiveWarehouseRestrictions(context.projectId, userId)),
 		),
 	);
 	return context.recipientUserIds.filter((_userId, index) => isRestricted[index]);

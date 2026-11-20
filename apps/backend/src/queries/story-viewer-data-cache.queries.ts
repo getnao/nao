@@ -51,10 +51,7 @@ export async function invalidateProjectViewerCaches(projectId: string): Promise<
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.where(or(eq(s.story.projectId, projectId), eq(s.chat.projectId, projectId)));
-	await db
-		.delete(s.storyViewerDataCache)
-		.where(inArray(s.storyViewerDataCache.storyId, projectStoryIds))
-		.execute();
+	await db.delete(s.storyViewerDataCache).where(inArray(s.storyViewerDataCache.storyId, projectStoryIds)).execute();
 }
 
 export async function getProjectViewerCacheRevision(projectId: string): Promise<number> {

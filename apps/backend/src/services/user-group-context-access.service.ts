@@ -146,7 +146,11 @@ async function resolveMemberWarehouseAccess(projectId: string, userId: string) {
 	]);
 	return {
 		effectiveAccess,
-		warehouseColumnSecurity: resolveColumnSecurityAccess(columnSecurity, effectiveAccess.columnPolicies, isLicensed),
+		warehouseColumnSecurity: resolveColumnSecurityAccess(
+			columnSecurity,
+			effectiveAccess.columnPolicies,
+			isLicensed,
+		),
 		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, isLicensed),
 	};
 }

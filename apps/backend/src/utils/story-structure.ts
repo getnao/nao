@@ -34,7 +34,9 @@ export function buildViewerSafeStorySource(code: string): string {
 
 /** A rewrite may drop the marker; without it the page would show leftover placeholders and no access notice. */
 export function markViewerRestricted(code: string): string {
-	return code.includes(STORY_VIEWER_RESTRICTED_CODE_MARKER) ? code : `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${code}`;
+	return code.includes(STORY_VIEWER_RESTRICTED_CODE_MARKER)
+		? code
+		: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${code}`;
 }
 
 export function stripHardcodedFilterOptions(code: string): string {

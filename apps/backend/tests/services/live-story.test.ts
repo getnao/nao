@@ -959,7 +959,8 @@ describe('live story SQL execution', () => {
 
 	it('serves a cached viewer snapshot without the queries the viewer cannot read', async () => {
 		const ownerCode = 'Owner narrative\n<table query_id="query_warehouse" />\n<table query_id="query_customers" />';
-		const viewerCode = 'Viewer narrative\n<table query_id="query_warehouse" />\n<table query_id="query_customers" />';
+		const viewerCode =
+			'Viewer narrative\n<table query_id="query_warehouse" />\n<table query_id="query_customers" />';
 		const cachedAt = new Date(0);
 		const queryData = {
 			query_warehouse: {
@@ -1035,7 +1036,12 @@ describe('live story SQL execution', () => {
 			version: 1,
 			tables: [{ table: 'orders' }],
 		});
-		mocks.getStoryViewerDataCache.mockResolvedValue({ queryData, cachedAt, code: viewerCode, analysisResults: null });
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData,
+			cachedAt,
+			code: viewerCode,
+			analysisResults: null,
+		});
 		mocks.getVersionById.mockResolvedValue({
 			id: 'version-1',
 			storyId: 'story-1',
@@ -1096,7 +1102,8 @@ describe('live story SQL execution', () => {
 			query_admin: { sqlQuery: 'SELECT id FROM orders', adminMode: true },
 		});
 		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['id'], rows: [{ id: 1 }], rowCount: 1 });
-		const readSnapshot = () => getStoryQueryData('chat-1', 'orders', code, false, null, { viewerUserId: 'viewer-1' });
+		const readSnapshot = () =>
+			getStoryQueryData('chat-1', 'orders', code, false, null, { viewerUserId: 'viewer-1' });
 
 		const snapshots = await Promise.all([readSnapshot(), readSnapshot()]);
 
@@ -1941,9 +1948,7 @@ describe('live story SQL execution', () => {
 		const savedRows = { columns: ['order_id'], data: [{ order_id: 7 }] };
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_frozen: savedRows } });
 
-		await expect(executeStoryLiveQuery(STANDALONE_STORY, 'query_frozen')).resolves.toEqual(
-			savedRows,
-		);
+		await expect(executeStoryLiveQuery(STANDALONE_STORY, 'query_frozen')).resolves.toEqual(savedRows);
 	});
 });
 

@@ -16,11 +16,7 @@ import {
 	sql,
 } from 'drizzle-orm';
 
-import s, {
-	type DBStory,
-	type DBStoryDataCache,
-	type DBStoryVersion,
-} from '../db/abstractSchema';
+import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';

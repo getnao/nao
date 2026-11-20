@@ -29,7 +29,9 @@ const CHAT_ID = 'viewer-cache-chat';
 
 describe('story viewer data cache', () => {
 	beforeAll(async () => {
-		await db.insert(s.user).values([OWNER_ID, VIEWER_ID].map((id) => ({ id, name: id, email: `${id}@example.com` })));
+		await db
+			.insert(s.user)
+			.values([OWNER_ID, VIEWER_ID].map((id) => ({ id, name: id, email: `${id}@example.com` })));
 		await db.insert(s.project).values([
 			{ id: PROJECT_ID, name: 'Viewer cache', type: 'local', path: '/tmp/viewer-cache' },
 			{ id: OTHER_PROJECT_ID, name: 'Other', type: 'local', path: '/tmp/viewer-cache-other' },

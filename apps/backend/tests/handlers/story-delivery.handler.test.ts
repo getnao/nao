@@ -1,4 +1,7 @@
-import { STORY_VIEWER_RESTRICTED_CODE_MARKER, VIEWER_NARRATIVE_PLACEHOLDER } from '@nao/shared/story-viewer-restrictions';
+import {
+	STORY_VIEWER_RESTRICTED_CODE_MARKER,
+	VIEWER_NARRATIVE_PLACEHOLDER,
+} from '@nao/shared/story-viewer-restrictions';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import type { DBStory } from '../../src/db/abstractSchema';
@@ -167,9 +170,11 @@ it('sends the owner their own copy, even when their warehouse access is restrict
 it('removes the restricted marker and the queries a restricted recipient cannot read', async () => {
 	mockRestrictedRecipients(['recipient-user-id']);
 	mocks.refreshStoryForViewer.mockResolvedValue({
-		code: [STORY_VIEWER_RESTRICTED_CODE_MARKER, VIEWER_NARRATIVE_PLACEHOLDER, '<table query_id="query_users" />'].join(
-			'\n',
-		),
+		code: [
+			STORY_VIEWER_RESTRICTED_CODE_MARKER,
+			VIEWER_NARRATIVE_PLACEHOLDER,
+			'<table query_id="query_users" />',
+		].join('\n'),
 		queryData: {
 			query_users: rows('recipient-user-id'),
 			query_salaries: { columns: [], data: [], accessDenied: true },
