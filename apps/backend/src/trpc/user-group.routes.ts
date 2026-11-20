@@ -50,6 +50,7 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import * as impersonationQueries from '../queries/user-group-impersonation.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
@@ -64,8 +65,10 @@ import {
 } from '../services/sso-user-group-mapping.service';
 import {
 	assertUserGroupManageable,
+	getActiveGroupImpersonation,
 	getAvailableUserGroupOverview,
 	listActiveUserGroups,
+	validateAssignableUserGroupIds,
 } from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,
@@ -306,6 +309,32 @@ export const userGroupRoutes = {
 			}
 			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId, role);
 		}),
+
+	impersonation: projectProtectedProcedure.query(async ({ ctx }) => {
+		const groupIds = await getActiveGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (!groupIds) {
+			return null;
+		}
+		const groups = await listActiveUserGroups(ctx.project.id);
+		return { groupNames: groups.filter((group) => groupIds.includes(group.id)).map((group) => group.name) };
+	}),
+
+	startImpersonation: projectProtectedProcedure
+		.input(z.object({ groupIds: z.array(z.string().min(1)).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			if ((await projectQueries.getActualUserRoleInProject(ctx.project.id, ctx.user.id)) !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can impersonate user groups.' });
+			}
+			const groupIds = await handleQuery(() => validateAssignableUserGroupIds(ctx.project.id, input.groupIds));
+			await impersonationQueries.startGroupImpersonation(ctx.project.id, ctx.user.id, groupIds);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		}),
+
+	stopImpersonation: projectProtectedProcedure.mutation(async ({ ctx }) => {
+		if (await impersonationQueries.stopGroupImpersonation(ctx.project.id, ctx.user.id)) {
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		}
+	}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));

@@ -47,6 +47,7 @@ import { isOpenProject } from '../utils/open-projects';
 import { getDefaultProjectPath } from '../utils/project-paths';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userHasPassword, userMemberStatus } from './user.queries';
+import { getImpersonatedGroupIds } from './user-group-impersonation.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -224,7 +225,16 @@ export const listUserProjects = async (userId: string, options?: ListUserProject
 	return results.map((r) => r.project);
 };
 
+/** An admin impersonating user groups acts as a regular member until they stop. */
 export const getUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
+	const role = await getActualUserRoleInProject(projectId, userId);
+	if (role === 'admin' && (await getImpersonatedGroupIds(projectId, userId))) {
+		return 'user';
+	}
+	return role;
+};
+
+export const getActualUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;

@@ -717,6 +717,22 @@ export const userGroupMember = pgTable(
 	],
 );
 
+/** An admin previewing the project as a member of these groups; only honoured while the user stays admin. */
+export const userGroupImpersonation = pgTable(
+	'user_group_impersonation',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		groupIds: jsonb('group_ids').$type<string[]>().notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.projectId] })],
+);
+
 export const projectLlmConfig = pgTable(
 	'project_llm_config',
 	{

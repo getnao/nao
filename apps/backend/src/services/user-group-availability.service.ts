@@ -1,6 +1,8 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 
+import { getActualUserRoleInProject } from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import { getImpersonatedGroupIds } from '../queries/user-group-impersonation.queries';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 export const LOCKED_USER_GROUP_MESSAGE =
@@ -62,8 +64,25 @@ export async function resolveAvailableUserGroupAccess(
 	projectId: string,
 	userId: string,
 ): Promise<userGroupQueries.EffectiveUserGroupAccess> {
-	const activeGroupIds = getActiveUserGroupIds(await listUserGroupsWithAvailability(projectId));
-	return userGroupQueries.resolveUserGroupAccess(projectId, userId, activeGroupIds);
+	const [groups, impersonatedGroupIds] = await Promise.all([
+		listUserGroupsWithAvailability(projectId),
+		getActiveGroupImpersonation(projectId, userId),
+	]);
+	return userGroupQueries.resolveUserGroupAccess(
+		projectId,
+		userId,
+		getActiveUserGroupIds(groups),
+		impersonatedGroupIds,
+	);
+}
+
+/** A stored impersonation only counts while its owner is still an admin, so a demoted admin keeps no borrowed access. */
+export async function getActiveGroupImpersonation(projectId: string, userId: string): Promise<string[] | null> {
+	const groupIds = await getImpersonatedGroupIds(projectId, userId);
+	if (!groupIds) {
+		return null;
+	}
+	return (await getActualUserRoleInProject(projectId, userId)) === 'admin' ? groupIds : null;
 }
 
 export async function assertUserGroupManageable(projectId: string, groupId: string): Promise<void> {

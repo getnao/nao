@@ -12,7 +12,7 @@ import * as userGroupQueries from '../queries/user-group.queries';
 import type { UserWithRole } from '../types/project';
 import type { ShareableUserGroup } from './shareable-user-groups.service';
 import { unshareProjectWideStory } from './shared-story.service';
-import { listActiveUserGroups } from './user-group-availability.service';
+import { getActiveGroupImpersonation, listActiveUserGroups } from './user-group-availability.service';
 
 /** Project members and custom user groups a user may share with. */
 export interface ShareAudience {
@@ -39,17 +39,17 @@ interface ProjectSharingState {
 
 /** Everyone in the project, or only the share targets of the user's custom user groups and those groups' members. */
 export async function getShareAudience(projectId: string, userId: string): Promise<ShareAudience> {
-	return resolveShareAudience(await loadProjectSharingState(projectId), userId);
+	return resolveShareAudience(await loadViewerSharingState(projectId, userId), userId);
 }
 
 export async function listShareableMembers(projectId: string, userId: string): Promise<UserWithRole[]> {
-	const state = await loadProjectSharingState(projectId);
+	const state = await loadViewerSharingState(projectId, userId);
 	const audience = resolveShareAudience(state, userId);
 	return state.users.filter((user) => audience.memberIds.has(user.id));
 }
 
 export async function listShareableGroups(projectId: string, userId: string): Promise<ShareableUserGroup[]> {
-	const state = await loadProjectSharingState(projectId);
+	const state = await loadViewerSharingState(projectId, userId);
 	const audience = resolveShareAudience(state, userId);
 	return state.groups
 		.filter((group) => audience.groupIds.has(group.id))
@@ -115,6 +115,26 @@ export async function revokeUnauthorizedProjectWideShares(projectId: string): Pr
 	for (const storyShare of storyShares) {
 		await unshareProjectWideStory(storyShare);
 	}
+}
+
+/** An impersonating admin shares like a regular member of the impersonated groups. */
+async function loadViewerSharingState(projectId: string, userId: string): Promise<ProjectSharingState> {
+	const [state, impersonatedGroupIds] = await Promise.all([
+		loadProjectSharingState(projectId),
+		getActiveGroupImpersonation(projectId, userId),
+	]);
+	if (!impersonatedGroupIds) {
+		return state;
+	}
+	const customGroupIds = new Set(state.groups.filter((group) => !group.isDefault).map((group) => group.id));
+	return {
+		groups: state.groups,
+		users: state.users.map((user) => (user.id === userId ? { ...user, role: 'user' } : user)),
+		memberships: [
+			...state.memberships.filter((membership) => membership.userId !== userId),
+			...impersonatedGroupIds.filter((groupId) => customGroupIds.has(groupId)).map((groupId) => ({ groupId, userId })),
+		],
+	};
 }
 
 async function loadProjectSharingState(projectId: string): Promise<ProjectSharingState> {
