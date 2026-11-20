@@ -1,6 +1,7 @@
 import {
 	ALL_FILES_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
+	resolveWarehouseColumnSecurity,
 	resolveWarehouseRowSecurity,
 	type SsoGroupProvider,
 	type UserGroupSsoMappings,
@@ -37,12 +38,14 @@ import {
 	createUserGroup,
 	createUserGroupWithinLimit,
 	deleteUserGroup,
+	getProjectColumnSecurity,
 	getUserGroupOverview,
 	listUserGroupMemberships,
 	listUserGroupSsoMemberships,
 	resolveUserGroupAccess,
 	setUserGroupMembership,
 	setUserGroupMemberships,
+	updateProjectColumnSecurity,
 	updateProjectRowSecurity,
 	updateUserGroup,
 	validateAssignableUserGroupIds,
@@ -633,6 +636,151 @@ describe('user group queries', () => {
 		expect(group?.rowPolicies.policies).toEqual([]);
 	});
 
+	it('persists column restrictions and prunes stale group grants', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const registry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		};
+		await updateProjectColumnSecurity(PROJECT_ID, registry);
+		await expect(getProjectColumnSecurity(PROJECT_ID)).resolves.toEqual(registry);
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			columnPolicies: {
+				version: 1,
+				policies: [{ ...orders, grantedColumns: ['cost', 'margin'] }],
+			},
+		});
+
+		await updateProjectColumnSecurity(PROJECT_ID, {
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		});
+
+		expect(
+			(await getUserGroupOverview(PROJECT_ID)).groups.find(({ id }) => id === analysts.id)?.columnPolicies,
+		).toEqual({
+			version: 1,
+			policies: [{ ...orders, grantedColumns: ['cost'] }],
+		});
+	});
+
+	it('rejects SQLite group saves validated against a stale column registry', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const validatedRegistry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		const stalePolicies = {
+			version: 1 as const,
+			policies: [{ ...orders, grantedColumns: ['cost'] }],
+		};
+		await updateProjectColumnSecurity(PROJECT_ID, validatedRegistry);
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateProjectColumnSecurity(PROJECT_ID, {
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['margin'] }],
+		});
+
+		await expect(
+			updateUserGroup(PROJECT_ID, analysts.id, {
+				featureGrants: [],
+				columnPolicies: stalePolicies,
+				columnPoliciesRegistry: validatedRegistry,
+			}),
+		).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message:
+				'Project column security changed while this user group was being updated. Review the current registry and try again.',
+		});
+		await expect(
+			createUserGroup(
+				PROJECT_ID,
+				'Stale',
+				[],
+				DEFAULT_DENSITY,
+				{ mode: 'all', strict: true },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				'inherit',
+				undefined,
+				false,
+				[],
+				undefined,
+				stalePolicies,
+				undefined,
+				undefined,
+				undefined,
+				validatedRegistry,
+			),
+		).rejects.toMatchObject({ code: 'CONFLICT' });
+	});
+
+	it('unions default, direct, and SSO column grants from active groups', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const registry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'email', 'margin'] }],
+		};
+		await updateProjectColumnSecurity(PROJECT_ID, registry);
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups.find(({ isDefault }) => isDefault)!;
+		const directGroup = await createUserGroup(PROJECT_ID, 'Direct', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		const ssoGroup = await createUserGroup(
+			PROJECT_ID,
+			'SSO',
+			[],
+			DEFAULT_DENSITY,
+			{ mode: 'all', strict: true },
+			undefined,
+			ssoMappings(['finance']),
+		);
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			columnPolicies: { version: 1, policies: [{ ...orders, grantedColumns: ['cost'] }] },
+		});
+		await updateUserGroup(PROJECT_ID, directGroup.id, {
+			featureGrants: [],
+			columnPolicies: { version: 1, policies: [{ ...orders, grantedColumns: ['margin'] }] },
+		});
+		await updateUserGroup(PROJECT_ID, ssoGroup.id, {
+			featureGrants: [],
+			columnPolicies: { version: 1, policies: [{ ...orders, grantedColumns: ['email'] }] },
+		});
+		await setUserGroupMembership(PROJECT_ID, directGroup.id, DIRECT_USER_ID, true);
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance']);
+
+		const access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+		expect(resolveWarehouseColumnSecurity(registry, access.columnPolicies)).toEqual({
+			enforced: true,
+			tables: [{ ...registry.tables[0], access: 'full' }],
+		});
+	});
+
 	it('does not write when reading a project without user groups', async () => {
 		await db.delete(userGroup).where(eq(userGroup.projectId, PROJECT_ID));
 
@@ -732,6 +880,7 @@ describe('user group queries', () => {
 			shareTargets: { includeOwnGroup: true, groupIds: [] },
 			showAllSettings: false,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 		expect(storedUpdated.contextGrants).toEqual({
 			version: 7,
@@ -1039,11 +1188,18 @@ describe('user group queries', () => {
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			showAllSettings: true,
+			advancedContextExplorer: true,
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: { mode: 'restricted', grants: [] },
 			skillsAccess: { mode: 'all' },
+			columnPolicies: [
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+			],
 			rowPolicies: [
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
@@ -1267,28 +1423,34 @@ describe('user group queries', () => {
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual(['automationCreation']);
 	});
 
-	it('shows all settings through All Users until it is turned off', async () => {
-		const overview = await getUserGroupOverview(PROJECT_ID);
-		expect(overview.groups[0].showAllSettings).toBe(true);
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
+		'grants %s through All Users until it is turned off',
+		async (setting) => {
+			const overview = await getUserGroupOverview(PROJECT_ID);
+			expect(overview.groups[0][setting]).toBe(true);
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(true);
 
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
+			await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], [setting]: false });
 
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
-	});
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(false);
+		},
+	);
 
-	it('follows the current group memberships when granting all settings', async () => {
-		const overview = await getUserGroupOverview(PROJECT_ID);
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], showAllSettings: false });
-		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
-		await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: [], showAllSettings: true });
+	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
+		'follows the current group memberships when granting %s',
+		async (setting) => {
+			const overview = await getUserGroupOverview(PROJECT_ID);
+			await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [], [setting]: false });
+			const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+			await updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: [], [setting]: true });
 
-		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(true);
+			await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(true);
 
-		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
-		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
-	});
+			await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
+			expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID))[setting]).toBe(false);
+		},
+	);
 
 	it('adds and removes several users at once while keeping SSO memberships', async () => {
 		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');

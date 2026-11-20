@@ -18,10 +18,14 @@ export interface AgentProfile {
 	/** Recorded on the run's messages and analytics events. */
 	source: MessageSource;
 	tools: AgentToolsResolver;
+	/** Tools that end the turn as soon as they are called, on top of the interactive stop conditions. */
+	turnEndingTools?: string[];
 	/** Restricts the tools of the next step, for steps of the profile's flow that must end with a given tool call. */
 	stepTools?: (steps: StepResult<AgentTools>[]) => AgentStepTools | undefined;
 	/** Replaces the project system prompt (RULES.md, memories, connections) for runs with a dedicated purpose. */
 	systemPrompt?: (context: { timezone?: string; chat: AgentChat }) => string | Promise<string>;
+	/** Replaces the analyst introduction at the top of the project system prompt. */
+	role?: string;
 	/** Appended to the project system prompt. */
 	promptAppendix?: string;
 	/** Chat app the answer is posted to, which adapts the prompt to its formatting. */
@@ -32,6 +36,8 @@ export interface AgentProfile {
 	supportsCustomCharts?: boolean;
 	/** Leaves the user's memories out of the prompt and skips memory extraction, so the outcome does not depend on who runs it. */
 	excludesMemories?: boolean;
+	/** Leaves the published RULES.md out of the prompt, for runs that edit the rules rather than follow them. */
+	excludesUserRules?: boolean;
 	/** Ends non-interactive runs after this many steps instead of when the agent suggests follow-ups. */
 	maxSteps?: number;
 	usageCategory?: ManagedAiUsageCategory;

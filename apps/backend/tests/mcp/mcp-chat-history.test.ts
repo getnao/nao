@@ -1,6 +1,4 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { McpUserRole } from '../../src/types/mcp-endpoint';
@@ -23,14 +21,11 @@ vi.mock('../../src/queries/chat.queries', () => ({
 }));
 vi.mock('../../src/queries/user.queries', () => ({ getUserName: mocks.getUserName }));
 
-import { registerContextAdminTools } from '../../src/mcp/tools/context-admin-tools';
+import { BASELINE_TOOL, listToolNames, useContextAdminMcpClient } from '../helpers/context-admin-mcp-client';
 
-const BASELINE_TOOL = 'baseline';
+const connect = useContextAdminMcpClient();
 
-const connections: Array<{ client: Client; server: McpServer }> = [];
-
-afterEach(async () => {
-	await Promise.all(connections.splice(0).map(({ client, server }) => Promise.all([client.close(), server.close()])));
+afterEach(() => {
 	vi.clearAllMocks();
 });
 
@@ -38,13 +33,13 @@ describe('MCP context admin tools', () => {
 	it.each<McpUserRole>(['admin', 'context_admin'])('exposes the chat history tools to %s', async (role) => {
 		const client = await connect(role);
 
-		expect(await toolNames(client)).toEqual(expect.arrayContaining(['search_chats', 'get_chat']));
+		expect(await listToolNames(client)).toEqual(expect.arrayContaining(['search_chats', 'get_chat']));
 	});
 
 	it('hides the chat history tools from regular users', async () => {
 		const client = await connect('user');
 
-		expect(await toolNames(client)).toEqual([BASELINE_TOOL]);
+		expect(await listToolNames(client)).toEqual([BASELINE_TOOL]);
 	});
 });
 
@@ -124,7 +119,7 @@ describe('MCP search_chats', () => {
 });
 
 describe('MCP get_chat', () => {
-	it('returns the transcript with tool errors and feedback', async () => {
+	it('returns the transcript with thoughts, tool errors and feedback', async () => {
 		mocks.getChatProjectId.mockResolvedValue('project-1');
 		mocks.getChat.mockResolvedValue([uiChat(), 'user-2']);
 		mocks.getUserName.mockResolvedValue('Alice');
@@ -132,16 +127,24 @@ describe('MCP get_chat', () => {
 
 		const result = await client.callTool({ name: 'get_chat', arguments: { chat_id: 'chat-1' } });
 
-		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true });
+		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true, queryResultPreviews: true });
 		expect(result.structuredContent).toMatchObject({
 			id: 'chat-1',
 			author: { id: 'user-2', name: 'Alice' },
 			messages: [
-				{ id: 'message-1', role: 'user', text: 'What is our revenue?', toolCalls: [], feedback: null },
+				{
+					id: 'message-1',
+					role: 'user',
+					text: 'What is our revenue?',
+					thoughts: '',
+					toolCalls: [],
+					feedback: null,
+				},
 				{
 					id: 'message-2',
 					role: 'assistant',
 					text: 'I could not query the table.',
+					thoughts: 'Revenue lives in the orders table.\n\nThe table is missing, I should say so.',
 					toolCalls: [
 						{
 							toolName: 'execute_sql',
@@ -177,6 +180,23 @@ describe('MCP get_chat', () => {
 		expect(lastToolCall(withOutputs)).toEqual({ ...successfulCall, output: '{"row_count":1}' });
 	});
 
+	it('returns long tool inputs in full only when asked', async () => {
+		const longSql = `select ${'amount, '.repeat(400)}id from sales`;
+		mocks.getChatProjectId.mockResolvedValue('project-1');
+		mocks.getChat.mockResolvedValue([uiChat({ withSuccessfulTool: true, sql: longSql }), 'user-2']);
+		mocks.getUserName.mockResolvedValue('Alice');
+		const client = await connect('admin');
+
+		const truncated = await client.callTool({ name: 'get_chat', arguments: { chat_id: 'chat-1' } });
+		const full = await client.callTool({
+			name: 'get_chat',
+			arguments: { chat_id: 'chat-1', full_tool_inputs: true },
+		});
+
+		expect((lastToolCall(truncated) as { input: string }).input).toContain('[truncated]');
+		expect((lastToolCall(full) as { input: string }).input).toBe(JSON.stringify({ sql_query: longSql }));
+	});
+
 	it('refuses chats from another project', async () => {
 		mocks.getChatProjectId.mockResolvedValue('project-2');
 		const client = await connect('admin');
@@ -187,36 +207,6 @@ describe('MCP get_chat', () => {
 		expect(mocks.getChat).not.toHaveBeenCalled();
 	});
 });
-
-async function connect(role: McpUserRole): Promise<Client> {
-	const server = new McpServer({ name: 'test', version: '0.0.0' });
-	server.registerTool(
-		BASELINE_TOOL,
-		{ description: 'Always registered, like the tools of the other modes.' },
-		() => ({
-			content: [],
-		}),
-	);
-	registerContextAdminTools(server, {
-		userId: 'user-1',
-		projectId: 'project-1',
-		role,
-		settings: { enabled: true, subAgentModeEnabled: true, contextLayerModeEnabled: true },
-		chartDataMode: false,
-		storyCreationEnabled: true,
-		customStoryCreationEnabled: false,
-	});
-	const client = new Client({ name: 'test-client', version: '0.0.0' });
-	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-	connections.push({ client, server });
-	return client;
-}
-
-async function toolNames(client: Client): Promise<string[]> {
-	const { tools } = await client.listTools();
-	return tools.map((tool) => tool.name);
-}
 
 function lastToolCall(result: Awaited<ReturnType<Client['callTool']>>): unknown {
 	const messages = (result.structuredContent as { messages: Array<{ toolCalls: unknown[] }> }).messages;
@@ -245,12 +235,12 @@ function projectChatListItem(overrides: Record<string, unknown>) {
 	};
 }
 
-function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
+function uiChat(options: { withSuccessfulTool?: boolean; sql?: string } = {}) {
 	const successfulTool = {
 		type: 'tool-execute_sql',
 		toolCallId: 'call-2',
 		state: 'output-available',
-		input: { sql_query: 'select * from sales' },
+		input: { sql_query: options.sql ?? 'select * from sales' },
 		output: { row_count: 1 },
 	};
 	return {
@@ -267,6 +257,7 @@ function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
 				role: 'assistant',
 				feedback: { messageId: 'message-2', vote: 'down', explanation: 'Wrong table' },
 				parts: [
+					{ type: 'reasoning', text: 'Revenue lives in the orders table.' },
 					{
 						type: 'tool-execute_sql',
 						toolCallId: 'call-1',
@@ -275,6 +266,8 @@ function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
 						errorText: 'Table orders does not exist',
 					},
 					...(options.withSuccessfulTool ? [successfulTool] : []),
+					{ type: 'reasoning', text: '' },
+					{ type: 'reasoning', text: 'The table is missing, I should say so.' },
 					{ type: 'text', text: 'I could not query the table.' },
 				],
 			},

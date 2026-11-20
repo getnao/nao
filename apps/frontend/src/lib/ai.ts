@@ -20,6 +20,7 @@ import type {
 	MessageGroup,
 } from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
+import { ONBOARDING_CARD_TOOLS } from '@/components/tool-calls/onboarding/card-tools';
 import { getStoryToolPartSlug } from '@/lib/story.utils';
 
 /** The ID used for new chats not yet persisted to the db. */
@@ -53,59 +54,13 @@ export const isToolInputStreaming = (part: ToolUIPart) => {
  * Check if the agent is actively generating content (streaming text or executing tools).
  * Returns true if any part is streaming or any tool is not yet settled.
  */
-export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return isMessageStreaming(lastMessage) || isSummarizing(lastMessage);
-};
-
-const isSummarizing = ({ parts }: UIMessage) => {
-	return parts.at(-1)?.type === 'data-compactionSummaryStarted';
-};
-
-export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return lastMessage.parts.some((part) => isToolUIPart(part) && isToolExecuting(part));
-};
-
-const isToolExecuting = (part: UIToolPart) => {
-	return part.state === 'input-available' || (part.state === 'output-available' && part.preliminary === true);
-};
-
-export const isMessageStreaming = (message: UIMessage) => {
-	return message.parts.some((part) => {
-		if ('state' in part && (part.state === 'streaming' || part.state === 'input-streaming')) {
-			return true;
-		}
-	});
-};
-
 export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'status'>) => {
 	return agent.status === 'streaming' || agent.status === 'submitted';
 };
 
 /** Tools that should NOT be collapsed (important UI elements), per density setting. */
 const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName | DynamicToolName)[]> = {
-	compact: [
-		'story',
-		'display_chart',
-		'display_map',
-		'suggest_follow_ups',
-		'clarification',
-		'onboarding_agent_prompt',
-		'onboarding_command',
-		'request_warehouse_credentials',
-		'request_warehouse_selection',
-		'wait_for_warehouse_setup',
-		'retry_warehouse_setup',
-		'generate_onboarding_rules',
-		'restart_onboarding',
-	],
+	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification', ...ONBOARDING_CARD_TOOLS],
 	detailed: [
 		'story',
 		'task',
@@ -117,16 +72,9 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'display_map',
 		'suggest_follow_ups',
 		'clarification',
-		'onboarding_agent_prompt',
-		'onboarding_command',
 		'codemode',
 		'execute_sandboxed_code',
-		'request_warehouse_credentials',
-		'request_warehouse_selection',
-		'wait_for_warehouse_setup',
-		'retry_warehouse_setup',
-		'generate_onboarding_rules',
-		'restart_onboarding',
+		...ONBOARDING_CARD_TOOLS,
 	],
 };
 

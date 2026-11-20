@@ -6,6 +6,14 @@ const mocks = vi.hoisted(() => ({
 	getProjectByUserId: vi.fn(),
 	getUser: vi.fn(),
 	validateApiKey: vi.fn(),
+	isSelfHostedMultiProjectEnabled: vi.fn(),
+	isCloud: false,
+}));
+
+vi.mock('../../src/env', () => ({
+	get isCloud() {
+		return mocks.isCloud;
+	},
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -22,6 +30,9 @@ vi.mock('../../src/services/api-key.service', () => ({
 	isApiKey: (token: string) => token.startsWith('nao_'),
 	validateApiKey: mocks.validateApiKey,
 }));
+vi.mock('../../src/services/multi-project.service', () => ({
+	isSelfHostedMultiProjectEnabled: mocks.isSelfHostedMultiProjectEnabled,
+}));
 
 import { sessionOrApiKeyAuthMiddleware } from '../../src/middleware/auth';
 
@@ -35,6 +46,8 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		mocks.getUser.mockResolvedValue(KEY_CREATOR);
 		mocks.getProjectByOrgAndName.mockResolvedValue(ORG_PROJECT);
 		mocks.getProjectByUserId.mockResolvedValue(null);
+		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(false);
+		mocks.isCloud = false;
 	});
 
 	it('authenticates as the key creator on the named project of the key organization', async () => {
@@ -80,6 +93,25 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		expect(reply.status).toHaveBeenCalledWith(401);
 	});
 
+	it.each([
+		{ instance: 'nao Cloud', isCloud: true, isMultiProject: false },
+		{ instance: 'a self-hosted instance serving several projects', isCloud: false, isMultiProject: true },
+	])('refuses a project name the organization does not have on $instance', async ({ isCloud, isMultiProject }) => {
+		mocks.isCloud = isCloud;
+		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(isMultiProject);
+		mocks.getProjectByOrgAndName.mockResolvedValue(null);
+		mocks.getProjectByUserId.mockResolvedValue(ORG_PROJECT);
+
+		const { request, reply } = await authenticate({
+			authorization: 'Bearer nao_valid',
+			'x-nao-project-name': 'never-deployed',
+		});
+
+		expect(reply.status).toHaveBeenCalledWith(400);
+		expect(reply.send).toHaveBeenCalledWith({ error: expect.stringContaining('"never-deployed" does not exist') });
+		expect(request.project).toBeUndefined();
+	});
+
 	it('falls back to the default project when it belongs to the key organization', async () => {
 		mocks.getProjectByOrgAndName.mockResolvedValue(null);
 		mocks.getProjectByUserId.mockResolvedValue(ORG_PROJECT);
@@ -123,6 +155,15 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		expect(request.user).toBe(sessionUser);
 		expect(request.project).toBe(ORG_PROJECT);
 		expect(reply.status).not.toHaveBeenCalled();
+	});
+
+	it('rejects a session whose user must set up two-factor authentication first', async () => {
+		mocks.getSession.mockResolvedValue({ user: { id: 'session-user-id' }, twoFactorSetupRequired: true });
+
+		const { request, reply } = await authenticate({});
+
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(request.user).toBeUndefined();
 	});
 
 	it('rejects requests with neither an API key nor a session', async () => {

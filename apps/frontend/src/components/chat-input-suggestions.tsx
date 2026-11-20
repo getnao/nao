@@ -385,8 +385,7 @@ interface LiveStorySuggestion {
 	isSettingsOpen: boolean;
 	setSettingsOpen: (open: boolean) => void;
 	settings: {
-		chatId: string;
-		storySlug: string;
+		story: { chatId: string; storySlug: string };
 		isLive: boolean;
 		isLiveTextDynamic: boolean;
 		cacheSchedule: string | null;
@@ -460,8 +459,7 @@ function useLiveStorySuggestion(): LiveStorySuggestion {
 		isSettingsOpen,
 		setSettingsOpen,
 		settings: {
-			chatId: chatId ?? '',
-			storySlug: storySlug ?? '',
+			story: { chatId: chatId ?? '', storySlug: storySlug ?? '' },
 			isLive,
 			isLiveTextDynamic,
 			cacheSchedule,

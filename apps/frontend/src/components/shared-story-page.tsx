@@ -312,6 +312,7 @@ function SharedStoryContent({
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
 			<StoryTabbedContent
 				code={code}
+				storyId={storyId}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
 				theme={theme}

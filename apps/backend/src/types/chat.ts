@@ -18,6 +18,7 @@ import {
 import z from 'zod/v4';
 
 import { getTools, uiToolset } from '../agents/tools';
+import type { onboardingTools } from '../agents/tools/onboarding';
 import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
@@ -30,6 +31,7 @@ export interface ForkMetadata {
 		| 'story_selection'
 		| 'story_question'
 		| 'automation_edit'
+		| 'context_edit'
 		| 'story_model';
 	id: string;
 	title: string;
@@ -79,6 +81,9 @@ export const MESSAGE_SOURCES = [
 	'discord',
 	'whatsapp',
 	'web',
+	'automationEditor',
+	'contextEditor',
+	'automation',
 	'mcp',
 	'contextRecommendations',
 	'admin',
@@ -175,7 +180,8 @@ export type ContextUsage = {
 	contextWindow: number | null;
 };
 
-export type AgentTools = Awaited<ReturnType<typeof getTools>>;
+/** The onboarding profile passes its tools to `getTools` as extra tools. */
+export type AgentTools = Awaited<ReturnType<typeof getTools>> & Partial<typeof onboardingTools>;
 
 /**
  * Agent Request Types
@@ -239,6 +245,12 @@ export const AgentRequestUserMessageSchema = z.object({
 	citations: z.array(CitationDataSchema).max(MAX_CITATIONS_PER_MESSAGE).optional(),
 });
 
+const ShownStoryFiltersSchema = z.object({
+	storyId: z.string().max(100),
+	selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+});
+export type ShownStoryFilters = z.infer<typeof ShownStoryFiltersSchema>;
+
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
@@ -252,6 +264,10 @@ export const AgentRequestSchema = z.object({
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
 	/** The automation open beside an automation editing chat, as it stands in its form. */
 	automationDraft: automationDraftSchema.optional(),
+	/** Sent by the chat beside the Context Hub, with the context file the user has open there. */
+	contextHub: z.object({ openPath: z.string().max(2_000).nullable() }).optional(),
+	/** The story on screen beside the chat or above a quick question, with the filters it is shown with. */
+	storyFilters: ShownStoryFiltersSchema.optional(),
 });
 
 export interface StoryOriginTurn {

@@ -102,4 +102,14 @@ describe('useSettingsSearch', () => {
 			expect(billingEntry?.search).toEqual({ creditsTab: 'usage' });
 		}
 	});
+
+	it('finds the Context Hub and its tests, which both of its views have', () => {
+		Object.assign(mocks.permissions, { isContextAdmin: true, isViewer: false });
+
+		const { result: contextHub } = renderHook(() => useSettingsSearch('Context Hub'));
+		const { result: tests } = renderHook(() => useSettingsSearch('Schedule the tests'));
+
+		expect(contextHub.current.some((entry) => entry.page === '/settings/context-explorer')).toBe(true);
+		expect(tests.current.some((entry) => entry.title === 'Schedule the tests')).toBe(true);
+	});
 });

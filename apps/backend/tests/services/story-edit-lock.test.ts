@@ -13,6 +13,7 @@ import {
 	releaseAgentStoryEditLocks,
 	releaseStoryEditLock,
 	renewAgentStoryEditLocks,
+	renewStoryEditLock,
 	STORY_EDIT_LOCK_TTL_MS,
 	StoryEditLockedError,
 } from '../../src/services/story-edit-lock.service';
@@ -128,6 +129,18 @@ describe('story edit lock', () => {
 		await renewAgentStoryEditLocks(EDITOR_CHAT_ID);
 
 		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toBeNull();
+	});
+
+	it('tells a holder it lost a lock that lapsed, even if nobody took it since', async () => {
+		await acquireStoryEditLock(STORY_ID, OWNER_BY_HAND);
+
+		expect(await renewStoryEditLock(STORY_ID, OWNER_BY_HAND)).toBe(true);
+		expect(await renewStoryEditLock(STORY_ID, EDITOR_BY_HAND)).toBe(false);
+
+		await ageLock(STORY_EDIT_LOCK_TTL_MS + 1);
+
+		expect(await renewStoryEditLock(STORY_ID, OWNER_BY_HAND)).toBe(false);
+		expect(await getStoryEditLockState(STORY_ID, EDITOR_BY_HAND)).toBeNull();
 	});
 
 	it('keeps a person from editing by hand while an agent edits, and frees the story when the run ends', async () => {

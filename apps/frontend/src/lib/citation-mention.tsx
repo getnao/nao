@@ -7,6 +7,8 @@ import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentio
 import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { CitationData, StoryBlockReference } from '@nao/shared/types';
 
+import { formatCodeLines } from '@/lib/context-file-link';
+
 export { CITATION_MENTION_TRIGGER };
 
 export const CITATION_PILL_SELECTOR = `[data-mention-trigger="${CITATION_MENTION_TRIGGER}"]`;
@@ -238,8 +240,7 @@ function describeCodeSource({ title, lines }: StoryBlockReference): string {
 	if (!lines) {
 		return source;
 	}
-	const range = lines.start === lines.end ? `L${lines.start}` : `L${lines.start}–${lines.end}`;
-	return `${source} · ${range}`;
+	return `${source} · ${formatCodeLines(lines)}`;
 }
 
 function citationIcon({ block }: CitationData): LucideIcon {

@@ -13,6 +13,7 @@ import {
 	TeamMembersList,
 } from '@/components/settings/team';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -36,6 +37,7 @@ export function OrgMembers() {
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+	const [resetTwoFactorMember, setResetTwoFactorMember] = useState<TeamMember | null>(null);
 
 	const invalidateMembers = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
@@ -45,6 +47,14 @@ export function OrgMembers() {
 	const modifyMember = useMutation(trpc.organization.modifyMember.mutationOptions());
 	const removeOrgMember = useMutation(trpc.organization.removeMember.mutationOptions());
 	const resetPassword = useMutation(trpc.organization.resetMemberPassword.mutationOptions());
+	const resetTwoFactor = useMutation(
+		trpc.organization.resetMemberTwoFactor.mutationOptions({
+			onSuccess: () => {
+				invalidateMembers();
+				closeResetTwoFactorDialog();
+			},
+		}),
+	);
 
 	const members: TeamMember[] =
 		membersQuery.data?.map((member) => ({
@@ -53,6 +63,8 @@ export function OrgMembers() {
 			email: member.email,
 			role: member.role as UserRole,
 			status: member.status,
+			twoFactorEnabled: member.twoFactorEnabled,
+			hasPassword: member.hasPassword,
 		})) ?? [];
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
@@ -105,6 +117,17 @@ export function OrgMembers() {
 		} catch (error) {
 			setResetPasswordError(error instanceof Error ? error.message : 'Failed to reset password.');
 		}
+	};
+
+	const handleResetTwoFactor = () => {
+		if (resetTwoFactorMember) {
+			resetTwoFactor.mutate({ userId: resetTwoFactorMember.id });
+		}
+	};
+
+	const closeResetTwoFactorDialog = () => {
+		resetTwoFactor.reset();
+		setResetTwoFactorMember(null);
 	};
 
 	const openResetPasswordDialog = (member: TeamMember) => {
@@ -160,13 +183,18 @@ export function OrgMembers() {
 							isAdmin={isOrgAdmin}
 							onEdit={setEditMember}
 							onRemove={setRemoveMember}
-							extraActions={
-								isCloud
-									? undefined
-									: (member) => (
-											<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
-										)
-							}
+							extraActions={(member) => (
+								<>
+									{!isCloud && member.hasPassword && (
+										<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
+									)}
+									{member.twoFactorEnabled && (
+										<DropdownMenuItem onSelect={() => setResetTwoFactorMember(member)}>
+											Reset two-factor authentication
+										</DropdownMenuItem>
+									)}
+								</>
+							)}
 						/>
 					)}
 				</SettingsCard>
@@ -195,6 +223,18 @@ export function OrgMembers() {
 				memberName={removeMember?.name ?? ''}
 				description='This will remove the user from the organization. They will lose access to all projects within it.'
 				onConfirm={handleRemove}
+			/>
+
+			<ConfirmationDialog
+				open={!!resetTwoFactorMember}
+				onOpenChange={(open) => !open && closeResetTwoFactorDialog()}
+				title={`Reset ${resetTwoFactorMember?.name}'s two-factor authentication?`}
+				description='They will log in with their password only, until they set up two-factor authentication again.'
+				confirmLabel='Reset'
+				onConfirm={handleResetTwoFactor}
+				isPending={resetTwoFactor.isPending}
+				preventCloseWhilePending
+				error={resetTwoFactor.error?.message}
 			/>
 
 			<Dialog open={!!resetPasswordMember} onOpenChange={(open) => !open && closeResetPasswordDialog()}>

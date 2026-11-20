@@ -12,7 +12,7 @@ import {
 	Save,
 	X,
 } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ShareSource } from '@nao/shared/types';
 import type { StorySummary } from '@/lib/story.utils';
@@ -29,6 +29,8 @@ import {
 import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useMovableStory } from '@/hooks/use-movable-story';
+import { StoryFolderPickerDialog, StoryMoveToFolderMenuItem } from '@/components/story-move-to-folder';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
@@ -156,6 +158,8 @@ export const StoryHeader = memo(function StoryHeader({
 }: StoryHeaderProps) {
 	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
+	const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
+	const movableStory = useMovableStory(storyId);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { otherStories, switchToStory, mentionedStories, openMentionedStory } = useSwitchableStories({
 		chatId,
@@ -323,7 +327,7 @@ export const StoryHeader = memo(function StoryHeader({
 		versionNumber,
 		onDownload,
 	};
-	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
+	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions) || !!movableStory;
 	const canFavorite = !isReadonlyMode && !!storyId;
 	const canDuplicate =
 		!isReadonlyMode && (customStoryCreationEnabled || !isCustomStoryViewModeControls(viewModeControls));
@@ -345,6 +349,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<DropdownMenuContent align='end' className='w-auto min-w-20'>
 				<StoryDownloadMenu {...downloadOptions} isAgentRunning={isAgentRunning} isSaving={isSaving} />
 				{canFavorite && <StoryFavoriteMenuItem storyId={storyId} />}
+				{movableStory && <StoryMoveToFolderMenuItem onSelect={() => setIsFolderPickerOpen(true)} />}
 				{!isReadonlyMode && (
 					<>
 						<DropdownMenuItem onSelect={onOpenAnalytics}>
@@ -482,6 +487,9 @@ export const StoryHeader = memo(function StoryHeader({
 						</>
 					)}
 				</div>
+			)}
+			{movableStory && isFolderPickerOpen && (
+				<StoryFolderPickerDialog story={movableStory} onClose={() => setIsFolderPickerOpen(false)} />
 			)}
 		</div>
 	);

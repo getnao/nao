@@ -293,6 +293,7 @@ secrets:
   oidcScopes: ""                # defaults to "openid,profile,email"
   oidcAuthDomains: ""           # comma-separated email domain allowlist
   oidcPkce: ""                  # "true" (default) or "false"
+  oidcPrompt: ""                # "select_account" (default), "login", "consent", "none" or "omit"
 
   # -- Notion integration (optional)
   notionApiKey: ""

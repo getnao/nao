@@ -4,6 +4,7 @@ import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shar
 import { managedAiSource, type ManagedAiUsageContext } from '../agents/managed-ai';
 import {
 	createProviderModel,
+	getContextWindow,
 	getDefaultModelId,
 	getProviderMeta,
 	isManagedProvider,
@@ -148,10 +149,29 @@ export async function resolveProviderModel(
 	for (const source of getSourcesServing(provider)) {
 		const result = await source.resolveModel(request);
 		if (result) {
-			return result;
+			const declaredContextWindow = await getDeclaredContextWindow(projectId, provider, modelId);
+			return { ...result, contextWindow: declaredContextWindow ?? result.contextWindow };
 		}
 	}
 	return null;
+}
+
+/** The context window of a model: the one the project declares for it wins over nao's catalogue. */
+export async function resolveContextWindow(projectId: string, provider: LlmProvider, modelId: string): Promise<number> {
+	return (await getDeclaredContextWindow(projectId, provider, modelId)) ?? getContextWindow(provider, modelId);
+}
+
+async function getDeclaredContextWindow(
+	projectId: string,
+	provider: LlmProvider,
+	modelId: string,
+): Promise<number | undefined> {
+	if (isManagedProvider(provider)) {
+		return undefined;
+	}
+	const declaredModels = await getProjectDeclaredModels(projectId);
+	const declared = declaredModels.find((d) => d.provider === provider)?.models.find((m) => m.id === modelId);
+	return declared?.contextWindow;
 }
 
 /** The admin's settings of a model, from the same source that would serve it. */

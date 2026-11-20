@@ -33,6 +33,23 @@ describe('NAO_CONTEXT_SOURCE', () => {
 	});
 });
 
+describe('NAO_PROJECT_PATHS', () => {
+	const cloudError = 'NAO_PROJECT_PATHS and NAO_MODE=cloud cannot be set at the same time.';
+
+	it.each([
+		{ mode: 'cloud', status: 1 },
+		{ mode: 'self-hosted', status: 0 },
+	])('exits with $status in $mode mode', ({ mode, status }) => {
+		const result = loadEnvWithOverrides({
+			NAO_MODE: mode,
+			NAO_PROJECT_PATHS: '/app/projects/sales, /app/projects/finance',
+		});
+
+		expect(result.status).toBe(status);
+		expect(result.stderr.includes(cloudError)).toBe(status === 1);
+	});
+});
+
 describe('cloud billing environment', () => {
 	it('is disabled by default', () => {
 		expect(loadEnvWithOverrides({ NAO_MODE: 'cloud' }).status).toBe(0);

@@ -16,7 +16,7 @@ export function automationEditorAgent({
 	canUseChatFeedback: boolean;
 }): AgentProfile {
 	return {
-		source: 'web',
+		source: 'automationEditor',
 		tools: analyticsToolsExcluding([], createAutomationEditorTools({ draft, automationId, canUseChatFeedback })),
 		promptAppendix: renderAutomationEditorPrompt({ isSaved: automationId !== null }),
 	};

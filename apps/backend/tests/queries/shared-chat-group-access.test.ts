@@ -4,11 +4,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import { softDeleteNonStarredChats } from '../../src/queries/chat.queries';
 import {
 	canUserAccessSharedChat,
 	getShareAllowedGroupIds,
 	getShareAllowedUserIds,
+	getSharedChatInfo,
 	getSharedChatRecipientUserIds,
+	listUserSharedChats,
 	replaceSharedChatAccess,
 } from '../../src/queries/shared-chat.queries';
 
@@ -27,6 +30,7 @@ const GROUP_ID = 'group-share-group';
 const SHARE_ID = 'group-share-share';
 
 beforeAll(seed);
+beforeAll(loadLockedGroupAvailability);
 
 afterAll(() => {
 	db.$client.close();
@@ -68,6 +72,18 @@ describe('replaceSharedChatAccess', () => {
 	});
 });
 
+describe('a shared chat its owner removed with "Delete all"', () => {
+	it('no longer resolves and leaves the shared chats of its recipients', async () => {
+		expect(await getSharedChatInfo(SHARE_ID)).toMatchObject({ chatId: 'group-share-chat' });
+		expect(await listUserSharedChats([PROJECT_ID], DIRECT_RECIPIENT_ID)).toHaveLength(1);
+
+		await softDeleteNonStarredChats(OWNER_ID);
+
+		expect(await getSharedChatInfo(SHARE_ID)).toBeNull();
+		expect(await listUserSharedChats([PROJECT_ID], DIRECT_RECIPIENT_ID)).toEqual([]);
+	});
+});
+
 async function seed() {
 	await db.insert(s.user).values(
 		[OWNER_ID, DIRECT_RECIPIENT_ID, GROUP_MEMBER_ID, OUTSIDER_ID, FORMER_MEMBER_ID].map((id) => ({
@@ -93,4 +109,12 @@ async function seed() {
 	await db.insert(s.sharedChat).values({ id: SHARE_ID, chatId: 'group-share-chat', visibility: 'specific' });
 	await db.insert(s.sharedChatAccess).values({ sharedChatId: SHARE_ID, userId: DIRECT_RECIPIENT_ID });
 	await db.insert(s.sharedChatGroupAccess).values({ sharedChatId: SHARE_ID, groupId: GROUP_ID });
+}
+
+/**
+ * The access checks import the user group availability on first use, which loads much of the app. Loading it here
+ * keeps that cold import out of the time limit of the first test.
+ */
+async function loadLockedGroupAvailability() {
+	await import('../../src/services/user-group-availability.service');
 }

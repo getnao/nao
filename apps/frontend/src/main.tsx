@@ -11,7 +11,7 @@ import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
 import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
-import { getActiveOrganizationId } from './lib/active-organization';
+import { getActiveOrganizationId, subscribeToExternalActiveOrganizationChanges } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
 import {
 	getActiveProjectId,
@@ -56,10 +56,12 @@ export const queryClient = new QueryClient({
 	},
 });
 
-subscribeToExternalActiveProjectChanges(() => {
+const followSelectionOfAnotherTab = () => {
 	void queryClient.invalidateQueries();
 	void router.invalidate();
-});
+};
+subscribeToExternalActiveProjectChanges(followSelectionOfAnotherTab);
+subscribeToExternalActiveOrganizationChanges(followSelectionOfAnotherTab);
 
 const activeOrganizationRecovery = createActiveOrganizationRecovery({
 	invalidateQueries: () => void queryClient.invalidateQueries(),

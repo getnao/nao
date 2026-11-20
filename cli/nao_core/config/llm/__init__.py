@@ -243,6 +243,11 @@ class ModelConfig(BaseModel):
     name: str | None = Field(default=None, description="Display name shown in the model picker")
     default: bool = Field(default=False, description="Preselect this model for new chats")
     costs: ModelCosts | None = Field(default=None, description="Price in US dollars per million tokens")
+    context_window: int | None = Field(
+        default=None,
+        gt=0,
+        description="Context window in tokens, for a model nao does not know such as one routed through a gateway",
+    )
     settings: dict[str, Any] | None = Field(
         default=None, description="Inference parameters for this model, e.g. temperature or reasoning_effort"
     )

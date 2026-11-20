@@ -28,6 +28,7 @@ export interface UserGroupConfig {
 	projectSharing: ProjectSharingPermission;
 	shareTargets: GroupShareTargets;
 	preloadedSkills: string[];
+	advancedContextExplorer: boolean;
 }
 
 export type StoredUserGroupConfig =
@@ -40,6 +41,7 @@ export type StoredUserGroupConfig =
 			projectSharing?: ProjectSharingPermission;
 			shareTargets?: GroupShareTargets;
 			preloadedSkills?: string[];
+			advancedContextExplorer?: boolean;
 	  };
 
 export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
@@ -129,6 +131,24 @@ export function canRoleSeeAdvancedSettings(role: UserRole | null | undefined, gr
 	}
 }
 
+/**
+ * Context editors see the advanced File Explorer or the simplified Context Hub. Admins always get the File Explorer;
+ * context admins get it when one of their groups grants it, which All Users does unless an admin turns it off.
+ */
+export function canRoleUseAdvancedContextExplorer(
+	role: UserRole | null | undefined,
+	groupsGrantAdvancedContextExplorer: boolean,
+): boolean {
+	switch (role) {
+		case 'admin':
+			return true;
+		case 'context_admin':
+			return groupsGrantAdvancedContextExplorer;
+		default:
+			return false;
+	}
+}
+
 /** An explicit block on any of the user's groups wins over an explicit allow, which wins over the All Users default. */
 export function resolveProjectSharingPermission(
 	groups: ReadonlyArray<{ isDefault: boolean; projectSharing: ProjectSharingPermission }>,
@@ -165,7 +185,10 @@ export function normalizePreloadedSkills(skillNames: readonly unknown[]): string
 	return [...new Set(names)].slice(0, MAX_PRELOADED_SKILLS);
 }
 
-/** Groups saved before the setting existed keep the previous behavior: All Users shows every settings page. */
+/**
+ * Groups saved before a setting existed keep the previous behavior: All Users shows every settings page and the
+ * advanced File Explorer.
+ */
 export function parseStoredUserGroupConfig(value: unknown, isDefault = false): UserGroupConfig {
 	if (Array.isArray(value)) {
 		const legacyFeatures = value.filter((feature): feature is string => typeof feature === 'string');
@@ -179,6 +202,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: isDefault,
 			preloadedSkills: [],
+			advancedContextExplorer: isDefault,
 		};
 	}
 
@@ -190,6 +214,7 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: isDefault,
 			preloadedSkills: [],
+			advancedContextExplorer: isDefault,
 		};
 	}
 
@@ -208,6 +233,8 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 		shareTargets: normalizeGroupShareTargets(value.shareTargets),
 		showAllSettings: typeof value.showAllSettings === 'boolean' ? value.showAllSettings : isDefault,
 		preloadedSkills: Array.isArray(value.preloadedSkills) ? normalizePreloadedSkills(value.preloadedSkills) : [],
+		advancedContextExplorer:
+			typeof value.advancedContextExplorer === 'boolean' ? value.advancedContextExplorer : isDefault,
 	};
 }
 
@@ -218,6 +245,7 @@ export function serializeUserGroupConfig(
 	showAllSettings = false,
 	preloadedSkills: readonly string[] = [],
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer?: boolean,
 ): StoredUserGroupConfig {
 	return {
 		version: 2,
@@ -230,6 +258,7 @@ export function serializeUserGroupConfig(
 		shareTargets: normalizeGroupShareTargets(shareTargets),
 		showAllSettings,
 		preloadedSkills: normalizePreloadedSkills(preloadedSkills),
+		...(advancedContextExplorer === undefined ? {} : { advancedContextExplorer }),
 	};
 }
 

@@ -67,15 +67,12 @@ export function ContextWindowRingView({
 				<span
 					tabIndex={0}
 					aria-label={tooltipText}
-					className='inline-flex shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+					className={cn(
+						'inline-flex shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+						className,
+					)}
 				>
-					<svg
-						width='20'
-						height='20'
-						viewBox='0 0 20 20'
-						className={cn('-rotate-90', className)}
-						aria-hidden='true'
-					>
+					<svg width='20' height='20' viewBox='0 0 20 20' className='-rotate-90' aria-hidden='true'>
 						<circle
 							cx='10'
 							cy='10'

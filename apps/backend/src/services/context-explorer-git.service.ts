@@ -101,15 +101,19 @@ export {
 	generateContextBranchName,
 	getContextBranchCommitMessages,
 	getContextBranches,
+	listContextRepositoryBranches,
+	pullContextBranch,
 	pushContextBranch,
 	suggestContextBranchName,
 	switchContextBranch,
+	undoLastContextCommit,
 } from './context-explorer-git/branches.service';
 export {
 	discardAllContextChanges,
 	discardContextFileChange,
 	getChangedContextFiles,
 	getContextFileDiff,
+	readContextChangesPatch,
 } from './context-explorer-git/changes.service';
 export {
 	assertSafeDestructiveWorktreeCommand,

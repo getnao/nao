@@ -17,14 +17,12 @@ export function requestCodeReveal({ block, storySlug }: CitationData): void {
 	if (!block?.lines) {
 		return;
 	}
-	nextRequestId += 1;
-	codeRevealStore.set({
-		id: nextRequestId,
-		storySlug,
-		filePath: block.title || undefined,
-		lines: block.lines,
-		requestedAt: Date.now(),
-	});
+	setRequest({ storySlug, filePath: block.title || undefined, lines: block.lines });
+}
+
+/** Asks the view about to show a file, like a context file of the Context Hub, to show these lines of its source. */
+export function requestFileLinesReveal(filePath: string, lines: StoryCodeLines): void {
+	setRequest({ filePath, lines });
 }
 
 /** A shown request is done, so a code view opened later does not jump back to its lines. */
@@ -35,3 +33,8 @@ export function completeCodeReveal(id: number): void {
 }
 
 export const useCodeRevealRequest = () => useSyncExternalStore(codeRevealStore.subscribe, codeRevealStore.getSnapshot);
+
+function setRequest(request: Omit<CodeRevealRequest, 'id' | 'requestedAt'>): void {
+	nextRequestId += 1;
+	codeRevealStore.set({ ...request, id: nextRequestId, requestedAt: Date.now() });
+}

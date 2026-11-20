@@ -1,6 +1,7 @@
 import { env, isCloudBillingEnabled } from '../env';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
+import { isSelfHostedMultiProjectEnabled } from '../services/multi-project.service';
 import { checkForUpdate } from '../services/version-check.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
@@ -8,6 +9,7 @@ export const systemRoutes = {
 	getPublicConfig: publicProcedure.query(async () => ({
 		naoMode: env.NAO_MODE,
 		cloudBillingEnabled: isCloudBillingEnabled(),
+		selfHostedMultiProjectEnabled: await isSelfHostedMultiProjectEnabled(),
 		enableUserLogin: env.ENABLE_USER_LOGIN,
 		enableUserSignup: await isUserSignupAvailable(),
 		emailVerificationEnabled: env.NAO_MODE === 'cloud' && emailService.isEnabled(),

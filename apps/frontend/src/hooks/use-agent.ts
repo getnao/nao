@@ -61,6 +61,8 @@ export interface AgentHelpers {
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
+	/** The chat reconnects to an answer the server is still writing, and has not received any of it yet. */
+	isCatchingUp: boolean;
 	isLoadingMessages: boolean;
 	cancelAgent: () => Promise<void>;
 	error: Error | undefined;
@@ -123,6 +125,11 @@ export const useAgent = ({
 	const navigate = useNavigate();
 	const contextChatId = useChatId();
 	const [chatId, setChatId] = useState(contextChatId);
+	const [previousContextChatId, setPreviousContextChatId] = useState(contextChatId);
+	if (contextChatId !== previousContextChatId) {
+		setPreviousContextChatId(contextChatId);
+		setChatId(contextChatId);
+	}
 	const chat = useChatQuery({ chatId });
 	const { data: session } = useSession();
 
@@ -155,10 +162,6 @@ export const useAgent = ({
 	/** Set to the server id of a chat that was just created, so the upcoming chatId change is treated as the same conversation continuing rather than opening a different chat. */
 	const continuationChatIdRef = useRef<string | undefined>(undefined);
 
-	useEffect(() => {
-		setChatId(contextChatId);
-	}, [contextChatId]);
-
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
 	}, []);
@@ -170,8 +173,9 @@ export const useAgent = ({
 
 	const agentInstance = useMemo(() => {
 		let agentId = contextChatId ?? NEW_CHAT_ID;
+		const isShared = !disableNavigation || agentId !== NEW_CHAT_ID;
 
-		if (!disableNavigation) {
+		if (isShared) {
 			const existingAgent = agentService.getAgent(agentId);
 			if (existingAgent) {
 				return existingAgent;
@@ -236,12 +240,17 @@ export const useAgent = ({
 		const newAgent = new Agent<UIMessage>({
 			transport: new DefaultChatTransport({
 				api: '/api/agent',
+				prepareReconnectToStreamRequest: () => ({
+					api: `/api/agent/${agentId}/stream`,
+					headers: getProjectRequestHeaders(),
+				}),
 				prepareSendMessagesRequest: ({ body, messages }) => {
 					const messageToSend = messages.at(-1);
 					if (!messageToSend) {
 						throw new Error('No message to send.');
 					}
 
+					agentsReadingServerStream.add(newAgent);
 					const liveRefs = agentSendRefsStore.get(newAgent);
 					const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
 					const activeModeRef = liveRefs?.modeRef ?? modeRef;
@@ -298,7 +307,8 @@ export const useAgent = ({
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
-					mentionsRef.current = next.mentions;
+					const activeMentionsRef = agentSendRefsStore.get(newAgent)?.mentionsRef ?? mentionsRef;
+					activeMentionsRef.current = next.mentions;
 					agentCitationStore.set(newAgent, next.citations);
 					const files = attachmentsToFileUIParts(next);
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
@@ -311,6 +321,7 @@ export const useAgent = ({
 						chatActivityStore.setUnread(agentId, true);
 						agentService.disposeAgent(agentId);
 					}
+					releaseUnviewedAgent(agentId, newAgent);
 				}
 			},
 			onError: () => {
@@ -318,7 +329,7 @@ export const useAgent = ({
 			},
 		});
 
-		if (disableNavigation) {
+		if (!isShared) {
 			return newAgent;
 		}
 
@@ -326,6 +337,7 @@ export const useAgent = ({
 	}, [contextChatId, disableNavigation, navigate, setChat, queryClient]);
 
 	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef, requestBodyRef });
+	useSharedAgent(agentInstance, contextChatId);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,
@@ -339,11 +351,27 @@ export const useAgent = ({
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
 
+	const refetchSavedMessages = useCallback(
+		async (chatIdToRefetch: string) => {
+			const queryKey = trpc.chat.get.queryKey({ chatId: chatIdToRefetch });
+			await queryClient.invalidateQueries({ queryKey });
+			return queryClient.getQueryData(queryKey)?.messages;
+		},
+		[queryClient],
+	);
+	const isCatchingUp = useResumeRunningAnswer({
+		agent: agentInstance,
+		chatId,
+		loadedMessages: chat.data?.messages,
+		status,
+		refetchSavedMessages,
+	});
+
 	useEffect(() => {
 		if (chatId) {
-			chatActivityStore.setRunning(chatId, isRunning);
+			chatActivityStore.setRunning(chatId, isRunning || isCatchingUp);
 		}
-	}, [chatId, isRunning]);
+	}, [chatId, isRunning, isCatchingUp]);
 
 	useEffect(() => {
 		if (chatId) {
@@ -603,6 +631,7 @@ export const useAgent = ({
 		submitQueuedMessageNow,
 		status,
 		isRunning,
+		isCatchingUp,
 		isLoadingMessages: chat.isLoading,
 		cancelAgent,
 		error,
@@ -657,6 +686,119 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
 };
+
+/** How many mounted screens show each shared agent. */
+const agentViewerCounts = new WeakMap<Agent<UIMessage>, number>();
+
+/**
+ * Keeps the agent of a saved chat shared while a screen shows it, so another screen of the chat, like the full
+ * chat opened from a panel, takes over its running answer. Once no screen shows it, it is released when idle.
+ */
+function useSharedAgent(agent: Agent<UIMessage>, chatId: string | undefined) {
+	useEffect(() => {
+		if (!chatId) {
+			return;
+		}
+		agentViewerCounts.set(agent, (agentViewerCounts.get(agent) ?? 0) + 1);
+		agentService.registerAgent(chatId, agent);
+		return () => {
+			agentViewerCounts.set(agent, (agentViewerCounts.get(agent) ?? 1) - 1);
+			if (!checkIsAgentRunning(agent)) {
+				releaseUnviewedAgent(chatId, agent);
+			}
+		};
+	}, [agent, chatId]);
+}
+
+function releaseUnviewedAgent(chatId: string, agent: Agent<UIMessage>) {
+	if (agentViewerCounts.get(agent) === 0 && agentService.getAgent(chatId) === agent) {
+		agentService.disposeAgent(chatId);
+	}
+}
+
+/** Agents that already read their chat's stream, by sending a message or by resuming, so they never resume again. */
+const agentsReadingServerStream = new WeakSet<Agent<UIMessage>>();
+
+const RESUME_ATTEMPTS = 2;
+const RESUME_RETRY_DELAY_MS = 1_000;
+
+/**
+ * After a reload, follows the answer the server is still writing, and returns whether it is still waiting
+ * for the server to answer. The saved messages only hold an answer once it is complete, so a chat whose
+ * last saved message is the user's may have one running.
+ */
+function useResumeRunningAnswer({
+	agent,
+	chatId,
+	loadedMessages,
+	status,
+	refetchSavedMessages,
+}: {
+	agent: Agent<UIMessage>;
+	chatId: string | undefined;
+	loadedMessages: UIMessage[] | undefined;
+	status: UseChatHelpers<UIMessage>['status'];
+	refetchSavedMessages: (chatId: string) => Promise<UIMessage[] | undefined>;
+}): boolean {
+	const [catchingUpAgent, setCatchingUpAgent] = useState<Agent<UIMessage>>();
+	const hasServerAnswered = status !== 'ready';
+
+	useEffect(() => {
+		if (hasServerAnswered) {
+			setCatchingUpAgent(undefined);
+		}
+	}, [hasServerAnswered]);
+
+	useEffect(() => {
+		if (
+			!chatId ||
+			!loadedMessages ||
+			!isAwaitingAnswer(loadedMessages) ||
+			agentsReadingServerStream.has(agent) ||
+			checkIsAgentRunning(agent)
+		) {
+			return;
+		}
+
+		agentsReadingServerStream.add(agent);
+		agent.messages = loadedMessages;
+		setCatchingUpAgent(agent);
+		void followRunningAnswer(agent, () => refetchSavedMessages(chatId)).finally(() =>
+			setCatchingUpAgent((current) => (current === agent ? undefined : current)),
+		);
+	}, [agent, chatId, loadedMessages, refetchSavedMessages]);
+
+	return catchingUpAgent === agent && !hasServerAnswered;
+}
+
+/**
+ * Reconnects to the running answer. When the server has no run, a complete answer is in the saved messages,
+ * fetched again to show it. A run that just started on another instance may not be announced yet, hence
+ * the second attempt.
+ */
+async function followRunningAnswer(
+	agent: Agent<UIMessage>,
+	refetchSavedMessages: () => Promise<UIMessage[] | undefined>,
+): Promise<void> {
+	for (let attempt = 1; attempt <= RESUME_ATTEMPTS; attempt++) {
+		await agent.resumeStream();
+		if (!isAwaitingAnswer(agent.messages)) {
+			return;
+		}
+		const savedMessages = await refetchSavedMessages();
+		if (!savedMessages || !isAwaitingAnswer(savedMessages) || attempt === RESUME_ATTEMPTS) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, RESUME_RETRY_DELAY_MS));
+		if (checkIsAgentRunning(agent)) {
+			return;
+		}
+	}
+}
+
+function isAwaitingAnswer(messages: UIMessage[]): boolean {
+	return messages.at(-1)?.role === 'user';
+}
 
 /**
  * User messages without the optimistic copy the server has not acknowledged yet: while the agent

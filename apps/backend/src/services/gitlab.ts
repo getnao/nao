@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
 
+import type { RepoBranch } from '@nao/shared/types';
+
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
 import { escapeRegExp } from '../utils/utils';
@@ -7,6 +9,8 @@ import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } fro
 
 export { NAO_CO_AUTHOR };
 export { getRepoSubPath };
+
+const MAX_LISTED_BRANCHES = 1_000;
 
 export interface GitLabProject {
 	id: number;
@@ -37,7 +41,19 @@ export interface GitLabUser {
 	username: string;
 	name: string;
 	email: string | null;
+	commit_email?: string | null;
+	public_email?: string | null;
 	avatar_url: string;
+}
+
+interface GitLabBranch {
+	name: string;
+	commit: {
+		id: string;
+		author_name?: string | null;
+		author_email?: string | null;
+		committed_date?: string | null;
+	};
 }
 
 interface GitlabOAuthConfig {
@@ -367,6 +383,48 @@ export async function findMergeRequestByBranch(
 		state: mergeRequest.state === 'opened' ? 'open' : mergeRequest.state === 'merged' ? 'merged' : 'closed',
 		mergedAt: mergeRequest.merged_at,
 		closedAt: mergeRequest.closed_at,
+	};
+}
+
+/**
+ * The branches of a repository, most recently updated first. GitLab gives the author's email only, matched against
+ * the emails of the token's user to tell their branches apart. Null when the repository has too many branches to list
+ * them all.
+ */
+export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[] | null> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	const userEmails = getUserEmails(await getUser(token));
+	const branches: RepoBranch[] = [];
+	let page = '1';
+	while (page && branches.length < MAX_LISTED_BRANCHES) {
+		const params = new URLSearchParams({ sort: 'updated_desc', per_page: '100', page });
+		const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/repository/branches?${params}`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		if (!res.ok) {
+			const body = await res.text();
+			throw new Error(`GitLab API error ${res.status}: ${body}`);
+		}
+		const rawBranches = (await res.json()) as GitLabBranch[];
+		branches.push(...rawBranches.map((branch) => toRepoBranch(branch, userEmails)));
+		page = res.headers.get('x-next-page') ?? '';
+	}
+	return page ? null : branches;
+}
+
+function getUserEmails(user: GitLabUser): Set<string> {
+	const emails = [user.email, user.commit_email, user.public_email].filter((email): email is string => !!email);
+	return new Set(emails.map((email) => email.toLowerCase()));
+}
+
+function toRepoBranch(branch: GitLabBranch, userEmails: Set<string>): RepoBranch {
+	const { commit } = branch;
+	return {
+		name: branch.name,
+		commit: commit.id,
+		author: commit.author_name ? { name: commit.author_name, login: null } : null,
+		committedAt: commit.committed_date ?? null,
+		isMine: !!commit.author_email && userEmails.has(commit.author_email.toLowerCase()),
 	};
 }
 

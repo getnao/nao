@@ -396,7 +396,11 @@ export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
+	transaction?: DBTransaction,
 ): Promise<void> {
+	if (transaction) {
+		return placeStoryInFolder(storyId, folderId, options, transaction);
+	}
 	await db.transaction((tx) => placeStoryInFolder(storyId, folderId, options, tx), writeTransactionConfig);
 }
 

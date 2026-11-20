@@ -83,8 +83,8 @@ const contextDraftMocks = vi.hoisted(() => ({
 vi.mock('../../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../../src/queries/context-recommendation.queries', () => contextConfigMocks);
 vi.mock('../../src/queries/context-draft.queries', () => contextDraftMocks);
-vi.mock('../../src/utils/logger', () => {
-	const redactCredentialedUrls = (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@');
+vi.mock('../../src/utils/logger', async () => {
+	const { redactCredentialedUrls } = await import('../../src/utils/credential-redaction');
 	return {
 		logger: {
 			warn: loggerMocks.warn,
@@ -122,13 +122,17 @@ import {
 	getDeploymentContextSource,
 	getHistoricalContextDiffActions,
 	getLiveContextUpdateStatus,
+	listContextRepositoryBranches,
 	normalizeRemote,
+	pullContextBranch,
 	pullLiveContext,
+	readContextChangesPatch,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 	sanitizeContextSourceRepositoryUrl,
 	sanitizeLiveContextError,
 	switchContextBranch,
+	undoLastContextCommit,
 	updateContextWorktree,
 } from '../../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../../src/services/context-explorer-pr.service';
@@ -137,6 +141,7 @@ import {
 	parseGenericRepositoryUrl,
 	parseReviewRequestLink,
 } from '../../src/services/generic-git';
+import { withSharedAccessToken } from '../../src/services/review-request-provider';
 import {
 	getContextWorktreePath,
 	resolveContextRepository,
@@ -154,6 +159,7 @@ import {
 	localProvider,
 	runGit,
 	snapshot,
+	writeFiles,
 } from '../helpers/context-git-fixture';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -1366,6 +1372,26 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it.each([
+		['personal accounts', (provider: ContextRepositoryProvider) => provider, 'nao <naoagent@getnao.io>'],
+		[
+			'a shared access token',
+			(provider: ContextRepositoryProvider) => withSharedAccessToken(provider, 'shared-token'),
+			'Test User <test@example.com>',
+		],
+	])('credits the co-author of commits made through %s', async (_, withAccess, coAuthor) => {
+		const fixture = createFixture();
+		const context = { ...fixture.context, providerOverride: withAccess(localProvider(fixture.bare)) };
+		const access = await fileAccess(context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'co-authored edit\n', file.hash, access);
+		await createContextBranchAndCommit(context, { paths: ['/context.md'], message: 'Co-authored edit' });
+
+		const repo = await ensureContextWorktree(context);
+		const trailers = runGit(repo.worktreeRoot, ['log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)']);
+		expect(trailers.toString().trim()).toBe(coAuthor);
+	});
+
 	it('encodes unsafe user ids without escaping the project worktree directory', async () => {
 		const fixture = createFixture();
 		const repo = await ensureContextWorktree({ ...fixture.context, userId: '../other/user' });
@@ -1755,6 +1781,25 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it('reads the patch of the selected changes only, cut to the given length', async () => {
+		const fixture = createFixture({
+			'nao_config.yaml': 'name: test\n',
+			'notes[1].md': 'repository content\n',
+			'notes1.md': 'other\n',
+		});
+		const access = await fileAccess(fixture.context);
+		const selectedFile = await readFileContent('/notes[1].md', access);
+		const otherFile = await readFileContent('/notes1.md', access);
+		await writeFileContent('/notes[1].md', 'selected\n', selectedFile.hash, access);
+		await writeFileContent('/notes1.md', 'unselected\n', otherFile.hash, access);
+
+		const patch = await readContextChangesPatch(fixture.context, ['/notes[1].md'], 10_000);
+
+		expect(patch).toContain('-repository content\n+selected');
+		expect(patch).not.toContain('unselected');
+		expect(await readContextChangesPatch(fixture.context, ['/notes[1].md'], 12)).toHaveLength(12);
+	});
+
 	it('uses the logged-in nao user as the commit identity', async () => {
 		const fixture = createFixture();
 		fixture.context.user = { name: 'Nao Account', email: 'nao-account@example.com' };
@@ -1823,6 +1868,9 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 			aheadCommitCount: 1,
 			unpushedCommitCount: 1,
 		});
+		expect(committedBranchStatus.branches?.unpushedCommits.map((commit) => commit.subject)).toEqual([
+			'Commit branch edit',
+		]);
 
 		await pushContextExplorerBranch(fixture.context);
 		const pushedBranchStatus = await getContextRepositoryStatus(fixture.context);
@@ -1839,7 +1887,45 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		});
 		const newCommitStatus = await getContextRepositoryStatus(fixture.context);
 		expect(newCommitStatus.branches?.unpushedCommitCount).toBe(1);
+		expect(newCommitStatus.branches?.unpushedCommits.map((commit) => commit.subject)).toEqual([
+			'Commit another edit',
+		]);
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('takes the last commit back into the changes while it is not pushed, and never once pushed', async () => {
+		const fixture = createFixture();
+		await createContextBranch(fixture.context, 'nao/undo');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'first edit\n', file.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'First edit' });
+		await pushContextExplorerBranch(fixture.context);
+
+		await expect(undoLastContextCommit(fixture.context)).rejects.toThrow('not pushed yet');
+
+		const pushedFile = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'second edit\n', pushedFile.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Second edit' });
+		await undoLastContextCommit(fixture.context);
+
+		const status = await getContextRepositoryStatus(fixture.context);
+		expect(status.branches?.unpushedCommits).toEqual([]);
+		expect((await getChangedContextFiles(fixture.context)).map((changed) => changed.path)).toEqual(['/context.md']);
+		expect((await readFileContent('/context.md', access)).content).toBe('second edit\n');
+	});
+
+	it('refuses to undo a commit pushed from another checkout', async () => {
+		const fixture = createFixture();
+		await createContextBranch(fixture.context, 'nao/undo-elsewhere');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'edit\n', file.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Edit' });
+		const repo = await ensureContextWorktree(fixture.context);
+		runGit(repo.worktreeRoot, ['push', '--quiet', fixture.bare, 'HEAD:refs/heads/nao/undo-elsewhere']);
+
+		await expect(undoLastContextCommit(fixture.context)).rejects.toThrow('not pushed yet');
 	});
 
 	it('shows only the default branch and branches owned by the current user', async () => {
@@ -1857,15 +1943,70 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect(status.branches?.branches).not.toContain('origin');
 	});
 
-	it('rejects switching to a branch owned by another user', async () => {
+	it('opens a branch of another user read-only at its pushed head', async () => {
 		const fixture = createFixture();
-		const repo = await ensureContextWorktree(fixture.context);
-		runGit(repo.worktreeRoot, ['branch', 'colleague']);
+		await ensureContextWorktree(fixture.context);
+		const colleagueHead = pushBranch(fixture, 'colleague', 'colleague@example.com', {
+			'context.md': 'colleague\n',
+		});
 		branchOwnershipMocks.owners.set('project-id:colleague', 'user-2');
 
-		await expect(switchContextBranch(fixture.context, 'colleague')).rejects.toMatchObject({
+		const branches = await switchContextBranch(fixture.context, 'colleague');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+
+		expect(branches).toMatchObject({ currentBranch: 'colleague', isCurrentBranchOwned: false });
+		expect(file).toMatchObject({ content: 'colleague\n', isEditable: false, reason: 'branch-of-others' });
+		await expect(writeFileContent('/context.md', 'edit\n', file.hash, access)).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
+		await expect(pushContextExplorerBranch(fixture.context)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(runGit(fixture.seed, ['rev-parse', 'colleague']).toString().trim()).toBe(colleagueHead);
+	});
+
+	it('pulls the latest pushed commit of a branch of another user', async () => {
+		const fixture = createFixture();
+		const repo = await ensureContextWorktree(fixture.context);
+		pushBranch(fixture, 'colleague', 'colleague@example.com', { 'context.md': 'colleague\n' });
+		branchOwnershipMocks.owners.set('project-id:colleague', 'user-2');
+		await switchContextBranch(fixture.context, 'colleague');
+		const newHead = pushCommitOnBranch(fixture, 'colleague', { 'context.md': 'colleague again\n' });
+
+		await pullContextBranch(fixture.context);
+
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(newHead);
+	});
+
+	it('fast-forwards an own branch to its pushed head, unless it holds unpushed commits', async () => {
+		const fixture = createFixture();
+		const repo = await ensureContextWorktree(fixture.context);
+		await createContextBranch(fixture.context, 'nao/shared');
+		await commitContextFile(fixture, 'first\n');
+		await pushContextExplorerBranch(fixture.context);
+		const pushedHead = pushCommitOnBranch(fixture, 'nao/shared', { 'context.md': 'pushed elsewhere\n' });
+
+		await pullContextBranch(fixture.context);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pushedHead);
+
+		pushCommitOnBranch(fixture, 'nao/shared', { 'context.md': 'pushed again\n' });
+		await commitContextFile(fixture, 'local\n');
+		await expect(pullContextBranch(fixture.context)).rejects.toMatchObject({ code: 'CONFLICT' });
+	});
+
+	it('lists every remote branch with its last author, marking the branches of the user', async () => {
+		const fixture = createFixture();
+		const repo = await ensureContextWorktree(fixture.context);
+		pushBranch(fixture, 'colleague', 'colleague@example.com', { 'context.md': 'colleague\n' });
+		pushBranch(fixture, 'by-email', 'TEST@example.com', { 'context.md': 'mine\n' });
+		runGit(repo.worktreeRoot, ['branch', 'nao/unpushed']);
+		branchOwnershipMocks.owners.set('project-id:nao/unpushed', 'user-1');
+
+		const { branches, canFilterMine } = await listContextRepositoryBranches(fixture.context);
+		const mineByName = Object.fromEntries(branches.map((branch) => [branch.name, branch.isMine]));
+
+		expect(canFilterMine).toBe(true);
+		expect(mineByName).toEqual({ main: true, colleague: false, 'by-email': true, 'nao/unpushed': true });
+		expect(branches.find((branch) => branch.name === 'colleague')?.author).toEqual({ name: 'Test', login: null });
 	});
 
 	it('returns an unavailable status when git is unavailable or no repository is connected', async () => {
@@ -2673,6 +2814,59 @@ function createBareOriginCloneFixture(): ContextGitFixture {
 	const fixture = createLocalCloneFixture();
 	runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 	return fixture;
+}
+
+/** Pushes a branch committed by the given author from the seed clone, returning its head. */
+/** Adds a commit to a pushed branch from another checkout. */
+function pushCommitOnBranch(fixture: ContextGitFixture, branch: string, files: Record<string, string>): string {
+	runGit(fixture.seed, ['fetch', '--quiet', fixture.bare, `${branch}:${branch}`]);
+	runGit(fixture.seed, ['switch', '--quiet', branch]);
+	writeFiles(fixture.seed, files);
+	runGit(fixture.seed, ['add', '-A']);
+	runGit(fixture.seed, [
+		'-c',
+		'user.name=Test',
+		'-c',
+		'user.email=other@example.com',
+		'commit',
+		'--quiet',
+		'-m',
+		branch,
+	]);
+	runGit(fixture.seed, ['push', '--quiet', fixture.bare, branch]);
+	runGit(fixture.seed, ['switch', '--quiet', 'main']);
+	return runGit(fixture.seed, ['rev-parse', branch]).toString().trim();
+}
+
+async function commitContextFile(fixture: ContextGitFixture, content: string): Promise<void> {
+	const access = await fileAccess(fixture.context);
+	const file = await readFileContent('/context.md', access);
+	await writeFileContent('/context.md', content, file.hash, access);
+	await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Edit context' });
+}
+
+function pushBranch(
+	fixture: ContextGitFixture,
+	branch: string,
+	authorEmail: string,
+	files: Record<string, string>,
+): string {
+	runGit(fixture.seed, ['switch', '--quiet', '-c', branch, 'main']);
+	writeFiles(fixture.seed, files);
+	runGit(fixture.seed, ['add', '-A']);
+	runGit(fixture.seed, [
+		'-c',
+		'user.name=Test',
+		'-c',
+		`user.email=${authorEmail}`,
+		'commit',
+		'--quiet',
+		'-m',
+		branch,
+	]);
+	runGit(fixture.seed, ['push', '--quiet', fixture.bare, branch]);
+	runGit(fixture.seed, ['switch', '--quiet', 'main']);
+	return runGit(fixture.seed, ['rev-parse', branch]).toString().trim();
 }
 
 function temporaryRoot(): string {

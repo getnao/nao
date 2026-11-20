@@ -5,16 +5,18 @@ import type { McpUserRole } from '../../types/mcp-endpoint';
 import type { McpContext } from '../logging';
 import { registerChatHistoryTools } from './chat-history';
 import { registerRecommendationTools } from './recommendations';
+import { registerTestTools } from './tests';
 
 /**
- * Observability tools over the whole project, reserved to the roles that see chat replay and context
- * recommendations in the UI. They do not depend on the sub-agent or context-layer modes.
+ * Observability tools over the whole project, reserved to the roles that see chat replay, context recommendations
+ * and tests in the UI. They do not depend on the sub-agent or context-layer modes.
  */
 export function registerContextAdminTools(server: McpServer, ctx: McpContext): void {
 	if (!canUseContextAdminTools(ctx.role)) {
 		return;
 	}
 	registerChatHistoryTools(server, ctx);
+	registerTestTools(server, ctx);
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		registerRecommendationTools(server, ctx);
 	}
