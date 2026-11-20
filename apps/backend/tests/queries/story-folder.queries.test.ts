@@ -6,6 +6,7 @@ import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { getStoryShareAccess } from '../../src/queries/shared-story.queries';
 import { canUserAccessStory } from '../../src/queries/story.queries';
+import { getByStoryId } from '../../src/queries/story-delivery.queries';
 import type { FolderViewer } from '../../src/queries/story-folder.queries';
 import {
 	archiveFolder,
@@ -55,6 +56,7 @@ describe('team folders', () => {
 	});
 
 	beforeEach(async () => {
+		await db.delete(s.storyDelivery);
 		await db.delete(s.sharedStory);
 		await db.delete(s.storyFolderItem);
 		await db.delete(s.storyFolder);
@@ -89,11 +91,20 @@ describe('team folders', () => {
 		await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'EMEA', parentId: sales.id });
 		const privateRoot = await ensurePrivateRoot(OWNER_ID, PROJECT_ID);
 		await moveStoryToFolder(STORY_ID, sales.id, { storyOwnerId: OWNER_ID, projectId: PROJECT_ID });
+		await db.insert(s.storyDelivery).values({
+			storyId: STORY_ID,
+			projectId: PROJECT_ID,
+			enabled: true,
+			channels: ['email'],
+			recipientMode: 'all',
+			recipientUserIds: [],
+		});
 
 		await deleteFolderMovingContentsToParent(sales.id);
 
 		expect(await getStoryFolderItem(STORY_ID)).toEqual({ folderId: privateRoot });
 		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toBeNull();
+		expect(await getByStoryId(STORY_ID)).toMatchObject({ enabled: false, recipientMode: 'specific' });
 		expect(await visibleFolderNames(viewerOf(MEMBER_ID, [GROUP_ID]))).toEqual(['EMEA']);
 		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
 	});

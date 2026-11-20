@@ -7,6 +7,7 @@ import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { listLockedUserGroupIds } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
+import * as storyDeliveryQueries from './story-delivery.queries';
 import type { ReferenceableStoryFilters } from './story-reference.queries';
 
 type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'excludedFolderIds' | 'sharedWithMeOnly'>;
@@ -712,6 +713,7 @@ export async function setStoryFolder(
 	}
 }
 
+/** A story losing its share also loses its delivery, which would otherwise reach every project member. */
 async function propagateShareChange(
 	storyIds: string[],
 	projectId: string,
@@ -766,11 +768,16 @@ async function propagateShareChange(
 			}
 		}
 	} else {
-		await executor
+		const unsharedProjectWide = await executor
 			.delete(s.sharedStory)
 			.where(and(inArray(s.sharedStory.storyId, storyIds), eq(s.sharedStory.visibility, 'project')))
+			.returning({ storyId: s.sharedStory.storyId })
 			.execute();
-		await revokeTeamGroups(storyIds, projectId, removedGroupIds, executor);
+		const unsharedFromGroups = await revokeTeamGroups(storyIds, projectId, removedGroupIds, executor);
+		await storyDeliveryQueries.disableAndResetRecipients(
+			[...unsharedProjectWide.map((share) => share.storyId), ...unsharedFromGroups],
+			executor,
+		);
 	}
 }
 
@@ -832,9 +839,9 @@ async function revokeTeamGroups(
 	projectId: string,
 	removedGroupIds: string[],
 	executor: DBExecutor,
-): Promise<void> {
+): Promise<string[]> {
 	if (removedGroupIds.length === 0) {
-		return;
+		return [];
 	}
 	const shares = await executor
 		.select({ id: s.sharedStory.id })
@@ -843,7 +850,7 @@ async function revokeTeamGroups(
 		.execute();
 	const shareIds = shares.map((share) => share.id);
 	if (shareIds.length === 0) {
-		return;
+		return [];
 	}
 	await executor
 		.delete(s.sharedStoryGroupAccess)
@@ -854,7 +861,7 @@ async function revokeTeamGroups(
 			),
 		)
 		.execute();
-	await executor
+	const unshared = await executor
 		.delete(s.sharedStory)
 		.where(
 			and(
@@ -864,7 +871,9 @@ async function revokeTeamGroups(
 				sql`not exists (select 1 from ${s.sharedStoryGroupAccess} where ${s.sharedStoryGroupAccess.sharedStoryId} = ${s.sharedStory.id})`,
 			),
 		)
+		.returning({ storyId: s.sharedStory.storyId })
 		.execute();
+	return unshared.map((share) => share.storyId);
 }
 
 export async function getStoryFolderItem(
