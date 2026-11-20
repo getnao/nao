@@ -143,10 +143,19 @@ export async function resolveOrganizationMembership(
 	return membership;
 }
 
-export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, type, next }) => {
+	const isWrite = type === 'mutation';
+	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId, {
+		fallbackWhenInaccessible: !isWrite,
+	});
 	if (!project) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message:
+				isWrite && ctx.selectedProjectId
+					? 'You no longer have access to the selected project. Reload the page and try again.'
+					: 'No project configured',
+		});
 	}
 	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 
