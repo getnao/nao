@@ -678,7 +678,7 @@ export async function moveStoryToFolder(
 	if (transaction) {
 		return placeStoryInFolder(storyId, folderId, options, transaction);
 	}
-	await db.transaction((tx) => placeStoryInFolder(storyId, folderId, options, tx), writeTransactionConfig);
+	await inProjectFolderTransaction(options.projectId, (tx) => placeStoryInFolder(storyId, folderId, options, tx));
 }
 
 /** Folder placement and share visibility must change together, otherwise a story can sit in a public folder unshared. */
