@@ -12,6 +12,7 @@ import { notifySharedItem } from './notification.service';
 import { assertCanShareToProject, assertCanShareWith } from './project-sharing.service';
 import { assertShareableUserGroupIds } from './shareable-user-groups.service';
 import { unshareStory } from './shared-story.service';
+import { removeStoryDeliveryRecipients } from './story-delivery.service';
 
 export type ShareActor = { id: string; name: string; role: UserRole | null; projectId: string };
 
@@ -79,7 +80,8 @@ export async function saveStoryShareSettings(
 		await assertCanShareToProject(actor.projectId, actor.id);
 	}
 	const existingShare = await sharedStoryQueries.getSharedStoryInfo(story.id, actor.projectId);
-	const newRecipients = await listNewRecipients(existingShare?.id ?? null, recipients);
+	const previousRecipients = await listShareRecipients(existingShare?.id ?? null);
+	const newRecipients = withoutRecipients(recipients, previousRecipients);
 	await assertShareableUserGroupIds(actor.projectId, newRecipients.groupIds);
 	await assertCanShareWith(actor.projectId, actor.id, newRecipients);
 
@@ -96,6 +98,9 @@ export async function saveStoryShareSettings(
 	});
 	if (!existingShare || existingShare.visibility !== change.visibility) {
 		await placeStoryInFolder(story, actor, ownerId, change.visibility);
+	}
+	if (change.visibility === 'specific') {
+		await removeStoryDeliveryRecipients(story.id, withoutRecipients(previousRecipients, recipients));
 	}
 
 	const currentRoles = await effectiveRoles(story.id, affectedUserIds);
@@ -169,21 +174,25 @@ async function unshareIfShared(story: DBStory, actor: ShareActor): Promise<void>
 	}
 }
 
-/** Only the people and groups a save adds are checked: those already on the share keep their access. */
-async function listNewRecipients(
-	shareId: string | null,
-	recipients: sharedStoryQueries.ShareRecipients,
-): Promise<sharedStoryQueries.ShareRecipients> {
+async function listShareRecipients(shareId: string | null): Promise<sharedStoryQueries.ShareRecipients> {
 	if (!shareId) {
-		return recipients;
+		return { userIds: [], groupIds: [] };
 	}
-	const [currentUserIds, currentGroupIds] = await Promise.all([
+	const [userIds, groupIds] = await Promise.all([
 		sharedStoryQueries.getSharedStoryAllowedUserIds(shareId),
 		sharedStoryQueries.getSharedStoryAllowedGroupIds(shareId),
 	]);
+	return { userIds, groupIds };
+}
+
+/** The people and groups of `recipients` that `others` does not name: those a save adds, or those it removes. */
+function withoutRecipients(
+	recipients: sharedStoryQueries.ShareRecipients,
+	others: sharedStoryQueries.ShareRecipients,
+): sharedStoryQueries.ShareRecipients {
 	return {
-		userIds: recipients.userIds.filter((id) => !currentUserIds.includes(id)),
-		groupIds: recipients.groupIds.filter((id) => !currentGroupIds.includes(id)),
+		userIds: recipients.userIds.filter((id) => !others.userIds.includes(id)),
+		groupIds: recipients.groupIds.filter((id) => !others.groupIds.includes(id)),
 	};
 }
 

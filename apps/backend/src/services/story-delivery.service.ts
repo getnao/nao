@@ -242,6 +242,23 @@ export async function disableStoryDelivery(storyId: string): Promise<void> {
 	await storyDeliveryQueries.setEnabled(storyId, false);
 }
 
+/**
+ * A delivery shares the story with its recipients before each run, so people taken off the share must leave the
+ * delivery too, or its next run would give them the story back. A delivery left without recipients is turned off.
+ */
+export async function removeStoryDeliveryRecipients(
+	storyId: string,
+	removed: { userIds: string[]; groupIds: string[] },
+): Promise<void> {
+	if (removed.userIds.length === 0 && removed.groupIds.length === 0) {
+		return;
+	}
+	const remainingRecipients = await storyDeliveryQueries.removeSpecificRecipients(storyId, removed);
+	if (remainingRecipients === 0) {
+		await disableStoryDelivery(storyId);
+	}
+}
+
 export async function teardownStoryDelivery(storyId: string): Promise<void> {
 	await syncStoryDeliveryJob(storyId, false, null);
 	await storyDeliveryQueries.disableAndResetRecipients(storyId);

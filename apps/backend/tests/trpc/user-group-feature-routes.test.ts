@@ -150,6 +150,7 @@ vi.mock('../../src/services/sso-group-mapping.service', () => ({
 vi.mock('../../src/services/story-delivery.service', () => ({
 	assertValidDeliverySchedule: vi.fn(),
 	disableStoryDelivery: vi.fn(),
+	removeStoryDeliveryRecipients: vi.fn(),
 	syncStoryDeliveryJob: vi.fn(),
 }));
 vi.mock('../../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
