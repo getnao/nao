@@ -55,7 +55,7 @@ async function getEditedAutomationId(chatId: string | undefined): Promise<string
 	return forkMetadata.id || null;
 }
 
-/** Existing automations are edited by their owner; new ones need the automation creation feature. */
+/** Existing automations are edited by their owner and editors; new ones need the automation creation feature. */
 async function assertCanEditAutomation({
 	userId,
 	projectId,
@@ -68,7 +68,7 @@ async function assertCanEditAutomation({
 		await assertUserGroupFeature(projectId, userId, 'automationCreation');
 		return null;
 	}
-	const automation = await automationQueries.getAutomation(projectId, userId, automationId);
+	const automation = await automationQueries.getAutomation(projectId, userId, automationId, 'editor');
 	if (!automation) {
 		throw new HandlerError('NOT_FOUND', `Automation not found: ${automationId}`);
 	}
