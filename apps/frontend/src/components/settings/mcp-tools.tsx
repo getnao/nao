@@ -22,7 +22,11 @@ export const CONTEXT_LAYER_TOOLS: McpTool[] = [
 	{ name: 'ls_nao_context', description: 'Lists the files of the project context.' },
 	{ name: 'grep_nao_context', description: 'Searches the project context.' },
 	{ name: 'read_nao_context', description: 'Reads a file of the project context.' },
-	{ name: 'execute_sql', description: 'Runs a SQL query on a connected database.' },
+	{
+		name: 'execute_sql',
+		description:
+			"Runs a SQL query on a connected database, or only on nao's local database when the semantic layer is exclusive.",
+	},
 	{
 		name: 'execute_semantic_query',
 		description: 'Queries metrics and dimensions of the semantic layer.',
