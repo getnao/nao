@@ -18,10 +18,12 @@ import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
 import { SettingsSqlQueryTag } from '@/components/settings/sql-query-tag';
 import { SettingsSqlWritePermissions } from '@/components/settings/sql-write-permissions';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
+import { SettingsStoryImages } from '@/components/settings/story-images';
 import { SubagentModelSection } from '@/components/settings/subagent-model-section';
 import { SettingsWebSearch } from '@/components/settings/web-search';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
@@ -122,12 +124,15 @@ function ModelsSettings({
 }
 
 function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
+	const customStoriesEnabled = useCustomStoriesEnabled();
+
 	return (
 		<>
 			<SettingsWebSearch isAdmin={isAdmin} />
 			<SavedPrompts isAdmin={isAdmin} />
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
+			{customStoriesEnabled && <SettingsStoryImages isAdmin={isAdmin} />}
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsSandboxSecrets />
 		</>
