@@ -72,9 +72,9 @@ export function buildStoryToolDescription({
 		'For unequal columns add widths="w1,w2,..." to the <grid> — one positive integer per column giving its relative width (e.g. widths="2,1" makes the first column twice as wide as the second). The number of values must equal the number of columns; omit widths for equal columns. Choose widths that fit the content, e.g. a wide time-series next to a narrow KPI or pie.',
 		'Use consecutive <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
 		'Default to a single flowing story. Use tabs only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user\'s explicit request (e.g. "a tab per chart" means one chart per tab). When using tabs, the entire story must consist of <tab title="...">...</tab> blocks — no content outside a tab.',
-		'A story can also be refered as a "canva", an "artifact" or a "report".',
+		'A story can also be referred to as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; when present, the <conversation-artifacts> block of the latest user message holds the current content of every classic story in this conversation, including user edits, and the draft file paths of custom stories (read them before editing). The tool result reflects the version just produced.',
-		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
+		'Unless explicitly asked for a story, display a chart with the display_chart tool, not with a story.',
 		...(customStories ? [customStoryDescription(canReplace)] : []),
 	].join(' ');
 }

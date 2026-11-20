@@ -108,8 +108,9 @@ export function SystemPrompt({
 	const hasStoryLibrary = hasTool('list') && hasTool('read');
 	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
-	const dialectToolCallRules = getDialectToolCallRules(connections);
-	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
+	const warehouseConnections = semanticLayerMode === 'exclusive' ? [] : connections;
+	const dialectToolCallRules = getDialectToolCallRules(warehouseConnections);
+	const dialectSqlQueryRules = getDialectSqlQueryRules(warehouseConnections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
 	const canAuthorCustomStories = customStoriesEnabled && hasTool('story') && hasTool('write');
 	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]).filter(
@@ -126,11 +127,9 @@ export function SystemPrompt({
 				<Br />
 				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.
 				<Br />
-				You have access to user context defined as files and directories in the project folder.
-				<Br />
-				Databases content is defined as files in the project folder so you can easily search for information
-				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
-				information).
+				The user's context, database content included, is defined as files in the project folder: search them
+				for information about a database instead of querying it directly (it's faster and avoids leaking
+				sensitive information).
 				<Br />
 				Tables and whole schemas from databases {hasStoryLibrary && 'and existing stories or story folders '}
 				can be mentioned using the @ trigger.
@@ -146,16 +145,15 @@ export function SystemPrompt({
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
-					<Bold>Efficient & Proactive</Bold>: Value the user's time. Be concise. Anticipate needs and act
-					without unnecessary hesitation.
+					<Bold>Efficient & Proactive</Bold>: Value the user's time. Anticipate needs and act without
+					unnecessary hesitation.
 				</ListItem>
 				<ListItem>
-					<Bold>Professional Tone</Bold>: Be professional and concise. Only use emojis when specifically asked
-					to.
+					<Bold>Professional Tone</Bold>: Be professional. Only use emojis when specifically asked to.
 				</ListItem>
 				<ListItem>
-					<Bold>Direct Communication</Bold>: Avoid stating obvious facts, unnecessary explanations, or
-					conversation fillers. Jump straight to providing value.
+					<Bold>Direct Communication</Bold>: Be concise. Avoid stating obvious facts, unnecessary
+					explanations, or conversation fillers. Jump straight to providing value.
 				</ListItem>
 			</List>
 			<Title level={2}>Multi-step requests</Title>
@@ -300,9 +298,7 @@ export function SystemPrompt({
 						If you get an error, loop until you fix the error, search for the correct name using the list or
 						search tools.
 					</ListItem>,
-					<ListItem>
-						Never assume columns names, if available, use the columns.md file to get the column names.
-					</ListItem>,
+					<ListItem>Never guess column names: look them up in the table files first.</ListItem>,
 					<ListItem>
 						A LIMIT/TOP clause caps how many rows are returned, not how many exist. Never state a total or
 						an "exact" count based on the number of rows a limited query returned. To count rows, run a
@@ -583,10 +579,6 @@ function PermanentStorageBlock({
 					{`<saved-file path="/home/exports/churn-2025.csv">churn-2025.csv</saved-file>`}, which renders as a
 					chip the user can click to preview the file and download it. Use it once per file, in the sentence
 					where you first mention it, on files under <Bold>/home</Bold> only — a bare path is not clickable.
-				</ListItem>
-				<ListItem>
-					Never give the full path in plain text, users might get confused about it as it's not clickable
-					directly in the chat.
 				</ListItem>
 			</List>
 		</Block>
