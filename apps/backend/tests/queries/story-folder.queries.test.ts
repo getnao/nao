@@ -165,9 +165,9 @@ describe('team folders', () => {
 
 	it.each([
 		{
-			case: 'keeps the recipients still reached',
-			recipientUserIds: [MEMBER_ID, OUTSIDER_ID],
-			expected: { enabled: true, recipientUserIds: [MEMBER_ID] },
+			case: 'keeps the recipients still reached, admins included',
+			recipientUserIds: [MEMBER_ID, ADMIN_ID, OUTSIDER_ID],
+			expected: { enabled: true, recipientUserIds: [MEMBER_ID, ADMIN_ID] },
 		},
 		{
 			case: 'turns off when none is left',

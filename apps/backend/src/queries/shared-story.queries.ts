@@ -301,6 +301,26 @@ export async function getSharedStoryAllowedGroupIds(
 	return rows.map((r) => r.groupId);
 }
 
+export async function listAdminsSeeingSharedStory(
+	sharedStoryId: string,
+	userIds: string[],
+	executor: DBExecutor = db,
+): Promise<string[]> {
+	const adminIds: string[] = [];
+	for (const userId of userIds) {
+		const [row] = await executor
+			.select({ id: s.sharedStory.id })
+			.from(s.sharedStory)
+			.where(and(eq(s.sharedStory.id, sharedStoryId), grantsTeamFolderStoryToAdmin(userId)))
+			.limit(1)
+			.execute();
+		if (row) {
+			adminIds.push(userId);
+		}
+	}
+	return adminIds;
+}
+
 /** Users granted directly plus the current members of every granted user group the plan keeps active. */
 export async function getSharedStoryRecipientUserIds(sharedStoryId: string): Promise<string[]> {
 	const lockedGroupIds = await listLockedGroupIdsOfSharedStory(sharedStoryId);
