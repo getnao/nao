@@ -110,23 +110,11 @@ describe('story title persistence', () => {
 	});
 
 	it.each([
-		{
-			kind: 'chat',
-			saveVersion: (code: string) =>
-				createStoryVersion({ chatId, slug: 'kpis', title: 'KPIs', code, action: 'update', source: 'user' }),
-		},
+		{ kind: 'chat', saveVersion: saveChatStoryVersion },
 		{
 			kind: 'standalone',
 			saveVersion: (code: string) =>
-				createStandaloneVersion({
-					userId,
-					projectId,
-					slug: 'kpis',
-					title: 'KPIs',
-					code,
-					action: 'update',
-					source: 'user',
-				}),
+				createStandaloneVersion({ ...KPIS, userId, projectId, code, action: 'update', origin: 'editor' }),
 		},
 	])('stops certifying a $kind story once a version its admin never reviewed is saved', async ({ saveVersion }) => {
 		const { storyId } = await saveVersion('# Reviewed');
@@ -138,4 +126,28 @@ describe('story title persistence', () => {
 		expect(certifiedBefore.certifiedByName).toBe('Story Owner');
 		expect(await getStoryCertification(storyId)).toEqual({ certifiedAt: null, certifiedByName: null });
 	});
+
+	it('keeps a story certified when a save is refused for being based on an older version', async () => {
+		const { storyId } = await saveChatStoryVersion('# Reviewed');
+		await setStoryCertification(storyId, userId);
+
+		await expect(saveChatStoryVersion('# Outdated', { action: 'replace', basedOnVersion: 4 })).rejects.toThrow();
+
+		expect((await getStoryCertification(storyId)).certifiedByName).toBe('Story Owner');
+	});
 });
+
+const KPIS = { slug: 'kpis', title: 'KPIs', source: 'user' as const };
+
+function saveChatStoryVersion(code: string, change: { action: 'replace'; basedOnVersion: number } | null = null) {
+	return createStoryVersion({
+		...KPIS,
+		chatId,
+		code,
+		action: 'update',
+		origin: 'editor',
+		authorId: userId,
+		sourceChatId: chatId,
+		...change,
+	});
+}

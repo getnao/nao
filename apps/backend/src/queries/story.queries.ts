@@ -370,6 +370,7 @@ export async function createStoryVersion(
 	if (data.basedOnVersion !== undefined) {
 		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, executor);
 	}
+	await withdrawStoryCertification(story.id, executor);
 	try {
 		const [created] = await executor
 			.insert(s.storyVersion)
@@ -385,7 +386,6 @@ export async function createStoryVersion(
 			})
 			.returning()
 			.execute();
-		await withdrawStoryCertification(story.id, executor);
 		return { ...created, title: story.title };
 	} catch (error) {
 		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
@@ -421,6 +421,7 @@ export async function createStandaloneVersion(data: {
 	if (data.basedOnVersion !== undefined) {
 		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, db);
 	}
+	await withdrawStoryCertification(story.id);
 	try {
 		const [created] = await db
 			.insert(s.storyVersion)
@@ -435,7 +436,6 @@ export async function createStandaloneVersion(data: {
 			})
 			.returning()
 			.execute();
-		await withdrawStoryCertification(story.id);
 		return { ...created, title: story.title };
 	} catch (error) {
 		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
@@ -603,7 +603,10 @@ export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
 }
 
-/** An admin certifies the version they reviewed, so a story stops being certified once a new version is saved. */
+/**
+ * An admin certifies the version they reviewed, so a story stops being certified once a new version is saved.
+ * Callers withdraw before they save: a save that then fails costs a badge, never leaves one on unreviewed text.
+ */
 export async function withdrawStoryCertification(storyId: string, executor: DBExecutor = db): Promise<void> {
 	await executor
 		.update(s.story)
