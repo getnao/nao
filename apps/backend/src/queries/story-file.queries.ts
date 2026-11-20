@@ -177,7 +177,6 @@ async function cutVersion(
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, data.storyId));
 
-	await withdrawStoryCertification(data.storyId, tx);
 	const [version] = await tx
 		.insert(s.storyVersion)
 		.values({
@@ -192,6 +191,7 @@ async function cutVersion(
 		})
 		.returning()
 		.execute();
+	await withdrawStoryCertification(data.storyId, tx);
 
 	const files = await tx
 		.insert(s.storyFile)

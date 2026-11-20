@@ -16,8 +16,8 @@ import {
 } from '../../src/queries/story.queries';
 
 vi.mock('../../src/db/db', async () => {
-	const { createInMemoryDb } = await import('../helpers/in-memory-db');
-	return { db: createInMemoryDb() };
+	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDbWithInlineTransactions() };
 });
 
 const userId = 'story-title-persistence-user';

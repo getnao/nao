@@ -370,11 +370,9 @@ export async function createStoryVersion(
 	if (data.basedOnVersion !== undefined) {
 		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, executor);
 	}
-	await withdrawStoryCertification(story.id, executor);
 	try {
-		const [created] = await executor
-			.insert(s.storyVersion)
-			.values({
+		const created = await insertVersionOfUncertifiedStory(
+			{
 				storyId: story.id,
 				code: data.code,
 				action: data.action,
@@ -383,9 +381,9 @@ export async function createStoryVersion(
 				authorId: data.authorId,
 				sourceChatId: data.sourceChatId,
 				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
-			})
-			.returning()
-			.execute();
+			},
+			executor,
+		);
 		return { ...created, title: story.title };
 	} catch (error) {
 		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
@@ -421,21 +419,16 @@ export async function createStandaloneVersion(data: {
 	if (data.basedOnVersion !== undefined) {
 		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, db);
 	}
-	await withdrawStoryCertification(story.id);
 	try {
-		const [created] = await db
-			.insert(s.storyVersion)
-			.values({
-				storyId: story.id,
-				code: data.code,
-				action: data.action,
-				source: data.source,
-				origin: data.origin,
-				authorId: data.userId,
-				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
-			})
-			.returning()
-			.execute();
+		const created = await insertVersionOfUncertifiedStory({
+			storyId: story.id,
+			code: data.code,
+			action: data.action,
+			source: data.source,
+			origin: data.origin,
+			authorId: data.userId,
+			version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+		});
 		return { ...created, title: story.title };
 	} catch (error) {
 		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
@@ -603,10 +596,19 @@ export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
 }
 
-/**
- * An admin certifies the version they reviewed, so a story stops being certified once a new version is saved.
- * Callers withdraw before they save: a save that then fails costs a badge, never leaves one on unreviewed text.
- */
+/** Saves the version and withdraws the certification together, so neither stays without the other. */
+async function insertVersionOfUncertifiedStory(
+	version: Omit<typeof s.storyVersion.$inferInsert, 'version'> & { version: number | SQL },
+	executor: DBExecutor = db,
+): Promise<DBStoryVersion> {
+	return executor.transaction(async (tx) => {
+		const [created] = await tx.insert(s.storyVersion).values(version).returning().execute();
+		await withdrawStoryCertification(version.storyId, tx);
+		return created;
+	});
+}
+
+/** An admin certifies the version they reviewed, so a story stops being certified once a new version is saved. */
 export async function withdrawStoryCertification(storyId: string, executor: DBExecutor = db): Promise<void> {
 	await executor
 		.update(s.story)
