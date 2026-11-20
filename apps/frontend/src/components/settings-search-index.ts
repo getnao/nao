@@ -377,8 +377,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Advanced',
 		search: { tab: 'advanced' },
 		title: 'Group budgets',
-		description: 'Give every member of a user group the same spending cap instead of the default.',
-		keywords: ['group budget', 'budget per group', 'user group', 'team budget', 'enterprise'],
+		description:
+			'Give every member of a user group the same spending cap, or cap the combined spend of the whole group.',
+		keywords: [
+			'group budget',
+			'budget per group',
+			'user group',
+			'team budget',
+			'shared budget',
+			'group usage',
+			'combined spend',
+			'enterprise',
+		],
 		adminOnly: true,
 	},
 
