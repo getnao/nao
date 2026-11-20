@@ -75,13 +75,23 @@ describe('publishing a custom story', () => {
 	});
 
 	it.each([
-		['an image from a source the project does not allow', 'https://upload.wikimedia.org/python-logo.svg', false],
-		['an image from an allowed source', 'https://cdn.acme.com/brand/logo.png', true],
-		['a link to a web page', 'https://docs.example.com/guide', true],
-	])('with %s, publishes: %s', async (_case, link, published) => {
+		[
+			'an image from a source the project does not allow',
+			false,
+			'<Image src="https://upload.wikimedia.org/python-logo.svg" alt="" />',
+		],
+		['an image from an allowed source', true, '<Image src="https://cdn.acme.com/brand/logo.png" alt="" />'],
+		[
+			'an image without a file extension from a source the project does not allow',
+			false,
+			'<Image alt="" src="https://images.example.com/photo/123" />',
+		],
+		['a link to a picture', true, '<a href="https://upload.wikimedia.org/python-logo.svg">Original</a>'],
+		['a link to a web page', true, '<p>See https://docs.example.com/guide</p>'],
+	])('with %s, publishes: %s', async (_case, published, jsx) => {
 		await storyFileQueries.writeDraftFile(STORY_ID, {
 			path: 'app.jsx',
-			content: `export default () => <Image src="${link}" alt="" />;`,
+			content: `export default () => ${jsx};`,
 		});
 
 		const output = await publish();
