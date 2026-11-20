@@ -108,8 +108,9 @@ export function SystemPrompt({
 	const hasStoryLibrary = hasTool('list') && hasTool('read');
 	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
-	const dialectToolCallRules = getDialectToolCallRules(connections);
-	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
+	const warehouseConnections = semanticLayerMode === 'exclusive' ? [] : connections;
+	const dialectToolCallRules = getDialectToolCallRules(warehouseConnections);
+	const dialectSqlQueryRules = getDialectSqlQueryRules(warehouseConnections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
 	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]);
 
