@@ -118,7 +118,7 @@ export function DateFormatSection({ isAdmin }: DateFormatSectionProps) {
 
 	return (
 		<SettingsCard
-			title='Date format'
+			title='Date format 📅'
 			description='Choose how dates are displayed in charts, tooltips and query result tables for this project.'
 		>
 			<div className='grid gap-2'>
