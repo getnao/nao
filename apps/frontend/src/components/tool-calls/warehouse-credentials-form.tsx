@@ -359,9 +359,9 @@ export function WarehouseCredentialsForm({
 													form={form}
 													name='sshHostKey'
 													label='Bastion Host Key'
-													hint='(optional)'
-													placeholder='Enter the bastion host key'
-													required={false}
+													hint="The bastion's public SSH host key"
+													placeholder='bastion.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…'
+													required={true}
 												/>
 											</div>
 										</>

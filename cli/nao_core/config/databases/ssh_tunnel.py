@@ -35,7 +35,7 @@ class SSHTunnelConfig(BaseModel):
     )
     ssh_host_key: str | None = Field(
         default=None,
-        description="Expected SSH bastion host key",
+        description="Expected SSH bastion host key as one OpenSSH known_hosts line",
     )
 
     @model_validator(mode="after")
@@ -84,12 +84,14 @@ def _create_ssh_tunnel(
     )
     from sshtunnel import SSHTunnelForwarder
 
+    host_key = _parse_ssh_host_key(config.ssh_host_key, dependency_extra) if config.ssh_host_key else None
+
     return SSHTunnelForwarder(
         (config.ssh_host, config.ssh_port),
         ssh_username=config.ssh_username,
         ssh_pkey=_load_private_key(config, dependency_extra),
         ssh_private_key_password=(config.ssh_private_key_passphrase if config.ssh_private_key_path else None),
-        ssh_host_key=config.ssh_host_key,
+        ssh_host_key=host_key,
         remote_bind_address=(remote_host, remote_port),
         local_bind_address=("127.0.0.1", 0),
     )
@@ -129,6 +131,31 @@ def _parse_private_key(private_key: str, passphrase: str | None, dependency_extr
         except (SSHException, ValueError) as error:
             last_error = error
     raise ValueError("The SSH private key is invalid or its passphrase is incorrect") from last_error
+
+
+def _parse_ssh_host_key(host_key: str, dependency_extra: str) -> PKey:
+    require_dependency(
+        "paramiko",
+        dependency_extra,
+        "for SSH host key verification",
+    )
+    from paramiko import SSHException
+    from paramiko.hostkeys import HostKeyEntry, InvalidHostKey
+
+    lines = [line.strip() for line in host_key.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+    if len(lines) != 1:
+        raise ValueError("Exactly one SSH bastion host key is required")
+
+    try:
+        entry = HostKeyEntry.from_line(lines[0])
+    except (InvalidHostKey, SSHException, ValueError) as error:
+        raise ValueError("The SSH bastion host key is invalid") from error
+
+    if entry is None or entry.key is None:
+        raise ValueError("The SSH bastion host key is invalid")
+
+    return entry.key
 
 
 class _TunneledBackend:

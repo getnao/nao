@@ -60,8 +60,24 @@ ALLOWED_FIELDS = {
         "driver",
         "ssh_tunnel",
     },
-    "mysql": {"host", "port", "user", "database", "password", "schema_name", "ssh_tunnel"},
-    "postgres": {"host", "port", "user", "database", "password", "schema_name", "ssh_tunnel"},
+    "mysql": {
+        "host",
+        "port",
+        "user",
+        "database",
+        "password",
+        "schema_name",
+        "ssh_tunnel",
+    },
+    "postgres": {
+        "host",
+        "port",
+        "user",
+        "database",
+        "password",
+        "schema_name",
+        "ssh_tunnel",
+    },
     "redshift": {
         "host",
         "port",
@@ -169,7 +185,10 @@ def sanitize_warehouse_credentials(
     ]
 
     ssh_tunnel = credentials.get("ssh_tunnel")
-    if provider in ("redshift", "postgres", "mysql", "mssql") and ssh_tunnel is not None:
+    if (
+        provider in ("redshift", "postgres", "mysql", "mssql")
+        and ssh_tunnel is not None
+    ):
         if not isinstance(ssh_tunnel, dict):
             issues.append(
                 {
@@ -187,6 +206,14 @@ def sanitize_warehouse_credentials(
                 }
                 for field in sorted(ssh_tunnel.keys() - ALLOWED_SSH_TUNNEL_FIELDS)
             ]
+            if not ssh_tunnel.get("ssh_host_key"):
+                issues.append(
+                    {
+                        "type": "missing",
+                        "loc": ("ssh_tunnel", "ssh_host_key"),
+                        "input": None,
+                    }
+                )
 
     issues += [
         {"type": "missing", "loc": (field,), "input": None}

@@ -69,6 +69,8 @@ describe('WarehouseCredentialsForm', () => {
 			expect((screen.getByLabelText('Bastion Port') as HTMLInputElement).value).toBe('22');
 			expect(screen.getByLabelText('SSH Username')).toBeTruthy();
 			expect(screen.getByLabelText('SSH Private Key')).toBeTruthy();
+			expect((screen.getByLabelText(/Bastion Host Key/) as HTMLInputElement).required).toBe(true);
+			expect(screen.getByText('Paste one OpenSSH known_hosts line')).toBeTruthy();
 		},
 	);
 
