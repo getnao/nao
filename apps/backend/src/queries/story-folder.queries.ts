@@ -458,13 +458,17 @@ export async function updateFolder(id: string, data: { name?: string }): Promise
 /** A deleted team folder never opens its content: subfolders keep its groups, stories go back to their owners. */
 export async function deleteFolderMovingContentsToParent(folderId: string): Promise<void> {
 	await assertNotSystemFolder(folderId);
-	const folder = await getFolderById(folderId);
-	if (!folder) {
+	const projectFolder = await getFolderById(folderId);
+	if (!projectFolder) {
 		return;
 	}
-	const newParentId = folder.parentId;
 
-	await db.transaction(async (tx) => {
+	await inProjectFolderTransaction(projectFolder.projectId, async (tx) => {
+		const folder = await getFolderById(folderId, tx);
+		if (!folder) {
+			return;
+		}
+		const newParentId = folder.parentId;
 		const groupIds = await listFolderGroupIds(folderId, tx);
 		if (groupIds.length > 0) {
 			await returnStoriesToOwners(folderId, folder.projectId, tx);
@@ -491,7 +495,7 @@ export async function deleteFolderMovingContentsToParent(folderId: string): Prom
 		}
 
 		await tx.delete(s.storyFolder).where(eq(s.storyFolder.id, folderId)).execute();
-	}, writeTransactionConfig);
+	});
 }
 
 async function returnStoriesToOwners(folderId: string, projectId: string, executor: DBExecutor): Promise<void> {
