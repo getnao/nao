@@ -27,7 +27,7 @@ import {
 import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { listAddedTestPaths } from '../utils/test-comparison';
+import { listOneSidedTests, type OneSidedTests } from '../utils/test-comparison';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import type { AgentRunResult } from './agent';
 import {
@@ -109,8 +109,8 @@ interface TestSuitePlan {
 interface TestRunPlan extends TestSuitePlan {
 	variants: TestContextVariant[];
 	draftFolder: string | null;
-	/** Tests the changes add, which only run against the draft, as production does not have them. */
-	addedTestPaths: ReadonlySet<string>;
+	/** Tests the changes add or delete, which only run on the side that has them. */
+	oneSidedTests: OneSidedTests;
 }
 
 type TestRunContext = Pick<NewTestRun, 'trigger' | 'contextRef' | 'contextCommit' | 'contextChanges'>;
@@ -131,7 +131,7 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	const plan = await planTestRun(input, projectFolder, suite);
 	return createAndExecuteRun(
 		input,
-		{ ...plan, variants: ['production'], draftFolder: null, addedTestPaths: new Set() },
+		{ ...plan, variants: ['production'], draftFolder: null, oneSidedTests: new Map() },
 		{ trigger: getProductionRunTrigger(input) },
 	);
 }
@@ -174,11 +174,14 @@ async function startDraftContextRun(
 					: NO_CONTEXT_CHANGES_MESSAGE,
 			);
 		}
-		const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(snapshot.folder);
+		const oneSidedTests = listOneSidedTests(snapshot.changes);
+		const suite = input.tests
+			? { tests: input.tests, invalidFiles: [] }
+			: discoverChangedTests({ projectFolder, draftFolder: snapshot.folder, variants, oneSidedTests });
 		const plan = await planTestRun(input, projectFolder, suite);
 		run = await createAndExecuteRun(
 			input,
-			{ ...plan, variants, draftFolder: snapshot.folder, addedTestPaths: listAddedTestPaths(snapshot.changes) },
+			{ ...plan, variants, draftFolder: snapshot.folder, oneSidedTests },
 			{
 				trigger,
 				contextRef: snapshot.ref,
@@ -192,6 +195,23 @@ async function startDraftContextRun(
 	}
 	removeLeftoverContextSnapshots(projectFolder, input.projectId);
 	return run;
+}
+
+/** The tests of the changes, and those they delete when the run also runs against production, which still has them. */
+function discoverChangedTests(input: {
+	projectFolder: string;
+	draftFolder: string;
+	variants: TestContextVariant[];
+	oneSidedTests: OneSidedTests;
+}): TestSuite {
+	const suite = discoverTests(input.draftFolder);
+	if (!input.variants.includes('production')) {
+		return suite;
+	}
+	const deletedTests = discoverTests(input.projectFolder).tests.filter(
+		(test) => input.oneSidedTests.get(test.path) === 'production',
+	);
+	return { ...suite, tests: [...suite.tests, ...deletedTests] };
 }
 
 async function createRunContextSnapshot(
@@ -453,7 +473,8 @@ function buildAttemptJobs(plan: TestRunPlan): TestAttemptJob[] {
 }
 
 function listTestVariants(test: TestDefinition, plan: TestRunPlan): TestContextVariant[] {
-	return plan.addedTestPaths.has(test.path) ? plan.variants.filter((variant) => variant === 'draft') : plan.variants;
+	const side = plan.oneSidedTests.get(test.path);
+	return side ? plan.variants.filter((variant) => variant === side) : plan.variants;
 }
 
 async function runAttemptUnlessCancelled(

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	consumeHistoricalContextDiffSearch,
 	consumeOpenTestsSearch,
+	getDocViewTestsPage,
 	getHistoricalContextDiffTarget,
 	parseContextExplorerCommit,
 	parseContextExplorerPath,
@@ -90,6 +91,19 @@ describe('context explorer search', () => {
 		expect(search).toEqual({ path: '/RULES.md', tests: 'open' });
 		expect(consumeOpenTestsSearch(search)).toEqual({ path: '/RULES.md' });
 		expect(validateContextExplorerSearch({ tests: 'closed' })).toEqual({});
+	});
+
+	it.each([
+		{ search: { path: '/RULES.md' }, expected: null },
+		{ search: { path: '/RULES.md', tests: 'open' as const }, expected: { type: 'suite' } },
+		{ search: { testRun: 'run-1' }, expected: { type: 'suite' } },
+		{
+			search: { tests: 'open' as const, test: '/tests/revenue.yml' },
+			expected: { type: 'test', path: '/tests/revenue.yml' },
+		},
+		{ search: { test: '/RULES.md' }, expected: null },
+	])('shows the tests page of $search in the doc view', ({ search, expected }) => {
+		expect(getDocViewTestsPage(search)).toEqual(expected);
 	});
 
 	it('does not activate a partial historical range', () => {

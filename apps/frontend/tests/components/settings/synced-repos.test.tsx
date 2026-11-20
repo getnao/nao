@@ -28,7 +28,9 @@ vi.mock('@/main', () => ({
 					queryKey: ['upstream-changes', input],
 					queryFn: () => mocks.getUpstreamChanges(input),
 				}),
+				queryKey: (input: { repo: string; branch: string }) => ['upstream-changes', input],
 			},
+			listTests: { queryKey: (input: unknown) => ['tests', input] },
 			listRuns: { queryOptions: () => ({ queryKey: ['runs'], queryFn: mocks.listRuns }) },
 			getDraftContext: {
 				queryOptions: () => ({ queryKey: ['draft-context'], queryFn: () => ({ status: 'none' }) }),
@@ -107,6 +109,20 @@ describe('SyncedRepos', () => {
 		expect(screen.getByRole('link', { name: /#87/ }).getAttribute('href')).toBe(
 			'https://github.com/acme/business/pull/87',
 		);
+	});
+
+	it('pulls the latest commit of the picked branch again', async () => {
+		localStorage.setItem(
+			'nao-test-upstream-source',
+			JSON.stringify({ repo: 'business', branch: 'analyst/net-revenue' }),
+		);
+		renderRepos();
+		const pullButton = await screen.findByRole('button', { name: 'Pull the latest commit' });
+
+		expect(pullButton.getAttribute('title')).toBe('Pull the latest commit of analyst/net-revenue, now at def456');
+		fireEvent.click(pullButton);
+
+		await vi.waitFor(() => expect(mocks.getUpstreamChanges).toHaveBeenCalledTimes(2));
 	});
 
 	it.each([

@@ -1768,7 +1768,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Tests',
-		description: 'Run the context tests from the Tests drawer of the Context Hub and review their results.',
+		description: 'Run the context tests from the Tests of the Context Hub and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
 	},

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 
 import { FileViewer } from '@/components/settings/file-viewer';
+import { useContextFile } from '@/hooks/use-upstream-context';
 import { trpc } from '@/main';
 
 interface ContextHubFileProps {
@@ -13,7 +14,7 @@ interface ContextHubFileProps {
 /** A context file in the Context Hub, rendered as a document and editable when the user may change it. */
 export function ContextHubFile({ path, onDirtyChange, onOpenFile }: ContextHubFileProps) {
 	const navigate = useNavigate();
-	const fileContent = useQuery(trpc.contextExplorer.readFile.queryOptions({ path }));
+	const fileContent = useContextFile(path);
 	const rulesPreviewGroups = useRulesPreviewGroupsState();
 
 	return (

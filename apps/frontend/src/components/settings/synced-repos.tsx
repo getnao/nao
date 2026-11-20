@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, FolderGit2, GitBranch, GitPullRequest, Lock } from 'lucide-react';
+import { ChevronDown, FolderGit2, GitBranch, GitPullRequest, Lock, RefreshCw } from 'lucide-react';
 
 import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { ChangeRow } from '@/components/settings/changed-file-list';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useLatestChangesRun } from '@/hooks/use-latest-changes-run';
+import { useRefreshUpstreamBranch } from '@/hooks/use-upstream-context';
 import { formatUpstreamRef, useUpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { getReviewRequestNumber } from '@/lib/review-request';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,7 @@ interface SyncedReposProps {
 export function SyncedRepos({ selectedPath, onViewDiff, onOpenTests }: SyncedReposProps) {
 	const repos = useQuery(trpc.testRun.listUpstreamRepos.queryOptions());
 	const [source, setSource] = useUpstreamTestSource();
+	const refreshBranch = useRefreshUpstreamBranch();
 	if (!repos.data?.length) {
 		return null;
 	}
@@ -54,11 +56,14 @@ export function SyncedRepos({ selectedPath, onViewDiff, onOpenTests }: SyncedRep
 							name={repo.name}
 							productionBranch={repo.branch}
 							pickedBranch={pickedBranch}
-							onPickBranch={(branch) =>
-								setSource(
-									branch === null || branch === repo.branch ? null : { repo: repo.name, branch },
-								)
-							}
+							onPickBranch={(branch) => {
+								const picked =
+									branch === null || branch === repo.branch ? null : { repo: repo.name, branch };
+								setSource(picked);
+								if (picked) {
+									void refreshBranch(picked);
+								}
+							}}
 							onOpenTests={onOpenTests}
 						/>
 						{pickedBranch && (
@@ -171,12 +176,23 @@ function PickedBranchActions({ source, onOpenTests }: { source: UpstreamTestSour
 		commit: upstreamChanges.data?.commit ?? null,
 	});
 	const reviewRequest = upstreamChanges.data?.reviewRequest ?? null;
+	const refreshBranch = useRefreshUpstreamBranch();
 	if (upstreamChanges.isLoading) {
 		return <Spinner className='size-3' />;
 	}
 
 	return (
 		<>
+			<Button
+				variant='ghost-muted'
+				size='icon-xs'
+				aria-label='Pull the latest commit'
+				title={describePullButton(source.branch, upstreamChanges.data?.commit)}
+				disabled={upstreamChanges.isFetching}
+				onClick={() => void refreshBranch(source)}
+			>
+				<RefreshCw className={cn(upstreamChanges.isFetching && 'animate-spin')} />
+			</Button>
 			<TestStatusButton
 				label='Test this branch'
 				result={latestRun}
@@ -249,6 +265,12 @@ function UpstreamBranchChanges({
 function getPathInRepo(path: string, repo: string): string {
 	const repoFolder = `repos/${repo}/`;
 	return path.startsWith(repoFolder) ? path.slice(repoFolder.length) : path;
+}
+
+function describePullButton(branch: string, commit: string | undefined): string {
+	return commit
+		? `Pull the latest commit of ${branch}, now at ${commit.slice(0, 7)}`
+		: `Pull the latest commit of ${branch}`;
 }
 
 function getReviewRequestLabel(url: string): string {

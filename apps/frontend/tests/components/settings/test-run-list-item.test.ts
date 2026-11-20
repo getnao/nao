@@ -129,17 +129,16 @@ describe('describeRunListItem', () => {
 		expect(view.result?.tooltip).toBe('2 of 2 tests pass on master, 3 of 3 with your changes');
 	});
 
-	it('calls a single compared test the changes add new', () => {
+	it.each([
+		['draft' as const, { label: 'new', tooltip: 'New test, not on master' }],
+		['production' as const, { label: 'removed', tooltip: 'Test deleted by your changes' }],
+	])('calls a single compared test the changes add or delete by the only side it ran on (%s)', (side, result) => {
 		const view = describeRunListItem(
-			run({
-				trigger: 'comparison',
-				selection: ['margin.yml'],
-				draft: totals({ testCount: 1, passedTests: 1 }),
-			}),
+			run({ trigger: 'comparison', selection: ['margin.yml'], [side]: totals({ testCount: 1, passedTests: 1 }) }),
 			CONTEXT,
 		);
 
-		expect(view.result).toEqual({ label: 'new', tooltip: 'New test, not on master' });
+		expect(view.result).toEqual(result);
 	});
 
 	it.each([

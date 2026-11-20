@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 
 import { ACTIVE_RUN_REFETCH_MS, isActiveRun } from '@/components/settings/test-run-types';
+import { useTestSuite } from '@/hooks/use-upstream-context';
 import { trpc } from '@/main';
 
 /**
@@ -16,7 +17,7 @@ export function useTestDrawerData() {
 		refetchInterval: (query) => (query.state.data?.some(isActiveRun) ? ACTIVE_RUN_REFETCH_MS : false),
 	});
 	const draftContext = useQuery(trpc.testRun.getDraftContext.queryOptions());
-	const suite = useQuery(trpc.testRun.listTests.queryOptions());
+	const suite = useTestSuite();
 	const changedFilesUpdatedAt = useQuery({
 		...trpc.contextExplorer.getChangedFiles.queryOptions(),
 		enabled: false,

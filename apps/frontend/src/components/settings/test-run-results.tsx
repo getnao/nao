@@ -1,6 +1,7 @@
 import { pluralize } from '@nao/shared';
 import { toExplorerTestPath } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
+import { CircleDashed } from 'lucide-react';
 import { useState } from 'react';
 
 import type { ReactNode } from 'react';
@@ -40,6 +41,8 @@ interface RunTest {
 	outcome: { passedAttempts: number; totalAttempts: number; expectedAttempts: number; modelsDisagree: boolean };
 	failure: string | null;
 	comparison: TestComparisonRow | null;
+	/** Planned by the run, with no attempt recorded yet. */
+	isQueued: boolean;
 }
 
 type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
@@ -111,7 +114,7 @@ function RunResults({
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
 					run={run}
-					testPaths={visibleTests.map((test) => test.testPath)}
+					testPaths={visibleTests.filter((test) => !test.isQueued).map((test) => test.testPath)}
 					onOpenTest={openTest}
 				/>
 			) : (
@@ -187,11 +190,19 @@ function RunTestList({
 			{tests.map((test) => (
 				<TestRow
 					key={test.testPath}
-					icon={<ToneIcon tone={variantTone(run, test.outcome)} isLabelled />}
+					icon={
+						test.isQueued ? (
+							<QueuedIcon isActive={isActive} />
+						) : (
+							<ToneIcon tone={variantTone(run, test.outcome)} isLabelled />
+						)
+					}
 					name={test.testName}
 					path={test.testPath}
 					detail={
-						test.comparison ? (
+						test.isQueued ? (
+							<span className='text-muted-foreground'>{isActive ? 'Queued' : 'Not run'}</span>
+						) : test.comparison ? (
 							<ComparisonDetail
 								comparison={test.comparison}
 								mainBranch={mainBranch}
@@ -292,7 +303,7 @@ function ComparisonDetail({
 		<ComparisonColumns
 			production={
 				comparison.change === 'new' ? (
-					<NotOnMainBranch mainBranch={mainBranch} />
+					<MissingVariant title={`Not on ${mainBranch}`} />
 				) : (
 					<VariantOutcomeCell
 						side={mainBranch}
@@ -302,7 +313,15 @@ function ComparisonDetail({
 				)
 			}
 			draft={
-				<VariantOutcomeCell side='Yours' outcome={comparison.draft} attemptsPerVariant={attemptsPerVariant} />
+				comparison.change === 'removed' ? (
+					<MissingVariant title='Deleted by your changes' />
+				) : (
+					<VariantOutcomeCell
+						side='Yours'
+						outcome={comparison.draft}
+						attemptsPerVariant={attemptsPerVariant}
+					/>
+				)
 			}
 			change={
 				comparison.change === 'unchanged' ? null : (
@@ -313,8 +332,7 @@ function ComparisonDetail({
 	);
 }
 
-function NotOnMainBranch({ mainBranch }: { mainBranch: string }) {
-	const title = `Not on ${mainBranch}`;
+function MissingVariant({ title }: { title: string }) {
 	return (
 		<span title={title} aria-label={title} className='text-muted-foreground'>
 			—
@@ -366,9 +384,37 @@ function AttemptsDetail({
 	);
 }
 
-/** The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. */
+function QueuedIcon({ isActive }: { isActive: boolean }) {
+	return (
+		<CircleDashed
+			aria-label={isActive ? 'Queued' : 'Not run'}
+			className='size-3.5 shrink-0 text-muted-foreground/60'
+		/>
+	);
+}
+
+/**
+ * The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. The
+ * tests the run planned but has not tried yet follow, as queued.
+ */
 function listRunTests(run: TestRunWithResults): RunTest[] {
 	const expectedAttempts = run.models.length * run.attempts;
+	const tests = listTestsWithResults(run, expectedAttempts);
+	const listedPaths = new Set(tests.map((test) => test.testPath));
+	const queuedTests = (run.selection ?? [])
+		.filter((testPath) => !listedPaths.has(testPath))
+		.map((testPath) => ({
+			testPath,
+			testName: getTestFileName(testPath),
+			outcome: { passedAttempts: 0, totalAttempts: 0, expectedAttempts, modelsDisagree: false },
+			failure: null,
+			comparison: null,
+			isQueued: true,
+		}));
+	return [...tests, ...queuedTests];
+}
+
+function listTestsWithResults(run: TestRunWithResults, expectedAttempts: number): RunTest[] {
 	if (run.comparison) {
 		return run.comparison.tests.map((test) => ({
 			testPath: test.testPath,
@@ -376,6 +422,7 @@ function listRunTests(run: TestRunWithResults): RunTest[] {
 			outcome: { ...test.draft, expectedAttempts, modelsDisagree: false },
 			failure: null,
 			comparison: test,
+			isQueued: false,
 		}));
 	}
 	const disagreeing = run.models.length > 1 ? listTestsWhereModelsDisagree(run) : new Set<string>();
@@ -390,7 +437,13 @@ function listRunTests(run: TestRunWithResults): RunTest[] {
 		},
 		failure: findFailureReason(results),
 		comparison: null,
+		isQueued: false,
 	}));
+}
+
+/** A queued test has no result to read its name from, and is named after its file unless its YAML names it. */
+function getTestFileName(testPath: string): string {
+	return (testPath.split('/').at(-1) ?? testPath).replace(/\.ya?ml$/, '');
 }
 
 function filterTestsByTag(run: TestRunWithResults, tests: RunTest[], tag: string | null): RunTest[] {

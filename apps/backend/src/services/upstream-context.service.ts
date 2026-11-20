@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import type { RepoBranchList } from '@nao/shared/types';
 
 import { env } from '../env';
 import type { LinkedContextRepo } from '../types/context-recommendation';
-import type { TestContextChange } from '../types/test-run';
+import type { TestContextChange, TestSuite } from '../types/test-run';
 import { extractConfiguredRepos, extractRawRepoConfig, resolveEnvReferences } from '../utils/nao-config';
 import { assertNoSymlinkInWritePath, resolveWritePath } from '../utils/safe-file-write';
 import {
@@ -20,6 +21,7 @@ import {
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import type { ReviewRequest } from './review-request-provider';
 import { resolveRepositoryProvider } from './shared-github-token.service';
+import { discoverTests } from './test-suite.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -189,6 +191,25 @@ export async function readUpstreamChanges(input: UpstreamBranchInput): Promise<U
 	return { ref: synced.ref, commit: synced.commit, changes, reviewRequest };
 }
 
+/**
+ * The tests as `nao sync` at the branch would leave them: those the repository syncs come from the branch, the others
+ * from production.
+ */
+export async function discoverUpstreamTests(input: UpstreamBranchInput): Promise<TestSuite> {
+	const remote = await resolveGitRemote({ ...input, repo: input.upstream.repo });
+	const synced = await syncUpstreamBranch(input, remote);
+	const isSyncedTest = ({ path: testPath }: { path: string }) =>
+		synced.contextFolders.some((folder) => `${TESTS_FOLDER}/${testPath}`.startsWith(`${folder}/`));
+	const production = discoverTests(input.projectFolder);
+	const branch = discoverTests(synced.folder);
+	return {
+		tests: [...production.tests.filter((test) => !isSyncedTest(test)), ...branch.tests].sort(byPath),
+		invalidFiles: [...production.invalidFiles.filter((file) => !isSyncedTest(file)), ...branch.invalidFiles].sort(
+			byPath,
+		),
+	};
+}
+
 /** A failed lookup only hides the link, as the changes can be reviewed and tested without it. */
 async function findUpstreamReviewRequest(remote: GitRemote, input: UpstreamBranchInput): Promise<ReviewRequest | null> {
 	const { linkedRepo } = remote;
@@ -325,6 +346,10 @@ function readTextFile(root: string, repoPath: string): string | null {
 		return null;
 	}
 	return content.toString('utf8');
+}
+
+function byPath(left: { path: string }, right: { path: string }): number {
+	return left.path.localeCompare(right.path);
 }
 
 function toFolderName(name: string): string {
