@@ -441,6 +441,6 @@ jobs:
                               ? description.replace(sectionPattern, () => {
                                     return section;
                                 })
-                              : `${description.trimEnd()}\n\n${section}`;
-                          await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body: updated.trimStart() });
+                              : [description.trimEnd(), section].filter(Boolean).join('\n\n');
+                          await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body: updated });
                       }
