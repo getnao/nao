@@ -1,3 +1,4 @@
+import { formatCount } from '@nao/shared';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Code, Copy, Download, Layers, Palette, PanelRight, Table as TableIcon } from 'lucide-react';
@@ -137,7 +138,7 @@ export const ExecuteSemanticQueryToolCall = ({
 					</span>
 				</span>
 			}
-			badge={output?.row_count && `${output.row_count} rows`}
+			badge={output && formatCount(output.row_count, 'row')}
 			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'definition' && input ? (
