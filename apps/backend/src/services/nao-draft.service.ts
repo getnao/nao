@@ -17,8 +17,8 @@ import {
 	getCommittedProjectPaths,
 	getWorktreeProjectRoot,
 	normalizeProjectPath,
-	type ResolvedContextRepo,
 	resolveContextRepository,
+	type ResolvedContextRepo,
 } from '../utils/context-repo';
 import { tryRunGit } from '../utils/git-repo';
 import { writeFileAtomically } from '../utils/safe-file-write';
