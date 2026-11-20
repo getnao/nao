@@ -50,6 +50,7 @@ export interface StoryHtmlApi {
 	querySql(queryId: string): Promise<string>;
 	narratives(): Promise<StoryNarratives>;
 	mapBoundary(key: string): Promise<StoryMapBoundary>;
+	image(src: string): Promise<string>;
 	theme(): StoryTheme | null;
 	onTheme(listener: (theme: StoryTheme) => void): () => void;
 	isExport(): boolean;
@@ -176,6 +177,7 @@ export interface StoryExportData {
 	state?: StoryStateSnapshot;
 	chartPlugins?: Record<string, string>;
 	mapBoundaries?: Record<string, StoryMapBoundary>;
+	images?: Record<string, string>;
 }
 
 /** `user` rows are each viewer's own state; `project` rows are the state every viewer reads and writes together. */
@@ -302,6 +304,7 @@ export type StoryFrameMessage =
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
 	| { type: 'nao-story:chart-plugin'; requestId: string; chartType: string }
 	| { type: 'nao-story:map-boundary'; requestId: string; key: string }
+	| { type: 'nao-story:image'; requestId: string; src: string }
 	| ({ type: 'nao-story:set-state' } & StoryStateChange)
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
 	| ({ type: 'nao-story:ask' } & StoryElementAsk)
@@ -333,6 +336,8 @@ export type StoryHostMessage =
 	| { type: 'nao-story:chart-plugin-error'; requestId: string; message: string }
 	| { type: 'nao-story:map-boundary-result'; requestId: string; boundary: StoryMapBoundary }
 	| { type: 'nao-story:map-boundary-error'; requestId: string; message: string }
+	| { type: 'nao-story:image-result'; requestId: string; dataUri: string }
+	| { type: 'nao-story:image-error'; requestId: string; message: string }
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
 	| { type: 'nao-story:editing'; enabled: boolean }
 	| { type: 'nao-story:inspector'; enabled: boolean; selectsElements: boolean }
@@ -377,6 +382,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:query-sql',
 			'nao-story:chart-plugin',
 			'nao-story:map-boundary',
+			'nao-story:image',
 			'nao-story:set-state',
 			'nao-story:ask-block',
 			'nao-story:ask',
@@ -401,6 +407,8 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:chart-plugin-error',
 			'nao-story:map-boundary-result',
 			'nao-story:map-boundary-error',
+			'nao-story:image-result',
+			'nao-story:image-error',
 			'nao-story:narratives-result',
 			'nao-story:editing',
 			'nao-story:inspector',

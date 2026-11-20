@@ -23,6 +23,8 @@ export type {
 	UseSqlOptions,
 } from './story-kit/hooks';
 export { useMapBoundary, useQueryData, useSql, useStoryTheme } from './story-kit/hooks';
+export type { ImageProps } from './story-kit/image';
+export { Image } from './story-kit/image';
 export type { StoryQueryFilters, StoryQueryFilterValue, StoryQueryParams } from '@nao/shared/story-query-inputs';
 export type { StoryModel, StoryModelResult } from '@nao/shared/story-models';
 export type { KpiCardProps } from './story-kit/kpi-card';
