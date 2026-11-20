@@ -172,6 +172,15 @@ describe('StoryHeader actions', () => {
 
 		expect(screen.queryByRole('button', { name: 'Unfavorite' })).toBeNull();
 	});
+
+	it('offers to select an element of a classic story to ask about', () => {
+		const onSelectingChange = vi.fn();
+		renderHeader({ elementSelection: { isSelecting: false, onSelectingChange } });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Select an element to ask about' }));
+
+		expect(onSelectingChange).toHaveBeenCalledWith(true);
+	});
 });
 
 describe('StoryHeader editing subheader', () => {

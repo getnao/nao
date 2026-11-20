@@ -3,12 +3,12 @@ import 'prompt-mentions/style.css';
 import { useId, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AppWindow } from 'lucide-react';
 import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER, STORY_REFERENCE_MENTION_TRIGGER } from '@nao/shared';
 import { story } from '@nao/shared/tools';
 import { Prompt } from 'prompt-mentions';
 import { MentionOriginPreview, withOriginMarker } from './mention-origin-preview';
-import StoryIcon from './ui/story-icon';
+import AppWindow from './icons/app-window.svg';
+import SquarePlay from './icons/square-play.svg';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
 import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
@@ -29,7 +29,7 @@ export const storyMentionOption: MentionOption = {
 	id: STORY_MENTION_ID,
 	label: 'Story mode',
 	labelRight: 'Create a new story',
-	icon: <StoryIcon className='size-4' strokeWidth={2.25} />,
+	icon: <SquarePlay className='size-4' strokeWidth={2.25} />,
 };
 
 export const customStoryMentionOption: MentionOption = {
