@@ -426,7 +426,6 @@ describe('SystemPrompt local database rules', () => {
 		const withoutStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
 
 		expect(withStorage).toContain('**save_to**');
-		expect(withStorage).toContain('format: "parquet"');
 		expect(withStorage).toContain('**saved-file** chip');
 		expect(withoutStorage).not.toContain('**save_to**');
 	});

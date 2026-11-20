@@ -19,6 +19,16 @@ export const getSsoProviderByProviderId = async (providerId: string): Promise<DB
 	return provider ?? null;
 };
 
+export const getSsoProviderByProjectId = async (projectId: string): Promise<DBSsoProvider | null> => {
+	const [row] = await db
+		.select({ provider: s.ssoProvider })
+		.from(s.project)
+		.innerJoin(s.ssoProvider, eq(s.ssoProvider.organizationId, s.project.orgId))
+		.where(eq(s.project.id, projectId))
+		.execute();
+	return row?.provider ?? null;
+};
+
 /** Leaves out the OIDC config, so that matching an email never decrypts every provider's secret. */
 export const listSsoProviderSummaries = async (): Promise<SsoProviderSummary[]> => {
 	return db
@@ -54,6 +64,21 @@ export const updateSsoProviderConnection = async (
 		.returning()
 		.execute();
 	return updated ?? null;
+};
+
+/** Forgets the IdP tokens of every member who signed in through this provider; they get new ones at their next sign-in. */
+export const clearProviderAccountTokens = async (providerId: string): Promise<void> => {
+	await db
+		.update(s.account)
+		.set({
+			accessToken: null,
+			refreshToken: null,
+			idToken: null,
+			accessTokenExpiresAt: null,
+			refreshTokenExpiresAt: null,
+		})
+		.where(eq(s.account.providerId, providerId))
+		.execute();
 };
 
 export const deleteSsoProviderByOrganizationId = async (organizationId: string): Promise<boolean> => {

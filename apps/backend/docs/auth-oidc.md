@@ -256,6 +256,8 @@ The OIDC access token must be one Snowflake accepts, so sign-in and Snowflake ha
 
     Allow the **Refresh Token** grant type on the Okta app.
 
+    On nao Cloud, an organization admin does this in **Settings → Organization → Single sign-on (Okta)** instead: set **Issuer URL** to `https://acme.okta.com/oauth2/<authorization-server-id>` and **Additional scopes** to `offline_access session:role-any`. Members then sign in again so nao stores a token with those scopes.
+
 3. **Create the security integration in Snowflake**, as an `ACCOUNTADMIN`:
 
     ```sql
