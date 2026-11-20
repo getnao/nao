@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { LlmSelectedModel } from '@nao/shared/types';
+import { McpToolsCard } from '@/components/settings/mcp-tools';
 import { findModel, ModelSelectField } from '@/components/settings/model-select-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,8 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 	const settings = settingsQuery.data;
 	const enabled = settings?.enabled ?? true;
 	const pending = updateMutation.isPending;
+	const subAgentModeEnabled = settings?.subAgentModeEnabled ?? true;
+	const contextLayerModeEnabled = settings?.contextLayerModeEnabled ?? true;
 
 	const toggle = (field: string, value: boolean) => {
 		updateMutation.mutate({ [field]: value });
@@ -86,13 +89,13 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 					id='mcp-sub-agent-mode'
 					label='Sub-agent mode'
 					description={renderInline(
-						"Exposes `ask_nao` (plus `get_nao_answer` to poll long runs) — delegates analytics tasks to nao's agent, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
+						"Delegates analytics tasks to nao's agent through `ask_nao`, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
 					)}
-					checked={settings?.subAgentModeEnabled ?? true}
+					checked={subAgentModeEnabled}
 					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
-				{(settings?.subAgentModeEnabled ?? true) && (
+				{subAgentModeEnabled && (
 					<SubAgentModelField
 						value={settings?.subAgentModel ?? null}
 						disabled={!isAdmin || !enabled || pending}
@@ -102,14 +105,18 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				<SettingsToggleRow
 					id='mcp-context-layer-mode'
 					label='Context-layer mode'
-					description={renderInline(
-						'Exposes `ls_nao_context`, `grep_nao_context`, `read_nao_context`, `execute_sql`, `create_story`, `update_story` — the client MCP drives the workflow step by step.',
-					)}
-					checked={settings?.contextLayerModeEnabled ?? true}
+					description='Gives the client direct access to the project context and the databases: it drives the analysis step by step.'
+					checked={contextLayerModeEnabled}
 					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
 					disabled={!isAdmin || !enabled || pending}
 				/>
 			</SettingsCard>
+
+			<McpToolsCard
+				endpointEnabled={enabled}
+				subAgentModeEnabled={subAgentModeEnabled}
+				contextLayerModeEnabled={contextLayerModeEnabled}
+			/>
 
 			<ConnectionCard />
 
