@@ -11,6 +11,7 @@ import {
 	getSharedStoryAllowedGroupIds,
 	getSharedStoryAllowedUserIds,
 	getSharedStoryInfo,
+	listAdminsSeeingSharedStory,
 	sharedStoryGrantsUser,
 } from './shared-story.queries';
 import { getStoryOwnerId } from './story.queries';
@@ -815,7 +816,11 @@ async function keepDeliveryRecipientsWithinShare(
 			...(await listUserIdsInGroups(allowedGroupIds, executor)),
 			await getStoryOwnerId(storyId, executor),
 		]);
-		const userIds = delivery.recipientUserIds.filter((userId) => reachedUserIds.has(userId));
+		const unreachedUserIds = delivery.recipientUserIds.filter((userId) => !reachedUserIds.has(userId));
+		const adminIds = share ? await listAdminsSeeingSharedStory(share.id, unreachedUserIds, executor) : [];
+		const userIds = delivery.recipientUserIds.filter(
+			(userId) => reachedUserIds.has(userId) || adminIds.includes(userId),
+		);
 		const groupIds = delivery.recipientGroupIds.filter((groupId) => allowedGroupIds.includes(groupId));
 		if (
 			userIds.length === delivery.recipientUserIds.length &&
