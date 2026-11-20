@@ -5,7 +5,7 @@ export const InputSchema = z.object({
 		.string()
 		.min(1)
 		.describe(
-			'A single, focused question to ask the user. Keep it short, specific, and actionable. Ask only one thing at a time.',
+			'A single, focused question to ask the user. Keep it short, specific, and actionable.',
 		),
 	options: z
 		.array(
@@ -17,7 +17,7 @@ export const InputSchema = z.object({
 		.max(5)
 		.optional()
 		.describe(
-			'Optional 2-5 mutually exclusive answer choices. Provide options whenever the answer is naturally enumerable; omit when the question is open-ended.',
+			'Optional 2-5 mutually exclusive answer choices.',
 		),
 });
 

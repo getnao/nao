@@ -13,7 +13,7 @@ export const InputSchema = z.object({
 	action: z
 		.enum(['create', 'update', 'replace', 'publish', 'delete_files', 'revert'])
 		.describe(
-			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). Custom stories only: "publish" builds the draft files under /stories/<id>/ and, if they compile, snapshots them into a new version (build errors come back in build_errors and nothing is published); "delete_files" removes "paths" from the draft; "revert" resets the whole draft to the latest published version, or to "version" — publish afterwards to make an older version live again.',
+			'The operation. Custom stories only: "publish" builds the draft files under /stories/<id>/ and, if they compile, snapshots them into a new version (build errors come back in build_errors and nothing is published); "delete_files" removes "paths" from the draft; "revert" resets the whole draft to the latest published version, or to "version" — publish afterwards to make an older version live again.',
 		),
 	id: z
 		.string()
@@ -25,7 +25,7 @@ export const InputSchema = z.object({
 		.enum(['classic', 'custom'])
 		.optional()
 		.describe(
-			'Only for "create". "classic" (default) is a markdown story edited through this tool. "custom" is a source-based app whose files live under /stories/<id>/ and are edited with the write tool, then snapshotted with "publish".',
+			'Only for "create": "classic" (default) for a markdown story, "custom" for a source-based app under /stories/<id>/.',
 		),
 	files: z
 		.array(FileSchema)
@@ -37,7 +37,7 @@ export const InputSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid>...</grid> to lay out 2–4 charts/tables side by side, optionally with widths="2,1" (comma-separated positive integers, one per column) for unequal column widths. Use <tab title="...">...</tab> blocks for a tabbed layout.',
+			'The markdown content. Required for "create" (initial content) and "replace" (new content).',
 		),
 	paths: z
 		.array(z.string())

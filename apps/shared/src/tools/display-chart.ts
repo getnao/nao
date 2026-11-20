@@ -18,7 +18,7 @@ export const ValueFormatSchema = z.object({
 	d3_format: z
 		.string()
 		.describe(
-			'd3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s". Do not use d3\'s "%" type: for a percentage already stored as 42.5, use { d3_format: ".1f", suffix: "%" } so the value is not multiplied by 100.',
+			'd3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s".',
 		)
 		.optional(),
 	compact: z
@@ -30,13 +30,13 @@ export const ValueFormatSchema = z.object({
 	prefix: z
 		.string()
 		.describe(
-			'Free text placed before the number. Use for any currency symbol, such as "$", "€", "¥", or "£". Example USD money: { d3_format: ",.2f", prefix: "$", compact: "financial" }.',
+			'Free text placed before the number, such as a currency symbol.',
 		)
 		.optional(),
 	suffix: z
 		.string()
 		.describe(
-			'Free text placed after the number. Use for percentages and any unit. Examples: { d3_format: ".1f", suffix: "%" } for 42.5 as 42.5%; { d3_format: ",.0f", suffix: " V" } for volts; { d3_format: ".2s", suffix: "B", compact: "si" } for bytes.',
+			'Free text placed after the number, such as "%" or a unit.',
 		)
 		.optional(),
 });
