@@ -8,7 +8,7 @@ import { createTool } from '../../utils/tools';
 
 export default createTool<displayChart.Input, displayChart.Output>({
 	description:
-		'Display a chart visualization or formatted table of the data from a previous `execute_sql` tool call.',
+		'Display a chart visualization or formatted table of the data from a previous query result.',
 	inputSchema: displayChart.InputSchema,
 	outputSchema: displayChart.OutputSchema,
 
