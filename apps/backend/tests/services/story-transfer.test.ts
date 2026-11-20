@@ -27,7 +27,8 @@ vi.mock('../../src/db/db', async () => {
 	return { db: createInMemoryDbWithInlineTransactions() };
 });
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
-vi.mock('../../src/services/notification.service', () => ({
+vi.mock('../../src/services/notification.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/notification.service')>()),
 	notifySharedItem: vi.fn(async () => undefined),
 	notifyStoryTransfer: vi.fn(async () => undefined),
 }));

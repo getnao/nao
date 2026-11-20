@@ -1,6 +1,5 @@
 import { pluralize } from '@nao/shared';
 import { TESTS_FOLDER } from '@nao/shared/test-paths';
-import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, CircleDashed, History, Search, User, X } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -35,9 +34,9 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
+import { useTestSuite } from '@/hooks/use-upstream-context';
 import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 const MAX_LISTED_RUNS = 10;
 const MAX_ROW_TAGS = 2;
@@ -71,7 +70,7 @@ export function TestSuitePanel({
 	onSelectRun,
 	onOpenTest,
 }: TestSuitePanelProps) {
-	const suite = useQuery(trpc.testRun.listTests.queryOptions());
+	const suite = useTestSuite();
 	const runListContext = {
 		mainBranch: getMainBranch(draft),
 		suiteTestPaths: suite.data?.tests.map((test) => test.path),

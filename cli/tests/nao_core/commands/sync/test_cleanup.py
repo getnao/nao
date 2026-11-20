@@ -11,9 +11,10 @@ from nao_core.commands.sync.cleanup import (
     cleanup_stale_databases,
     cleanup_stale_paths,
     cleanup_stale_repos,
+    cleanup_stale_targets,
     get_database_folder_names,
 )
-from nao_core.config.repos import RepoConfig
+from nao_core.config.repos import RepoConfig, RepoTarget
 
 
 @dataclass
@@ -328,6 +329,68 @@ class TestCleanupStaleRespositories:
         remaining = {p.name for p in base_path.iterdir() if p.is_dir()}
         assert remaining == {"repo1", "repo2"}
         assert not (base_path / "old_repo").exists()
+
+
+class TestCleanupStaleTargets:
+    def test_removes_targets_no_longer_configured_and_records_the_others(self, tmp_path: Path):
+        repos = tmp_path / "repos"
+        repos.mkdir()
+        (repos / ".nao-targets").write_text("tests/analytics\ntests/finance\n")
+        create_repo_dir(tmp_path / "tests", "analytics")
+        create_repo_dir(tmp_path / "tests", "finance")
+        create_repo_dir(tmp_path / "tests", "hand-written")
+
+        cleanup_stale_targets([_repo_with_target("analytics", "tests/analytics")], repos)
+
+        assert {path.name for path in (tmp_path / "tests").iterdir()} == {"analytics", "hand-written"}
+        assert (repos / ".nao-targets").read_text() == "tests/analytics\n"
+
+    def test_refuses_a_new_target_holding_files_it_did_not_write(self, tmp_path: Path):
+        create_repo_dir(tmp_path / "tests", "analytics")
+
+        with pytest.raises(ValueError, match="tests/analytics already holds files"):
+            cleanup_stale_targets([_repo_with_target("analytics", "tests/analytics")], tmp_path / "repos")
+
+        assert (tmp_path / "tests" / "analytics" / "README.md").exists()
+
+    def test_keeps_a_recorded_target_with_spaces_in_its_path(self, tmp_path: Path):
+        repos = tmp_path / "repos"
+        repos.mkdir()
+        (repos / ".nao-targets").write_text("tests/sales analytics\n")
+        create_repo_dir(tmp_path / "tests", "sales analytics")
+
+        cleanup_stale_targets([_repo_with_target("sales", "tests/sales analytics")], repos)
+
+        assert (tmp_path / "tests" / "sales analytics" / "README.md").exists()
+
+    def test_does_not_follow_a_link_out_of_the_project(self, tmp_path: Path):
+        project = tmp_path / "project"
+        outside = create_repo_dir(tmp_path, "outside")
+        create_repo_dir(outside, "tests")
+        (project / "repos").mkdir(parents=True)
+        (project / "docs").symlink_to(outside, target_is_directory=True)
+        (project / "repos" / ".nao-targets").write_text("docs/tests\n")
+
+        cleanup_stale_targets([], project / "repos")
+
+        assert (outside / "tests" / "README.md").exists()
+
+    def test_ignores_a_recorded_path_that_is_not_a_valid_target(self, tmp_path: Path):
+        repos = tmp_path / "repos"
+        repos.mkdir()
+        (repos / ".nao-targets").write_text("tests\n")
+        create_repo_dir(tmp_path, "tests")
+
+        cleanup_stale_targets([], repos)
+
+        assert (tmp_path / "tests" / "README.md").exists()
+        assert not (repos / ".nao-targets").exists()
+
+
+def _repo_with_target(name: str, target: str) -> RepoConfig:
+    return RepoConfig(
+        name=name, url=f"https://example.com/{name}.git", targets=[RepoTarget(source="nao/tests", target=target)]
+    )
 
 
 def create_repo_dir(base: Path, name: str) -> Path:

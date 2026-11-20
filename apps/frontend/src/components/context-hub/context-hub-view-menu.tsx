@@ -12,8 +12,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 const VIEW_OPTIONS: ReadonlyArray<{ value: ContextHubView; label: string; description: string }> = [
-	{ value: 'docs', label: 'Doc view', description: 'Tables, docs and skills' },
-	{ value: 'files', label: 'File tree', description: 'Every file, branches and tests' },
+	{ value: 'docs', label: 'Doc view', description: 'Tables, docs, skills and tests' },
+	{ value: 'files', label: 'File tree', description: 'Every file, branches and test files' },
 ];
 
 /** The "…" menu of the Context Hub, which switches between the doc view and the file tree without leaving the page. */

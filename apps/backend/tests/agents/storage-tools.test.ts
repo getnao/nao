@@ -15,6 +15,7 @@ import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
 } from '../../src/services/user-group-context-access.service';
+import type { ToolContext } from '../../src/types/tools';
 import { restoreStorageEnvAfterEach, useStorageBackendWithoutStories } from '../helpers/storage-backend';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 import { createToolContext, executeTool } from '../helpers/tool-context';
@@ -24,6 +25,7 @@ vi.mock('../../src/db/db', () => ({ db: {} }));
 let storageRoot: string;
 let projectFolder: string;
 let warehouseTableAccess: WarehouseTableAccess;
+let warehouseColumnSecurity: ToolContext['warehouseColumnSecurity'];
 let docsContextAccess: ResolvedDocsContextAccess;
 let filesContextAccess: ResolvedFilesContextAccess;
 const STORY_LIBRARY_ENTRY = { path: '/story-library', name: 'story-library', type: 'directory' };
@@ -35,6 +37,7 @@ beforeEach(() => {
 	storageRoot = createTemporaryFolder('nao-storage-tools-');
 	projectFolder = createTemporaryFolder('nao-project-tools-');
 	warehouseTableAccess = { enforced: false };
+	warehouseColumnSecurity = { enforced: false };
 	docsContextAccess = { enforced: false };
 	filesContextAccess = { enforced: false };
 
@@ -445,6 +448,69 @@ describe('database Context permissions', () => {
 		expect(output.entries.map((entry) => entry.name)).toEqual(['table=orders']);
 	});
 
+	it('synthesizes restricted columns and hides every raw table artifact from search tools', async () => {
+		const tablePath = '/databases/type=postgres/database=analytics/schema=public/table=orders';
+		const tableFolder = path.join(projectFolder, tablePath);
+		await fs.writeFile(path.join(tableFolder, 'preview.md'), 'secret marker');
+		const catalogFolder = path.join(projectFolder, '.meta/databases/type=postgres/database=analytics');
+		await fs.mkdir(catalogFolder, { recursive: true });
+		await fs.writeFile(
+			path.join(catalogFolder, 'columns.json'),
+			JSON.stringify({
+				version: 1,
+				schemas: {
+					public: {
+						orders: [
+							{ name: 'id', type: 'INTEGER' },
+							{ name: 'secret', type: 'TEXT', description: 'sensitive marker' },
+						],
+					},
+				},
+			}),
+		);
+		warehouseColumnSecurity = {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+					restrictedColumns: ['secret'],
+					access: 'restricted',
+					deniedColumns: ['secret'],
+				},
+			],
+		};
+
+		await expect(run(readTool, { file_path: `${tablePath}/columns.md` })).resolves.toMatchObject({
+			content: expect.stringContaining('- id (INTEGER)'),
+		});
+		await expect(run(readTool, { file_path: `${tablePath}/preview.md` })).rejects.toThrow('Access denied');
+		await expect(run(searchTool, { pattern: 'columns.md' })).resolves.toMatchObject({ files: [] });
+		await expect(run(grepTool, { pattern: 'marker' })).resolves.toMatchObject({ matches: [] });
+	});
+
+	it('does not fall back to raw columns when the structured catalog is missing', async () => {
+		const tablePath = '/databases/type=postgres/database=analytics/schema=public/table=orders';
+		warehouseColumnSecurity = {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+					restrictedColumns: ['secret'],
+					access: 'restricted',
+					deniedColumns: ['secret'],
+				},
+			],
+		};
+
+		await expect(run(readTool, { file_path: `${tablePath}/columns.md` })).rejects.toThrow('Access denied');
+	});
+
 	it('filters denied files from search and grep results', async () => {
 		const searchOutput = (await run(searchTool, { pattern: 'columns.md' })) as {
 			files: { path: string }[];
@@ -481,7 +547,13 @@ function run<TInput>(tool: Tool<TInput, any>, input: TInput) {
 	return executeTool(
 		tool,
 		input,
-		createToolContext({ projectFolder, warehouseTableAccess, docsContextAccess, filesContextAccess }),
+		createToolContext({
+			projectFolder,
+			warehouseTableAccess,
+			warehouseColumnSecurity,
+			docsContextAccess,
+			filesContextAccess,
+		}),
 	);
 }
 

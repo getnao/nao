@@ -10,6 +10,7 @@ import {
 	isListedInContextHub,
 	matchesContextHubDoc,
 	matchesContextHubTable,
+	matchesContextHubTest,
 	toThumbnailLines,
 } from '@/lib/context-hub';
 
@@ -94,6 +95,20 @@ describe('Context Hub search', () => {
 		{ query: 'orders', expected: false },
 	])('matches the revenue doc with "$query": $expected', ({ query, expected }) => {
 		expect(matchesContextHubDoc(revenue, query)).toBe(expected);
+	});
+});
+
+describe('matchesContextHubTest', () => {
+	const test = { name: 'Monthly revenue', path: 'finance/revenue.yml', owner: 'ana@shop.io', tags: ['kpi'] };
+
+	it.each([
+		{ query: 'monthly', expected: true },
+		{ query: 'FINANCE/', expected: true },
+		{ query: 'ana@', expected: true },
+		{ query: 'KPI', expected: true },
+		{ query: 'orders', expected: false },
+	])('matches the revenue test with "$query": $expected', ({ query, expected }) => {
+		expect(matchesContextHubTest(test, query)).toBe(expected);
 	});
 });
 

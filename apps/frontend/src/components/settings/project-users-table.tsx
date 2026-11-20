@@ -55,6 +55,7 @@ export interface ProjectUser {
 	role: UserRole;
 	status: MemberStatus;
 	source: ProjectAccessSource;
+	hasPassword: boolean;
 }
 
 export interface AssignableUserGroup {
@@ -710,7 +711,7 @@ function MemberRowActions({ user, actions }: { user: ProjectUser; actions: Proje
 			<DropdownMenuContent align='end' onClick={(event) => event.stopPropagation()}>
 				<DropdownMenuGroup>
 					{isProjectMember && <DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>}
-					{isProjectMember && onResetPassword && (
+					{isProjectMember && user.hasPassword && onResetPassword && (
 						<DropdownMenuItem onSelect={() => onResetPassword(user)}>Reset password</DropdownMenuItem>
 					)}
 					<DropdownMenuItem onSelect={() => onTransferStories(user)}>Transfer stories</DropdownMenuItem>

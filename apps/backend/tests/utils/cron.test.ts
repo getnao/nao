@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { sanitizeCron } from '../../src/utils/cron';
+import { getTestScheduleCronError, sanitizeCron } from '../../src/utils/cron';
 
 describe('sanitizeCron', () => {
 	it.each([
@@ -12,5 +12,18 @@ describe('sanitizeCron', () => {
 		['returns nothing for an empty answer', '```\n\n```', ''],
 	])('%s', (_name, answer, expected) => {
 		expect(sanitizeCron(answer)).toBe(expected);
+	});
+});
+
+describe('getTestScheduleCronError', () => {
+	it.each([
+		{ cron: '0 6 * * *', error: null },
+		{ cron: '0 * * * *', error: null },
+		{ cron: '30 8 * * 1-5', error: null },
+		{ cron: 'every morning', error: 'Invalid cron expression: every morning' },
+		{ cron: '*/30 * * * *', error: 'Schedule the tests at most once an hour.' },
+		{ cron: '0,1 6 * * *', error: 'Schedule the tests at most once an hour.' },
+	])('judges $cron: $error', ({ cron, error }) => {
+		expect(getTestScheduleCronError(cron)).toBe(error);
 	});
 });

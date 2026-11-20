@@ -14,7 +14,14 @@ export interface NotifyInput {
 	channels?: NotificationChannel[];
 	emailAttachments?: EmailAttachment[];
 	emailBodyHtml?: string;
+	/** Rendered natively by the channels that can show a table, such as Slack and email. */
+	table?: NotificationTable;
 	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => Promise<CreatedEmail>;
+}
+
+export interface NotificationTable {
+	headers: string[];
+	rows: string[][];
 }
 
 export interface NotificationRecipient {

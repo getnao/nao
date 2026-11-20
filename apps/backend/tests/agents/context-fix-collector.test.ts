@@ -91,48 +91,55 @@ describe('context fix collector repository boundaries', () => {
 		).rejects.toThrow('already has content');
 	});
 
-	it('allows linked repository edits without a connected context repository', async () => {
-		const projectFolder = createProjectFolder();
-		const collector = createContextFixCollector(
-			projectFolder,
-			[
-				{
-					name: 'dbt-models',
-					contextPath: 'repos/dbt-models',
-					repoFullName: 'nao/dbt-models',
-					branch: 'main',
-					url: 'https://github.com/nao/dbt-models.git',
-					localPath: null,
-					provider: 'github',
-				},
-			],
-			{ allowContextEdits: false },
-		);
-
-		await runEdit(collector, {
-			suggestedFile: 'repos/dbt-models/models/orders.sql',
-			subjectKey: 'orders-model',
-			path: 'repos/dbt-models/models/orders.sql',
-			old_string: 'old',
-			new_string: 'new',
-		});
-
-		expect(collector.getFix(fingerprintFor('repos/dbt-models/models/orders.sql', 'orders-model'))).toMatchObject({
-			fixKind: 'patch',
-			proposedEdits: [
-				{
-					path: 'repos/dbt-models/models/orders.sql',
-					newContent: 'new',
-					targetRepo: {
+	it.each([
+		{ contextFile: 'repos/dbt-models/models/orders.sql', repoFile: 'models/orders.sql' },
+		{ contextFile: 'docs/dbt-models/orders.md', repoFile: 'docs/orders.md' },
+	])(
+		'sends the edit of $contextFile to $repoFile of the linked repository, without a context repository',
+		async ({ contextFile, repoFile }) => {
+			const projectFolder = createProjectFolder();
+			const collector = createContextFixCollector(
+				projectFolder,
+				[
+					{
+						name: 'dbt-models',
+						contextPath: 'repos/dbt-models',
+						targets: [{ source: 'docs', target: 'docs/dbt-models' }],
 						repoFullName: 'nao/dbt-models',
 						branch: 'main',
-						path: 'models/orders.sql',
+						url: 'https://github.com/nao/dbt-models.git',
+						localPath: null,
 						provider: 'github',
 					},
-				},
-			],
-		});
-	});
+				],
+				{ allowContextEdits: false },
+			);
+
+			await runEdit(collector, {
+				suggestedFile: contextFile,
+				subjectKey: 'orders-model',
+				path: contextFile,
+				old_string: 'old',
+				new_string: 'new',
+			});
+
+			expect(collector.getFix(fingerprintFor(contextFile, 'orders-model'))).toMatchObject({
+				fixKind: 'patch',
+				proposedEdits: [
+					{
+						path: contextFile,
+						newContent: 'new',
+						targetRepo: {
+							repoFullName: 'nao/dbt-models',
+							branch: 'main',
+							path: repoFile,
+							provider: 'github',
+						},
+					},
+				],
+			});
+		},
+	);
 });
 
 type Collector = ReturnType<typeof createContextFixCollector>;
@@ -147,5 +154,7 @@ function createProjectFolder(): string {
 	fs.writeFileSync(path.join(projectFolder, 'RULES.md'), 'old');
 	fs.mkdirSync(path.join(projectFolder, 'repos/dbt-models/models'), { recursive: true });
 	fs.writeFileSync(path.join(projectFolder, 'repos/dbt-models/models/orders.sql'), 'old');
+	fs.mkdirSync(path.join(projectFolder, 'docs/dbt-models'), { recursive: true });
+	fs.writeFileSync(path.join(projectFolder, 'docs/dbt-models/orders.md'), 'old');
 	return projectFolder;
 }

@@ -103,9 +103,16 @@ export interface ContextFileReadCost {
 	truncated: boolean;
 }
 
+/** A folder of a synced repository that `nao sync` writes to its own folder of the context, outside `repos/<name>/`. */
+export interface RepoTarget {
+	source: string;
+	target: string;
+}
+
 export interface LinkedContextRepo {
 	name: string;
 	contextPath: string;
+	targets: RepoTarget[];
 	url: string | null;
 	branch: string | null;
 	localPath: string | null;

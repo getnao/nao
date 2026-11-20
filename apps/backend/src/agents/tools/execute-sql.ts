@@ -87,6 +87,7 @@ export async function executeQuery(
 		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 		queryTag: context.sqlQueryTag,
 	});

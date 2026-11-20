@@ -10,5 +10,5 @@ export function ContextHub({ search }: { search: ContextExplorerSearch }) {
 	if (view === 'files') {
 		return <ContextFileTreeView search={search} onSwitchView={switchView} />;
 	}
-	return <ContextDocView requestedPath={search.path ?? null} onSwitchView={switchView} />;
+	return <ContextDocView search={search} onSwitchView={switchView} />;
 }

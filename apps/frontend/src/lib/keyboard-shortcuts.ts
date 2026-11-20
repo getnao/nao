@@ -1,6 +1,6 @@
 import { ADD_SELECTION_TO_CHAT_SHORTCUT } from '@nao/shared/keyboard-shortcut';
 import type { Shortcut } from '@/lib/platform';
-import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
+import { formatShortcut, formatShortcutLabel, isMac } from '@/lib/platform';
 
 export type ShortcutId =
 	| 'toggle-sidebar'
@@ -13,6 +13,7 @@ export type ShortcutId =
 	| 'stop-generation'
 	| 'cycle-model'
 	| 'go-to-file'
+	| 'close-file-tab'
 	| 'toggle-test-drawer'
 	| 'run-tests'
 	| 'add-selection-to-chat'
@@ -93,6 +94,13 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'File Explorer',
 		shortcut: { mod: true, key: 'p' },
 		isSettingsOnly: true,
+	},
+	// Browsers keep Cmd+W, and Ctrl+W outside macOS, to close their own tab.
+	{
+		id: 'close-file-tab',
+		label: 'Close the file tab',
+		group: 'File Explorer',
+		shortcut: isMac ? { ctrl: true, key: 'w' } : { alt: true, key: 'w' },
 	},
 	{
 		id: 'toggle-test-drawer',

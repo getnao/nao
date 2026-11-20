@@ -21,6 +21,7 @@ import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
 import { useStoryFilters } from '@/hooks/use-story-filters';
+import { useShowStoryFilters } from '@/stores/shown-story-filters';
 
 export interface StoryEmbedRenderOptions {
 	queryData: QueryDataMap | null;
@@ -38,6 +39,7 @@ interface StoryTabbedContentProps {
 	baselineQueryData?: QueryDataMap | null;
 	filterApi?: StoryFilterApi | null;
 	theme?: StoryTheme | null;
+	storyId: string | null;
 	storySlug?: string;
 }
 
@@ -50,6 +52,7 @@ export function StoryTabbedContent({
 	baselineQueryData,
 	filterApi,
 	theme,
+	storyId,
 	storySlug,
 }: StoryTabbedContentProps) {
 	const tabs = useMemo(() => parseStoryTabs(code), [code]);
@@ -62,6 +65,7 @@ export function StoryTabbedContent({
 		api: filterApi,
 		enabled: Boolean(filterApi),
 	});
+	useShowStoryFilters(storyId, storyFilters.activeSelections);
 	const segments = useMemo(
 		() => splitCodeIntoSegments(activeCode, storyFilters.resolvedParameters),
 		[activeCode, storyFilters.resolvedParameters],

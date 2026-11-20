@@ -494,6 +494,13 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional()),
 
+	OTEL_EXPORTER_OTLP_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL' }).optional()),
+	OTEL_SERVICE_NAME: z.string().default('nao'),
+
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
