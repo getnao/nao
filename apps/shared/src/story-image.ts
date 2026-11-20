@@ -46,6 +46,9 @@ const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 const BUCKET_SOURCE_PATTERN = /^(gs|s3):\/\/([^/?#]+)(\/[^?#]*)?$/i;
 const SOURCE_CANDIDATE_PATTERN = /\b(?:gs|s3|https):\/\/[^\s"'`<>()[\]{}\\^|]+/gi;
 const QUOTED_BUCKET_SOURCE_PATTERN = /(["'`])((?:gs|s3):\/\/[^"'`\n]+)\1/gi;
+const LINK_ATTRIBUTE_PATTERN = /\bhref\s*[=:]\s*\{?\s*(["'`])[^"'`\n]*\1/gi;
+const DIRECT_IMAGE_SOURCE_PATTERN =
+	/(?:<Image\b[^>]*?\bsrc=\{?\s*|\.image\(\s*)(["'`])((?:gs|s3|https):\/\/[^"'`\n]+)\1/g;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 const ENCODED_SEPARATOR_PATTERN = /%2f|%5c/i;
 const IMAGE_CALL_PATTERN = /\bImage\b|\.image\(/;
@@ -101,6 +104,12 @@ export function findStoryImageSources(
 	return [...sources];
 }
 
+/** Links written straight into `<Image src>` or `.image()`, which show an image whatever their file name. */
+export function findDirectStoryImageSources(code: string[]): string[] {
+	const sources = code.flatMap((text) => [...text.matchAll(DIRECT_IMAGE_SOURCE_PATTERN)].map((match) => match[2]));
+	return [...new Set(sources.filter(isLiteralImageSource))];
+}
+
 /** Reads the images batch by batch, keeps what loaded and stops once the export budget is spent. */
 export async function readEmbeddableStoryImages(
 	sources: string[],
@@ -151,18 +160,20 @@ function linksInText(text: string): string[] {
 		.filter((candidate) => parseStoryImageSource(candidate) !== null);
 }
 
-/** Bucket keys often hold spaces or brackets, so a quoted bucket link in code is kept whole. */
+/** A link's `href` shows no image, and bucket keys often hold spaces or brackets, so a quoted bucket link is kept whole. */
 function linksInCode(text: string): string[] {
 	const quoted: string[] = [];
-	const unquoted = text.replace(QUOTED_BUCKET_SOURCE_PATTERN, (_match, _quote: string, source: string) => {
-		quoted.push(source);
-		return ' ';
-	});
-	return [...quoted.filter(isWholeBucketSource), ...linksInText(unquoted)];
+	const unquoted = text
+		.replace(LINK_ATTRIBUTE_PATTERN, ' ')
+		.replace(QUOTED_BUCKET_SOURCE_PATTERN, (_match, _quote: string, source: string) => {
+			quoted.push(source);
+			return ' ';
+		});
+	return [...quoted.filter(isLiteralImageSource), ...linksInText(unquoted)];
 }
 
 /** A template literal like `gs://bucket/${key}.png` names no real object until it runs. */
-function isWholeBucketSource(source: string): boolean {
+function isLiteralImageSource(source: string): boolean {
 	return !source.includes('${') && parseStoryImageSource(source) !== null;
 }
 

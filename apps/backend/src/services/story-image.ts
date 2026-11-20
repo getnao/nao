@@ -2,6 +2,7 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { StoryApp, StoryQueryResult } from '@nao/shared/story-app';
 import {
+	findDirectStoryImageSources,
 	findStoryImageSources,
 	isAllowedStoryImageSource,
 	isStoryImageMediaType,
@@ -64,11 +65,14 @@ export async function findBlockedStoryImageSources(
 	queries: Record<string, StoryQueryResult>,
 ): Promise<string[]> {
 	const allowedSources = await getAllowedStoryImageSources(projectId);
-	return findStoryImageSources(
+	const isBlocked = (src: string) => !isAllowedStoryImageSource(src, allowedSources);
+	const shown = findDirectStoryImageSources(files).filter(isBlocked);
+	const named = findStoryImageSources(
 		files,
 		queries,
-		(src) => storyImageMediaTypeFromPath(src) !== null && !isAllowedStoryImageSource(src, allowedSources),
+		(src) => storyImageMediaTypeFromPath(src) !== null && isBlocked(src),
 	);
+	return [...new Set([...shown, ...named])];
 }
 
 export function describeBlockedStoryImages(sources: string[]): string {
