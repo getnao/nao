@@ -229,7 +229,11 @@ export function SystemPrompt({
 				/>
 			)}
 			{canAuthorCustomStories && (
-				<CustomStoriesBlock canReplace={hasTool('str_replace')} imageSources={allowedStoryImageSources} canLoadSkill={hasTool('load_skill')} />
+				<CustomStoriesBlock
+					canReplace={hasTool('str_replace')}
+					imageSources={allowedStoryImageSources}
+					canLoadSkill={hasTool('load_skill')}
+				/>
 			)}
 			{hasStoryLibrary && <ExistingStoriesBlock trustedStories={trustedStories} canGrep={hasTool('grep')} />}
 			{hasTool('execute_sql') && (
@@ -589,7 +593,15 @@ function PermanentStorageBlock({
 }
 
 /** The story-kit guide is long, so it is loaded as a skill whenever the run can load one. */
-function CustomStoriesBlock({ canReplace, imageSources, canLoadSkill }: { canReplace: boolean; imageSources: string[]; canLoadSkill: boolean }) {
+function CustomStoriesBlock({
+	canReplace,
+	imageSources,
+	canLoadSkill,
+}: {
+	canReplace: boolean;
+	imageSources: string[];
+	canLoadSkill: boolean;
+}) {
 	return (
 		<Block>
 			<Title level={2}>Custom Stories</Title>
