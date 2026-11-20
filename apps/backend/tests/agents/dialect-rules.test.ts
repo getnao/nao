@@ -81,11 +81,15 @@ describe('dialect-aware system prompt', () => {
 	it('omits dialect rules when warehouse SQL is disabled by an exclusive semantic layer', () => {
 		const markdown = renderToMarkdown(
 			SystemPrompt({
-				connections: [{ type: 'bigquery', database: 'analytics' }],
+				connections: [
+					{ type: 'bigquery', database: 'analytics' },
+					{ type: 'clickhouse', database: 'events' },
+				],
 				semanticLayerMode: 'exclusive',
 			}),
 		);
 		expect(markdown).not.toContain('dialect:');
+		expect(markdown).not.toContain('indexes.md');
 	});
 
 	it('does not leak BigQuery rules into other dialects', () => {
