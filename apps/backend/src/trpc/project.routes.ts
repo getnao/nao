@@ -5,6 +5,12 @@ import {
 	SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH,
 	type SqlQueryTagVariables,
 } from '@nao/shared/sql-query-tag';
+import {
+	MAX_STORY_IMAGE_ALLOWED_SOURCES,
+	MAX_STORY_IMAGE_SOURCE_LENGTH,
+	normalizeStoryImageAllowedSource,
+	STORY_IMAGE_SOURCE_FORMAT_MESSAGE,
+} from '@nao/shared/story-image';
 import { type LlmProvider, type LlmSelectedModel, SEMANTIC_LAYER_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -49,6 +55,7 @@ import { isProjectSetupComplete } from '../services/project-readiness.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { resolveDefaultDatabaseId } from '../services/sql-query-tag.service';
+import { allowedStoryImageSources, isStoryImageSourceAllowedByOperator } from '../services/story-image';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
@@ -99,6 +106,11 @@ import {
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
 });
+
+const storyImageAllowedSourcesSchema = z
+	.array(z.string().max(MAX_STORY_IMAGE_SOURCE_LENGTH).transform(normalizeStoryImageAllowedSourceInput))
+	.max(MAX_STORY_IMAGE_ALLOWED_SOURCES)
+	.transform((sources) => [...new Set(sources)]);
 
 const backgroundModelSelectionSchema = z.object({
 	provider: llmProviderSchema,
@@ -206,6 +218,22 @@ async function storeBoundarySource(
 	}
 	const url = input.url ?? '';
 	return { url, featureCount: await validateBoundarySource(url) };
+}
+
+function normalizeStoryImageAllowedSourceInput(source: string, ctx: z.RefinementCtx): string {
+	const normalized = normalizeStoryImageAllowedSource(source);
+	if (!normalized) {
+		ctx.addIssue({ code: 'custom', message: STORY_IMAGE_SOURCE_FORMAT_MESSAGE });
+		return z.NEVER;
+	}
+	if (!isStoryImageSourceAllowedByOperator(normalized)) {
+		ctx.addIssue({
+			code: 'custom',
+			message: `${normalized} is outside the buckets this nao instance may read (NAO_STORY_IMAGE_BUCKETS).`,
+		});
+		return z.NEVER;
+	}
+	return normalized;
 }
 
 async function validateBoundarySource(url: string): Promise<number> {
@@ -1125,6 +1153,7 @@ export const projectRoutes = {
 
 		return {
 			...settings,
+			storyImages: settings?.storyImages && { allowedSources: allowedStoryImageSources(settings) },
 			capabilities: {
 				sandbox: isSandboxAvailable,
 				semanticLayer: ctx.project.path ? extractConfiguredSemanticLayer(ctx.project.path) !== null : false,
@@ -1161,6 +1190,7 @@ export const projectRoutes = {
 					})
 					.optional(),
 				mapEnabled: z.boolean().optional(),
+				storyImages: z.object({ allowedSources: storyImageAllowedSourcesSchema.optional() }).optional(),
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
@@ -1208,6 +1238,7 @@ export const projectRoutes = {
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
+				storyImages: { ...existing.storyImages, ...input.storyImages },
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
