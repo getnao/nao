@@ -126,6 +126,49 @@ def test_group_denied_columns_are_blocked_in_whole_row_references(tmp_path: Path
         )
 
 
+@pytest.mark.parametrize(
+    ("database_type", "sql"),
+    [
+        ("postgres", "SELECT b FROM public.users AS u(a, b)"),
+        ("postgres", "SELECT u.id FROM public.users u NATURAL JOIN (SELECT 'a@b.c' AS email) guess"),
+        ("duckdb", "SELECT u FROM public.users u"),
+        ("duckdb", "SELECT to_json(users) FROM public.users"),
+        ("duckdb", "SELECT u['email'] FROM public.users u"),
+        ("duckdb", "SELECT COLUMNS('em.*') FROM public.users"),
+        ("duckdb", "SELECT #2 FROM public.users"),
+        ("snowflake", "SELECT $2 FROM public.users"),
+    ],
+)
+def test_group_denied_columns_are_blocked_when_read_without_being_named(tmp_path: Path, database_type: str, sql: str):
+    config = FakeDatabaseConfig([], database_type=database_type)
+    write_catalog(tmp_path, config, {"public": {"users": ["id", "email"], "orders": ["id", "total"]}})
+    policies = {("public", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match=r"public\.users\.email"):
+        validate_column_access(sql, config, tmp_path, column_security_policies=policies)
+
+
+@pytest.mark.parametrize(
+    ("database_type", "sql"),
+    [
+        ("postgres", "SELECT o.total FROM public.users u NATURAL JOIN public.orders o"),
+        ("duckdb", "SELECT o FROM public.orders o"),
+        ("duckdb", "SELECT o.users FROM public.orders o JOIN public.users ON users.id = o.id"),
+        ("duckdb", "SELECT COLUMNS('tot.*') FROM public.orders"),
+        ("duckdb", "SELECT #2 FROM (SELECT id, total FROM public.orders)"),
+        ("snowflake", "SELECT $1 FROM (SELECT id FROM public.users)"),
+    ],
+)
+def test_unnamed_column_reads_stay_allowed_when_no_denied_column_is_reachable(
+    tmp_path: Path, database_type: str, sql: str
+):
+    config = FakeDatabaseConfig([], database_type=database_type)
+    write_catalog(tmp_path, config, {"public": {"users": ["id", "email"], "orders": ["id", "total", "users"]}})
+    policies = {("public", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    assert validate_column_access(sql, config, tmp_path, column_security_policies=policies) == sql
+
+
 def test_group_denied_column_can_be_removed_from_star(project_path: Path):
     config = FakeDatabaseConfig([])
     policies = {("main", "users"): {"access": "restricted", "denied_columns": ["email"]}}

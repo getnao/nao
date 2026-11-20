@@ -9,6 +9,7 @@ from sqlglot import exp
 from nao_core.commands.sync.cleanup import get_database_folder_names
 from nao_core.config.databases.query_guard import (
     SQLGLOT_DIALECTS,
+    assert_no_unvalidated_data_functions,
     base_table_expressions,
     load_schemas,
     parse_query,
@@ -56,6 +57,7 @@ def enforce_allow_listed_only(
             raise blocked(f"the database dialect '{db_config.type}' is not supported")
 
         expression = parse_query(sql, dialect, blocked)
+        assert_no_unvalidated_data_functions(expression, blocked)
         table_expressions = base_table_expressions(expression, blocked)
         if not table_expressions:
             return sql
