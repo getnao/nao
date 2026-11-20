@@ -45,6 +45,7 @@ const STORY_IMAGE_MEDIA_TYPES: Record<string, string> = {
 const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 const BUCKET_SOURCE_PATTERN = /^(gs|s3):\/\/([^/?#]+)(\/[^?#]*)?$/i;
 const SOURCE_CANDIDATE_PATTERN = /\b(?:gs|s3|https):\/\/[^\s"'`<>()[\]{}\\^|]+/gi;
+const QUOTED_BUCKET_SOURCE_PATTERN = /(["'`])((?:gs|s3):\/\/[^"'`\n]+)\1/gi;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 const ENCODED_SEPARATOR_PATTERN = /%2f|%5c/i;
 const IMAGE_CALL_PATTERN = /\bImage\b|\.image\(/;
@@ -87,7 +88,7 @@ export function findStoryImageSources(
 ): string[] {
 	const showsImages = code.some((text) => IMAGE_CALL_PATTERN.test(text));
 	const rowValues = showsImages ? collectStrings(queries) : [];
-	const candidates = [...code.flatMap(linksInText), ...rowValues.flatMap(linksInValue)];
+	const candidates = [...code.flatMap(linksInCode), ...rowValues.flatMap(linksInValue)];
 	const sources = new Set<string>();
 	for (const candidate of candidates) {
 		if (candidate.length <= MAX_STORY_IMAGE_SOURCE_LENGTH && isWanted(candidate)) {
@@ -148,6 +149,21 @@ function linksInText(text: string): string[] {
 	return [...text.matchAll(SOURCE_CANDIDATE_PATTERN)]
 		.map((match) => match[0].replace(TRAILING_PUNCTUATION, ''))
 		.filter((candidate) => parseStoryImageSource(candidate) !== null);
+}
+
+/** Bucket keys often hold spaces or brackets, so a quoted bucket link in code is kept whole. */
+function linksInCode(text: string): string[] {
+	const quoted: string[] = [];
+	const unquoted = text.replace(QUOTED_BUCKET_SOURCE_PATTERN, (_match, _quote: string, source: string) => {
+		quoted.push(source);
+		return ' ';
+	});
+	return [...quoted.filter(isWholeBucketSource), ...linksInText(unquoted)];
+}
+
+/** A template literal like `gs://bucket/${key}.png` names no real object until it runs. */
+function isWholeBucketSource(source: string): boolean {
+	return !source.includes('${') && parseStoryImageSource(source) !== null;
 }
 
 /** Bucket keys often hold spaces or brackets, so a row value that is a whole bucket link is kept as it is. */

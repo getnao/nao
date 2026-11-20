@@ -55,8 +55,12 @@ describe('isStoryImageSourceWithin', () => {
 });
 
 describe('findStoryImageSources', () => {
-	it('finds image links in the code and the query rows, keeping a row value with spaces whole', () => {
-		const code = ['jsx(Image, { src: "gs://acme-assets/marketing/hero.png" })'];
+	it('finds image links in the code and the query rows, keeping bucket links with spaces whole', () => {
+		const code = [
+			'jsx(Image, { src: "gs://acme-assets/marketing/hero.png" })',
+			'jsx(Image, { src: "gs://acme-assets/marketing/Team photo (2).jpg" })',
+			'jsx(Image, { src: `gs://acme-assets/marketing/${row.key}.png` })',
+		];
 		const queries = {
 			products: {
 				columns: ['image'],
@@ -69,6 +73,7 @@ describe('findStoryImageSources', () => {
 		};
 		expect(findStoryImageSources(code, queries)).toEqual([
 			'gs://acme-assets/marketing/hero.png',
+			'gs://acme-assets/marketing/Team photo (2).jpg',
 			's3://acme-products/sku/42.webp',
 			's3://acme-products/logos/Acme Corp (1).png',
 		]);
