@@ -35,6 +35,7 @@ import {
 	listContextRepositoryBranches,
 	pullContextBranch,
 	pullLiveContext,
+	resolveContextExplorerGitSafely,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
@@ -58,12 +59,13 @@ import {
 	getNaoDraftFileTree,
 	hasContextRepository,
 	listNaoDraftChanges,
+	moveNaoDraftToWorktree,
 	searchNaoDraftContents,
 } from '../services/nao-draft.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
-import { ContextProjectResolutionError } from '../utils/context-repo';
+import { ContextProjectResolutionError, getWorktreeProjectRoot } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
 import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingAdminProcedure, cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -196,7 +198,12 @@ export const contextExplorerRoutes = {
 					message: `Connect your ${getRepoProviderDisplayName(input.provider)} account first.`,
 				});
 			}
-			return connectContextRepository({ ...context, token: context.token, ...input });
+			const connection = await connectContextRepository({ ...context, token: context.token, ...input });
+			const git = await resolveContextExplorerGitSafely(context);
+			if (git.status === 'available') {
+				await moveNaoDraftToWorktree(draftOwnerOf(ctx), getWorktreeProjectRoot(git.repo));
+			}
+			return connection;
 		}),
 
 	disconnectRepository: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {

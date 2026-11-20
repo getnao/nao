@@ -29,6 +29,7 @@ import {
 	getNaoDraftFileDiff,
 	getNaoDraftFileTree,
 	listNaoDraftChanges,
+	moveNaoDraftToWorktree,
 	readNaoDraft,
 	searchNaoDraftContents,
 } from '../../src/services/nao-draft.service';
@@ -203,6 +204,24 @@ describe('File Explorer without a context repository', () => {
 		expect(response.results).toHaveLength(200);
 		expect(response.truncated).toBe(true);
 		expect(response.results[0].text).toHaveLength(500);
+	});
+});
+
+describe('moveNaoDraftToWorktree', () => {
+	it('hands the edits saved in nao to the worktree of a newly connected repository', async () => {
+		const worktree = path.join(root, 'worktree');
+		writeFiles(worktree, { 'RULES.md': '# Rules\n' });
+		await editFile('/RULES.md', '# Rules\nUse net revenue.\n');
+		await createDraftFile('/tests/revenue.yml', 'prompt: What is the revenue?\n', access);
+		await createDraftFile('/tests/other.yml', 'prompt: Another user\n', naoDraftAccess(OTHER_OWNER));
+
+		await moveNaoDraftToWorktree(OWNER, worktree);
+
+		expect(read(worktree, 'RULES.md')).toBe('# Rules\nUse net revenue.\n');
+		expect(read(worktree, 'tests/revenue.yml')).toBe('prompt: What is the revenue?\n');
+		expect(await listNaoDraftChanges(OWNER)).toEqual([]);
+		expect(fs.existsSync(path.join(worktree, 'tests/other.yml'))).toBe(false);
+		expect(await listNaoDraftChanges(OTHER_OWNER)).toHaveLength(1);
 	});
 });
 

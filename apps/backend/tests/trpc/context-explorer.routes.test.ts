@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	listContextPullActivities: vi.fn(),
 	loggerWarn: vi.fn(),
+	moveNaoDraftToWorktree: vi.fn(),
 	pullLiveContext: vi.fn(),
 	readFileContent: vi.fn(),
 	resolveContextExplorerGit: vi.fn(),
@@ -106,12 +107,18 @@ vi.mock('../../src/services/context-explorer-git.service', () => ({
 	updateContextWorktree: mocks.updateContextWorktree,
 }));
 
+vi.mock('../../src/services/nao-draft.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/nao-draft.service')>()),
+	moveNaoDraftToWorktree: mocks.moveNaoDraftToWorktree,
+}));
+
 vi.mock('../../src/services/context-explorer-pr.service', () => ({
 	pushContextExplorerBranch: vi.fn(),
 }));
 
 vi.mock('../../src/utils/context-repo', () => ({
 	ContextProjectResolutionError: mocks.ContextProjectResolutionError,
+	getWorktreeProjectRoot: (repo: { worktreeRoot: string }) => repo.worktreeRoot,
 	resolveContextRepository: mocks.resolveContextRepository,
 	resolveContextSourceGitToken: vi.fn(() => null),
 	sanitizeContextSourceRepositoryUrl: vi.fn((url: string) => url),
@@ -145,6 +152,19 @@ describe('context explorer repository connection', () => {
 			branch: 'main',
 			connectionType: 'linked-existing-commit',
 		});
+		mocks.resolveContextExplorerGitSafely.mockResolvedValue({
+			status: 'available',
+			repo: { worktreeRoot: '/worktrees/user-id' },
+		});
+	});
+
+	it('carries the edits the user saved in nao into their worktree of the connected repository', async () => {
+		await caller.connectRepository({ provider: 'github', repoFullName: 'nao/context' });
+
+		expect(mocks.moveNaoDraftToWorktree).toHaveBeenCalledWith(
+			{ projectId: 'project-id', userId: 'user-id' },
+			'/worktrees/user-id',
+		);
 	});
 
 	it('connects a GitHub repository with the GitHub token', async () => {

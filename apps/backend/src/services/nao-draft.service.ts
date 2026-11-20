@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 import type {
 	ContextChangedFile,
@@ -13,6 +14,7 @@ import type { DBContextDraftFile } from '../db/abstractSchema';
 import type { DraftOwner } from '../queries/context-draft.queries';
 import * as contextDraftQueries from '../queries/context-draft.queries';
 import { normalizeProjectPath, resolveContextRepository } from '../utils/context-repo';
+import { writeFileAtomically } from '../utils/safe-file-write';
 import {
 	compareTreeEntries,
 	getFileTree,
@@ -103,6 +105,30 @@ export async function discardNaoDraftFile(
 
 export async function discardAllNaoDraftFiles(owner: DraftOwner): Promise<void> {
 	await contextDraftQueries.deleteDraftFiles(owner);
+}
+
+/**
+ * Carries the edits a user saved in nao into their worktree of the repository the project was just connected to,
+ * where they show as changes ready to commit. A file that cannot be written there keeps its draft.
+ */
+export async function moveNaoDraftToWorktree(owner: DraftOwner, worktreeProjectRoot: string): Promise<void> {
+	for (const file of await listSortedDraftFiles(owner)) {
+		if (writeWorktreeFile(worktreeProjectRoot, file)) {
+			await contextDraftQueries.deleteDraftFile(owner, file.path);
+		}
+	}
+}
+
+function writeWorktreeFile(worktreeProjectRoot: string, file: DBContextDraftFile): boolean {
+	const displayPath = `/${file.path}`;
+	try {
+		const { realPath, root } = resolveAndValidatePath(displayPath, worktreeProjectRoot);
+		fs.mkdirSync(path.dirname(realPath), { recursive: true });
+		writeFileAtomically({ content: file.content, displayPath, root, target: realPath });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 export async function readNaoDraft(owner: DraftOwner, projectFolder: string): Promise<DraftSource> {
