@@ -781,8 +781,8 @@ export const softDeleteChat = async (chatId: string): Promise<{ projectId: strin
 };
 
 /**
- * A story created outside any chat outlives the chat it was opened in. It takes a new slug when another
- * standalone story of its owner took its own meanwhile.
+ * A story created outside any chat outlives the chat it was opened in. When another standalone story of its owner
+ * took its slug meanwhile, its id makes the slug its own again.
  */
 async function releaseStandaloneStories(chatId: string, t: DBTransaction): Promise<void> {
 	const stories = await t
@@ -805,7 +805,7 @@ async function releaseStandaloneStories(chatId: string, t: DBTransaction): Promi
 			)
 			.limit(1)
 			.execute();
-		const slug = slugTaker ? `${story.slug}-${story.id.slice(0, 8)}` : story.slug;
+		const slug = slugTaker ? `${story.slug}-${story.id}` : story.slug;
 		await t.update(s.story).set({ chatId: null, slug }).where(eq(s.story.id, story.id)).execute();
 	}
 }
