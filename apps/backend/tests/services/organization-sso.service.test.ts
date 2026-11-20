@@ -32,7 +32,12 @@ import {
 } from '../../src/services/organization-sso.service';
 
 const ORG_ID = 'org-acme';
-const OKTA = { issuer: 'https://acme.okta.com', clientId: 'okta-client', clientSecret: 'okta-secret' };
+const OKTA = {
+	issuer: 'https://acme.okta.com',
+	clientId: 'okta-client',
+	clientSecret: 'okta-secret',
+	additionalScopes: [],
+};
 
 describe('organization SSO configured by an organization admin', () => {
 	beforeEach(async () => {
@@ -73,6 +78,25 @@ describe('organization SSO configured by an organization admin', () => {
 			clientSecret: OKTA.clientSecret,
 			tokenEndpoint: `${OKTA.issuer}/oauth2/v1/token`,
 		});
+	});
+
+	it('requests the additional scopes on top of the sign-in ones', async () => {
+		await activateOrganizationSso(ORG_ID, ['acme.com']);
+
+		const configured = await configureOrganizationSso(ORG_ID, {
+			...OKTA,
+			additionalScopes: ['offline_access', 'session:role-any', 'email'],
+		});
+
+		expect(configured.additionalScopes).toEqual(['offline_access', 'session:role-any']);
+		const provider = await ssoProviderQueries.getSsoProviderByOrganizationId(ORG_ID);
+		expect(JSON.parse(provider?.oidcConfig ?? '{}').scopes).toEqual([
+			'openid',
+			'profile',
+			'email',
+			'offline_access',
+			'session:role-any',
+		]);
 	});
 
 	it('keeps what nao staff change while the IdP is being discovered', async () => {

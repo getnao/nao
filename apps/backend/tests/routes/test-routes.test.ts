@@ -128,7 +128,7 @@ describe('test routes', () => {
 
 		expect(mocks.retrieveProjectById).toHaveBeenCalledWith('project-id');
 		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-id');
-		expect(mocks.getWarehouseAccessTokenForUser).toHaveBeenCalledWith('user-id');
+		expect(mocks.getWarehouseAccessTokenForUser).toHaveBeenCalledWith('user-id', 'project-id');
 		expect(mocks.resolveProjectContextAccess).toHaveBeenCalledWith('project-id', 'user-id', '/project');
 		expect(mocks.executeQuery).toHaveBeenCalledWith(
 			{ sql_query: 'SELECT 1', database_id: 'warehouse' },

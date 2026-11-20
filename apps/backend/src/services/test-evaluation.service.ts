@@ -85,7 +85,7 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 	}
 	const [envVars, warehouseAccessToken, contextAccess, semanticLayerMode] = await Promise.all([
 		getProjectRuntimeEnvVars(projectId),
-		getWarehouseAccessTokenForUser(userId),
+		getWarehouseAccessTokenForUser(userId, projectId),
 		resolveProjectContextAccess(projectId, userId, projectFolder),
 		resolveReferenceSemanticLayerMode(projectId, userId, projectFolder),
 	]);

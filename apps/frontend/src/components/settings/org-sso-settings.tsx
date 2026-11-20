@@ -45,6 +45,7 @@ export function OrgSsoSettings() {
 					issuer={sso.data.issuer ?? ''}
 					clientId={sso.data.clientId ?? ''}
 					hasClientSecret={sso.data.hasClientSecret}
+					additionalScopes={sso.data.additionalScopes}
 				/>
 			</div>
 		</SettingsCard>
@@ -55,10 +56,12 @@ function OrgSsoForm({
 	issuer,
 	clientId,
 	hasClientSecret,
+	additionalScopes,
 }: {
 	issuer: string;
 	clientId: string;
 	hasClientSecret: boolean;
+	additionalScopes: string[];
 }) {
 	const queryClient = useQueryClient();
 	const configure = useMutation(
@@ -67,9 +70,13 @@ function OrgSsoForm({
 		}),
 	);
 	const form = useForm({
-		defaultValues: { issuer, clientId, clientSecret: '' },
+		defaultValues: { issuer, clientId, clientSecret: '', additionalScopes: additionalScopes.join(' ') },
 		onSubmit: async ({ value }) => {
-			await configure.mutateAsync({ ...value, clientSecret: value.clientSecret || undefined });
+			await configure.mutateAsync({
+				...value,
+				clientSecret: value.clientSecret || undefined,
+				additionalScopes: value.additionalScopes.split(/[\s,]+/).filter(Boolean),
+			});
 		},
 	});
 
@@ -89,6 +96,12 @@ function OrgSsoForm({
 				label='Client secret'
 				hint={hasClientSecret ? '(leave empty to keep current)' : undefined}
 				required={!hasClientSecret}
+			/>
+			<TextField
+				form={form}
+				name='additionalScopes'
+				label='Additional scopes'
+				placeholder='offline_access session:role-any'
 			/>
 			{configure.error && <FormError error={configure.error.message} />}
 			<div className='flex justify-end'>

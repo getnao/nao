@@ -35,16 +35,16 @@ describe('getWarehouseAccessTokenForUser', () => {
 		mocks.getAzureAccessTokenForUser.mockResolvedValue(azureToken);
 		mocks.getOidcAccessTokenForUser.mockResolvedValue(oidcToken);
 
-		await expect(getWarehouseAccessTokenForUser('user-id')).resolves.toBe(expected);
+		await expect(getWarehouseAccessTokenForUser('user-id', 'project-id')).resolves.toBe(expected);
 		expect(mocks.getAzureAccessTokenForUser).toHaveBeenCalledWith('user-id');
+		expect(mocks.hasFeature).toHaveBeenCalledWith('sso', { projectId: 'project-id' });
 	});
 
 	it('loads no token without an SSO license', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 		mocks.getAzureAccessTokenForUser.mockResolvedValue('azure-token');
 
-		await expect(getWarehouseAccessTokenForUser('user-id')).resolves.toBeNull();
-		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
+		await expect(getWarehouseAccessTokenForUser('user-id', 'project-id')).resolves.toBeNull();
 		expect(mocks.getAzureAccessTokenForUser).not.toHaveBeenCalled();
 	});
 });

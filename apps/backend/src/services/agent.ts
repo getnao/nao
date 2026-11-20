@@ -281,7 +281,7 @@ async function _buildContextBase(opts: {
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
 	const [envVars, warehouseAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
-		getWarehouseAccessTokenForUser(opts.userId),
+		getWarehouseAccessTokenForUser(opts.userId, opts.projectId),
 		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
 	]);
 	const sqlQueryTag = await buildRunSqlQueryTag({

@@ -115,7 +115,7 @@ async function buildOidcConfig(input: OrganizationSsoConfigInput, clientSecret: 
 		clientId: input.clientId,
 		clientSecret,
 		pkce: true,
-		scopes: SCOPES,
+		scopes: [...new Set([...SCOPES, ...input.additionalScopes])],
 	};
 }
 
@@ -162,6 +162,7 @@ async function toOrganizationSso(provider: DBSsoProvider): Promise<OrganizationS
 		issuer: provider.issuer || null,
 		clientId: oidcConfig?.clientId ?? null,
 		hasClientSecret: !!oidcConfig?.clientSecret,
+		additionalScopes: (oidcConfig?.scopes ?? []).filter((scope) => !SCOPES.includes(scope)),
 		redirectUri: new URL(`api/auth/sso/callback/${provider.providerId}`, withTrailingSlash(env.BETTER_AUTH_URL))
 			.href,
 		ssoLicensed: await hasFeature(LICENSE_FEATURES.sso, { orgId: provider.organizationId }),
@@ -169,7 +170,7 @@ async function toOrganizationSso(provider: DBSsoProvider): Promise<OrganizationS
 	};
 }
 
-function readOidcConfig(provider: DBSsoProvider | null): OIDCConfig | null {
+export function readOidcConfig(provider: DBSsoProvider | null): OIDCConfig | null {
 	return provider?.oidcConfig ? (JSON.parse(provider.oidcConfig) as OIDCConfig) : null;
 }
 
