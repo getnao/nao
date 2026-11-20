@@ -51,7 +51,7 @@ from nao_core.config.llm import (  # noqa: E402
 from nao_core.config.mcp import McpConfig  # noqa: E402
 from nao_core.config.notion import NotionConfig  # noqa: E402
 from nao_core.config.obsidian import ObsidianConfig  # noqa: E402
-from nao_core.config.repos.base import RepoConfig  # noqa: E402
+from nao_core.config.repos.base import RepoConfig, RepoTarget  # noqa: E402
 from nao_core.config.skills import SkillsConfig  # noqa: E402
 from nao_core.config.slack import SlackConfig  # noqa: E402
 
@@ -249,6 +249,9 @@ def _section_repos() -> str:
     parts: list[str] = []
     parts.append("## Repos\n")
     parts.append(_fields_table(RepoConfig))
+    parts.append("")
+    parts.append("### RepoTarget\n")
+    parts.append(_fields_table(RepoTarget))
     parts.append("")
     return "\n".join(parts)
 

@@ -371,6 +371,13 @@ Used for `ai_summary` generation when `annotation_model` is not set.
 | `exclude`    | string[]                    | No       | `[]`    | Glob patterns for files to exclude (e.g. '\*.pyc')                                           |
 | `targets`    | [RepoTarget](#repotarget)[] | No       | `[]`    | Folders of the repository synced outside `repos/<name>/`, e.g. its tests into `tests/<name>` |
 
+### RepoTarget
+
+| Property | Type   | Required | Default | Description                                                                            |
+| -------- | ------ | -------- | ------- | -------------------------------------------------------------------------------------- |
+| `source` | string | **Yes**  | —       | Folder inside the repository, e.g. 'nao/tests'                                         |
+| `target` | string | **Yes**  | —       | Folder of the project it is synced to, e.g. 'tests/analytics'. Replaced on every sync. |
+
 ## Notion
 
 | Property    | Type     | Required | Default | Description                                     |
