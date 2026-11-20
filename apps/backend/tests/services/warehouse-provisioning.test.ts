@@ -32,7 +32,9 @@ type MockWarehouseJob = {
 };
 
 const warehouseJobs = vi.hoisted(() => new Map<string, MockWarehouseJob>());
-const controls = vi.hoisted(() => ({ failReadyUpdate: false, isCloud: false }));
+const controls = vi.hoisted(() => ({ failReadyUpdate: false, isCloud: false, lookup: vi.fn() }));
+
+vi.mock('dns/promises', () => ({ default: { lookup: controls.lookup } }));
 
 vi.mock('../../src/env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/env')>()),
@@ -421,6 +423,10 @@ describe('warehouse provisioning', () => {
 		{ name: 'a loopback address', credentials: { host: '127.0.0.1', port: 5432, password: 'secret' } },
 		{ name: 'the cloud metadata address', credentials: { serverHostname: 'https://169.254.169.254/sql' } },
 		{ name: 'a unix socket path', credentials: { host: '/var/run/postgresql', password: 'secret' } },
+		{
+			name: 'a loopback address behind connection-string syntax',
+			credentials: { host: '127.0.0.1,1433;APP=x@1.1.1.1' },
+		},
 	])('refuses $name as a warehouse host on nao Cloud, before any connection', async ({ credentials }) => {
 		controls.isCloud = true;
 		const fetchMock = vi.fn();
@@ -434,19 +440,24 @@ describe('warehouse provisioning', () => {
 
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(warehouseJobs.size).toBe(0);
+		expect(warehouseConnectionCheckQueries.createWarehouseConnectionCheck).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'user-1', outcome: 'connection_error' }),
+		);
 	});
 
-	it('lets a self-hosted instance reach a warehouse of its private network', async () => {
+	it.each([
+		{ instance: 'nao Cloud', isCloud: true, host: 'warehouse.example.com' },
+		{ instance: 'a self-hosted instance, on its private network', isCloud: false, host: '10.0.0.12' },
+	])('lets $instance reach the warehouse at $host', async ({ isCloud, host }) => {
+		controls.isCloud = isCloud;
+		controls.lookup.mockResolvedValue([{ address: '93.184.216.34' }]);
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(new Response(JSON.stringify({ valid: true }), { status: 200 })),
 		);
 
 		await expect(
-			validateWarehouseCredentials('user-1', {
-				provider: 'postgres',
-				credentials: { host: '10.0.0.12', password: 'secret' },
-			}),
+			validateWarehouseCredentials('user-1', { provider: 'postgres', credentials: { host, password: 'secret' } }),
 		).resolves.toEqual({ valid: true });
 	});
 
