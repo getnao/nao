@@ -675,8 +675,9 @@ function CustomStoriesBlock({ canReplace, canLoadSkill }: { canReplace: boolean;
 						? [
 								<ListItem key='kit'>
 									Call <Bold>load_skill</Bold> with <Bold>{storyKitSkill.name}</Bold> before writing
-									or editing a story file: it documents the @nao/story-kit blocks, theming, layout,
-									filters and saved state, which the starter app alone does not show.
+									or editing a custom story's files: it documents the @nao/story-kit blocks, theming,
+									layout, filters and saved state, which the starter app alone does not show. Classic
+									stories never need it.
 								</ListItem>,
 							]
 						: storyKitGuideItems()),
