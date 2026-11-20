@@ -110,6 +110,7 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		envVars,
 		warehouseAccessToken,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
+		warehouseColumnSecurity: contextAccess.warehouseColumnSecurity,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,

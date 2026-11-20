@@ -8,7 +8,9 @@ import {
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectColumnSecurity,
 	type StoredProjectRowSecurity,
+	type StoredUserGroupColumnPolicies,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 	type StoredUserGroupRowPolicies,
@@ -338,6 +340,7 @@ export const project = pgTable(
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		menuSettings: jsonb('menu_settings').$type<SidebarMenu>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
+		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -675,6 +678,7 @@ export const userGroup = pgTable(
 			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
+		columnPolicies: jsonb('column_policies').$type<StoredUserGroupColumnPolicies>(),
 		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')

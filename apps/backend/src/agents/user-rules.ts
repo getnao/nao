@@ -1,9 +1,11 @@
+import { getWarehouseColumnSecurityTable, type WarehouseColumnSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import { createHash } from 'crypto';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
 import { renderRootRulesForAgent } from '../services/agent-visible-project-file.service';
+import { renderSafeTableColumns } from '../services/column-security-context.service';
 import { isDatabaseObjectAllowed, type WarehouseTableAccess } from '../services/context-access';
 import { readProjectFile } from '../utils/project-file';
 
@@ -366,12 +368,37 @@ export function getTableColumnsContent(
 	projectFolder: string,
 	fqdn: string,
 	warehouseTableAccess: WarehouseTableAccess,
+	warehouseColumnSecurity: WarehouseColumnSecurity = { enforced: false },
 ): string | undefined {
 	const obj = getDatabaseObjects(projectFolder).find(
 		(object) => object.fqdn === fqdn && isDatabaseObjectAllowed(warehouseTableAccess, object),
 	);
 	if (!obj) {
 		return undefined;
+	}
+	const columnPolicy = getWarehouseColumnSecurityTable(warehouseColumnSecurity, {
+		databaseType: obj.type,
+		database: obj.database,
+		schema: obj.schema,
+		table: obj.table,
+	});
+	if (columnPolicy?.access === 'blocked') {
+		return undefined;
+	}
+
+	if (columnPolicy?.access === 'restricted') {
+		return (
+			renderSafeTableColumns(
+				projectFolder,
+				{
+					databaseType: obj.type,
+					database: obj.database,
+					schema: obj.schema,
+					table: obj.table,
+				},
+				columnPolicy.deniedColumns,
+			) ?? undefined
+		);
 	}
 
 	try {
