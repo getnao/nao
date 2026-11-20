@@ -52,6 +52,7 @@ vi.mock('../../src/env', () => ({
 }));
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/db/db', () => ({ db: {} }));
+vi.mock('../../src/queries/story-delivery.queries', () => ({ keepSpecificRecipients: vi.fn() }));
 vi.mock('../../src/handlers/automation.handler', () => ({
 	AUTOMATION_JOB_NAME: 'automation',
 	startAutomationRun: vi.fn(),
@@ -150,7 +151,6 @@ vi.mock('../../src/services/sso-group-mapping.service', () => ({
 vi.mock('../../src/services/story-delivery.service', () => ({
 	assertValidDeliverySchedule: vi.fn(),
 	disableStoryDelivery: vi.fn(),
-	removeStoryDeliveryRecipients: vi.fn(),
 	syncStoryDeliveryJob: vi.fn(),
 }));
 vi.mock('../../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));

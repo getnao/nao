@@ -1,57 +1,81 @@
 import '../../src/env';
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getByStoryId, removeSpecificRecipients } from '../../src/queries/story-delivery.queries';
+import { getByStoryId, keepSpecificRecipients } from '../../src/queries/story-delivery.queries';
 
 vi.mock('../../src/db/db', async () => {
-	const { createInMemoryDb } = await import('../helpers/in-memory-db');
-	return { db: createInMemoryDb() };
+	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDbWithInlineTransactions() };
 });
 
 const OWNER = { projectId: 'delivery-project', userId: 'delivery-owner' };
+const STORY_ID = 'delivered-story';
+const JOB_ID = 'delivery-job';
 
 beforeAll(async () => {
 	await db.insert(s.user).values({ id: OWNER.userId, name: 'Owner', email: 'delivery-owner@example.com' });
 	await db.insert(s.project).values({ id: OWNER.projectId, name: 'Delivery', type: 'local', path: '/tmp/delivery' });
-	await db.insert(s.story).values([
-		{ id: 'story-to-two', ...OWNER, slug: 'to-two', title: 'To two people' },
-		{ id: 'story-to-all', ...OWNER, slug: 'to-all', title: 'To everyone' },
-	]);
-	await db.insert(s.storyDelivery).values([
-		{
-			storyId: 'story-to-two',
-			channels: ['email'],
-			recipientMode: 'specific',
-			recipientUserIds: ['removed-user', 'kept-user'],
-			recipientGroupIds: ['removed-group'],
-		},
-		{ storyId: 'story-to-all', channels: ['email'], recipientMode: 'all', recipientUserIds: ['removed-user'] },
-	]);
+	await db.insert(s.story).values({ id: STORY_ID, ...OWNER, slug: 'delivered', title: 'Delivered' });
+});
+
+beforeEach(async () => {
+	await db.delete(s.storyDelivery);
+	await db.delete(s.scheduledJob);
+	await db.insert(s.scheduledJob).values({ id: JOB_ID, name: 'story.deliver', runAt: new Date() });
 });
 
 afterAll(() => {
 	db.$client.close();
 });
 
-describe('removeSpecificRecipients', () => {
-	const removed = { userIds: ['removed-user'], groupIds: ['removed-group'] };
+describe('keepSpecificRecipients', () => {
+	const keepsOnly = (keptId: string) => (recipient: { id: string }) => recipient.id === keptId;
 
-	it('takes the removed people and groups off the delivery and counts who is left', async () => {
-		expect(await removeSpecificRecipients('story-to-two', removed)).toBe(1);
-		expect(await getByStoryId('story-to-two')).toMatchObject({
+	it('drops the people and groups it is told not to keep', async () => {
+		await deliverTo({ recipientMode: 'specific' });
+
+		await keepSpecificRecipients(STORY_ID, keepsOnly('kept-user'));
+
+		expect(await getByStoryId(STORY_ID)).toMatchObject({
+			enabled: true,
 			recipientUserIds: ['kept-user'],
 			recipientGroupIds: [],
+			scheduledJobId: JOB_ID,
 		});
 	});
 
-	it.each([
-		{ name: 'a delivery to everyone the story is shared with', storyId: 'story-to-all' },
-		{ name: 'a story without delivery', storyId: 'story-without-delivery' },
-	])('leaves $name untouched', async ({ storyId }) => {
-		expect(await removeSpecificRecipients(storyId, removed)).toBeNull();
-		expect((await getByStoryId('story-to-all'))?.recipientUserIds).toEqual(['removed-user']);
+	it('turns off a delivery left with nobody, with its scheduled job', async () => {
+		await deliverTo({ recipientMode: 'specific' });
+
+		await keepSpecificRecipients(STORY_ID, () => false);
+
+		expect(await getByStoryId(STORY_ID)).toMatchObject({ enabled: false, scheduledJobId: null });
+		expect(await db.select().from(s.scheduledJob)).toEqual([]);
+	});
+
+	it('leaves a delivery to everyone the story is shared with untouched', async () => {
+		await deliverTo({ recipientMode: 'all' });
+
+		await keepSpecificRecipients(STORY_ID, () => false);
+
+		expect(await getByStoryId(STORY_ID)).toMatchObject({
+			enabled: true,
+			recipientUserIds: ['removed-user', 'kept-user'],
+		});
 	});
 });
+
+async function deliverTo({ recipientMode }: { recipientMode: 'specific' | 'all' }) {
+	await db.insert(s.storyDelivery).values({
+		storyId: STORY_ID,
+		enabled: true,
+		channels: ['email'],
+		recipientMode,
+		recipientUserIds: ['removed-user', 'kept-user'],
+		recipientGroupIds: ['removed-group'],
+		scheduledJobId: JOB_ID,
+	});
+}

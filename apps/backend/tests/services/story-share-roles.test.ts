@@ -23,7 +23,7 @@ import {
 	type StoryShareChange,
 } from '../../src/services/story-share-settings.service';
 
-const mocks = vi.hoisted(() => ({ attachChatToStandaloneStory: vi.fn(), removeStoryDeliveryRecipients: vi.fn() }));
+const mocks = vi.hoisted(() => ({ attachChatToStandaloneStory: vi.fn() }));
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -37,10 +37,7 @@ vi.mock('../../src/services/project-sharing.service', () => ({
 }));
 vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
 vi.mock('../../src/queries/story-folder.queries', () => ({ ensureStoryPrivate: vi.fn(), moveStoryToFolder: vi.fn() }));
-vi.mock('../../src/services/story-delivery.service', () => ({
-	removeStoryDeliveryRecipients: mocks.removeStoryDeliveryRecipients,
-	teardownStoryDelivery: vi.fn(),
-}));
+vi.mock('../../src/services/story-delivery.service', () => ({ teardownStoryDelivery: vi.fn() }));
 vi.mock('../../src/services/standalone-story', () => ({
 	attachChatToStandaloneStory: mocks.attachChatToStandaloneStory,
 }));
@@ -138,22 +135,44 @@ describe('story edit rights shared through roles', () => {
 		expect(await getStoryShareRole(STORY_ID, EDITOR_ID)).toBeNull();
 	});
 
-	it('takes the people and groups it removes off the scheduled delivery, which would share with them again', async () => {
-		await save({ users: [editor(EDITOR_ID), viewer(VIEWER_ID)], groups: [viewer(GROUP_ID)] });
-		await save({ users: [editor(EDITOR_ID)] });
-
-		expect(mocks.removeStoryDeliveryRecipients).toHaveBeenLastCalledWith(STORY_ID, {
-			userIds: [VIEWER_ID],
-			groupIds: [GROUP_ID],
+	it.each([
+		{
+			name: 'takes the people and groups a save removes off the delivery, and nobody else',
+			shareBefore: { users: [viewer(VIEWER_ID), viewer(EDITOR_ID)], groups: [viewer(GROUP_ID)] },
+			shareAfter: { users: [viewer(EDITOR_ID)] },
+			keptOnDelivery: { recipientUserIds: [EDITOR_ID, GROUP_MEMBER_ID], recipientGroupIds: [] },
+		},
+		{
+			name: 'keeps on the delivery only the people a project-wide share is narrowed to',
+			shareBefore: { visibility: 'project' as const },
+			shareAfter: { users: [viewer(EDITOR_ID)] },
+			keptOnDelivery: { recipientUserIds: [EDITOR_ID], recipientGroupIds: [] },
+		},
+		{
+			name: 'leaves the delivery alone when the story opens to the whole project',
+			shareBefore: { users: [viewer(VIEWER_ID)] },
+			shareAfter: { visibility: 'project' as const },
+			keptOnDelivery: {
+				recipientUserIds: [VIEWER_ID, EDITOR_ID, GROUP_MEMBER_ID],
+				recipientGroupIds: [GROUP_ID],
+			},
+		},
+	])('$name', async ({ shareBefore, shareAfter, keptOnDelivery }) => {
+		await save(shareBefore);
+		await db.delete(s.storyDelivery);
+		await db.insert(s.storyDelivery).values({
+			storyId: STORY_ID,
+			enabled: true,
+			channels: ['email'],
+			recipientMode: 'specific',
+			recipientUserIds: [VIEWER_ID, EDITOR_ID, GROUP_MEMBER_ID],
+			recipientGroupIds: [GROUP_ID],
 		});
-	});
 
-	it('leaves the scheduled delivery alone when the story opens to the whole project', async () => {
-		await save({ users: [viewer(VIEWER_ID)] });
-		mocks.removeStoryDeliveryRecipients.mockClear();
-		await save({ visibility: 'project' });
+		await save(shareAfter);
 
-		expect(mocks.removeStoryDeliveryRecipients).not.toHaveBeenCalled();
+		const [delivery] = await db.select().from(s.storyDelivery);
+		expect(delivery).toMatchObject({ ...keptOnDelivery, enabled: true });
 	});
 
 	it('tells new recipients what they can do with the story', async () => {
