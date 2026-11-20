@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -225,7 +224,21 @@ class _ColumnAccessAnalyzer:
         if column.table and column.table.casefold() != column.name.casefold():
             return set()
         source = _find_source(scope, column.name)
-        return self._table_origins(source) if isinstance(source, exp.Table) else set()
+        if not isinstance(source, exp.Table) or self._is_cataloged_column(scope, column):
+            return set()
+        return self._table_origins(source)
+
+    def _is_cataloged_column(self, scope: Scope, column: exp.Column) -> bool:
+        if column.table:
+            candidates = [scope.sources.get(column.table)]
+        else:
+            candidates = [source for _, source in scope.selected_sources.values()]
+        return any(
+            _match_identifier(column.name, list(info.columns)) is not None
+            for candidate in candidates
+            if isinstance(candidate, exp.Table)
+            for info in self._table_infos(candidate)
+        )
 
     def _unnamed_origins(self, scope: Scope) -> set[_ColumnOrigin]:
         """Columns a scope reads without naming them: renamed by a table alias, positional, pattern-matched or NATURAL-joined."""
@@ -237,12 +250,22 @@ class _ColumnAccessAnalyzer:
         return origins
 
     def _natural_join_origins(self, scope: Scope) -> set[_ColumnOrigin]:
-        joins = scope.expression.args.get("joins") or []
-        if not any(join.method == "NATURAL" for join in joins):
-            return set()
-        outputs = [output for _, source in scope.selected_sources.values() for output in self._source_outputs(source)]
-        name_counts = Counter(output.name.casefold() for output in outputs)
-        return {origin for output in outputs if name_counts[output.name.casefold()] > 1 for origin in output.origins}
+        """A NATURAL JOIN compares every column its right side shares with the relations joined before it."""
+        origins: set[_ColumnOrigin] = set()
+        left_outputs = self._relation_outputs(scope, scope.expression.args.get("from_"))
+        for join in scope.expression.args.get("joins") or []:
+            right_outputs = self._relation_outputs(scope, join)
+            if join.method == "NATURAL":
+                shared_names = _output_names(left_outputs) & _output_names(right_outputs)
+                for output in left_outputs + right_outputs:
+                    if output.name.casefold() in shared_names:
+                        origins.update(output.origins)
+            left_outputs = left_outputs + right_outputs
+        return origins
+
+    def _relation_outputs(self, scope: Scope, relation: exp.Expr | None) -> list[_OutputColumn]:
+        source = scope.sources.get(relation.alias_or_name) if relation is not None else None
+        return self._source_outputs(source) if source is not None else []
 
     def _table_origins(self, table: exp.Table) -> set[_ColumnOrigin]:
         return {origin for output in self._source_outputs(table) for origin in output.origins}
@@ -289,6 +312,10 @@ class _ColumnAccessAnalyzer:
 
 def _is_unnest_scope(scope: Scope) -> bool:
     return isinstance(scope.expression, exp.Unnest)
+
+
+def _output_names(outputs: list[_OutputColumn]) -> set[str]:
+    return {output.name.casefold() for output in outputs}
 
 
 def _find_source(scope: Scope, alias: str) -> exp.Expr | Scope | None:

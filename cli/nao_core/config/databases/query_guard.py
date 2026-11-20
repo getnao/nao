@@ -67,6 +67,7 @@ def parse_query(sql: str, dialect: str, blocked: BlockedFactory) -> exp.Query:
     expression = statements[0]
     if not isinstance(expression, exp.Query):
         raise blocked("only query statements can be validated")
+    assert_no_unvalidated_data_functions(expression, blocked)
     return expression
 
 
