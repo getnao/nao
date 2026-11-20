@@ -56,6 +56,7 @@ vi.mock('@tanstack/react-query', () => ({
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, fetchQuery: mocks.fetchQuery }),
 	useMutation: mocks.useMutation,
 }));
+vi.mock('@/components/group-impersonation', () => ({ ImpersonateGroupsButton: () => null }));
 vi.mock('@tanstack/react-router', () => ({
 	useNavigate: () => mocks.navigate,
 	Link: ({

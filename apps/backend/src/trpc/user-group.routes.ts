@@ -331,8 +331,9 @@ export const userGroupRoutes = {
 		}),
 
 	stopImpersonation: projectProtectedProcedure.mutation(async ({ ctx }) => {
-		await impersonationQueries.stopGroupImpersonation(ctx.project.id, ctx.user.id);
-		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		if (await impersonationQueries.stopGroupImpersonation(ctx.project.id, ctx.user.id)) {
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		}
 	}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {

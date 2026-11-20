@@ -7,6 +7,7 @@ import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { getUserRoleInProject } from '../../src/queries/project.queries';
 import { startGroupImpersonation, stopGroupImpersonation } from '../../src/queries/user-group-impersonation.queries';
+import { getShareAudience } from '../../src/services/project-sharing.service';
 import { resolveAvailableUserGroupAccess } from '../../src/services/user-group-availability.service';
 
 vi.mock('../../src/services/license.service', async (importOriginal) => ({
@@ -49,6 +50,16 @@ describe('user group impersonation', () => {
 		]);
 	});
 
+	it('shares like a member of the impersonated groups', async () => {
+		expect((await getShareAudience(PROJECT_ID, ADMIN_ID)).canShareToProject).toBe(true);
+
+		await startGroupImpersonation(PROJECT_ID, ADMIN_ID, [FINANCE_GROUP_ID]);
+
+		expect((await getShareAudience(PROJECT_ID, ADMIN_ID)).canShareToProject).toBe(false);
+
+		await stopGroupImpersonation(PROJECT_ID, ADMIN_ID);
+	});
+
 	it('ignores a stored impersonation once its owner is no longer admin', async () => {
 		await startGroupImpersonation(PROJECT_ID, ADMIN_ID, [FINANCE_GROUP_ID]);
 		await setAdminRole('user');
@@ -76,7 +87,12 @@ async function seed() {
 	await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: ADMIN_ID, role: 'admin' });
 	await db.insert(s.userGroup).values([
 		{ id: 'impersonation-default', projectId: PROJECT_ID, name: 'All Users', isDefault: true },
-		{ id: FINANCE_GROUP_ID, projectId: PROJECT_ID, name: 'Finance' },
+		{
+			id: FINANCE_GROUP_ID,
+			projectId: PROJECT_ID,
+			name: 'Finance',
+			featureGrants: { version: 2, features: [], projectSharing: 'blocked' },
+		},
 		{ id: SALES_GROUP_ID, projectId: PROJECT_ID, name: 'Sales' },
 	]);
 	await db.insert(s.userGroupMember).values({ groupId: SALES_GROUP_ID, userId: ADMIN_ID });

@@ -24,9 +24,11 @@ export const startGroupImpersonation = async (projectId: string, userId: string,
 		.execute();
 };
 
-export const stopGroupImpersonation = async (projectId: string, userId: string): Promise<void> => {
-	await db
+export const stopGroupImpersonation = async (projectId: string, userId: string): Promise<boolean> => {
+	const deleted = await db
 		.delete(s.userGroupImpersonation)
 		.where(and(eq(s.userGroupImpersonation.projectId, projectId), eq(s.userGroupImpersonation.userId, userId)))
+		.returning({ userId: s.userGroupImpersonation.userId })
 		.execute();
+	return deleted.length > 0;
 };
