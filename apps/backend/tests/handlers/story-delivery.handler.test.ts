@@ -96,6 +96,20 @@ it.each([
 	);
 });
 
+it.each([
+	{ name: 'succeeds', job: { id: 'job-id', attempts: 2, maxAttempts: 3 }, fails: false },
+	{ name: 'fails on its last attempt', job: { id: 'job-id', attempts: 3, maxAttempts: 3 }, fails: true },
+])('clears what a run already sent once its retry $name, so the next run delivers it again', async ({ job, fails }) => {
+	const skipDeliveries = [{ userId: 'recipient-user-id', channel: 'email' as const }];
+	if (fails) {
+		mocks.notifyUsers.mockRejectedValueOnce(new NotificationChannelDeliveryError([], []));
+	}
+
+	await storyDeliveryHandler({ storyId: 'story-id', skipDeliveries }, job as never).catch(() => undefined);
+
+	expect(mocks.updateJobPayload).toHaveBeenCalledWith('job-id', { storyId: 'story-id' });
+});
+
 it('lets the handler no-op when the scheduled story no longer exists', async () => {
 	mocks.getStoryById.mockResolvedValueOnce(undefined);
 
