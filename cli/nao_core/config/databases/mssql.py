@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import Field, model_validator
 
 from nao_core.config.exceptions import InitError
-from nao_core.ui import ask_confirm, ask_select, ask_text
+from nao_core.ui import ask_select, ask_text
 
 if TYPE_CHECKING:
     from ibis import BaseBackend
@@ -135,6 +135,8 @@ class MssqlConfig(DatabaseConfig):
         elif self.auth_mode == MssqlAuthMode.AZURE_SERVICE_PRINCIPAL:
             if not self.client_id or not self.client_secret:
                 raise ValueError("client_id and client_secret are required for azure_service_principal auth mode")
+        if self.ssh_tunnel is not None and self.auth_mode != MssqlAuthMode.SQL_PASSWORD:
+            raise ValueError("SSH tunnels are only supported with SQL password authentication")
         return self
 
     @classmethod
@@ -165,25 +167,6 @@ class MssqlConfig(DatabaseConfig):
         driver = ask_text("ODBC driver:", default=detected_driver) or detected_driver
         schema_name = ask_text("Default schema (uses 'dbo' if empty):")
 
-        use_ssh = ask_confirm("Use SSH tunnel?", default=False)
-        ssh_tunnel = None
-
-        if use_ssh:
-            ssh_host = ask_text("SSH host:", required_field=True)
-            ssh_port_str = ask_text("SSH port:", default="22") or "22"
-            if not ssh_port_str.isdigit():
-                raise InitError("SSH port must be a valid integer.")
-            ssh_username = ask_text("SSH username:", required_field=True)
-            ssh_private_key_path = ask_text("Path to SSH private key:", required_field=True)
-            ssh_private_key_passphrase = ask_text("SSH private key passphrase (optional):", password=True)
-            ssh_tunnel = SSHTunnelConfig(
-                ssh_host=ssh_host or "",
-                ssh_port=int(ssh_port_str),
-                ssh_username=ssh_username or "",
-                ssh_private_key_path=ssh_private_key_path or "",
-                ssh_private_key_passphrase=ssh_private_key_passphrase or None,
-            )
-
         return MssqlConfig(
             name=name,
             host=host,
@@ -197,7 +180,6 @@ class MssqlConfig(DatabaseConfig):
             tenant_id=tenant_id,
             driver=driver,
             schema_name=schema_name,
-            ssh_tunnel=ssh_tunnel,
         )
 
     def connect(self) -> BaseBackend:

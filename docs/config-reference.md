@@ -67,6 +67,7 @@ Patterns in `include` / `exclude` use glob syntax against `schema.table` (e.g. `
 | `user`                           | string                                                                       | **Yes**  | —                        | Username                                                                                                                                                                                                                                                                        |
 | `password`                       | string                                                                       | **Yes**  | —                        | Password                                                                                                                                                                                                                                                                        |
 | `schema_name`                    | string                                                                       | No       | `null`                   | Default schema (optional, uses 'public' if not set)                                                                                                                                                                                                                             |
+| `ssh_tunnel`                     | [SSHTunnelConfig](#sshtunnelconfig)                                          | No       | `null`                   | SSH tunnel configuration (optional)                                                                                                                                                                                                                                             |
 
 ### Snowflake (`type: snowflake`)
 
@@ -203,6 +204,27 @@ Patterns in `include` / `exclude` use glob syntax against `schema.table` (e.g. `
 | `tenant_id`                      | string                                                                              | No       | `null`                   | Entra ID tenant ID (optional)                                                                                                                                                                                                                                                   |
 | `driver`                         | string                                                                              | No       | `"FreeTDS"`              | ODBC driver (FreeTDS on Mac/Linux, ODBC Driver 18 for SQL Server on Windows or with Entra ID)                                                                                                                                                                                   |
 | `schema_name`                    | string                                                                              | No       | `null`                   | Default schema (optional, uses 'dbo' if not set)                                                                                                                                                                                                                                |
+| `ssh_tunnel`                     | [SSHTunnelConfig](#sshtunnelconfig)                                                 | No       | `null`                   | SSH tunnel configuration (optional)                                                                                                                                                                                                                                             |
+
+### MySQL (`type: mysql`)
+
+| Property                         | Type                                                                         | Required | Default                  | Description                                                                                                                                                                                                                                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------- | -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exclude_columns`                | string[]                                                                     | No       | `[]`                     | Glob patterns for columns to exclude. Patterns are matched against the fully-qualified 'schema.table.column' name (e.g., '_.version', '_._peerdb\_\_', 'analytics.events._\_id'). Empty means no columns are excluded.                                                          |
+| `preview_max_value_length`       | integer                                                                      | No       | `1000`                   | Maximum length of a single value in preview rows. Longer values are truncated in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the generated docs or the ai_summary prompt. 0 disables truncation, otherwise the minimum is 100.                         |
+| `templates`                      | `"columns"`, `"preview"`, `"profiling"`, `"ai_summary"`, `"query_history"`[] | No       | `["columns", "preview"]` | Which default templates to render per table (e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). Defaults to ['columns', 'preview']; an empty list uses this default.                                                                                    |
+| `query_history_days`             | integer                                                                      | No       | `null`                   | Number of days to look back for query history (used by query_history template).                                                                                                                                                                                                 |
+| `query_history_sql`              | string                                                                       | No       | `null`                   | Custom SQL to fetch query history, overriding the built-in query for this database type. The query must return a `query_text` column. The placeholder `{days}` (if present) is replaced with the configured `query_history_days` value.                                         |
+| `query_history_exclude_patterns` | string[]                                                                     | No       | `[]`                     | Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. Any query whose text matches at least one pattern is excluded from the query_history analysis. Useful to filter out warehouse system queries (e.g. 'SYSTEM\$', 'CURRENT_SESSION\(\)'). |
+| `profiling`                      | [ProfilingConfig](#profilingconfig)                                          | No       | —                        | Profiling refresh policy configuration                                                                                                                                                                                                                                          |
+| `ai_summary`                     | [RefreshConfig](#refreshconfig)                                              | No       | —                        | AI summary refresh policy configuration                                                                                                                                                                                                                                         |
+| `host`                           | string                                                                       | **Yes**  | —                        | MySQL host                                                                                                                                                                                                                                                                      |
+| `port`                           | integer                                                                      | No       | `3306`                   | MySQL port                                                                                                                                                                                                                                                                      |
+| `database`                       | string                                                                       | **Yes**  | —                        | Database name                                                                                                                                                                                                                                                                   |
+| `user`                           | string                                                                       | **Yes**  | —                        | Username                                                                                                                                                                                                                                                                        |
+| `password`                       | string                                                                       | **Yes**  | —                        | Password                                                                                                                                                                                                                                                                        |
+| `schema_name`                    | string                                                                       | No       | `null`                   | Default schema (optional)                                                                                                                                                                                                                                                       |
+| `ssh_tunnel`                     | [SSHTunnelConfig](#sshtunnelconfig)                                          | No       | `null`                   | SSH tunnel configuration (optional)                                                                                                                                                                                                                                             |
 
 ### Amazon Redshift (`type: redshift`)
 
@@ -278,17 +300,17 @@ Patterns in `include` / `exclude` use glob syntax against `schema.table` (e.g. `
 
 ### SSHTunnelConfig
 
-Nested under `ssh_tunnel` in a Redshift database entry.
+Nested under `ssh_tunnel` in PostgreSQL, MySQL, Microsoft SQL Server, and Amazon Redshift database entries.
 
-| Property                     | Type    | Required | Default | Description                   |
-| ---------------------------- | ------- | -------- | ------- | ----------------------------- |
-| `ssh_host`                   | string  | **Yes**  | —       | SSH bastion host              |
-| `ssh_port`                   | integer | No       | `22`    | SSH bastion port              |
-| `ssh_username`               | string  | **Yes**  | —       | SSH username                  |
-| `ssh_private_key_path`       | string  | No       | `null`  | Path to an SSH private key    |
-| `ssh_private_key`            | string  | No       | `null`  | SSH private key contents      |
-| `ssh_private_key_passphrase` | string  | No       | `null`  | SSH private key passphrase    |
-| `ssh_host_key`               | string  | No       | `null`  | Expected SSH bastion host key |
+| Property                     | Type    | Required | Default | Description                                                   |
+| ---------------------------- | ------- | -------- | ------- | ------------------------------------------------------------- |
+| `ssh_host`                   | string  | **Yes**  | —       | SSH bastion host                                              |
+| `ssh_port`                   | integer | No       | `22`    | SSH bastion port                                              |
+| `ssh_username`               | string  | **Yes**  | —       | SSH username                                                  |
+| `ssh_private_key_path`       | string  | No       | `null`  | Path to an SSH private key                                    |
+| `ssh_private_key`            | string  | No       | `null`  | SSH private key contents                                      |
+| `ssh_private_key_passphrase` | string  | No       | `null`  | SSH private key passphrase                                    |
+| `ssh_host_key`               | string  | No       | `null`  | Expected SSH bastion host key as one OpenSSH known_hosts line |
 
 ## LLM
 
@@ -339,14 +361,15 @@ Used for `ai_summary` generation when `annotation_model` is not set.
 
 ## Repos
 
-| Property     | Type     | Required | Default | Description                                                                            |
-| ------------ | -------- | -------- | ------- | -------------------------------------------------------------------------------------- |
-| `name`       | string   | **Yes**  | —       | The name of the repository                                                             |
-| `url`        | string   | No       | `null`  | The URL of the repository                                                              |
-| `branch`     | string   | No       | `null`  | The branch of the repository                                                           |
-| `local_path` | string   | No       | `null`  | Local filesystem path (relative to nao_config.yaml or absolute)                        |
-| `include`    | string[] | No       | `[]`    | Glob patterns for files to include (e.g. 'models/\*_/_.sql'). Empty means include all. |
-| `exclude`    | string[] | No       | `[]`    | Glob patterns for files to exclude (e.g. '\*.pyc')                                     |
+| Property     | Type                        | Required | Default | Description                                                                                  |
+| ------------ | --------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------- |
+| `name`       | string                      | **Yes**  | —       | The name of the repository                                                                   |
+| `url`        | string                      | No       | `null`  | The URL of the repository                                                                    |
+| `branch`     | string                      | No       | `null`  | The branch of the repository                                                                 |
+| `local_path` | string                      | No       | `null`  | Local filesystem path (relative to nao_config.yaml or absolute)                              |
+| `include`    | string[]                    | No       | `[]`    | Glob patterns for files to include (e.g. 'models/\*_/_.sql'). Empty means include all.       |
+| `exclude`    | string[]                    | No       | `[]`    | Glob patterns for files to exclude (e.g. '\*.pyc')                                           |
+| `targets`    | [RepoTarget](#repotarget)[] | No       | `[]`    | Folders of the repository synced outside `repos/<name>/`, e.g. its tests into `tests/<name>` |
 
 ## Notion
 

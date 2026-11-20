@@ -1729,6 +1729,20 @@
 					"default": null,
 					"description": "Price in US dollars per million tokens"
 				},
+				"context_window": {
+					"anyOf": [
+						{
+							"exclusiveMinimum": 0,
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Context window in tokens, for a model nao does not know such as one routed through a gateway",
+					"title": "Context Window"
+				},
 				"settings": {
 					"anyOf": [
 						{
@@ -2147,6 +2161,18 @@
 					"default": null,
 					"description": "Default schema (optional, uses 'dbo' if not set)",
 					"title": "Schema Name"
+				},
+				"ssh_tunnel": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/SSHTunnelConfig"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SSH tunnel configuration (optional)"
 				}
 			},
 			"required": ["name", "host", "database"],
@@ -2292,6 +2318,18 @@
 					"default": null,
 					"description": "Default schema (optional)",
 					"title": "Schema Name"
+				},
+				"ssh_tunnel": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/SSHTunnelConfig"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SSH tunnel configuration (optional)"
 				}
 			},
 			"required": ["name", "host", "database", "user", "password"],
@@ -2487,6 +2525,18 @@
 					"default": null,
 					"description": "Default schema (optional, uses 'public' if not set)",
 					"title": "Schema Name"
+				},
+				"ssh_tunnel": {
+					"anyOf": [
+						{
+							"$ref": "#/$defs/SSHTunnelConfig"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "SSH tunnel configuration (optional)"
 				}
 			},
 			"required": ["name", "host", "database", "user", "password"],
@@ -3005,6 +3055,7 @@
 			"type": "object"
 		},
 		"RepoConfig": {
+			"additionalProperties": false,
 			"description": "Repository configuration.\n\nSupports two source types:\n- Git repository: specify `url` (and optionally `branch`)\n- Local path: specify `local_path` (relative to nao_config.yaml or absolute)",
 			"properties": {
 				"name": {
@@ -3066,10 +3117,37 @@
 					},
 					"title": "Exclude",
 					"type": "array"
+				},
+				"targets": {
+					"description": "Folders of the repository synced outside `repos/<name>/`, e.g. its tests into `tests/<name>`",
+					"items": {
+						"$ref": "#/$defs/RepoTarget"
+					},
+					"title": "Targets",
+					"type": "array"
 				}
 			},
 			"required": ["name"],
 			"title": "RepoConfig",
+			"type": "object"
+		},
+		"RepoTarget": {
+			"additionalProperties": false,
+			"description": "A folder of the repository synced to its own folder of the project instead of `repos/<name>/`.",
+			"properties": {
+				"source": {
+					"description": "Folder inside the repository, e.g. 'nao/tests'",
+					"title": "Source",
+					"type": "string"
+				},
+				"target": {
+					"description": "Folder of the project it is synced to, e.g. 'tests/analytics'. Replaced on every sync.",
+					"title": "Target",
+					"type": "string"
+				}
+			},
+			"required": ["source", "target"],
+			"title": "RepoTarget",
 			"type": "object"
 		},
 		"SSHTunnelConfig": {
@@ -3141,7 +3219,7 @@
 						}
 					],
 					"default": null,
-					"description": "Expected SSH bastion host key",
+					"description": "Expected SSH bastion host key as one OpenSSH known_hosts line",
 					"title": "Ssh Host Key"
 				}
 			},
@@ -3696,6 +3774,14 @@
 				"comparison": {
 					"$ref": "#/$defs/ComparisonConfig",
 					"description": "Tolerances used when comparing results to the expected data"
+				},
+				"schedules": {
+					"description": "Schedules on which the deployed app runs the tests, ignored by `nao test`",
+					"items": {
+						"$ref": "#/$defs/TestScheduleConfig"
+					},
+					"title": "Schedules",
+					"type": "array"
 				}
 			},
 			"title": "TestConfig",
@@ -3735,6 +3821,65 @@
 			},
 			"required": ["model"],
 			"title": "TestModelConfig",
+			"type": "object"
+		},
+		"TestScheduleConfig": {
+			"additionalProperties": false,
+			"description": "A schedule of `test.schedules`, on which the deployed app runs the tests against the production context.",
+			"properties": {
+				"cron": {
+					"description": "When to run the tests, as a 5-field cron expression in the server timezone",
+					"title": "Cron",
+					"type": "string"
+				},
+				"tags": {
+					"description": "Run only the tests with one of these tags",
+					"items": {
+						"type": "string"
+					},
+					"title": "Tags",
+					"type": "array"
+				},
+				"models": {
+					"anyOf": [
+						{
+							"items": {
+								"anyOf": [
+									{
+										"type": "string"
+									},
+									{
+										"$ref": "#/$defs/TestModelConfig"
+									}
+								]
+							},
+							"type": "array"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "The models to run the tests against, `test.models` by default",
+					"title": "Models"
+				},
+				"k": {
+					"anyOf": [
+						{
+							"minimum": 1,
+							"type": "integer"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"default": null,
+					"description": "Number of times to run each test case, `test.k` by default",
+					"title": "K"
+				}
+			},
+			"required": ["cron"],
+			"title": "TestScheduleConfig",
 			"type": "object"
 		},
 		"TrinoConfig": {

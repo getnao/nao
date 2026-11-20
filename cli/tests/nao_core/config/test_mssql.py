@@ -81,6 +81,37 @@ def test_token_based_entra_id_modes_need_no_credentials(auth_mode: str):
     assert config.client_id is None
 
 
+@pytest.mark.parametrize(
+    ("auth_mode", "credentials"),
+    [
+        (
+            MssqlAuthMode.AZURE_SERVICE_PRINCIPAL,
+            {"client_id": "my-client-id", "client_secret": "my-secret"},
+        ),
+        (MssqlAuthMode.AZURE_CLI, {}),
+        (MssqlAuthMode.AZURE_INTERACTIVE, {}),
+    ],
+)
+def test_entra_id_rejects_ssh_tunnel(auth_mode: MssqlAuthMode, credentials: dict[str, str]):
+    ssh_tunnel = SSHTunnelConfig(
+        ssh_host="bastion.example.com",
+        ssh_username="nao",
+        ssh_private_key_path="/keys/id_ed25519",
+    )
+
+    with pytest.raises(ValidationError, match="SSH tunnels are only supported with SQL password authentication"):
+        MssqlConfig.model_validate(
+            {
+                "name": "azure-sql",
+                "host": AZURE_HOST,
+                "database": "sales",
+                "auth_mode": auth_mode,
+                "ssh_tunnel": ssh_tunnel,
+                **credentials,
+            }
+        )
+
+
 def test_entra_id_modes_default_to_microsoft_odbc_driver(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(mssql_module, "_detect_odbc_driver", lambda: "FreeTDS")
     monkeypatch.setattr(mssql_module, "_detect_fabric_driver", lambda: "ODBC Driver 18 for SQL Server")
@@ -93,7 +124,6 @@ def test_prompt_config_supports_entra_id_service_principal(monkeypatch: pytest.M
     answers = iter(["azure-sql", AZURE_HOST, "1433", "sales", "my-client-id", "my-secret", "", "", ""])
     monkeypatch.setattr(mssql_module, "ask_text", lambda *args, **kwargs: next(answers))
     monkeypatch.setattr(mssql_module, "ask_select", lambda *args, **kwargs: "Entra ID Service Principal (Azure SQL)")
-    monkeypatch.setattr(mssql_module, "ask_confirm", lambda *args, **kwargs: False)
     monkeypatch.setattr(mssql_module, "_detect_fabric_driver", lambda: "ODBC Driver 18 for SQL Server")
 
     config = MssqlConfig.promptConfig()

@@ -424,6 +424,10 @@ class RedshiftConfig(DatabaseConfig):
             ssh_username = ask_text("SSH username:", required_field=True)
             ssh_private_key_path = ask_text("Path to SSH private key:", required_field=True)
             ssh_private_key_passphrase = ask_text("SSH private key passphrase (optional):", password=True)
+            ssh_host_key = ask_text(
+                "SSH bastion host key (one OpenSSH known_hosts line):",
+                required_field=True,
+            )
 
             ssh_tunnel = SSHTunnelConfig(
                 ssh_host=ssh_host or "",
@@ -431,6 +435,7 @@ class RedshiftConfig(DatabaseConfig):
                 ssh_username=ssh_username or "",
                 ssh_private_key_path=ssh_private_key_path or "",
                 ssh_private_key_passphrase=ssh_private_key_passphrase or None,
+                ssh_host_key=ssh_host_key or "",
             )
 
         return RedshiftConfig(

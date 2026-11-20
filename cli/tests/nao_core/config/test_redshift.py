@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from nao_core.config.databases import redshift as redshift_module
 from nao_core.config.databases.redshift import (
     RedshiftAuthMode,
     RedshiftConfig,
@@ -25,6 +26,36 @@ def test_user_access_token_mode(overrides: dict[str, Any], requires_token: bool,
 
     assert cfg.requires_user_access_token() is requires_token
     assert cfg.has_sync_credentials() is has_sync_credentials
+
+
+def test_prompt_config_includes_bastion_host_key(monkeypatch: pytest.MonkeyPatch):
+    host_key = "bastion.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"
+    answers = iter(
+        [
+            "redshift-prod",
+            "warehouse.internal",
+            "5439",
+            "analytics",
+            "nao",
+            "require",
+            "",
+            "secret",
+            "bastion.example.com",
+            "22",
+            "ec2-user",
+            "/keys/id_ed25519",
+            "",
+            host_key,
+        ]
+    )
+    monkeypatch.setattr(redshift_module, "ask_text", lambda *args, **kwargs: next(answers))
+    monkeypatch.setattr(redshift_module, "ask_select", lambda *args, **kwargs: RedshiftAuthMode.PASSWORD)
+    monkeypatch.setattr(redshift_module, "ask_confirm", lambda *args, **kwargs: True)
+
+    config = RedshiftConfig.promptConfig()
+
+    assert config.ssh_tunnel is not None
+    assert config.ssh_tunnel.ssh_host_key == host_key
 
 
 def test_get_schemas_uses_datashare_visible_catalog_view():

@@ -77,6 +77,9 @@ def _create_ssh_tunnel(
     remote_port: int,
     dependency_extra: str,
 ) -> SSHTunnelForwarder:
+    if not config.ssh_host_key:
+        raise ValueError("An SSH bastion host key is required")
+
     require_dependency(
         "sshtunnel",
         dependency_extra,
@@ -84,7 +87,7 @@ def _create_ssh_tunnel(
     )
     from sshtunnel import SSHTunnelForwarder
 
-    host_key = _parse_ssh_host_key(config.ssh_host_key, dependency_extra) if config.ssh_host_key else None
+    host_key = _parse_ssh_host_key(config.ssh_host_key, dependency_extra)
 
     return SSHTunnelForwarder(
         (config.ssh_host, config.ssh_port),

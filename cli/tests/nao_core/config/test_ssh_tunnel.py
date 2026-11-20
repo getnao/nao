@@ -167,6 +167,16 @@ def test_creates_forwarder_with_bastion_and_warehouse_addresses():
     )
 
 
+def test_rejects_tunnel_without_bastion_host_key():
+    with (
+        patch.object(ssh_tunnel, "require_dependency") as require_dependency,
+        pytest.raises(ValueError, match="SSH bastion host key is required"),
+    ):
+        ssh_tunnel._create_ssh_tunnel(_tunnel_config(), "redshift.internal", 5439, "redshift")
+
+    require_dependency.assert_not_called()
+
+
 def test_parses_private_key_contents_from_memory():
     private_key = RSAKey.generate(1024)
     private_key_file = StringIO()
