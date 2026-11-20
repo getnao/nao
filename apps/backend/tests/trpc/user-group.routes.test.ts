@@ -95,6 +95,7 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 	listFolderNamesOnlyOwnedByGroup: mocks.listFolderNamesOnlyOwnedByGroup,
 	listGroupFolderIds: mocks.listGroupFolderIds,
 	setGroupTeamFolders: mocks.setGroupTeamFolders,
+	withProjectFolderLock: (_projectId: string, work: () => Promise<unknown>) => work(),
 }));
 vi.mock('../../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,

@@ -711,9 +711,11 @@ export const userGroupRoutes = {
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-		await assertNoFolderLeftWithoutGroup(input.groupId);
-		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
 		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		await storyFolderQueries.withProjectFolderLock(ctx.project.id, async () => {
+			await assertNoFolderLeftWithoutGroup(input.groupId);
+			await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+		});
 		await revokeUnauthorizedProjectWideShares(ctx.project.id);
 	}),
 
