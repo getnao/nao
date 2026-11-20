@@ -964,8 +964,9 @@ describe('warehouse provisioning', () => {
 		expect(spawn).not.toHaveBeenCalled();
 	});
 
-	it('deletes the managed repository when an abandoned publishing job exhausts its retry budget', async () => {
+	it('deletes the managed repository when skipped publishing recovers an exhausted publishing job', async () => {
 		vi.useFakeTimers();
+		env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING = true;
 		const { jobId } = await startWarehouseProvisioning({
 			userId: 'user-1',
 			orgId: 'org-1',
