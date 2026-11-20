@@ -7,8 +7,7 @@ import { getQueryResult } from '../../services/query-result.service';
 import { createTool } from '../../utils/tools';
 
 export default createTool<displayChart.Input, displayChart.Output>({
-	description:
-		'Display a chart visualization or formatted table of the data from a previous query result.',
+	description: 'Display a chart visualization or formatted table of the data from a previous query result.',
 	inputSchema: displayChart.InputSchema,
 	outputSchema: displayChart.OutputSchema,
 

@@ -129,7 +129,9 @@ export const ColumnConditionalFormatsSchema = z
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
 export const ChartInputObjectSchema = z.object({
-	query_id: z.string().describe("The id of a previous query result (`execute_sql` or a semantic query) to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 	x_axis_type: XAxisTypeEnum.nullable().describe(
@@ -223,7 +225,9 @@ const KpiCardInputSchema = ChartInputObjectSchema.extend({
 	.refine(rightYAxisBoundsValid, RIGHT_Y_AXIS_BOUNDS_MESSAGE);
 
 export const TableInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous query result (`execute_sql` or a semantic query) to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: z.literal('table').describe('Display the SQL result as a table.'),
 	title: z.string().describe('A concise, descriptive title of what the table shows.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.optional(),
@@ -237,7 +241,9 @@ export type Input = ChartInput | KpiCardInput | TableInput;
 const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
 const BaseInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous query result (`execute_sql` or a semantic query) to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: DisplayTypeSchema.describe(
 		'Type of visualization to display. Use "table" for tabular results or an available custom chart type.',
 	),
