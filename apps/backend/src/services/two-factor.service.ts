@@ -1,4 +1,5 @@
-import type { BetterAuthPlugin } from 'better-auth';
+import { APIError, type BetterAuthPlugin } from 'better-auth';
+import { createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins/two-factor';
 
 import * as accountQueries from '../queries/account.queries';
@@ -24,8 +25,10 @@ interface SessionUser {
 	twoFactorEnabled?: boolean | null;
 }
 
+const SETUP_START_PATH = '/two-factor/enable';
+
 export function twoFactorPlugin(): BetterAuthPlugin {
-	return twoFactor({
+	const plugin = twoFactor({
 		issuer: DEFAULT_APP_NAME,
 		otpOptions: {
 			period: EMAIL_CODE_TTL_MINUTES,
@@ -35,6 +38,29 @@ export function twoFactorPlugin(): BetterAuthPlugin {
 			},
 		},
 	});
+	const refuseSetupOnEnabledAccount = {
+		matcher: (ctx: { path?: string }) => ctx.path === SETUP_START_PATH,
+		handler: createAuthMiddleware(async (ctx) => {
+			const session = await getSessionFromCtx(ctx);
+			if (session) {
+				await assertTwoFactorNotEnabled(session.user.id);
+			}
+		}),
+	};
+	return { ...plugin, hooks: { ...plugin.hooks, before: [refuseSetupOnEnabledAccount] } };
+}
+
+/**
+ * Starting a setup makes the plugin replace the stored secret and backup codes at once, keeping them marked as
+ * confirmed. On an account already enabled, a setup that is never finished would lock its owner out.
+ */
+async function assertTwoFactorNotEnabled(userId: string): Promise<void> {
+	const enrollment = await twoFactorQueries.getTwoFactorEnrollment(userId);
+	if (enrollment?.enabled) {
+		throw new APIError('BAD_REQUEST', {
+			message: 'Two-factor authentication is already on. Disable it before setting it up again.',
+		});
+	}
 }
 
 /**
