@@ -32,6 +32,10 @@ vi.mock('../../src/queries/story.queries', () => ({
 	upsertStoryDataCacheByStoryId: mocks.upsertStoryDataCacheByStoryId,
 }));
 vi.mock('../../src/queries/story-file.queries', () => ({ listDraftFiles: mocks.listDraftFiles }));
+vi.mock('../../src/queries/project.queries', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/queries/project.queries')>()),
+	getAgentSettings: async () => null,
+}));
 vi.mock('../../src/queries/mcp-query-data.queries', () => ({
 	getMcpQueryData: mocks.getMcpQueryData,
 	getMcpSqlQueriesByIds: mocks.getMcpSqlQueriesByIds,

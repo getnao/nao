@@ -7,6 +7,7 @@ import storyTool from '../../src/agents/tools/story';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import * as storyFileQueries from '../../src/queries/story-file.queries';
+import type { ToolContext } from '../../src/types/tools';
 import { createToolContext, executeTool } from '../helpers/tool-context';
 
 vi.mock('../../src/db/db', async () => {
@@ -33,7 +34,13 @@ const STORY_ID = 'story-1';
 describe('publishing a custom story', () => {
 	beforeAll(async () => {
 		await db.insert(s.user).values({ id: 'user-1', name: 'User', email: 'user@example.com' });
-		await db.insert(s.project).values({ id: 'project-1', name: 'Project', type: 'local', path: '/tmp/project' });
+		await db.insert(s.project).values({
+			id: 'project-1',
+			name: 'Project',
+			type: 'local',
+			path: '/tmp/project',
+			agentSettings: { storyImages: { allowedSources: ['https://cdn.acme.com/brand'] } },
+		});
 		await db.insert(s.chat).values({ id: 'chat-1', projectId: 'project-1', userId: 'user-1', title: 'Chat' });
 		await db
 			.insert(s.story)
@@ -64,6 +71,50 @@ describe('publishing a custom story', () => {
 		const output = await publish();
 
 		expect(output).toMatchObject({ success: false, error: expect.stringContaining('draft changed') });
+		expect(await db.select().from(s.storyVersion)).toEqual([]);
+	});
+
+	it.each([
+		['an image from a source the project does not allow', 'https://upload.wikimedia.org/python-logo.svg', false],
+		['an image from an allowed source', 'https://cdn.acme.com/brand/logo.png', true],
+		['a link to a web page', 'https://docs.example.com/guide', true],
+	])('with %s, publishes: %s', async (_case, link, published) => {
+		await storyFileQueries.writeDraftFile(STORY_ID, {
+			path: 'app.jsx',
+			content: `export default () => <Image src="${link}" alt="" />;`,
+		});
+
+		const output = await publish();
+
+		expect(output).toMatchObject({ success: published });
+		expect(await db.select().from(s.storyVersion)).toHaveLength(published ? 1 : 0);
+	});
+
+	it('refuses to publish when a query the story reads returns an image from a source the project does not allow', async () => {
+		await storyFileQueries.writeDraftFile(STORY_ID, {
+			path: 'app.jsx',
+			content:
+				'export default () => useQueryData("query_products").data.map((row) => <Image src={row.image} />);',
+		});
+		const queryResults = new Map([
+			[
+				'query_products',
+				{
+					columns: ['image'],
+					data: [
+						{ image: 'https://cdn.acme.com/brand/logo.png' },
+						{ image: 'https://cdn.acme.com/private/secret.jpg' },
+					],
+				},
+			],
+		]);
+
+		const output = await publish(queryResults);
+
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('(https://cdn.acme.com/private/secret.jpg)'),
+		});
 		expect(await db.select().from(s.storyVersion)).toEqual([]);
 	});
 
@@ -103,12 +154,12 @@ describe('publishing a custom story', () => {
 	});
 });
 
-function publish() {
+function publish(queryResults: ToolContext['queryResults'] = new Map()) {
 	const tool = storyTool as Tool<{ action: 'publish'; id: string }, { success: boolean }>;
 	return executeTool(
 		tool,
 		{ action: 'publish', id: STORY_ID },
-		createToolContext({ userGroupFeatures: ['storyCreation', 'customStoryCreation'] }),
+		createToolContext({ userGroupFeatures: ['storyCreation', 'customStoryCreation'], queryResults }),
 	);
 }
 
