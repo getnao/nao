@@ -162,10 +162,8 @@ describe('context explorer worktree writes', () => {
 			reason: 'rendered-template',
 			guidance: { actionKind: 'file', actionPath: '/rendered.md.j2' },
 		});
-		expect(repoSource).toMatchObject({
-			reason: 'synced-source',
-			guidance: { actionKind: 'file', actionPath: '/nao_config.yaml' },
-		});
+		expect(repoSource.reason).toBe('synced-source');
+		expect(repoSource.guidance).toBeUndefined();
 		expect(notion.reason).toBe('synced-source');
 		expect(untracked).toMatchObject({
 			reason: 'not-tracked',
@@ -234,10 +232,10 @@ describe('context explorer worktree writes', () => {
 	});
 
 	it.each([
-		['/docs/notion/page.md', 'synced-source', 'file', '/nao_config.yaml'],
-		['/docs/confluence/page.md', 'synced-source', 'file', '/nao_config.yaml'],
-		['/docs/obsidian/note.md', 'synced-source', 'file', '/nao_config.yaml'],
-		['/tests/business/orders.yml', 'synced-source', 'file', '/nao_config.yaml'],
+		['/docs/notion/page.md', 'synced-source', undefined, undefined],
+		['/docs/confluence/page.md', 'synced-source', undefined, undefined],
+		['/docs/obsidian/note.md', 'synced-source', undefined, undefined],
+		['/tests/business/orders.yml', 'synced-source', undefined, undefined],
 		['/untracked.md', 'not-tracked', null, null],
 	])('reports guidance for %s', async (filePath, reason, actionKind, actionPath) => {
 		const file = await readFileContent(filePath, access);

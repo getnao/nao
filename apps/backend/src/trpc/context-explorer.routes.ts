@@ -33,6 +33,7 @@ import {
 	getContextRepositoryStatus,
 	getHistoricalContextDiffActions,
 	listContextRepositoryBranches,
+	pullContextBranch,
 	pullLiveContext,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
@@ -348,6 +349,10 @@ export const contextExplorerRoutes = {
 				input.branch,
 			);
 		}),
+
+	pullBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await pullContextBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
 
 	createBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))

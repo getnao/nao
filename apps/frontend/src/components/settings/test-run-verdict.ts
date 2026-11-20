@@ -23,9 +23,13 @@ export const COMPARISON_CHANGES: Record<TestComparisonChange, { tone: Tone; labe
 	fixed: { tone: 'pass', label: 'Fixed', title: 'Fixed by your changes' },
 	improved: { tone: 'pass', label: 'More reliable', title: 'More reliable with your changes' },
 	new: { tone: 'neutral', label: 'New', title: 'New test, only run with your changes' },
+	removed: { tone: 'neutral', label: 'Removed', title: 'Deleted by your changes, only run on the main branch' },
 	unchanged: { tone: 'neutral', label: 'No change', title: 'Same results on both' },
 	pending: { tone: 'neutral', label: 'Incomplete', title: 'Incomplete' },
 };
+
+/** The only side a test the changes add or delete runs on. */
+const ONE_SIDED_VARIANTS = { new: 'draft', removed: 'production' } as const;
 
 /**
  * What a run says about the test, in a few words, from the attempts recorded so far. A comparison says nothing more,
@@ -103,12 +107,13 @@ function describeModels(run: TestHistoryRun): RunVerdict {
 }
 
 function describeComparison(comparison: NonNullable<TestHistoryRun['comparison']>): RunVerdict {
-	const draftTone = outcomeTone(comparison.draft.passedAttempts, comparison.draft.totalAttempts);
 	if (comparison.change === 'unchanged') {
-		return describeUnchanged(draftTone);
+		return describeUnchanged(outcomeTone(comparison.draft.passedAttempts, comparison.draft.totalAttempts));
 	}
-	if (comparison.change === 'new') {
-		return { tone: draftTone, title: COMPARISON_CHANGES.new.title, detail: null };
+	if (comparison.change === 'new' || comparison.change === 'removed') {
+		const outcome = comparison[ONE_SIDED_VARIANTS[comparison.change]];
+		const tone = outcomeTone(outcome.passedAttempts, outcome.totalAttempts);
+		return { tone, title: COMPARISON_CHANGES[comparison.change].title, detail: null };
 	}
 	const { tone, title } = COMPARISON_CHANGES[comparison.change];
 	return { tone, title, detail: null };

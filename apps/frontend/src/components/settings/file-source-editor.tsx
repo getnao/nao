@@ -8,6 +8,7 @@ import { CodeSelectionAsk } from '@/components/code-selection-ask';
 import { useRevealCitedLines } from '@/hooks/use-code-reveal';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { useFileReferenceLinks } from '@/hooks/use-file-reference-links';
 import { useQueryIdLinks } from '@/hooks/use-query-id-links';
 import { isMac } from '@/lib/platform';
 
@@ -20,6 +21,8 @@ interface FileSourceEditorProps {
 	onChange: (value: string) => void;
 	onSave?: () => void;
 	onAskAboutCode?: (selection: CodeSelection) => void;
+	/** Opens a context file by its project path, followed from the `from_file` paths of nao_config.yaml. */
+	onOpenFile?: (path: string) => void;
 }
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -56,6 +59,7 @@ export function FileSourceEditor({
 	onChange,
 	onSave,
 	onAskAboutCode,
+	onOpenFile,
 }: FileSourceEditorProps) {
 	const editorTheme = useEditorTheme();
 	const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -69,6 +73,7 @@ export function FileSourceEditor({
 	onSaveRef.current = onSave;
 	useRevealCitedLines(codeEditor, { storySlug, filePath });
 	useQueryIdLinks(codeEditor);
+	useFileReferenceLinks(codeEditor, filePath, onOpenFile);
 
 	const handleBeforeMount = useCallback((monaco: Monaco) => {
 		defineCustomThemes(monaco);

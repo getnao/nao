@@ -231,12 +231,7 @@ function getSourceEditability(filePath: string, realPath: string, projectFolder:
 		});
 	}
 	if (isSyncedSourcePath(projectPath, projectFolder)) {
-		return readOnly('synced-source', {
-			message: 'This path is replaced by nao sync. Change its source in nao_config.yaml.',
-			actionKind: 'file',
-			actionPath: '/nao_config.yaml',
-			actionLabel: 'Open nao_config.yaml',
-		});
+		return readOnly('synced-source', null);
 	}
 	return null;
 }
@@ -842,7 +837,7 @@ function unavailableGitEditability(
 	return readOnly(reason, { ...guidanceForReason(reason, provider), message });
 }
 
-function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance): FileEditability {
+function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance | null): FileEditability {
 	return { isEditable: false, reason, guidance };
 }
 
