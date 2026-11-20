@@ -26,6 +26,7 @@ import { useCitedElementHighlight } from '@/hooks/use-cited-element-highlight';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
+import { useShowStoryFilters } from '@/stores/shown-story-filters';
 
 interface StoryPreviewProps {
 	code: string;
@@ -33,6 +34,7 @@ interface StoryPreviewProps {
 	cacheSchedule: string | null;
 	queryData: QueryDataMap | null;
 	chatId: string;
+	storyId: string | null;
 	storySlug: string;
 	versionKey?: string | number;
 	filtersEnabled?: boolean;
@@ -48,6 +50,7 @@ export const StoryPreview = memo(function StoryPreview({
 	cacheSchedule,
 	queryData,
 	chatId,
+	storyId,
 	storySlug,
 	versionKey,
 	filtersEnabled = true,
@@ -67,6 +70,7 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	useShowStoryFilters(storyId, storyFilters.activeSelections);
 	const segments = useMemo(() => {
 		const nextSegments = stabilizeStorySegments(
 			splitCodeIntoSegments(code, storyFilters.resolvedParameters),

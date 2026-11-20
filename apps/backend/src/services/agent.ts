@@ -67,6 +67,7 @@ import {
 	ForkMetadata,
 	Mention,
 	MessageCustomDataParts,
+	ShownStoryFilters,
 	TokenCost,
 	TokenUsage,
 	UIMessage,
@@ -130,6 +131,7 @@ import { customStoryAuthoringError } from './story-mount';
 import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
 import {
+	describeShownStoryFilters,
 	keepStoryReferencesThroughCompaction,
 	listTrustedStoriesForPrompt,
 	safeExpandStoryReferences,
@@ -679,6 +681,7 @@ export class AgentManager {
 			mentions?: Mention[];
 			timezone?: string;
 			chatUrl?: string;
+			storyFilters?: ShownStoryFilters;
 			tracking?: MessageSentTracking;
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
@@ -715,7 +718,13 @@ export class AgentManager {
 				}
 
 				this._streamWriter = writer;
-				const messages = await this._buildModelMessages(uiMessages, opts.mentions, opts.timezone, opts.chatUrl);
+				const messages = await this._buildModelMessages(
+					uiMessages,
+					opts.mentions,
+					opts.timezone,
+					opts.chatUrl,
+					opts.storyFilters,
+				);
 
 				result = await this._agent.stream({
 					messages,
@@ -775,6 +784,7 @@ export class AgentManager {
 		mentions?: Mention[],
 		timezone?: string,
 		chatUrl?: string,
+		storyFilters?: ShownStoryFilters,
 	): Promise<ModelMessage[]> {
 		const settledUiMessages = await settleToolParts(uiMessages);
 		const artifacts = await safeGetChatArtifacts(this.chat.id, settledUiMessages, this.chat.projectId);
@@ -789,7 +799,8 @@ export class AgentManager {
 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithCollapsedStories, mentions);
 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
-		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
+		const uiMessagesWithStoryFilters = await this._addStoryFilterContext(uiMessagesWithCitation, storyFilters);
+		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithStoryFilters, mentions);
 		const uiMessagesWithStoryQuestion = addStoryQuestionReference(uiMessagesWithDbContext, this.chat.forkMetadata);
 		const uiMessagesWithCompaction = keepStoryReferencesThroughCompaction(
 			uiMessagesWithStoryQuestion,
@@ -1155,6 +1166,17 @@ export class AgentManager {
 			const context = describeCitations(citations, text);
 			return text ? `${context}\n\n${text}` : context;
 		});
+	}
+
+	private async _addStoryFilterContext(
+		messages: UIMessage[],
+		storyFilters?: ShownStoryFilters,
+	): Promise<UIMessage[]> {
+		const context = await describeShownStoryFilters(this.chat, storyFilters);
+		if (!context) {
+			return messages;
+		}
+		return this._transformLastUserMessageText(messages, (text) => `${context}\n\n${text}`);
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

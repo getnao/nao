@@ -9,6 +9,7 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useChatQuery } from '@/queries/use-chat-query';
+import { getShownStoryFiltersRequestBody } from '@/stores/shown-story-filters';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout')({
 	component: RouteComponent,
@@ -31,7 +32,7 @@ function RouteComponent() {
 	return (
 		<SetChatInputCallbackProvider>
 			<StoryBeforeAgentSendProvider>
-				<AgentProvider mode={mode}>
+				<AgentProvider mode={mode} getRequestBody={getShownStoryFiltersRequestBody}>
 					<Outlet />
 				</AgentProvider>
 			</StoryBeforeAgentSendProvider>
