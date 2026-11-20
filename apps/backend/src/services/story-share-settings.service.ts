@@ -68,12 +68,19 @@ export async function getStoryShareSettings(story: DBStory, actor: ShareActor): 
 	};
 }
 
-/** Replaces who can access the story with the given state, sharing or unsharing it as needed. */
+/**
+ * Replaces who can access the story with the given state, sharing or unsharing it as needed. Folder changes wait,
+ * so the folder checked against the share cannot change audience before the story is filed there.
+ */
 export async function saveStoryShareSettings(
 	story: DBStory,
 	actor: ShareActor,
 	change: StoryShareChange,
 ): Promise<void> {
+	await storyFolderQueries.withProjectFolderLock(actor.projectId, () => replaceStoryAccess(story, actor, change));
+}
+
+async function replaceStoryAccess(story: DBStory, actor: ShareActor, change: StoryShareChange): Promise<void> {
 	const ownerId = await storyQueries.getStoryOwnerId(story.id);
 	const users = change.users.filter((user) => user.id !== ownerId);
 	const groups = change.visibility === 'project' ? [] : change.groups;
