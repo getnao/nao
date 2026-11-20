@@ -221,6 +221,10 @@ const baseRawEnvSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_PROMPT: z.preprocess(
+		blankToUndefined,
+		z.enum(['select_account', 'login', 'consent', 'none', 'omit']).optional(),
+	),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
 	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
@@ -489,6 +493,13 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional()),
+
+	OTEL_EXPORTER_OTLP_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL' }).optional()),
+	OTEL_SERVICE_NAME: z.string().default('nao'),
 
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])

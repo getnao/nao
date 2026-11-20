@@ -313,6 +313,15 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 	return results;
 };
 
+export const listProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+	const projects = await db
+		.select({ id: s.project.id, path: s.project.path })
+		.from(s.project)
+		.where(isNotNull(s.project.path))
+		.execute();
+	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
+};
+
 export const getDefaultProject = async (): Promise<DBProject | null> => {
 	const projectPath = getDefaultProjectPath();
 	if (projectPath) {

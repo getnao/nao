@@ -2,6 +2,7 @@ import '../../src/env';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getBuiltInModelPrices } from '../../src/agents/model-prices';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import {
@@ -35,12 +36,14 @@ vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
 }));
 
-vi.mock('../../src/utils/llm', () => ({
+vi.mock('../../src/utils/llm', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/utils/llm')>()),
 	getProjectDeclaredModels: mocks.getProjectDeclaredModels,
 }));
 
 const PROJECT_ID = 'usage-project';
 const OTHER_PROJECT_ID = 'usage-project-other';
+const DISABLED_MODEL_PROJECT_ID = 'usage-project-disabled-model';
 const USER_ID = 'usage-user';
 const OTHER_USER_ID = 'usage-user-other';
 const CHAT_ID = 'usage-chat';
@@ -654,6 +657,65 @@ describe('usage query results', () => {
 		expect(records.find((record) => record.date === formatDate(previousDay, 'day'))?.users).toEqual([
 			{ userName: 'Other Usage User', messageCount: 1, totalTokens: 0, totalCost: 0 },
 		]);
+	});
+
+	it('prices an unlisted Bedrock geo id the project enables from its twin', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				provider: 'bedrock',
+				enabledModels: ['apac.anthropic.claude-sonnet-5-5'],
+				customModels: [],
+				baseUrl: null,
+			},
+		]);
+		await db.insert(s.chatMessage).values({
+			id: 'geo-twin-assistant',
+			chatId: CHAT_ID,
+			role: 'assistant',
+			llmProvider: 'bedrock',
+			llmModelId: 'apac.anthropic.claude-sonnet-5-5',
+			inputNoCacheTokens: 1_000_000,
+			totalTokens: 1_000_000,
+		});
+		const twinPrice = getBuiltInModelPrices('bedrock', 'us.anthropic.claude-sonnet-5-5')?.inputNoCache;
+
+		const records = await getMessagesUsageByUser(PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(twinPrice).toBeGreaterThan(0);
+		expect(records.at(-1)?.users[0]?.totalCost).toBeCloseTo(twinPrice ?? 0);
+	});
+
+	it('keeps the cost of a model the project used before disabling it', async () => {
+		await db.insert(s.project).values({
+			id: DISABLED_MODEL_PROJECT_ID,
+			name: 'Disabled Model Project',
+			type: 'local',
+			path: '/tmp/usage-project-disabled-model',
+		});
+		await db
+			.insert(s.chat)
+			.values({ id: 'disabled-model-chat', projectId: DISABLED_MODEL_PROJECT_ID, userId: USER_ID });
+		await db.insert(s.chatMessage).values({
+			id: 'disabled-model-assistant',
+			chatId: 'disabled-model-chat',
+			role: 'assistant',
+			llmProvider: 'bedrock',
+			llmModelId: 'apac.anthropic.claude-sonnet-5-5',
+			inputNoCacheTokens: 1_000_000,
+			totalTokens: 1_000_000,
+		});
+		const twinPrice = getBuiltInModelPrices('bedrock', 'us.anthropic.claude-sonnet-5-5')?.inputNoCache;
+
+		const records = await getMessagesUsageByUser(DISABLED_MODEL_PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(twinPrice).toBeGreaterThan(0);
+		expect(records.at(-1)?.users[0]?.totalCost).toBeCloseTo(twinPrice ?? 0);
+	});
+
+	it('computes usage of a project that has used no model yet', async () => {
+		const records = await getMessagesUsageByUser(OTHER_PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(records).toEqual([{ date: expect.any(String), users: [] }]);
 	});
 
 	it('scopes every usage aggregate and provider to one user', async () => {

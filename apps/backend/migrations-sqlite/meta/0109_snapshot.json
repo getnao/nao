@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d7577923-2791-4a04-911c-d066b97d6b51",
+  "id": "5089c85d-8bcd-4829-9606-e112412dfcf8",
   "prevId": "f0262b93-6033-43aa-8b9e-11e8aa7de884",
   "tables": {
     "account": {
@@ -368,6 +368,115 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "agent_stream_chunk": {
+      "name": "agent_stream_chunk",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chunks": {
+          "name": "chunks",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_final": {
+          "name": "is_final",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "agent_stream_chunk_createdAt_idx": {
+          "name": "agent_stream_chunk_createdAt_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "agent_stream_chunk_stream_id_seq_pk": {
+          "columns": [
+            "stream_id",
+            "seq"
+          ],
+          "name": "agent_stream_chunk_stream_id_seq_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "agent_stream_run": {
+      "name": "agent_stream_run",
+      "columns": {
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "agent_stream_run_chat_id_chat_id_fk": {
+          "name": "agent_stream_run_chat_id_chat_id_fk",
+          "tableFrom": "agent_stream_run",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -790,13 +899,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "mcp_enabled": {
           "name": "mcp_enabled",
           "type": "integer",
@@ -977,13 +1079,6 @@
         },
         "error_message": {
           "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1476,13 +1571,6 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2448,13 +2536,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "input_total_tokens": {
           "name": "input_total_tokens",
           "type": "integer",
@@ -3311,13 +3392,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "input_total_tokens": {
@@ -6514,14 +6588,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_access_mode": {
-          "name": "llm_access_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'project'"
-        },
         "row_security": {
           "name": "row_security",
           "type": "text",
@@ -6775,27 +6841,12 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "provider": {
           "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "credential_source": {
-          "name": "credential_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'database'"
         },
         "api_key": {
           "name": "api_key",
@@ -6842,13 +6893,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6874,14 +6918,13 @@
           ],
           "isUnique": false
         },
-        "project_llm_config_project_name": {
-          "name": "project_llm_config_project_name",
+        "project_llm_config_project_provider": {
+          "name": "project_llm_config_project_provider",
           "columns": [
             "project_id",
-            "name"
+            "provider"
           ],
-          "isUnique": true,
-          "where": "\"project_llm_config\".\"disabled_at\" IS NULL"
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -10494,13 +10537,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "reasoning_effort": {
           "name": "reasoning_effort",
           "type": "text",
@@ -10922,22 +10958,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "llm_config_ids": {
-          "name": "llm_config_ids",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "llm_model_ids_by_config": {
-          "name": "llm_model_ids_by_config",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",

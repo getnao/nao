@@ -4,6 +4,7 @@ import { __reloadEnvForTesting } from '../../src/env';
 import {
 	filterModelsByConfigAccess,
 	getProjectAvailableModels,
+	resolveContextWindow,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../../src/utils/llm';
@@ -306,6 +307,37 @@ describe('getProjectAvailableModels', () => {
 		process.env.OPENAI_API_KEY = 'restored-key';
 		expect(await resolveProviderSettings('project-1', 'openai', config.id)).toMatchObject({
 			apiKey: 'restored-key',
+		});
+	});
+
+	it('gives a model the context window nao_config.yaml declares for it, over the one nao knows', async () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai',
+			'    api_key: sk-openai',
+			'    models:',
+			'    - id: acsw@azure/gpt-6-sol',
+			'      context_window: 1050000',
+			'    - id: gpt-6-sol',
+			'      context_window: 400000',
+			'    - id: gpt-6-luna',
+			'    - id: acsw@azure/unlisted',
+		]);
+		mocks.getProjectById.mockResolvedValue({ path: dir, envVars: {} });
+
+		const windows: Record<string, number | undefined> = {};
+		for (const modelId of ['acsw@azure/gpt-6-sol', 'gpt-6-sol', 'gpt-6-luna', 'acsw@azure/unlisted']) {
+			const resolved = await resolveProviderModel('project-1', 'openai', modelId);
+			expect(await resolveContextWindow('project-1', 'openai', modelId)).toBe(resolved?.contextWindow);
+			windows[modelId] = resolved?.contextWindow;
+		}
+
+		expect(windows).toEqual({
+			'acsw@azure/gpt-6-sol': 1_050_000,
+			'gpt-6-sol': 400_000,
+			'gpt-6-luna': 1_050_000,
+			'acsw@azure/unlisted': 200_000,
 		});
 	});
 });

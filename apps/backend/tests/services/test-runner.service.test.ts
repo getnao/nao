@@ -24,6 +24,9 @@ const mocks = vi.hoisted(() => ({
 	createDraftContextSnapshot: vi.fn(),
 	createUpstreamContextSnapshot: vi.fn(),
 	removeContextSnapshot: vi.fn(),
+	getRun: vi.fn(),
+	listResultOutcomes: vi.fn(),
+	notifyScheduledTestsFailed: vi.fn(),
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
@@ -37,6 +40,11 @@ vi.mock('../../src/queries/test-run.queries', () => ({
 	completeRun: mocks.completeRun,
 	failRun: mocks.failRun,
 	cancelRun: mocks.cancelRun,
+	getRun: mocks.getRun,
+	listResultOutcomes: mocks.listResultOutcomes,
+}));
+vi.mock('../../src/services/notification.service', () => ({
+	notifyScheduledTestsFailed: mocks.notifyScheduledTestsFailed,
 }));
 vi.mock('../../src/queries/chat.queries', () => ({ createChat: mocks.createChat, getChat: mocks.getChat }));
 vi.mock('../../src/services/test-agent.service', () => ({
@@ -97,6 +105,7 @@ beforeEach(() => {
 	mocks.markRunRunning.mockResolvedValue(true);
 	mocks.recordHeartbeat.mockResolvedValue(true);
 	mocks.getRunStatus.mockResolvedValue('running');
+	mocks.listResultOutcomes.mockResolvedValue([]);
 	mocks.resolveDefaultChatModel.mockResolvedValue(DEFAULT_MODEL);
 	mocks.createChat.mockImplementation(async () => [{ id: `chat-${++chatCount}` }]);
 	mocks.getChat.mockImplementation(async (chatId: string) => [{ id: chatId, messages: [] }]);
@@ -423,6 +432,47 @@ describe('startTestRun', () => {
 			text: 'What is the revenue in 2026?',
 			source: 'test',
 		});
+	});
+
+	it('records the run the schedule starts as scheduled, and reports its outcome once completed', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		const completedRun = { id: 'run-1', status: 'completed', passedAttempts: 0, totalAttempts: 1 };
+		const results = [{ testName: 'revenue', passed: false, message: 'values differ' }];
+		mocks.getRun.mockResolvedValue(completedRun);
+		mocks.listResultOutcomes.mockResolvedValue(results);
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', isScheduled: true });
+		await vi.waitFor(() => expect(mocks.notifyScheduledTestsFailed).toHaveBeenCalledWith(completedRun, results));
+
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'scheduled' }));
+	});
+
+	it.each([
+		{
+			case: 'cannot start',
+			breakRun: () => mocks.markRunRunning.mockRejectedValueOnce(new Error('database down')),
+		},
+		{ case: 'breaks', breakRun: () => mocks.createChat.mockRejectedValueOnce(new Error('database down')) },
+	])('reports a scheduled run that $case', async ({ breakRun }) => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		const failedRun = { id: 'run-1', status: 'failed', errorMessage: 'database down' };
+		mocks.getRun.mockResolvedValue(failedRun);
+		mocks.recordResultWhileRunning.mockRejectedValue(new Error('database down'));
+		breakRun();
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', isScheduled: true });
+		await vi.waitFor(() => expect(mocks.notifyScheduledTestsFailed).toHaveBeenCalledWith(failedRun, []));
+
+		expect(mocks.failRun).toHaveBeenCalledWith('run-1', expect.any(String));
+	});
+
+	it('reports nothing for a run a user started', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.notifyScheduledTestsFailed).not.toHaveBeenCalled();
 	});
 
 	it('rejects a selection that matches no test', async () => {

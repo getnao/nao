@@ -41,6 +41,32 @@ describe('UserGroupFeatureCard', () => {
 		expect(onSelectedChange).toHaveBeenLastCalledWith(false);
 	});
 
+	it('shows inherited access as disabled while keeping an overlapping direct grant removable', () => {
+		const onSelectedChange = vi.fn();
+		const { rerender } = render(
+			<UserGroupFeatureCard
+				feature={storyFeature}
+				selected={false}
+				inherited
+				onSelectedChange={onSelectedChange}
+			/>,
+		);
+
+		const inheritedCard = screen.getByRole('button', { name: `${storyCardName}. From All Users` });
+		expect(inheritedCard.getAttribute('aria-pressed')).toBe('true');
+		expect(inheritedCard.hasAttribute('disabled')).toBe(true);
+		expect(screen.getByText('From All Users')).toBeTruthy();
+
+		rerender(
+			<UserGroupFeatureCard feature={storyFeature} selected inherited onSelectedChange={onSelectedChange} />,
+		);
+
+		const overlappingCard = screen.getByRole('button', { name: `${storyCardName}. Also from All Users` });
+		expect(overlappingCard.hasAttribute('disabled')).toBe(false);
+		fireEvent.click(overlappingCard);
+		expect(onSelectedChange).toHaveBeenLastCalledWith(false);
+	});
+
 	it('renders both feature labels, descriptions, and previews', () => {
 		render(
 			<>

@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+	DEFAULT_SQL_QUERY_TAG_POSITION,
+	isSqlQueryTagPosition,
+	SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH,
+	type SqlQueryTagConfig,
+} from '@nao/shared/sql-query-tag';
 import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
@@ -8,17 +14,20 @@ import { z } from 'zod/v4';
 import { getModelReasoningEfforts } from '../agents/provider-meta';
 import { parseGithubRemoteRepoFullName } from '../services/github';
 import { gitlabBaseUrl } from '../services/gitlab';
-import type { LinkedContextRepo } from '../types/context-recommendation';
+import type { LinkedContextRepo, RepoTarget } from '../types/context-recommendation';
 import type { ActiveEffort } from '../types/llm';
 import {
 	type ConfiguredTestSettings,
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	testComparisonTolerancesSchema,
 	type TestModelSelection,
+	type TestScheduleSettings,
 } from '../types/test-run';
+import { getTestScheduleCronError } from './cron';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
+import { resolveFileReferences } from './nao-config-references';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -38,6 +47,8 @@ const TEST_MODEL_FORMAT = "'provider:model_id'";
 const TEST_MODEL_OBJECT_FORMAT =
 	"{ model: 'provider:model_id', llm_config_id: 'credential-id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+/** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
+const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
 
@@ -91,6 +102,11 @@ export function extractConfiguredRepos(projectFolder: string, envVars?: Record<s
 	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
+/** The context folders `nao sync` writes for the repositories' targets, such as `tests/analytics`. */
+export function extractRepoTargetFolders(projectFolder: string): string[] {
+	return extractConfiguredRepos(projectFolder).flatMap((repo) => repo.targets.map((target) => target.target));
+}
+
 /** Returns configured database templates, falling back to the default when unavailable. */
 export function extractConfiguredTemplates(projectFolder: string): string[] {
 	return configuredTemplatesFrom(loadProjectConfig(projectFolder));
@@ -140,6 +156,7 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			{
 				name: repo.name.trim(),
 				contextPath: `repos/${repo.name.trim()}`,
+				targets: repoTargetsFrom(resolveEnvReferences(repo.targets, envVars ?? {})),
 				url,
 				branch,
 				localPath,
@@ -148,6 +165,34 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			},
 		];
 	});
+}
+
+/**
+ * Leaves out the targets `nao sync` refuses, so no path read here can lead out of the context. Their env references
+ * resolve like those `nao sync` gets, as targets hold no secret.
+ */
+function repoTargetsFrom(targets: unknown): RepoTarget[] {
+	if (!Array.isArray(targets)) {
+		return [];
+	}
+	return targets.flatMap((entry) => {
+		const source = isRecord(entry) ? toRelativeFolder(entry.source) : null;
+		const target = isRecord(entry) ? toRelativeFolder(entry.target) : null;
+		const isValidTarget =
+			target !== null && target.includes('/') && !RESERVED_TARGET_FOLDERS.includes(target.split('/')[0]);
+		return source && target && isValidTarget ? [{ source, target }] : [];
+	});
+}
+
+function toRelativeFolder(value: unknown): string | null {
+	if (typeof value !== 'string' || value.includes('\\') || value.trim().startsWith('/')) {
+		return null;
+	}
+	const segments = value
+		.trim()
+		.split('/')
+		.filter((segment) => segment !== '' && segment !== '.');
+	return segments.length > 0 && !segments.includes('..') ? segments.join('/') : null;
 }
 
 function configuredTemplatesFrom(config: unknown): string[] {
@@ -313,6 +358,19 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 	};
 }
 
+/** The `query_tag` section of nao_config.yaml, or null when the project declares none or an invalid one. */
+export function extractConfiguredSqlQueryTag(projectFolder: string): SqlQueryTagConfig | null {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !isRecord(config.query_tag)) {
+		return null;
+	}
+
+	const { template, position = DEFAULT_SQL_QUERY_TAG_POSITION } = config.query_tag;
+	const isValidTemplate =
+		typeof template === 'string' && template.trim() !== '' && template.length <= SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH;
+	return isValidTemplate && isSqlQueryTagPosition(position) ? { template, position } : null;
+}
+
 /** The `test` section of nao_config.yaml, read with the same defaults and validation as `nao test`. */
 export function extractConfiguredTestSettings(projectFolder: string): ConfiguredTestSettings {
 	const config = loadProjectConfig(projectFolder);
@@ -340,7 +398,50 @@ export function extractConfiguredTestSettings(projectFolder: string): Configured
 		attempts: isValidAttempts ? attempts : 1,
 		threads: isValidThreads ? threads : null,
 		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
+		schedules: parseTestSchedules(testConfig.schedules, errors),
 		errors,
+	};
+}
+
+/** The valid entries of `test.schedules`, each one a cron with the tags, models and attempts it overrides. */
+function parseTestSchedules(schedules: unknown, errors: string[]): TestScheduleSettings[] {
+	if (schedules === undefined || schedules === null) {
+		return [];
+	}
+	if (!Array.isArray(schedules)) {
+		errors.push('test.schedules must be a list of { cron, tags, models, k } entries.');
+		return [];
+	}
+	return schedules.flatMap((schedule) => {
+		const scheduleErrors: string[] = [];
+		const parsed = parseTestSchedule(schedule, scheduleErrors);
+		errors.push(...scheduleErrors);
+		return scheduleErrors.length === 0 ? [parsed] : [];
+	});
+}
+
+function parseTestSchedule(schedule: unknown, errors: string[]): TestScheduleSettings {
+	const entry = isRecord(schedule) ? schedule : {};
+	const cron = typeof entry.cron === 'string' ? entry.cron.trim() : '';
+	const cronError = cron ? getTestScheduleCronError(cron) : `expected a 'cron', got ${JSON.stringify(schedule)}.`;
+	if (cronError) {
+		errors.push(`test.schedules has an invalid entry: ${cronError}`);
+	}
+	const tags = entry.tags ?? [];
+	const isValidTags = Array.isArray(tags) && tags.every((tag) => typeof tag === 'string' && tag.trim());
+	if (!isValidTags) {
+		errors.push(`test.schedules tags must be a list of tags, got ${JSON.stringify(tags)}.`);
+	}
+	const attempts = entry.k ?? null;
+	const isValidAttempts = attempts === null || isPositiveInteger(attempts);
+	if (!isValidAttempts) {
+		errors.push(`test.schedules k must be an integer of at least 1, got ${JSON.stringify(attempts)}.`);
+	}
+	return {
+		cron,
+		tags: isValidTags ? tags.map((tag: string) => tag.trim()) : [],
+		models: parseTestModels(entry.models, errors),
+		attempts: isValidAttempts ? attempts : null,
 	};
 }
 
@@ -452,7 +553,7 @@ function normalizeIdentifyingValue(value: unknown): string | null {
 
 function loadConfig(configPath: string): unknown {
 	try {
-		return yaml.load(fs.readFileSync(configPath, 'utf-8'));
+		return resolveFileReferences(yaml.load(fs.readFileSync(configPath, 'utf-8')), path.dirname(configPath));
 	} catch (err) {
 		logger.warn(`Failed to read or parse ${configPath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',

@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { UIMessage } from '../../src/types/chat';
 import {
 	QUERY_RESULT_PREVIEW_ROWS,
+	toQueryPartColumns,
+	toQueryResultPreview,
 	withQueryResultPreviewsInChat,
 	withQueryResultPreviewsInStream,
 } from '../../src/utils/query-result-preview';
@@ -74,6 +76,34 @@ describe('withQueryResultPreviewsInChat', () => {
 		expect(chat.messages[0].parts[1]).toMatchObject({
 			output: { data: queryOutput(QUERY_RESULT_PREVIEW_ROWS + 1).data },
 		});
+	});
+});
+
+describe('toQueryPartColumns', () => {
+	const largeOutput = queryOutput(QUERY_RESULT_PREVIEW_ROWS + 1);
+
+	it.each([
+		{
+			toolName: 'execute_sql',
+			output: largeOutput,
+			expected: { queryId: 'query_abc', toolOutputPreview: toQueryResultPreview(largeOutput) },
+		},
+		{
+			toolName: 'execute_semantic_query',
+			output: queryOutput(QUERY_RESULT_PREVIEW_ROWS),
+			expected: { queryId: 'query_abc', toolOutputPreview: null },
+		},
+		{ toolName: 'page_query_result', output: largeOutput, expected: { queryId: null, toolOutputPreview: null } },
+		{ toolName: 'execute_sql', output: undefined, expected: { queryId: null, toolOutputPreview: null } },
+	])('stores the query id and preview of a $toolName output', ({ toolName, output, expected }) => {
+		expect(toQueryPartColumns(toolName, output)).toEqual(expected);
+	});
+
+	it('keeps only the first rows in the preview', () => {
+		const { toolOutputPreview } = toQueryPartColumns('execute_sql', largeOutput);
+
+		expect(toolOutputPreview).toMatchObject({ is_preview: true, row_count: QUERY_RESULT_PREVIEW_ROWS + 1 });
+		expect((toolOutputPreview as { data: unknown[] }).data).toHaveLength(QUERY_RESULT_PREVIEW_ROWS);
 	});
 });
 

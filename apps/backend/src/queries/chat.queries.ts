@@ -5,7 +5,23 @@ import type {
 	GroupedChatListResponse,
 	LlmProvider,
 } from '@nao/shared/types';
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	getTableColumns,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	like,
+	ne,
+	notInArray,
+	or,
+	sql,
+} from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -178,28 +194,32 @@ export const getChat = async (
 	chatId: string,
 	opts: {
 		includeFeedback?: boolean;
+		queryResultPreviews?: boolean;
 	} = {
 		includeFeedback: false,
 	},
 ): Promise<[UIChat, userId: string] | []> => {
-	const query = db
-		.select()
+	const rows = await db
+		.select({
+			chat: s.chat,
+			chat_message: s.chatMessage,
+			message_part: selectMessagePartColumns(opts),
+			message_feedback: s.messageFeedback,
+		})
 		.from(s.chat)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
 		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt), isNull(s.chat.deletedAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id))
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
-		.$dynamic();
+		.execute();
 
-	const result = opts.includeFeedback
-		? await query.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id)).execute()
-		: await query.execute();
-
-	const chat = result.at(0)?.chat;
+	const chat = rows.at(0)?.chat;
 	if (!chat) {
 		return [];
 	}
 
+	const result = opts.includeFeedback ? rows : rows.map(({ message_feedback: _, ...row }) => row);
 	const messages = aggregateChatMessagParts(result);
 	const versionInfoMap = await buildVersionInfoMap(chatId);
 	const messagesWithVersions = messages.map((message) =>
@@ -265,6 +285,23 @@ const buildVersionInfoMap = async (chatId: string): Promise<Map<string, MessageV
 	return versionInfoMap;
 };
 
+/**
+ * With `queryResultPreviews`, a large query result is read as its stored preview, so the database
+ * never reads nor sends its full rows. Callers that need the rows load them by query id.
+ */
+const selectMessagePartColumns = (opts: { queryResultPreviews?: boolean }) => {
+	const columns = getTableColumns(s.messagePart);
+	if (!opts.queryResultPreviews) {
+		return columns;
+	}
+	return {
+		...columns,
+		toolOutput: sql<unknown>`coalesce(${s.messagePart.toolOutputPreview}, ${s.messagePart.toolOutput})`.mapWith(
+			s.messagePart.toolOutput,
+		),
+	};
+};
+
 /** Aggregate the message parts into a list of UI messages. */
 const aggregateChatMessagParts = (
 	result: {
@@ -304,9 +341,12 @@ const aggregateChatMessagParts = (
 	return Object.values(messagesMap);
 };
 
-export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
+export const getChatMessages = async (
+	chatId: string,
+	opts: { queryResultPreviews?: boolean } = {},
+): Promise<UIMessage[]> => {
 	const result = await db
-		.select()
+		.select({ chat_message: s.chatMessage, message_part: selectMessagePartColumns(opts) })
 		.from(s.chatMessage)
 		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
@@ -1258,7 +1298,7 @@ export const getQueryResultByQueryIdInProject = async (
 				eq(s.chat.userId, userId),
 				isNull(s.chatMessage.supersededAt),
 				executeSqlQueries.isQueryToolPart(),
-				executeSqlQueries.messagePartToolOutputIdEquals(queryId),
+				executeSqlQueries.messagePartQueryIdEquals(queryId),
 			),
 		)
 		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.order))

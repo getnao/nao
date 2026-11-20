@@ -261,6 +261,7 @@ export function TestDrawerLayout({
 											draft={draft}
 											activeRun={activeRun}
 											scope={getSuiteRunScope(tests ?? NO_TESTS, selection)}
+											tests={tests ?? NO_TESTS}
 											onRunStarted={handleRunStarted}
 										/>
 									)

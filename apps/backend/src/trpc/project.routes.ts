@@ -1,6 +1,11 @@
 import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
 import {
+	SQL_QUERY_TAG_POSITIONS,
+	SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH,
+	type SqlQueryTagVariables,
+} from '@nao/shared/sql-query-tag';
+import {
 	LLM_ACCESS_MODES,
 	type LlmProvider,
 	type LlmSelectedModel,
@@ -50,7 +55,9 @@ import { getMissingProjectEnvVars, reconcileProjectReadiness, updateProjectEnvVa
 import { isProjectSetupComplete } from '../services/project-readiness.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
+import { resolveDefaultDatabaseId } from '../services/sql-query-tag.service';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
 import {
 	getAvailableModelsForUser,
@@ -83,7 +90,11 @@ import {
 	getProjectModelNameResolver,
 	hasEnvApiKey,
 } from '../utils/llm';
-import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
+import {
+	extractConfiguredSemanticLayer,
+	extractConfiguredSqlQueryTag,
+	extractRequiredEnvVars,
+} from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
@@ -1241,6 +1252,25 @@ export const projectRoutes = {
 		};
 	}),
 
+	/** The tag nao_config.yaml declares, which the admin settings cannot change, and the admin's own values to preview one. */
+	getSqlQueryTagSettings: adminProtectedProcedure.query(async ({ ctx }) => {
+		const projectFolder = ctx.project.path;
+		const { groupNames } = await resolveAvailableUserGroupAccess(ctx.project.id, ctx.user.id);
+		const previewVariables: SqlQueryTagVariables = {
+			user_id: ctx.user.id,
+			user_email: ctx.user.email,
+			user_groups: groupNames.join(','),
+			project_id: ctx.project.id,
+			chat_id: crypto.randomUUID(),
+			source: 'web',
+			database_id: projectFolder ? resolveDefaultDatabaseId(projectFolder) : '',
+		};
+		return {
+			configFile: projectFolder ? extractConfiguredSqlQueryTag(projectFolder) : null,
+			previewVariables,
+		};
+	}),
+
 	updateAgentSettings: adminProtectedProcedure
 		.input(
 			z.object({
@@ -1262,6 +1292,16 @@ export const projectRoutes = {
 					.object({
 						dangerouslyWritePermEnabled: z.boolean().optional(),
 						enforceExcludedColumns: z.boolean().optional(),
+						queryTag: z
+							.object({
+								enabled: z.boolean(),
+								template: z.string().max(SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH),
+								position: z.enum(SQL_QUERY_TAG_POSITIONS),
+							})
+							.refine((queryTag) => !queryTag.enabled || queryTag.template.trim() !== '', {
+								message: 'Write the comment to tag the queries with.',
+							})
+							.optional(),
 					})
 					.optional(),
 				memoryEnabled: z.boolean().optional(),
@@ -1302,6 +1342,7 @@ export const projectRoutes = {
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				sql_enforce_excluded_columns: merged.sql?.enforceExcludedColumns,
+				sql_query_tag_enabled: merged.sql?.queryTag?.enabled,
 				codemode_enabled: merged.experimental?.codemode,
 				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
@@ -1431,7 +1472,10 @@ export const projectRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}
 
-			const [chat, ownerId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+			const [chat, ownerId] = await chatQueries.getChat(input.chatId, {
+				includeFeedback: true,
+				queryResultPreviews: true,
+			});
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}

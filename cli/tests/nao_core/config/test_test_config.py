@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from nao_core.config.base import NaoConfig
-from nao_core.config.test import TestConfig, TestModelConfig
+from nao_core.config.test import TestConfig, TestModelConfig, TestScheduleConfig
 
 
 def test_test_block_is_loaded_from_config(tmp_path):
@@ -116,3 +116,54 @@ def test_model_can_select_a_credential(tmp_path):
 def test_models_with_reasoning_efforts_are_validated(entry):
     with pytest.raises(ValidationError):
         TestConfig(models=[entry])
+
+
+def test_schedules_are_loaded_from_config(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text(
+        "project_name: test-project\n"
+        "test:\n"
+        "  schedules:\n"
+        "  - cron: 0 6 * * *\n"
+        "  - cron: 30 8 * * 1\n"
+        "    tags: [smoke]\n"
+        "    models: [openai:gpt-4.1]\n"
+        "    k: 3\n"
+    )
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.test is not None
+    assert config.test.schedules == [
+        TestScheduleConfig(cron="0 6 * * *"),
+        TestScheduleConfig(cron="30 8 * * 1", tags=["smoke"], models=["openai:gpt-4.1"], k=3),
+    ]
+
+
+@pytest.mark.parametrize(
+    "schedule",
+    [
+        {"cron": "every morning"},
+        {"cron": "99 99 * * *"},
+        {"cron": "0 25 * * *"},
+        {"cron": "0 6 * * 9"},
+        {"cron": "0 6 5-1 * *"},
+        {"cron": "0 6 * */0 *"},
+        {"cron": "*/5 * * * *"},
+        {"cron": "0,30 6 * * *"},
+        {"cron": "0 6 * * *", "k": 0},
+        {"cron": "0 6 * * *", "models": ["gpt-4.1"]},
+        {"cron": "0 6 * * *", "tag": ["smoke"]},
+    ],
+)
+def test_schedules_are_validated(schedule):
+    with pytest.raises(ValidationError):
+        TestConfig(schedules=[schedule])
+
+
+@pytest.mark.parametrize(
+    "cron",
+    ["0 * * * *", "30 8 * * 1-5", "0 6 * * mon-fri", "0 6 1,15 */2 *", "15 0-23/6 * JAN-JUN 7"],
+)
+def test_schedules_accept_the_crons_the_app_runs(cron):
+    assert TestScheduleConfig(cron=f"  {cron}  ").cron == cron

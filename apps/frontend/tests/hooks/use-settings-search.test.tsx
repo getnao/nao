@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
 		cloudBillingEnabled: false,
 	},
 	isCloud: false,
-	canUseAdvancedContextExplorer: false,
 	permissions: {
 		canViewUsage: false,
 		isAdmin: false,
@@ -31,10 +30,6 @@ vi.mock('@/hooks/use-license', () => ({
 
 vi.mock('@/hooks/use-can-see-advanced-settings', () => ({
 	useCanSeeAdvancedSettings: () => true,
-}));
-
-vi.mock('@/hooks/use-can-use-advanced-context-explorer', () => ({
-	useCanUseAdvancedContextExplorer: () => mocks.canUseAdvancedContextExplorer,
 }));
 
 vi.mock('@/hooks/use-nao-mode', () => ({
@@ -59,7 +54,6 @@ describe('useSettingsSearch', () => {
 	beforeEach(() => {
 		mocks.config.cloudBillingEnabled = false;
 		mocks.isCloud = false;
-		mocks.canUseAdvancedContextExplorer = false;
 		Object.assign(mocks.permissions, {
 			canViewUsage: false,
 			isAdmin: false,
@@ -109,17 +103,13 @@ describe('useSettingsSearch', () => {
 		}
 	});
 
-	it.each([true, false])(
-		'finds the Context Hub, and its tests only with the file tree granted: %s',
-		(canUseAdvancedContextExplorer) => {
-			mocks.canUseAdvancedContextExplorer = canUseAdvancedContextExplorer;
-			Object.assign(mocks.permissions, { isContextAdmin: true, isViewer: false });
+	it('finds the Context Hub and its tests, which both of its views have', () => {
+		Object.assign(mocks.permissions, { isContextAdmin: true, isViewer: false });
 
-			const { result: contextHub } = renderHook(() => useSettingsSearch('Context Hub'));
-			const { result: tests } = renderHook(() => useSettingsSearch('Compare models'));
+		const { result: contextHub } = renderHook(() => useSettingsSearch('Context Hub'));
+		const { result: tests } = renderHook(() => useSettingsSearch('Schedule the tests'));
 
-			expect(contextHub.current.some((entry) => entry.page === '/settings/context-explorer')).toBe(true);
-			expect(tests.current.some((entry) => entry.title === 'Compare models')).toBe(canUseAdvancedContextExplorer);
-		},
-	);
+		expect(contextHub.current.some((entry) => entry.page === '/settings/context-explorer')).toBe(true);
+		expect(tests.current.some((entry) => entry.title === 'Schedule the tests')).toBe(true);
+	});
 });

@@ -16,6 +16,7 @@ import { startAutomationEditChat } from '../services/automation-editor.service';
 import { canRoleReceiveChatFeedback } from '../services/automation-feedback-trigger.service';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
+import { listShareableMembers } from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
 import {
@@ -319,6 +320,11 @@ export const automationRoutes = {
 			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
+
+	listEmailRecipients: automationProcedure.query(async ({ ctx }) => {
+		const members = await listShareableMembers(ctx.project.id, ctx.user.id);
+		return members.map((member) => ({ email: member.email, name: member.name }));
+	}),
 
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
 		return listProjectAutomationsWithOwnerAccess(ctx.project.id);

@@ -104,6 +104,14 @@ export function countModelRuns(models: TestModelSelection[]): number {
 	return models.reduce((count, model) => count + countRunEfforts(model), 0);
 }
 
+/** Names the models a run tries and how often, such as "2 models · ×3", for the places with no room to list them. */
+export function describeModelSelection(models: TestModelSelection[], attempts: number): string {
+	const modelLabel = models.length === 1 ? models[0].modelId : `${models.length} models`;
+	const runCount = countModelRuns(models);
+	const label = runCount > models.length ? `${modelLabel} · ${runCount} runs` : modelLabel;
+	return attempts > 1 ? `${label} · ×${attempts}` : label;
+}
+
 /** How many reasoning efforts a picked model runs at, 1 when it runs at its configured one. */
 export function countRunEfforts(model: TestModelSelection): number {
 	return Math.max(listPickedEfforts(model).length, 1);

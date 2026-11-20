@@ -32,9 +32,9 @@ export function validateContextExplorerSearch(search: Record<string, unknown>): 
 	};
 }
 
-/** Links to a test or to a past diff only make sense in the file tree. */
+/** Links to a past diff only make sense in the file tree, while both views have the Tests drawer. */
 export function requiresFileTree(search: ContextExplorerSearch): boolean {
-	return Boolean(search.test || search.testRun || search.tests || getHistoricalContextDiffTarget(search));
+	return getHistoricalContextDiffTarget(search) !== null;
 }
 
 export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): HistoricalContextDiffTarget | null {

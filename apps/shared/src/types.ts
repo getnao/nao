@@ -29,7 +29,14 @@ export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export const NOTIFICATION_CATEGORIES = [
+	'budget',
+	'feedback',
+	'story_refresh',
+	'shared',
+	'subscription',
+	'test_run',
+] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
@@ -38,6 +45,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> 
 	story_refresh: 'Story refreshes',
 	shared: 'Shared with you',
 	subscription: 'Subscriptions',
+	test_run: 'Scheduled tests',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
@@ -46,6 +54,7 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	story_refresh: 'Results of your story refreshes.',
 	shared: 'When someone shares a story or chat with you.',
 	subscription: "When you're added to a story's scheduled delivery.",
+	test_run: 'When a scheduled run of the tests you scheduled fails.',
 };
 
 export const FEEDBACK_VOTES = ['up', 'down'] as const;
@@ -536,11 +545,18 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
+/** Markdown is rebuilt from a story's code, so only markdown stories offer it: custom stories export a rendered snapshot. */
+export type StoryDownloadFormat = DownloadFormat | 'markdown';
+export const STORY_DOWNLOAD_FORMATS = [
+	...DOWNLOAD_FORMATS,
+	'markdown',
+] as const satisfies readonly StoryDownloadFormat[];
+
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
 /** A file taken out of permanent storage is recorded under its own extension. */
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
+export type AnalyticsDownloadFormat = StoryDownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = [
 	'page_view',

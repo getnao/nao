@@ -724,6 +724,7 @@ function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, datab
 		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
+		queryTag: context.sqlQueryTag,
 	};
 }
 
@@ -764,8 +765,8 @@ export async function createStoryExecutionContext(chatId: string, userId?: strin
 export async function createOwnerExecutionContext(principal: StoryExecutionPrincipal): Promise<StoryExecutionContext> {
 	const { projectId, ownerId: userId, chatId } = principal;
 	const toolContext = chatId
-		? await buildToolContext({ projectId, userId, chatId })
-		: await buildChatlessToolContext({ projectId, userId });
+		? await buildToolContext({ projectId, userId, chatId, querySource: 'story' })
+		: await buildChatlessToolContext({ projectId, userId, querySource: 'story' });
 	return {
 		toolContext,
 		enforceExcludedColumns: await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings),

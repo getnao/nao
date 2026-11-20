@@ -181,6 +181,7 @@ describe('extractConfiguredTestSettings', () => {
 			attempts: 1,
 			threads: null,
 			tolerances: { rtol: 1e-5, atol: 1e-8, decimals: 2 },
+			schedules: [],
 			errors: [],
 		});
 	});
@@ -199,6 +200,7 @@ describe('extractConfiguredTestSettings', () => {
 			attempts: 3,
 			threads: 8,
 			tolerances: { rtol: 1e-5, atol: 1e-8, decimals: 4 },
+			schedules: [],
 			errors: [],
 		});
 	});
@@ -283,6 +285,60 @@ describe('extractConfiguredTestSettings', () => {
 			'test.models reasoning_efforts of openai:gpt-5 has unsupported efforts "extreme", expected some of minimal, low, medium, high, max.',
 			'test.models reasoning_efforts of openai:gpt-4.1: this model has no reasoning efforts to pick.',
 			'test.models has an invalid entry {"model":"openai:gpt-5","reasoning_effort":["low"]}, expected { model: \'provider:model_id\', llm_config_id: \'credential-id\', reasoning_efforts: [low, high] or all }.',
+		]);
+	});
+
+	it('reads the schedules, whose models and attempts are the ones of the project unless they set theirs', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'nao_config.yaml'),
+			[
+				'test:',
+				'  schedules:',
+				'    - cron: 0 6 * * *',
+				'    - cron: 30 8 * * 1',
+				'      tags: [smoke, finance]',
+				'      models: [openai:gpt-4.1]',
+				'      k: 3',
+			].join('\n'),
+		);
+
+		expect(extractConfiguredTestSettings(projectFolder)).toMatchObject({
+			schedules: [
+				{ cron: '0 6 * * *', tags: [], models: null, attempts: null },
+				{
+					cron: '30 8 * * 1',
+					tags: ['smoke', 'finance'],
+					models: [{ provider: 'openai', modelId: 'gpt-4.1' }],
+					attempts: 3,
+				},
+			],
+			errors: [],
+		});
+	});
+
+	it('reports the invalid schedules and keeps the valid ones', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'nao_config.yaml'),
+			[
+				'test:',
+				'  schedules:',
+				'    - cron: 0 6 * * *',
+				'    - cron: "*/5 * * * *"',
+				'    - tags: [smoke]',
+				'    - cron: 0 7 * * *',
+				'      tags: smoke',
+				'      k: 0',
+			].join('\n'),
+		);
+
+		const settings = extractConfiguredTestSettings(projectFolder);
+
+		expect(settings.schedules).toEqual([{ cron: '0 6 * * *', tags: [], models: null, attempts: null }]);
+		expect(settings.errors).toEqual([
+			'test.schedules has an invalid entry: Schedule the tests at most once an hour.',
+			'test.schedules has an invalid entry: expected a \'cron\', got {"tags":["smoke"]}.',
+			'test.schedules tags must be a list of tags, got "smoke".',
+			'test.schedules k must be an integer of at least 1, got 0.',
 		]);
 	});
 });

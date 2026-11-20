@@ -14,8 +14,6 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
-	/** Hidden from context admins whose groups do not grant the file tree view of the Context Hub. */
-	requiresAdvancedContextExplorer?: boolean;
 	/** Hidden unless the current project role can view usage analytics. */
 	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
@@ -581,8 +579,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Semantic layer',
 		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
 		keywords: [
@@ -650,8 +648,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Experimental',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
@@ -659,11 +657,32 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Exclude columns',
 		description: 'Prevent the agent from querying columns listed in exclude_columns.',
 		keywords: ['enforce excluded columns', 'sql', 'query', 'column access'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'SQL',
+		search: { tab: 'sql' },
+		title: 'Query tagging',
+		description: 'Add a comment to every SQL query nao sends to your warehouse.',
+		keywords: [
+			'query tag',
+			'query comment',
+			'sql comment',
+			'query_tag',
+			'query history',
+			'warehouse monitoring',
+			'cost attribution',
+			'user email',
+			'user groups',
+			'source',
+		],
 		adminOnly: true,
 	},
 
@@ -1769,10 +1788,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Tests',
-		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
+		description: 'Run the context tests from the Tests drawer of the Context Hub and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
+	},
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'Context Hub',
+		search: { tests: 'open' },
+		title: 'Schedule the tests',
+		description: 'Run the tests on production every hour, day or week, and get notified when they fail.',
+		keywords: ['schedule', 'scheduled runs', 'cron', 'nightly', 'daily', 'recurring', 'monitoring', 'drift'],
+		adminOrContextAdmin: true,
 	},
 	{
 		page: '/settings/context-explorer',
@@ -1791,7 +1818,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'leaderboard',
 		],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
@@ -1812,6 +1838,5 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'branch',
 		],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
 	},
 ];

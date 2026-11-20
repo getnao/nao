@@ -597,6 +597,10 @@ export const messagePart = pgTable(
 		toolRawInput: jsonb('tool_raw_input').$type<unknown>(),
 		toolOutput: jsonb('tool_output').$type<unknown>(),
 
+		// query tool columns: the result id, and its first rows when the result is too large to load with the chat
+		queryId: text('query_id'),
+		toolOutputPreview: jsonb('tool_output_preview').$type<unknown>(),
+
 		// tool approval columns
 		toolApprovalId: text('tool_approval_id'),
 		toolApprovalApproved: boolean('tool_approval_approved'),
@@ -615,6 +619,7 @@ export const messagePart = pgTable(
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
 		index('parts_message_id_order_idx').on(t.messageId, t.order),
+		index('parts_query_id_idx').on(t.queryId),
 		check(
 			'text_required_if_type_is_text',
 			sql`CASE WHEN ${t.type} = 'text' THEN ${t.text} IS NOT NULL ELSE TRUE END`,
@@ -749,6 +754,7 @@ export const projectLlmConfig = pgTable(
 						inputCacheWrite?: number;
 						output?: number;
 					};
+					contextWindow?: number;
 				}[]
 			>()
 			.default([])
@@ -2442,4 +2448,26 @@ export const sandboxSecret = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date()),
 	},
 	(t) => [uniqueIndex('sandbox_secret_user_project_name_idx').on(t.userId, t.projectId, t.name)],
+);
+
+/** The web agent run of a chat, so a reader on another instance can find the instance running it. */
+export const agentStreamRun = pgTable('agent_stream_run', {
+	chatId: text('chat_id')
+		.primaryKey()
+		.references(() => chat.id, { onDelete: 'cascade' }),
+	streamId: text('stream_id').notNull(),
+	heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
+});
+
+/** Chunks of an agent run relayed for readers on other instances, kept only while they read them. */
+export const agentStreamChunk = pgTable(
+	'agent_stream_chunk',
+	{
+		streamId: text('stream_id').notNull(),
+		seq: integer('seq').notNull(),
+		chunks: jsonb('chunks').$type<unknown[]>().notNull(),
+		isFinal: boolean('is_final').default(false).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.streamId, t.seq] }), index('agent_stream_chunk_createdAt_idx').on(t.createdAt)],
 );

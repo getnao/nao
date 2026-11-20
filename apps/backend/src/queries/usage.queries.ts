@@ -1,7 +1,8 @@
 import type { LlmProvider } from '@nao/shared/types';
 import { and, eq, inArray, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
-import { LLM_PROVIDERS } from '../agents/providers';
+import { resolveModelPrices } from '../agents/model-prices';
+import { PROVIDER_META } from '../agents/provider-meta';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
@@ -18,7 +19,7 @@ import {
 	type UserUsageBreakdown,
 } from '../types/usage';
 import { fillMissingDates, generateDateSeries, getLookbackTimestamp } from '../utils/date';
-import { getProjectDeclaredModels } from '../utils/llm';
+import { getProjectAvailableModels, getProjectDeclaredModels } from '../utils/llm';
 import { getAllProjectLlmConfigs } from './project-llm-config.queries';
 
 const COST_COLS = [
@@ -32,6 +33,12 @@ const COST_COLS = [
 ] as const;
 
 type UsageByUserRow = UserUsageBreakdown & { date: string };
+
+type ProjectModel = { provider: LlmProvider; modelId: string; llmConfigId?: string };
+
+const USED_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const usedModelsCache = new Map<string, { expiresAt: number; models: Promise<ProjectModel[]> }>();
 
 type CostLookupTuple = readonly [
 	provider: string,
@@ -653,61 +660,125 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 }
 
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
-	const builtInCosts = new Map<string, ModelCosts>();
-	const costs = new Map<string, ModelCosts>();
-	const [declaredModels, retainedConfigs] = await Promise.all([
+	const [usedModels, availableModels, declaredSources, retainedConfigs] = await Promise.all([
+		getProjectUsedModels(projectId),
+		getProjectAvailableModels(projectId),
 		getProjectDeclaredModels(projectId),
 		getAllProjectLlmConfigs(projectId),
 	]);
-
-	for (const [provider, config] of Object.entries(LLM_PROVIDERS)) {
-		for (const model of config.models) {
-			const key = `${provider}\u0000${model.id}`;
-			builtInCosts.set(key, { ...model.costPerM });
-			costs.set(`${key}\u0000`, { ...model.costPerM });
-		}
-	}
-
+	const declaredPrices = new Map<string, ModelCosts | undefined>(
+		[...getCatalogueModels(), ...usedModels, ...availableModels].map((model) => [costKey(model), undefined]),
+	);
 	const legacyCredentialPrices = new Set<string>();
 	for (const config of retainedConfigs) {
-		for (const [key, cost] of builtInCosts) {
-			if (key.startsWith(`${config.provider}\u0000`)) {
-				costs.set(`${key}\u0000${config.id}`, { ...cost });
-			}
-		}
 		for (const model of config.customModels) {
-			const baseKey = `${config.provider}\u0000${model.id}`;
-			const modelCosts = { ...builtInCosts.get(baseKey), ...model.costPerM };
-			costs.set(`${baseKey}\u0000${config.id}`, modelCosts);
-			if (!legacyCredentialPrices.has(baseKey)) {
-				costs.set(`${baseKey}\u0000`, modelCosts);
-				legacyCredentialPrices.add(baseKey);
+			const legacyKey = costKey({ provider: config.provider, modelId: model.id });
+			declaredPrices.set(
+				costKey({ provider: config.provider, modelId: model.id, llmConfigId: config.id }),
+				model.costPerM,
+			);
+			if (!legacyCredentialPrices.has(legacyKey)) {
+				declaredPrices.set(legacyKey, model.costPerM);
+				legacyCredentialPrices.add(legacyKey);
 			}
 		}
 	}
 
-	for (const { provider, llmConfigId, models } of declaredModels) {
-		if (llmConfigId) {
-			continue;
-		}
+	for (const { provider, llmConfigId, models } of declaredSources) {
 		for (const model of models) {
-			const baseKey = `${provider}\u0000${model.id}`;
-			costs.set(`${baseKey}\u0000`, { ...builtInCosts.get(baseKey), ...model.costPerM });
+			declaredPrices.set(costKey({ provider, modelId: model.id, llmConfigId }), model.costPerM);
 		}
 	}
 
-	return [...costs].map(([key, cost]) => {
-		const [provider, modelId, llmConfigId] = key.split('\u0000');
-		return [
-			provider,
-			modelId,
-			llmConfigId,
-			cost.inputNoCache ?? 0,
-			cost.inputCacheRead ?? 0,
-			cost.inputCacheWrite ?? 0,
-			cost.output ?? 0,
-		] satisfies CostLookupTuple;
+	const tuples = [...declaredPrices].flatMap(([key, declared]) => {
+		const [provider, modelId, llmConfigId] = key.split('\u0000') as [LlmProvider, string, string];
+		const prices = resolveModelPrices(provider, modelId, declared);
+		return prices ? [toCostLookupTuple(provider, modelId, llmConfigId, prices)] : [];
 	});
+	return tuples.length > 0 ? tuples : [toCostLookupTuple('', '', '', {})];
+}
+
+function getCatalogueModels(): ProjectModel[] {
+	return Object.entries(PROVIDER_META).flatMap(([provider, meta]) =>
+		meta.models.map((model) => ({ provider: provider as LlmProvider, modelId: model.id })),
+	);
+}
+
+/**
+ * Cached because budget checks build the cost lookup on every message. A model is used only once it is enabled, and
+ * enabled models are read fresh, so the cache only has to remember the models used before they were disabled.
+ */
+function getProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+	const cached = usedModelsCache.get(projectId);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.models;
+	}
+	evictExpiredUsedModels();
+	const models = queryProjectUsedModels(projectId);
+	usedModelsCache.set(projectId, { expiresAt: Date.now() + USED_MODELS_CACHE_TTL_MS, models });
+	models.catch(() => usedModelsCache.delete(projectId));
+	return models;
+}
+
+function evictExpiredUsedModels(): void {
+	const now = Date.now();
+	for (const [projectId, entry] of usedModelsCache) {
+		if (entry.expiresAt <= now) {
+			usedModelsCache.delete(projectId);
+		}
+	}
+}
+
+async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+	const [messageModels, inferenceModels] = await Promise.all([
+		db
+			.selectDistinct({
+				provider: s.chatMessage.llmProvider,
+				modelId: s.chatMessage.llmModelId,
+				llmConfigId: s.chatMessage.llmConfigId,
+			})
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmModelId)))
+			.execute(),
+		db
+			.selectDistinct({
+				provider: s.llmInference.llmProvider,
+				modelId: s.llmInference.llmModelId,
+				llmConfigId: s.llmInference.llmConfigId,
+			})
+			.from(s.llmInference)
+			.where(eq(s.llmInference.projectId, projectId))
+			.execute(),
+	]);
+	const models: ProjectModel[] = [];
+	for (const { provider, modelId, llmConfigId } of [...messageModels, ...inferenceModels]) {
+		if (provider && modelId) {
+			models.push({ provider, modelId, ...(llmConfigId && { llmConfigId }) });
+		}
+	}
+	return models;
+}
+
+function costKey({ provider, modelId, llmConfigId }: ProjectModel): string {
+	return `${provider}\u0000${modelId}\u0000${llmConfigId ?? ''}`;
+}
+
+function toCostLookupTuple(
+	provider: string,
+	modelId: string,
+	llmConfigId: string,
+	prices: ModelCosts,
+): CostLookupTuple {
+	return [
+		provider,
+		modelId,
+		llmConfigId,
+		prices.inputNoCache ?? 0,
+		prices.inputCacheRead ?? 0,
+		prices.inputCacheWrite ?? 0,
+		prices.output ?? 0,
+	];
 }
 
 function tupleToValuesRow(tuple: CostLookupTuple): SQL {

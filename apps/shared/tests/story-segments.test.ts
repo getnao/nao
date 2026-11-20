@@ -6,6 +6,7 @@ import {
 	getStoryFiltersFromCode,
 	getStoryParametersFromCode,
 	groupBlocksIntoGrid,
+	incompleteMapMessage,
 	insertGridColumn,
 	mapBlockToInput,
 	parseChartBlock,
@@ -898,6 +899,42 @@ describe('mapBlockToInput', () => {
 	it('defaults the map type to points', () => {
 		const map = parseMapBlock('query_id="q1" latitude_key="lat" longitude_key="lng" title="Points"');
 		expect(mapBlockToInput(map!).map_type).toBe('points');
+	});
+});
+
+describe('incomplete map blocks', () => {
+	it('keeps a point map without coordinates as a segment naming the missing attributes', () => {
+		const segments = splitCodeIntoSegments(
+			'## Stores\n<map query_id="query_46a998e7" map_type="scatter_bubble" title="Stores" />',
+		);
+
+		expect(segments).toMatchObject([
+			{ type: 'markdown', content: '## Stores' },
+			{
+				type: 'map',
+				map: { queryId: 'query_46a998e7', missingAttributes: ['latitude_key', 'longitude_key'] },
+			},
+		]);
+	});
+
+	it('names only the coordinate column that is missing', () => {
+		const map = parseMapBlock('query_id="q1" map_type="points" latitude_key="lat"');
+		expect(map?.missingAttributes).toEqual(['longitude_key']);
+	});
+
+	it('does not flag a complete point map or a choropleth', () => {
+		const points = parseMapBlock('query_id="q1" map_type="points" latitude_key="lat" longitude_key="lng"');
+		const choropleth = parseMapBlock('query_id="q1" map_type="choropleth" value_key="v" geometry_key="g"');
+
+		expect(points).not.toHaveProperty('missingAttributes');
+		expect(choropleth).not.toHaveProperty('missingAttributes');
+	});
+
+	it('describes the incomplete map for the placeholder', () => {
+		const map = parseMapBlock('query_id="q1" map_type="points"');
+		expect(incompleteMapMessage(map!)).toBe(
+			'Map cannot be displayed: the <map> tag is missing latitude_key, longitude_key (query: q1)',
+		);
 	});
 });
 
