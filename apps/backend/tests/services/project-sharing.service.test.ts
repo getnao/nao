@@ -230,15 +230,13 @@ describe('project sharing permission', () => {
 	});
 
 	it('keeps the specific shares an automation got after the revocation was planned', async () => {
-		await db
-			.insert(s.automation)
-			.values({
-				id: 'specific-automation',
-				projectId: PROJECT_ID,
-				userId: ALICE_ID,
-				title: 'Specific',
-				prompt: 'Run',
-			});
+		await db.insert(s.automation).values({
+			id: 'specific-automation',
+			projectId: PROJECT_ID,
+			userId: ALICE_ID,
+			title: 'Specific',
+			prompt: 'Run',
+		});
 		await db
 			.insert(s.automationShare)
 			.values({ automationId: 'specific-automation', userId: CAROL_ID, role: 'viewer' });
