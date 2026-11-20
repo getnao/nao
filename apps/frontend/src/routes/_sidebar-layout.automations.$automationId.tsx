@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { setAutomationAdminMode, useAutomationAdminMode } from '@/lib/automation-admin-mode';
 import { isMac } from '@/lib/platform';
 import { requireAutomationsEnabled } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
@@ -50,13 +51,15 @@ function AutomationDetailPage() {
 	const deleteAutomation = useMutation(trpc.automation.delete.mutationOptions());
 	const runNow = useMutation(trpc.automation.runNow.mutationOptions());
 	const cancelRun = useMutation(trpc.automation.cancelRun.mutationOptions());
+	const adminMode = useAutomationAdminMode(automationId);
 
-	async function handleUpdate(value: AutomationFormValue) {
+	async function handleUpdate({ adminMode: nextAdminMode, ...value }: AutomationFormValue) {
 		await updateAutomation.mutateAsync({
 			id: automationId,
 			...value,
 			enabled: automation?.enabled ?? value.enabled,
 		});
+		setAutomationAdminMode(automationId, nextAdminMode);
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: trpc.automation.get.queryKey({ id: automationId }) }),
 			queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() }),
@@ -185,6 +188,7 @@ function AutomationDetailPage() {
 						integrations: automation.integrations,
 						webhookEnabled: automation.webhookEnabled,
 						eventTriggers: automation.eventTriggers,
+						adminMode,
 					}}
 					details={{
 						enabled: automation.enabled,
@@ -192,6 +196,7 @@ function AutomationDetailPage() {
 						cron: automation.cron,
 						webhookEnabled: automation.webhookEnabled,
 						eventTriggers: automation.eventTriggers,
+						adminMode,
 						nextRunAt: automation.scheduledJob?.runAt,
 						lastRunAt: runs[0]?.startedAt,
 					}}

@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import { Calendar, Check, Copy, Mail, Plus, Shield, Trash2, Webhook, X } from 'lucide-react';
 import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
 import { applyAutomationDraftUpdate } from '@nao/shared/automation-draft';
 import type { AutomationDraft, AutomationDraftUpdate } from '@nao/shared/automation-draft';
@@ -28,6 +28,8 @@ import {
 } from '@/components/nao-event-triggers';
 import { SlackChannelsInput } from '@/components/slack-channels-input';
 import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/callout';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -118,6 +120,7 @@ export type AutomationFormValue = {
 	integrations: IntegrationConfig;
 	webhookEnabled: boolean;
 	eventTriggers: AutomationEventTriggers;
+	adminMode: boolean;
 };
 
 /** Lets the editing chat beside the form read the automation and change it. */
@@ -148,6 +151,7 @@ type AutomationDetails = {
 	cron?: string | null;
 	webhookEnabled?: boolean;
 	eventTriggers?: AutomationEventTriggers;
+	adminMode?: boolean;
 	nextRunAt?: Date | string | null;
 	lastRunAt?: Date | string | null;
 };
@@ -187,6 +191,7 @@ const defaultValue: AutomationFormValue = {
 	integrations: {},
 	webhookEnabled: false,
 	eventTriggers: {},
+	adminMode: false,
 };
 
 const schedulePresets: SchedulePreset[] = [
@@ -292,6 +297,16 @@ export function AutomationForm({
 						disabled={form.controlsDisabled}
 					/>
 
+					{(form.canUseAdminMode || form.value.adminMode) && (
+						<AdminModeSection
+							checked={form.value.adminMode}
+							ownerEligible={form.canUseAdminMode}
+							deliversMessages={hasDeliveryTools(form.value)}
+							onCheckedChange={form.handleAdminModeChange}
+							disabled={form.controlsDisabled}
+						/>
+					)}
+
 					{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
 					{!hasSidebar && showSubmitButton && (
 						<Button
@@ -359,7 +374,7 @@ function useAutomationFormController({
 	const promptRef = useRef<PromptHandle>(null);
 	const autoSaveInFlightRef = useRef(false);
 	const { data: session } = useSession();
-	const { canViewChatReplay: canUseChatFeedback } = usePermissions();
+	const { canViewChatReplay: canUseChatFeedback, canChatWithNaoData: canUseAdminMode } = usePermissions();
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const mcpServersQuery = useQuery(trpc.mcp.getUsableServers.queryOptions());
 	const isDirty = !areAutomationValuesEqual(value, savedValue);
@@ -609,6 +624,10 @@ function useAutomationFormController({
 		});
 	}
 
+	function handleAdminModeChange(adminMode: boolean) {
+		handleControlValueChange({ ...value, adminMode });
+	}
+
 	function handleModelChange(modelValue: string) {
 		if (modelValue === defaultModelValue) {
 			handleControlValueChange({ ...value, modelProvider: undefined, modelId: undefined });
@@ -623,6 +642,7 @@ function useAutomationFormController({
 
 	return {
 		availableModels: availableModels.data,
+		canUseAdminMode,
 		canUseChatFeedback,
 		clearEmailRecipientsError,
 		clearSlackChannelsError,
@@ -632,6 +652,7 @@ function useAutomationFormController({
 		handleAddEventTrigger,
 		handleAddSchedule,
 		handleAddWebhook,
+		handleAdminModeChange,
 		handleControlValueChange,
 		handleEventTriggersChange,
 		handleInsertPromptTrigger,
@@ -1737,7 +1758,92 @@ function McpSubMenu({
 	);
 }
 
+function AdminModeSection({
+	checked,
+	ownerEligible,
+	deliversMessages,
+	onCheckedChange,
+	disabled,
+}: {
+	checked: boolean;
+	ownerEligible: boolean;
+	deliversMessages: boolean;
+	onCheckedChange: (checked: boolean) => void;
+	disabled: boolean;
+}) {
+	const isPaused = checked && !ownerEligible;
+
+	return (
+		<section className='grid gap-1.5'>
+			<label className='text-sm font-medium'>Data access</label>
+			<div
+				className={cn(
+					'grid gap-1 rounded-xl border bg-background/60 p-1 transition-colors',
+					checked && ownerEligible && 'border-amber-500/40 bg-amber-500/5',
+				)}
+			>
+				<label
+					htmlFor='automation-admin-mode'
+					className={cn(
+						'flex items-start gap-3 rounded-lg px-2 py-1.5',
+						ownerEligible && !disabled && 'cursor-pointer',
+					)}
+				>
+					<Checkbox
+						id='automation-admin-mode'
+						checked={checked}
+						onCheckedChange={(state) => onCheckedChange(state === true)}
+						disabled={disabled || !ownerEligible}
+						className='mt-0.5'
+					/>
+					<div className='grid min-w-0 gap-0.5'>
+						<span className='flex items-center gap-1.5 text-sm font-medium'>
+							<Shield className='size-3.5 text-amber-600 dark:text-amber-400' />
+							Admin mode
+						</span>
+						<span className='text-xs text-muted-foreground'>
+							Lets this automation query app-wide usage data, such as every member's chats, token costs
+							and feedback, instead of your warehouse.
+						</span>
+						{checked && ownerEligible && deliversMessages && (
+							<span className='text-xs text-amber-700 dark:text-amber-400'>
+								Everyone receiving its Slack or email messages will see this data.
+							</span>
+						)}
+					</div>
+				</label>
+				{isPaused && <AdminModePausedNotice onTurnOff={() => onCheckedChange(false)} disabled={disabled} />}
+			</div>
+		</section>
+	);
+}
+
+function AdminModePausedNotice({ onTurnOff, disabled }: { onTurnOff: () => void; disabled: boolean }) {
+	return (
+		<Callout variant='warning' className='mx-1 mb-1 text-xs'>
+			<div className='grid gap-2'>
+				<p>
+					<span className='font-medium'>Runs are skipped.</span> You are no longer an admin or context admin,
+					so this automation can't read app-wide usage data. Ask an admin to restore your role, or turn off
+					admin mode to run it on your warehouse.
+				</p>
+				<Button
+					type='button'
+					variant='outline'
+					size='sm'
+					className='justify-self-start'
+					onClick={onTurnOff}
+					disabled={disabled}
+				>
+					Turn off admin mode
+				</Button>
+			</div>
+		</Callout>
+	);
+}
+
 function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
+	const { canChatWithNaoData } = usePermissions();
 	const hasSchedule = Boolean(details.cron);
 	const isPaused = hasSchedule && !details.enabled;
 
@@ -1762,6 +1868,9 @@ function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 					value={isPaused ? 'Paused' : describeNaoEventTrigger(eventType, details.eventTriggers ?? {})}
 				/>
 			))}
+			{details.adminMode && (
+				<DetailRow label='Admin mode' value={canChatWithNaoData ? 'Enabled' : 'Runs skipped'} />
+			)}
 			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
 		</div>
 	);
@@ -1983,6 +2092,10 @@ function inferScheduleOption(value: AutomationFormValue): ScheduleOption {
 
 function getSchedulePreset(value: Exclude<ScheduleOption, 'custom'>): SchedulePreset {
 	return schedulePresets.find((preset) => preset.value === value) ?? schedulePresets[0];
+}
+
+function hasDeliveryTools(value: AutomationFormValue): boolean {
+	return Boolean(value.integrations.email?.enabled || value.integrations.slack?.enabled);
 }
 
 function hasAnyTrigger(value: AutomationFormValue): boolean {

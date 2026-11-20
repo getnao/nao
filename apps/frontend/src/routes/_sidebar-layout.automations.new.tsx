@@ -14,6 +14,7 @@ import { AutomationForm } from '@/components/automations-form';
 import { Button } from '@/components/ui/button';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { usePermissions } from '@/hooks/use-permissions';
+import { setAutomationAdminMode } from '@/lib/automation-admin-mode';
 import { requireAutomationsEnabled } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
@@ -44,8 +45,9 @@ function NewAutomationEditor() {
 	const editorChatIdRef = useRef<string | undefined>(undefined);
 	const [isChatOpen, setIsChatOpen] = useAutomationChatPanelOpen();
 
-	async function handleCreate(value: AutomationFormValue) {
+	async function handleCreate({ adminMode, ...value }: AutomationFormValue) {
 		const created = await createAutomation.mutateAsync({ ...value, editorChatId: editorChatIdRef.current });
+		setAutomationAdminMode(created.id, adminMode);
 		await queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() });
 		navigate({ to: '/automations/$automationId', params: { automationId: created.id } });
 	}
