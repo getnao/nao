@@ -35,6 +35,20 @@ describe('transcribeAudio', () => {
 		expect(mocks.resolveProviderSettings).not.toHaveBeenCalled();
 		expect(mocks.transcribe).not.toHaveBeenCalled();
 	});
+
+	it('falls back to a speech model the user can run when the request names none', async () => {
+		mocks.getAllowedLlmConfigIdsForUserModel.mockImplementation(async (_projectId, _userId, modelId) =>
+			modelId === 'whisper-1' ? ['speech-config'] : [],
+		);
+		mocks.resolveProviderSettings.mockResolvedValue({ apiKey: 'secret' });
+		mocks.transcribe.mockResolvedValue({ text: 'hello' });
+
+		await expect(transcribeAudio('project-1', 'user-1', '')).resolves.toBe('hello');
+
+		expect(mocks.transcribe).toHaveBeenCalledWith(
+			expect.objectContaining({ model: expect.objectContaining({ modelId: 'whisper-1' }) }),
+		);
+	});
 });
 
 describe('listAvailableTranscribeModels', () => {

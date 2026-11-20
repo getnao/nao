@@ -10,13 +10,14 @@ import * as storyQueries from '../../queries/story.queries';
 import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
-import {
-	getAvailableModelsForUser,
-	getDefaultChatModelForUser,
-	resolveUserModelSelection,
-} from '../../services/user-group-llm-access.service';
+import { getAvailableModelsForUser, getDefaultChatModelForUser } from '../../services/user-group-llm-access.service';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
-import { describeModelInput, pickRequestedModel, RequestedModelError } from '../../utils/llm';
+import {
+	describeModelInput,
+	pickRequestedModel,
+	RequestedModelError,
+	resolveAvailableModelSelection,
+} from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl, storyUrl } from '../urls';
@@ -263,15 +264,16 @@ async function describeAvailableModels(ctx: McpContext): Promise<string> {
 }
 
 /**
- * The model pinned for `ask_nao` in the MCP settings; undefined lets the agent use the project's
- * chat default. A `model` named by the caller takes precedence over both.
+ * The model pinned for `ask_nao` in the MCP settings, when the user can run it; undefined lets the
+ * agent use the user's chat default. A `model` named by the caller takes precedence over both.
  */
 async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel | undefined> {
 	const pinned = ctx.settings.subAgentModel;
 	if (!pinned) {
 		return undefined;
 	}
-	return resolveUserModelSelection(ctx.projectId, ctx.userId, pinned);
+	const available = await getAvailableModelsForUser(ctx.projectId, ctx.userId);
+	return resolveAvailableModelSelection(available, pinned) ?? undefined;
 }
 
 /**

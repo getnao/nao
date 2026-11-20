@@ -158,7 +158,7 @@ export async function resolveProviderModel(
 	for (const source of getSourcesServing(provider)) {
 		const result = await source.resolveModel(request);
 		if (result) {
-			const declaredContextWindow = await getDeclaredContextWindow(projectId, provider, modelId);
+			const declaredContextWindow = await getDeclaredContextWindow(projectId, { provider, modelId, llmConfigId });
 			return { ...result, contextWindow: declaredContextWindow ?? result.contextWindow };
 		}
 	}
@@ -166,20 +166,21 @@ export async function resolveProviderModel(
 }
 
 /** The context window of a model: the one the project declares for it wins over nao's catalogue. */
-export async function resolveContextWindow(projectId: string, provider: LlmProvider, modelId: string): Promise<number> {
-	return (await getDeclaredContextWindow(projectId, provider, modelId)) ?? getContextWindow(provider, modelId);
+export async function resolveContextWindow(projectId: string, model: LlmSelectedModel): Promise<number> {
+	return (await getDeclaredContextWindow(projectId, model)) ?? getContextWindow(model.provider, model.modelId);
 }
 
 async function getDeclaredContextWindow(
 	projectId: string,
-	provider: LlmProvider,
-	modelId: string,
+	{ provider, modelId, llmConfigId }: LlmSelectedModel,
 ): Promise<number | undefined> {
 	if (isManagedProvider(provider)) {
 		return undefined;
 	}
 	const declaredModels = await getProjectDeclaredModels(projectId);
-	const declared = declaredModels.find((d) => d.provider === provider)?.models.find((m) => m.id === modelId);
+	const declared = declaredModels
+		.find((d) => d.provider === provider && (!llmConfigId || d.llmConfigId === llmConfigId))
+		?.models.find((m) => m.id === modelId);
 	return declared?.contextWindow;
 }
 

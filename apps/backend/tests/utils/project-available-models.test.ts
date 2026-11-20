@@ -229,7 +229,7 @@ describe('getProjectAvailableModels', () => {
 				apiKey: 'key-a',
 				credentials: null,
 				enabledModels: ['gpt-5-mini'],
-				customModels: [],
+				customModels: [{ id: 'gpt-5-mini', contextWindow: 100_000 }],
 				modelSettings: {},
 				baseUrl: null,
 				disabledAt: null,
@@ -241,7 +241,7 @@ describe('getProjectAvailableModels', () => {
 				apiKey: 'key-b',
 				credentials: null,
 				enabledModels: ['gpt-5-mini'],
-				customModels: [],
+				customModels: [{ id: 'gpt-5-mini', contextWindow: 200_000 }],
 				modelSettings: {},
 				baseUrl: null,
 				disabledAt: null,
@@ -265,7 +265,7 @@ describe('getProjectAvailableModels', () => {
 		]);
 		await expect(
 			resolveProviderModel('project-1', 'openai', 'gpt-5-mini', true, undefined, undefined, 'config-b'),
-		).resolves.not.toBeNull();
+		).resolves.toMatchObject({ contextWindow: 200_000 });
 		expect(mocks.getProjectLlmConfigById).toHaveBeenCalledWith('project-1', 'config-b');
 	});
 
@@ -329,7 +329,9 @@ describe('getProjectAvailableModels', () => {
 		const windows: Record<string, number | undefined> = {};
 		for (const modelId of ['acsw@azure/gpt-6-sol', 'gpt-6-sol', 'gpt-6-luna', 'acsw@azure/unlisted']) {
 			const resolved = await resolveProviderModel('project-1', 'openai', modelId);
-			expect(await resolveContextWindow('project-1', 'openai', modelId)).toBe(resolved?.contextWindow);
+			expect(await resolveContextWindow('project-1', { provider: 'openai', modelId })).toBe(
+				resolved?.contextWindow,
+			);
 			windows[modelId] = resolved?.contextWindow;
 		}
 

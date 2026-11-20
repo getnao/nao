@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, inArray, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { resolveModelPrices } from '../agents/model-prices';
 import { PROVIDER_META } from '../agents/provider-meta';
@@ -38,7 +38,7 @@ type ProjectModel = { provider: LlmProvider; modelId: string; llmConfigId?: stri
 
 const USED_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 
-const usedModelsCache = new Map<string, { expiresAt: number; models: Promise<ProjectModel[]> }>();
+const usedModelsCache = new Map<string, { expiresAt: number; since: Date; models: Promise<ProjectModel[]> }>();
 
 type CostLookupTuple = readonly [
 	provider: string,
@@ -705,17 +705,23 @@ function getCatalogueModels(): ProjectModel[] {
 }
 
 /**
- * Cached because budget checks build the cost lookup on every message. A model is used only once it is enabled, and
- * enabled models are read fresh, so the cache only has to remember the models used before they were disabled.
+ * Cached because budget checks build the cost lookup on every message. Models used since the cache was filled are read
+ * fresh, since a credential can run a model outside its picker, such as a summary model; the window starts one TTL
+ * earlier to absorb clock skew between the app and the database.
  */
-function getProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+async function getProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
 	const cached = usedModelsCache.get(projectId);
 	if (cached && cached.expiresAt > Date.now()) {
-		return cached.models;
+		const [models, recentModels] = await Promise.all([
+			cached.models,
+			queryProjectUsedModels(projectId, cached.since),
+		]);
+		return [...models, ...recentModels];
 	}
 	evictExpiredUsedModels();
+	const since = new Date(Date.now() - USED_MODELS_CACHE_TTL_MS);
 	const models = queryProjectUsedModels(projectId);
-	usedModelsCache.set(projectId, { expiresAt: Date.now() + USED_MODELS_CACHE_TTL_MS, models });
+	usedModelsCache.set(projectId, { expiresAt: Date.now() + USED_MODELS_CACHE_TTL_MS, since, models });
 	models.catch(() => usedModelsCache.delete(projectId));
 	return models;
 }
@@ -729,7 +735,7 @@ function evictExpiredUsedModels(): void {
 	}
 }
 
-async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+async function queryProjectUsedModels(projectId: string, since?: Date): Promise<ProjectModel[]> {
 	const [messageModels, inferenceModels] = await Promise.all([
 		db
 			.selectDistinct({
@@ -739,7 +745,13 @@ async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]
 			})
 			.from(s.chatMessage)
 			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmModelId)))
+			.where(
+				and(
+					eq(s.chat.projectId, projectId),
+					isNotNull(s.chatMessage.llmModelId),
+					since && gte(s.chatMessage.createdAt, since),
+				),
+			)
 			.execute(),
 		db
 			.selectDistinct({
@@ -748,7 +760,7 @@ async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]
 				llmConfigId: s.llmInference.llmConfigId,
 			})
 			.from(s.llmInference)
-			.where(eq(s.llmInference.projectId, projectId))
+			.where(and(eq(s.llmInference.projectId, projectId), since && gte(s.llmInference.createdAt, since)))
 			.execute(),
 	]);
 	const models: ProjectModel[] = [];

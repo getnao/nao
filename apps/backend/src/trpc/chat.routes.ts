@@ -16,7 +16,7 @@ import { agentStreamService } from '../services/agent-stream';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getQueryRowsPage, type QueryRowsPage } from '../services/query-rows.service';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
-import { llmProviderSchema } from '../types/llm';
+import { llmSelectedModelSchema } from '../types/llm';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { canUserViewChatContent } from '../utils/chat-access';
 import { getChatContextUsage } from '../utils/chat-context-usage';
@@ -228,12 +228,7 @@ export const chatRoutes = {
 		.input(
 			z.object({
 				chatId: z.string(),
-				model: z
-					.object({
-						provider: llmProviderSchema,
-						modelId: z.string(),
-					})
-					.optional(),
+				model: llmSelectedModelSchema.optional(),
 			}),
 		)
 		.query(async ({ input, ctx }): Promise<ContextUsage> => {

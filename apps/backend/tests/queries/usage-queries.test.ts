@@ -580,7 +580,9 @@ describe('usage query results', () => {
 		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(5);
 	});
 
-	it('prices usage with enough retained credentials to exceed SQLite compound-select limits', async () => {
+	it('prices a built-in model run on a credential outside its picker, across many credentials', async () => {
+		const period = { value: 15, unit: 'day' as const };
+		await getMessagesUsage(PROJECT_ID, { period });
 		mocks.getAllProjectLlmConfigs.mockResolvedValue(
 			Array.from({ length: 50 }, (_, index) => ({
 				id: `retained-credential-${index}`,
@@ -602,8 +604,13 @@ describe('usage query results', () => {
 			llmConfigId: 'retained-credential-49',
 			inputNoCacheTokens: 1_000_000,
 		});
+		const builtInPrice = getBuiltInModelPrices('openai', 'gpt-4o')?.inputNoCache;
 
-		await expect(getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } })).resolves.toHaveLength(15);
+		const usage = await getMessagesUsage(PROJECT_ID, { period });
+
+		expect(usage).toHaveLength(15);
+		expect(builtInPrice).toBeGreaterThan(0);
+		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(builtInPrice ?? 0);
 	});
 
 	it('breaks down messages, tokens and cost per user for every date', async () => {

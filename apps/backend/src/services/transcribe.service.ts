@@ -21,14 +21,17 @@ export async function transcribeAudio(
 	const savedModelId = agentSettings?.transcribe?.modelId;
 
 	const provider: TranscribeProvider = overrides?.provider ?? savedProvider ?? 'openai';
-	const modelId = overrides?.modelId ?? savedModelId ?? getDefaultTranscribeModelId(provider);
+	const preferredModelId = overrides?.modelId ?? savedModelId ?? getDefaultTranscribeModelId(provider);
+	const candidateModelIds = overrides?.modelId
+		? [preferredModelId]
+		: [preferredModelId, ...TRANSCRIBE_PROVIDERS[provider].models.map((model) => model.id)];
 
-	const { apiKey, baseURL } = await resolveTranscribeProviderSettings(projectId, userId, provider, modelId);
-	if (!apiKey) {
+	const runnable = await findRunnableTranscribeModel(projectId, userId, provider, candidateModelIds);
+	if (!runnable) {
 		throw new Error(`No API key configured for ${provider}. Add one in Settings > Models.`);
 	}
 
-	const model = createTranscribeModel(provider, { apiKey, baseURL }, modelId);
+	const model = createTranscribeModel(provider, runnable.settings, runnable.modelId);
 	const audioBuffer = Buffer.from(audio, 'base64');
 
 	const result = await transcribe({ model, audio: audioBuffer });
@@ -71,6 +74,21 @@ export async function listAvailableTranscribeModels(projectId: string, userId: s
 	}
 
 	return available;
+}
+
+async function findRunnableTranscribeModel(
+	projectId: string,
+	userId: string,
+	provider: TranscribeProvider,
+	modelIds: string[],
+): Promise<{ modelId: string; settings: { apiKey: string; baseURL: string | undefined } } | null> {
+	for (const modelId of new Set(modelIds)) {
+		const { apiKey, baseURL } = await resolveTranscribeProviderSettings(projectId, userId, provider, modelId);
+		if (apiKey) {
+			return { modelId, settings: { apiKey, baseURL } };
+		}
+	}
+	return null;
 }
 
 async function resolveTranscribeProviderSettings(
