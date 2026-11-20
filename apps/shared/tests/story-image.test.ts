@@ -74,9 +74,13 @@ describe('findStoryImageSources', () => {
 		]);
 	});
 
-	it('ignores query rows when the code shows no image', () => {
+	it.each([
+		['<Table query="sites" />', []],
+		['import { Image as Logo } from "nao"; <Logo src={row.logo} />', ['s3://acme-products/logo.png']],
+		['<Kit.Image src={row.logo} />', ['s3://acme-products/logo.png']],
+	])('reads query rows only when the code shows images: %s', (code, expected) => {
 		const queries = { sites: { columns: ['logo'], data: [{ logo: 's3://acme-products/logo.png' }] } };
-		expect(findStoryImageSources(['<Table query="sites" />'], queries)).toEqual([]);
+		expect(findStoryImageSources([code], queries)).toEqual(expected);
 	});
 
 	it('keeps only the wanted links, so unrelated ones do not use up the candidate limit', () => {
