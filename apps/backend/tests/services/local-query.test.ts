@@ -245,6 +245,7 @@ describe('project context permissions', () => {
 					},
 				],
 			},
+			warehouseColumnSecurity: { enforced: false as const },
 			docsContextAccess: {
 				enforced: true as const,
 				access: {
@@ -275,6 +276,40 @@ describe('project context permissions', () => {
 		await expect(run(`SELECT name FROM read_csv('${deniedProjectFile}')`, access)).rejects.toThrow(
 			PERMISSION_DENIED,
 		);
+	});
+
+	it('refuses raw table files of a table with restricted columns', async () => {
+		const tableRoot = path.join(projectFolder, 'databases/type=postgres/database=analytics/schema=public');
+		const restrictedColumns = path.join(tableRoot, 'table=line_items/columns.md');
+		const openColumns = path.join(tableRoot, 'table=orders/columns.md');
+		await fs.mkdir(path.dirname(restrictedColumns), { recursive: true });
+		await fs.mkdir(path.dirname(openColumns), { recursive: true });
+		await fs.writeFile(restrictedColumns, '- unit_price (float64)');
+		await fs.writeFile(openColumns, '- order_id (int32)');
+		const warehouseColumnSecurity: ToolContext['warehouseColumnSecurity'] = {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'line_items',
+					restrictedColumns: ['unit_price'],
+					access: 'restricted',
+					deniedColumns: ['unit_price'],
+				},
+			],
+		};
+
+		await expect(
+			run(`SELECT content FROM read_text('${restrictedColumns}')`, { warehouseColumnSecurity }),
+		).rejects.toThrow(/file system operations are disabled|Permission Error/);
+		await expect(
+			run(`SELECT content FROM read_text('${tableRoot}/*/columns.md')`, { warehouseColumnSecurity }),
+		).rejects.toThrow(/file system operations are disabled|Permission Error/);
+		expect(
+			(await run(`SELECT content FROM read_text('${openColumns}')`, { warehouseColumnSecurity })).data,
+		).toEqual([{ content: '- order_id (int32)' }]);
 	});
 
 	it('does not let globs or computed paths recover denied files', async () => {
@@ -412,6 +447,7 @@ const runOutcome = async (sql: string, overrides: RunOverrides = {}): Promise<Lo
 		chatId: 'chat-1',
 		queryResults: new Map(overrides.queryResults ?? []),
 		warehouseTableAccess: overrides.warehouseTableAccess ?? { enforced: false },
+		warehouseColumnSecurity: overrides.warehouseColumnSecurity ?? { enforced: false },
 		docsContextAccess: overrides.docsContextAccess ?? { enforced: false },
 		filesContextAccess: overrides.filesContextAccess ?? { enforced: false },
 		mcpAccess: { mode: 'all' },
@@ -426,6 +462,7 @@ interface RunOverrides {
 	queryResults?: [string, QueryResult][];
 	saveTo?: executeSql.SaveTo;
 	warehouseTableAccess?: ToolContext['warehouseTableAccess'];
+	warehouseColumnSecurity?: ToolContext['warehouseColumnSecurity'];
 	docsContextAccess?: ToolContext['docsContextAccess'];
 	filesContextAccess?: ToolContext['filesContextAccess'];
 }

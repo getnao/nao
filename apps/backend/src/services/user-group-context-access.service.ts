@@ -3,19 +3,22 @@ import {
 	type FileTreeAccess,
 	isSkillGranted,
 	type McpAccess,
+	type ProjectColumnSecurity,
 	type ProjectRowSecurity,
+	resolveWarehouseColumnSecurity,
 	resolveWarehouseRowSecurity,
 	type SkillsAccess,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 	type UserRole,
+	type WarehouseColumnSecurity,
 	type WarehouseRowSecurity,
 } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { getUserRoleInProject } from '../queries/project.queries';
-import { getProjectRowSecurity } from '../queries/user-group.queries';
+import { getProjectColumnSecurity, getProjectRowSecurity } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
@@ -37,6 +40,7 @@ export async function resolveProjectContextAccess(
 	projectFolder: string,
 ): Promise<{
 	warehouseTableAccess: WarehouseTableAccess;
+	warehouseColumnSecurity: WarehouseColumnSecurity;
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;
@@ -46,12 +50,14 @@ export async function resolveProjectContextAccess(
 	userRulesGroupAccess: UserRulesGroupAccess;
 	preloadedSkillNames: string[];
 }> {
-	const { effectiveAccess, warehouseRowSecurity } = await resolveMemberWarehouseAccess(projectId, userId);
+	const access = await resolveMemberWarehouseAccess(projectId, userId);
+	const { effectiveAccess } = access;
 	const catalog = getDatabaseContextCatalog(projectFolder);
 	const skillsAccess = await resolveSkillsAccess(projectId, effectiveAccess.skillsAccess);
 	return {
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
-		warehouseRowSecurity,
+		warehouseColumnSecurity: access.warehouseColumnSecurity,
+		warehouseRowSecurity: access.warehouseRowSecurity,
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
 		filesContextAccess: { enforced: true, access: effectiveAccess.filesAccess },
 		mcpAccess: effectiveAccess.mcpAccess,
@@ -59,6 +65,27 @@ export async function resolveProjectContextAccess(
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 		preloadedSkillNames: effectiveAccess.preloadedSkills,
+	};
+}
+
+function resolveColumnSecurityAccess(
+	registry: ProjectColumnSecurity,
+	columnPolicies: Parameters<typeof resolveWarehouseColumnSecurity>[1],
+	isLicensed: boolean,
+): WarehouseColumnSecurity {
+	if (isLicensed) {
+		return resolveWarehouseColumnSecurity(registry, columnPolicies);
+	}
+	if (registry.tables.length === 0) {
+		return { enforced: false };
+	}
+	return {
+		enforced: true,
+		tables: registry.tables.map((table) => ({
+			...table,
+			access: 'blocked',
+			reason: 'Column-level security is configured for this table but the Enterprise license is inactive. Ask an admin to restore the license or remove the table from Column-level security.',
+		})),
 	};
 }
 
@@ -91,27 +118,36 @@ export async function resolveWarehouseTableAccess(
 	return (await resolveProjectContextAccess(projectId, userId, projectFolder)).warehouseTableAccess;
 }
 
-/** Whether the member reads less of the warehouse than someone with every table and every row. */
+/** Whether the member reads less of the warehouse than someone with every table, column and row. */
 export async function hasEffectiveWarehouseRestrictions(projectId: string, userId: string): Promise<boolean> {
-	const { effectiveAccess, warehouseRowSecurity } = await resolveMemberWarehouseAccess(projectId, userId);
-	if (effectiveAccess.databaseAccess.mode !== 'all' || effectiveAccess.databaseAccess.strict) {
-		return true;
-	}
-	return warehouseRowSecurity.enforced && warehouseRowSecurity.tables.some(({ access }) => access !== 'full');
+	const access = await resolveMemberWarehouseAccess(projectId, userId);
+	const { databaseAccess } = access.effectiveAccess;
+	return (
+		databaseAccess.mode !== 'all' ||
+		databaseAccess.strict ||
+		hasRestrictedTable(access.warehouseColumnSecurity) ||
+		hasRestrictedTable(access.warehouseRowSecurity)
+	);
+}
+
+function hasRestrictedTable(security: WarehouseColumnSecurity | WarehouseRowSecurity): boolean {
+	return security.enforced && security.tables.some(({ access }) => access !== 'full');
 }
 
 async function resolveMemberWarehouseAccess(projectId: string, userId: string) {
 	if (!(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
-	const [effectiveAccess, rowSecurityLicensed, rowSecurity] = await Promise.all([
+	const [effectiveAccess, isLicensed, columnSecurity, rowSecurity] = await Promise.all([
 		resolveAvailableUserGroupAccess(projectId, userId),
 		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
+		getProjectColumnSecurity(projectId),
 		getProjectRowSecurity(projectId),
 	]);
 	return {
 		effectiveAccess,
-		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed),
+		warehouseColumnSecurity: resolveColumnSecurityAccess(columnSecurity, effectiveAccess.columnPolicies, isLicensed),
+		warehouseRowSecurity: resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, isLicensed),
 	};
 }
 

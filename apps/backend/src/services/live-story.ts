@@ -989,6 +989,7 @@ function buildWarehouseSqlOptions(
 		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 		queryTag: context.sqlQueryTag,
 	};
@@ -1049,6 +1050,7 @@ export async function createViewerExecutionContext(
 	const context = await buildExecutionContext({ projectId, chatId, ownerId: viewerUserId }, true);
 	const permissions = [
 		context.toolContext.warehouseTableAccess,
+		context.toolContext.warehouseColumnSecurity,
 		context.toolContext.warehouseRowSecurity,
 		context.enforceExcludedColumns,
 		viewerCacheRevision,

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "216243fa-8b55-4ab7-8d54-194f07c77de0",
+  "id": "59fbac82-37b1-460f-9b17-e08c6a2971a2",
   "prevId": "2e2b86ad-a450-4288-a969-b305b678be06",
   "tables": {
     "account": {
@@ -6712,20 +6712,19 @@
           "notNull": false,
           "autoincrement": false
         },
+        "column_security": {
+          "name": "column_security",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "row_security": {
           "name": "row_security",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "viewer_cache_revision": {
-          "name": "viewer_cache_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -10415,136 +10414,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "story_viewer_data_cache": {
-      "name": "story_viewer_data_cache",
-      "columns": {
-        "story_id": {
-          "name": "story_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "story_version_id": {
-          "name": "story_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "permission_revision": {
-          "name": "permission_revision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "query_data": {
-          "name": "query_data",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "code": {
-          "name": "code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "analysis_results": {
-          "name": "analysis_results",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cached_at": {
-          "name": "cached_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "story_viewer_data_cache_story_id_idx": {
-          "name": "story_viewer_data_cache_story_id_idx",
-          "columns": [
-            "story_id"
-          ],
-          "isUnique": false
-        },
-        "story_viewer_data_cache_user_id_idx": {
-          "name": "story_viewer_data_cache_user_id_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "story_viewer_data_cache_story_id_story_id_fk": {
-          "name": "story_viewer_data_cache_story_id_story_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_viewer_data_cache_story_version_id_story_version_id_fk": {
-          "name": "story_viewer_data_cache_story_version_id_story_version_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "story_version",
-          "columnsFrom": [
-            "story_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "story_viewer_data_cache_user_id_user_id_fk": {
-          "name": "story_viewer_data_cache_user_id_user_id_fk",
-          "tableFrom": "story_viewer_data_cache",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "story_viewer_data_cache_story_version_id_user_id_pk": {
-          "columns": [
-            "story_version_id",
-            "user_id"
-          ],
-          "name": "story_viewer_data_cache_story_version_id_user_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "stripe_webhook_event": {
       "name": "stripe_webhook_event",
       "columns": {
@@ -11291,6 +11160,13 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "column_policies": {
+          "name": "column_policies",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

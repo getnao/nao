@@ -23,6 +23,7 @@ export * from './pluralize';
 export * from './rules-template';
 export * from './sql-template';
 export * from './types';
+export * from './user-group-column-security';
 export * from './user-group-context';
 export * from './user-group-features';
 export * from './user-group-mcp';
