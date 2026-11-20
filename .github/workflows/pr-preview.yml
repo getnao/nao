@@ -10,7 +10,8 @@ permissions:
     pull-requests: write
 
 # Previews are opt-in: add the `needs-preview` label to a PR to deploy it (and redeploy
-# on every push), remove the label or close the PR to tear it down.
+# on every push), remove the label or close the PR to tear it down. Deploy and cleanup share a
+# per-PR concurrency group so the latest event wins over a deploy still in progress.
 #
 # Previews run on Cloud Run in the dedicated `nao-previews` GCP project, behind a
 # global load balancer that maps `<service>.preview.getnao.io` to the Cloud Run
@@ -33,6 +34,9 @@ jobs:
     deploy:
         name: Deploy Preview
         runs-on: ubuntu-latest
+        concurrency:
+            group: pr-preview-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
         if: >-
             contains(github.event.pull_request.labels.*.name, 'needs-preview') &&
             (github.event.action == 'synchronize' || github.event.action == 'reopened' ||
@@ -192,6 +196,9 @@ jobs:
     cleanup:
         name: Cleanup Preview
         runs-on: ubuntu-latest
+        concurrency:
+            group: pr-preview-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
         if: >-
             ((github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'needs-preview')) ||
             (github.event.action == 'unlabeled' && github.event.label.name == 'needs-preview')) &&
