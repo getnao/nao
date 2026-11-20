@@ -1105,6 +1105,43 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
     )
 
 
+def test_execute_sql_joins_rows_serialized_in_several_chunks(monkeypatch: pytest.MonkeyPatch, duckdb_project_folder):
+    monkeypatch.setattr(main, "RESULT_CHUNK_ROWS", 2)
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT range AS id FROM range(5)",
+            "nao_project_folder": duckdb_project_folder,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert_sql_result(response.json(), row_count=5, columns=["id"], expected_data=[{"id": id} for id in range(5)])
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT repeat('x', 100) AS padding FROM range(1000)",
+        "SELECT {'padding': repeat('x', 100000)} AS nested",
+    ],
+    ids=["many_rows", "one_nested_value"],
+)
+def test_execute_sql_rejects_result_above_size_limit(monkeypatch: pytest.MonkeyPatch, duckdb_project_folder, sql: str):
+    monkeypatch.setattr(main, "MAX_RESULT_SIZE_MB", 0.001)
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={"sql": sql, "nao_project_folder": duckdb_project_folder, "table_access": UNENFORCED_TABLE_ACCESS},
+    )
+
+    assert response.status_code == 413
+    assert "larger than the 0.001 MB limit" in response.json()["detail"]
+    assert "NAO_SQL_MAX_RESULT_SIZE_MB" in response.json()["detail"]
+
+
 def test_execute_sql_blocks_star_with_excluded_columns(
     duckdb_project_with_excluded_columns,
 ):
