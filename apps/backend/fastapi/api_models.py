@@ -175,7 +175,7 @@ class ExecuteSQLRequest(StrictRequestModel):
     sql: str
     nao_project_folder: str
     table_access: TableAccess
-    column_security: ColumnSecurity = UnenforcedColumnSecurity(enforced=False)
+    column_security: ColumnSecurity
     row_security: RowSecurity
     database_id: str | None = None
     env_vars: dict[str, str] | None = None

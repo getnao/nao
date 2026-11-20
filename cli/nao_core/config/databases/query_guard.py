@@ -39,6 +39,21 @@ SQLGLOT_DIALECTS = {
     "trino": "trino",
 }
 
+_XML_EXPORT_SOURCES = ("query", "table", "schema", "database")
+_XML_EXPORT_SUFFIXES = ("xml", "xmlschema", "xml_and_xmlschema")
+_UNVALIDATED_DATA_FUNCTIONS = frozenset(
+    {
+        *(f"{source}_to_{suffix}" for source in _XML_EXPORT_SOURCES for suffix in _XML_EXPORT_SUFFIXES),
+        "cursor_to_xml",
+        "dblink",
+        "result_scan",
+        "query_history",
+        "query_history_by_session",
+        "query_history_by_user",
+        "query_history_by_warehouse",
+    }
+)
+
 
 def parse_query(sql: str, dialect: str, blocked: BlockedFactory) -> exp.Query:
     try:
@@ -52,7 +67,15 @@ def parse_query(sql: str, dialect: str, blocked: BlockedFactory) -> exp.Query:
     expression = statements[0]
     if not isinstance(expression, exp.Query):
         raise blocked("only query statements can be validated")
+    assert_no_unvalidated_data_functions(expression, blocked)
     return expression
+
+
+def assert_no_unvalidated_data_functions(expression: exp.Query, blocked: BlockedFactory) -> None:
+    """These functions read a table, a query or an earlier result named by a string, which no guard can resolve."""
+    for function in expression.find_all(exp.Anonymous):
+        if function.name.casefold() in _UNVALIDATED_DATA_FUNCTIONS:
+            raise blocked(f"function {function.name} reads data that cannot be validated")
 
 
 def base_table_expressions(expression: exp.Query, blocked: BlockedFactory) -> list[exp.Table]:

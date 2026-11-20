@@ -75,11 +75,13 @@ class _ColumnAccessAnalyzer:
         excluded: set[_ColumnOrigin] = set()
         for scope in self.scopes:
             for column in scope.columns:
-                origins = self._resolve_column(scope, column)
+                origins = self._resolve_column(scope, column) | self._whole_row_origins(scope, column)
                 excluded.update(origin for origin in origins if self._is_excluded(origin))
             for table_column in find_all_in_scope(scope.expression, exp.TableColumn):
                 origins = self._resolve_whole_row(scope, table_column.name)
                 excluded.update(origin for origin in origins if self._is_excluded(origin))
+            origins = self._unnamed_origins(scope)
+            excluded.update(origin for origin in origins if self._is_excluded(origin))
         return excluded
 
     def find_excluded_star_references(self) -> set[_ColumnOrigin]:
@@ -212,14 +214,64 @@ class _ColumnAccessAnalyzer:
         raise _blocked(f"column '{column_name}' could not be tied to a source")
 
     def _resolve_whole_row(self, scope: Scope, source_alias: str) -> set[_ColumnOrigin]:
-        source = scope.sources.get(source_alias)
-        parent = scope.parent
-        while source is None and parent is not None:
-            source = parent.sources.get(source_alias)
-            parent = parent.parent
+        source = _find_source(scope, source_alias)
         if source is None:
             raise _blocked(f"whole-row source alias '{source_alias}' could not be resolved")
         return {origin for output in self._source_outputs(source) for origin in output.origins}
+
+    def _whole_row_origins(self, scope: Scope, column: exp.Column) -> set[_ColumnOrigin]:
+        """A column named after a table alias reads the whole row in dialects with struct rows, e.g. `SELECT u FROM users u`."""
+        if column.table and column.table.casefold() != column.name.casefold():
+            return set()
+        source = _find_source(scope, column.name)
+        if not isinstance(source, exp.Table) or self._is_cataloged_column(scope, column):
+            return set()
+        return self._table_origins(source)
+
+    def _is_cataloged_column(self, scope: Scope, column: exp.Column) -> bool:
+        if column.table:
+            candidates = [scope.sources.get(column.table)]
+        else:
+            candidates = [source for _, source in scope.selected_sources.values()]
+        return any(
+            _match_identifier(column.name, list(info.columns)) is not None
+            for candidate in candidates
+            if isinstance(candidate, exp.Table)
+            for info in self._table_infos(candidate)
+        )
+
+    def _unnamed_origins(self, scope: Scope) -> set[_ColumnOrigin]:
+        """Columns a scope reads without naming them: renamed by a table alias, positional, pattern-matched or NATURAL-joined."""
+        reads_unnamed_columns = _reads_unnamed_columns(scope)
+        origins = self._natural_join_origins(scope)
+        for _, source in scope.selected_sources.values():
+            if isinstance(source, exp.Table) and (reads_unnamed_columns or source.alias_column_names):
+                origins.update(self._table_origins(source))
+        return origins
+
+    def _natural_join_origins(self, scope: Scope) -> set[_ColumnOrigin]:
+        """A NATURAL JOIN compares every column its right side shares with the relations joined before it."""
+        origins: set[_ColumnOrigin] = set()
+        joins = scope.expression.args.get("joins") or []
+        if not any(join.method == "NATURAL" for join in joins):
+            return origins
+        left_outputs = self._relation_outputs(scope, scope.expression.args.get("from_"))
+        for join in joins:
+            right_outputs = self._relation_outputs(scope, join)
+            if join.method == "NATURAL":
+                shared_names = _output_names(left_outputs) & _output_names(right_outputs)
+                for output in left_outputs + right_outputs:
+                    if output.name.casefold() in shared_names:
+                        origins.update(output.origins)
+            left_outputs = left_outputs + right_outputs
+        return origins
+
+    def _relation_outputs(self, scope: Scope, relation: exp.Expr | None) -> list[_OutputColumn]:
+        source = scope.sources.get(relation.alias_or_name) if relation is not None else None
+        return self._source_outputs(source) if source is not None else []
+
+    def _table_origins(self, table: exp.Table) -> set[_ColumnOrigin]:
+        return {origin for output in self._source_outputs(table) for origin in output.origins}
 
     def _table_column_origins(self, table: exp.Table, column_name: str) -> set[_ColumnOrigin]:
         origins = set()
@@ -263,6 +315,26 @@ class _ColumnAccessAnalyzer:
 
 def _is_unnest_scope(scope: Scope) -> bool:
     return isinstance(scope.expression, exp.Unnest)
+
+
+def _output_names(outputs: list[_OutputColumn]) -> set[str]:
+    return {output.name.casefold() for output in outputs}
+
+
+def _find_source(scope: Scope, alias: str) -> exp.Expr | Scope | None:
+    current: Scope | None = scope
+    while current is not None:
+        for name, source in current.sources.items():
+            if name.casefold() == alias.casefold():
+                return source
+        current = current.parent
+    return None
+
+
+def _reads_unnamed_columns(scope: Scope) -> bool:
+    """`COLUMNS('regex')`, DuckDB `#2` and Snowflake `$2` pick columns the analyzer cannot see by name."""
+    unnamed_references = find_all_in_scope(scope.expression, exp.Columns, exp.PositionalColumn, exp.Parameter)
+    return any(not isinstance(reference, exp.Parameter) or reference.this.is_int for reference in unnamed_references)
 
 
 def _match_identifier(requested: str, available: list[str]) -> str | None:

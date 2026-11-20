@@ -19,6 +19,7 @@ from nao_core.config.databases.column_access_analysis import (
     _TableInfo,
 )
 from nao_core.config.databases.column_catalog import column_catalog_path, load_column_catalog
+from nao_core.config.databases.query_guard import assert_no_unvalidated_data_functions
 
 
 class _DatabaseConfigLike(Protocol):
@@ -202,6 +203,7 @@ def _parse_query(sql: str, dialect: str) -> exp.Query:
     expression = statements[0]
     if not isinstance(expression, exp.Query):
         raise _blocked("only query statements can be validated")
+    assert_no_unvalidated_data_functions(expression, _blocked)
     return expression
 
 

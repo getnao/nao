@@ -16,20 +16,18 @@ from pydantic import ValidationError
 INTERNAL_SECRET = "test-internal-secret-at-least-20-characters"
 INTERNAL_HEADERS = {"X-Nao-Internal-Secret": INTERNAL_SECRET}
 UNENFORCED_TABLE_ACCESS = {"enforced": False}
+UNENFORCED_COLUMN_SECURITY = {"enforced": False}
 UNENFORCED_ROW_SECURITY = {"enforced": False}
 
 
 class TestClient(FastApiTestClient):
     def request(self, method, url, **kwargs):
         request_json = kwargs.get("json")
-        if (
-            url in {"/execute_sql", "/validate_sql"}
-            and isinstance(request_json, dict)
-            and "row_security" not in request_json
-        ):
+        if url in {"/execute_sql", "/validate_sql"} and isinstance(request_json, dict):
             kwargs["json"] = {
-                **request_json,
+                "column_security": UNENFORCED_COLUMN_SECURITY,
                 "row_security": UNENFORCED_ROW_SECURITY,
+                **request_json,
             }
         return super().request(method, url, **kwargs)
 
@@ -247,11 +245,27 @@ def test_sql_endpoint_rejects_missing_null_or_malformed_row_security(
         "sql": "SELECT 1",
         "nao_project_folder": duckdb_project_folder,
         "table_access": UNENFORCED_TABLE_ACCESS,
+        "column_security": UNENFORCED_COLUMN_SECURITY,
     }
     if row_security != "missing":
         request["row_security"] = row_security
 
     response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(endpoint, json=request)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_sql_endpoint_rejects_missing_column_security(duckdb_project_folder, endpoint):
+    response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": duckdb_project_folder,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "row_security": UNENFORCED_ROW_SECURITY,
+        },
+    )
 
     assert response.status_code == 422
 
@@ -322,6 +336,7 @@ def test_sql_endpoint_rejects_malformed_row_security_tables(
             "sql": "SELECT 1",
             "nao_project_folder": duckdb_project_folder,
             "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": UNENFORCED_COLUMN_SECURITY,
             "row_security": {"enforced": True, "tables": [table]},
         },
     )
@@ -340,6 +355,7 @@ def test_sql_endpoint_allows_empty_enforced_row_security_tables(
             "sql": "SELECT 1",
             "nao_project_folder": duckdb_project_folder,
             "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": UNENFORCED_COLUMN_SECURITY,
             "row_security": {"enforced": True, "tables": []},
         },
     )
