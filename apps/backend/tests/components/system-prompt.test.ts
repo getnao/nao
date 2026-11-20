@@ -311,6 +311,19 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).not.toContain('**save_to**');
 	});
 
+	it('points to the story-kit skill instead of inlining the guide when the run can load skills', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { customStoriesEnabled: true } }));
+		expect(markdown).toContain('**load_skill** with **custom-story-kit**');
+		expect(markdown).toContain('- **custom-story-kit** — ');
+		expect(markdown).not.toContain('useStoryState("key", initial)');
+	});
+
+	it('does not list the story-kit skill when the run cannot author custom stories', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('Built-in Skills');
+		expect(markdown).not.toContain('custom-story-kit');
+	});
+
 	it('keeps the no-guess column rule when the columns template is not synced', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ templates: ['preview'], internalSkills: [] }));
 		expect(markdown).not.toContain('`columns.md` —');
