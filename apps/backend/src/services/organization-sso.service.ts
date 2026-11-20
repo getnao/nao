@@ -42,9 +42,11 @@ export async function activateOrganizationSso(orgId: string, requestedDomains: s
 
 export async function deactivateOrganizationSso(orgId: string): Promise<void> {
 	await requireOrganization(orgId);
-	if (!(await ssoProviderQueries.deleteSsoProviderByOrganizationId(orgId))) {
+	const existing = await ssoProviderQueries.getSsoProviderByOrganizationId(orgId);
+	if (!existing || !(await ssoProviderQueries.deleteSsoProviderByOrganizationId(orgId))) {
 		throw new HandlerError('NOT_FOUND', 'SSO is not activated for this organization.');
 	}
+	await ssoProviderQueries.clearProviderAccountTokens(existing.providerId);
 	logger.info('Backoffice deactivated organization SSO', { source: 'system', context: { orgId } });
 }
 
@@ -57,11 +59,22 @@ export async function configureOrganizationSso(
 	if (!existing) {
 		throw new HandlerError('FORBIDDEN', NOT_ACTIVATED_MESSAGE);
 	}
-	const clientSecret = input.clientSecret ?? readOidcConfig(existing)?.clientSecret;
+	const existingConfig = readOidcConfig(existing);
+	const discovered = await discoverIssuer(input.issuer, input.discoveryUrl);
+	const isSameIdp = !!existingConfig && isSameIdpApplication(existingConfig, discovered, input.clientId);
+	const clientSecret = input.clientSecret ?? (isSameIdp ? existingConfig.clientSecret : undefined);
 	if (!clientSecret) {
-		throw new HandlerError('BAD_REQUEST', 'A client secret is required.');
+		throw new HandlerError(
+			'BAD_REQUEST',
+			existingConfig
+				? 'Enter the client secret again when the IdP application changes.'
+				: 'A client secret is required.',
+		);
 	}
-	const oidcConfig = await buildOidcConfig(input, clientSecret);
+	if (!isSameIdp) {
+		await ssoProviderQueries.clearProviderAccountTokens(existing.providerId);
+	}
+	const oidcConfig = buildOidcConfig(discovered, input, clientSecret);
 	const saved = await ssoProviderQueries.updateSsoProviderConnection(orgId, {
 		issuer: oidcConfig.issuer,
 		oidcConfig: JSON.stringify(oidcConfig),
@@ -102,8 +115,11 @@ async function assertDomainsClaimable(orgId: string, domains: string[]): Promise
  * Stores the IdP endpoints at save time: the plugin only discovers them at sign-in
  * for issuers listed in `trustedOrigins`, which would have to grow with every customer.
  */
-async function buildOidcConfig(input: OrganizationSsoConfigInput, clientSecret: string): Promise<OIDCConfig> {
-	const discovered = await discoverIssuer(input.issuer, input.discoveryUrl);
+function buildOidcConfig(
+	discovered: Awaited<ReturnType<typeof discoverIssuer>>,
+	input: OrganizationSsoConfigInput,
+	clientSecret: string,
+): OIDCConfig {
 	return {
 		issuer: discovered.issuer,
 		discoveryEndpoint: discovered.discoveryEndpoint,
@@ -117,6 +133,22 @@ async function buildOidcConfig(input: OrganizationSsoConfigInput, clientSecret: 
 		pkce: true,
 		scopes: [...new Set([...SCOPES, ...input.additionalScopes])],
 	};
+}
+
+/**
+ * Members' stored refresh tokens and the kept client secret are sent to the token endpoint,
+ * so they only carry over while the issuer, token endpoint and client stay the same.
+ */
+function isSameIdpApplication(
+	existing: OIDCConfig,
+	discovered: Awaited<ReturnType<typeof discoverIssuer>>,
+	clientId: string,
+): boolean {
+	return (
+		existing.issuer === discovered.issuer &&
+		existing.tokenEndpoint === discovered.tokenEndpoint &&
+		existing.clientId === clientId
+	);
 }
 
 async function discoverIssuer(issuer: string, discoveryUrl: string | undefined) {

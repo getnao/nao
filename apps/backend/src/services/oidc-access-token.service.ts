@@ -8,6 +8,7 @@ import { db } from '../db/db';
 import { env, isCloud } from '../env';
 import { getSsoProviderByProjectId } from '../queries/sso-provider.queries';
 import { logger, serializeError } from '../utils/logger';
+import { assertSafeHost } from '../utils/safe-fetch';
 import { memoizeUntilRejected } from '../utils/memoize-until-rejected';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
 import { readOidcConfig } from './organization-sso.service';
@@ -95,7 +96,10 @@ async function resolveOrganizationSsoClient(projectId: string): Promise<OidcClie
 		clientId: config.clientId,
 		clientSecret: config.clientSecret,
 		authentication: config.tokenEndpointAuthentication === 'client_secret_basic' ? 'basic' : 'post',
-		getTokenEndpoint: async () => ssoTokenEndpoint,
+		getTokenEndpoint: async () => {
+			await assertSafeHost(new URL(ssoTokenEndpoint).hostname);
+			return ssoTokenEndpoint;
+		},
 	};
 }
 
@@ -148,7 +152,7 @@ async function refreshAndStore(accountId: string, refreshToken: string, client: 
 				accessTokenExpiresAt: tokens.accessTokenExpiresAt ?? null,
 				refreshToken: tokens.refreshToken ?? refreshToken,
 			})
-			.where(eq(s.account.id, accountId))
+			.where(and(eq(s.account.id, accountId), eq(s.account.refreshToken, refreshToken)))
 			.execute();
 		return tokens.accessToken;
 	} catch (error) {

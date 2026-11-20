@@ -5,7 +5,7 @@ import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { getOidcAccessTokenForUser, MIN_ACCESS_TOKEN_VALIDITY_MS } from '../../src/services/oidc-access-token.service';
 
-const oidc = vi.hoisted(() => ({ configured: true, cloud: false }));
+const oidc = vi.hoisted(() => ({ configured: true, cloud: false, assertSafeHost: vi.fn() }));
 
 vi.mock('../../src/env', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../src/env')>();
@@ -26,6 +26,7 @@ vi.mock('../../src/services/oidc-auth.service', () => ({
 	getOidcProviderId: () => 'okta',
 	isOidcConfigured: () => oidc.configured,
 }));
+vi.mock('../../src/utils/safe-fetch', () => ({ assertSafeHost: oidc.assertSafeHost }));
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
 	return { db: createInMemoryDb() };
@@ -76,6 +77,7 @@ describe('getOidcAccessTokenForUser', () => {
 	beforeEach(async () => {
 		oidc.configured = true;
 		oidc.cloud = false;
+		oidc.assertSafeHost.mockReset().mockResolvedValue(undefined);
 		await db.delete(s.account).execute();
 		fetchMock.mockReset();
 		fetchMock.mockImplementation(respondLikeOkta({ access_token: 'fresh-token', expires_in: 3600 }));
@@ -152,6 +154,37 @@ describe('getOidcAccessTokenForUser', () => {
 		expect(new Headers(tokenRequest?.headers).get('authorization')).toBe(
 			`Basic ${Buffer.from('org-client-id:org-client-secret').toString('base64')}`,
 		);
+	});
+
+	it("never sends the refresh token to an organization's token endpoint that now resolves inside the network", async () => {
+		oidc.configured = false;
+		oidc.cloud = true;
+		oidc.assertSafeHost.mockRejectedValue(new Error('private address'));
+		vi.useFakeTimers({ toFake: ['setTimeout'] });
+		await insertAccount({ providerId: ORG_PROVIDER_ID, accessTokenExpiresAt: new Date(Date.now() - 1000) });
+
+		const token = getOidcAccessTokenForUser(USER_ID, PROJECT_ID);
+		await vi.runAllTimersAsync();
+
+		await expect(token).resolves.toBeNull();
+		expect(oidc.assertSafeHost).toHaveBeenCalledWith('acme.okta.com');
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('does not save a refreshed token over one cleared while the refresh was in flight', async () => {
+		await insertAccount({ accessTokenExpiresAt: new Date(Date.now() - 1000) });
+		fetchMock.mockImplementation(async (input) => {
+			if (String(input) === DISCOVERY_URL) {
+				return Response.json({ token_endpoint: TOKEN_ENDPOINT });
+			}
+			await db.update(s.account).set({ accessToken: null, refreshToken: null }).execute();
+			return Response.json({ access_token: 'fresh-token', refresh_token: 'rotated-refresh', expires_in: 3600 });
+		});
+
+		await getOidcAccessTokenForUser(USER_ID, PROJECT_ID);
+
+		const [account] = await db.select().from(s.account).where(eq(s.account.id, ACCOUNT_ID));
+		expect(account).toMatchObject({ accessToken: null, refreshToken: null });
 	});
 
 	it('uses the token another replica saved after redeeming the same refresh token first', async () => {

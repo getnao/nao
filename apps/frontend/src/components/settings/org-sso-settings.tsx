@@ -94,7 +94,11 @@ function OrgSsoForm({
 				form={form}
 				name='clientSecret'
 				label='Client secret'
-				hint={hasClientSecret ? '(leave empty to keep current)' : undefined}
+				hint={
+					hasClientSecret
+						? '(leave empty to keep current, unless the issuer or client ID changes)'
+						: undefined
+				}
 				required={!hasClientSecret}
 			/>
 			<TextField

@@ -66,6 +66,21 @@ export const updateSsoProviderConnection = async (
 	return updated ?? null;
 };
 
+/** Forgets the IdP tokens of every member who signed in through this provider; they get new ones at their next sign-in. */
+export const clearProviderAccountTokens = async (providerId: string): Promise<void> => {
+	await db
+		.update(s.account)
+		.set({
+			accessToken: null,
+			refreshToken: null,
+			idToken: null,
+			accessTokenExpiresAt: null,
+			refreshTokenExpiresAt: null,
+		})
+		.where(eq(s.account.providerId, providerId))
+		.execute();
+};
+
 export const deleteSsoProviderByOrganizationId = async (organizationId: string): Promise<boolean> => {
 	const deleted = await db
 		.delete(s.ssoProvider)

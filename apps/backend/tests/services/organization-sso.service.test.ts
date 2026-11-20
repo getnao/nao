@@ -21,6 +21,7 @@ vi.mock('../../src/services/license.service', async (importOriginal) => ({
 vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 
 import { DiscoveryError } from '@better-auth/sso';
+import { eq } from 'drizzle-orm';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
@@ -32,6 +33,7 @@ import {
 } from '../../src/services/organization-sso.service';
 
 const ORG_ID = 'org-acme';
+const MEMBER_ID = 'member-jane';
 const OKTA = {
 	issuer: 'https://acme.okta.com',
 	clientId: 'okta-client',
@@ -62,22 +64,54 @@ describe('organization SSO configured by an organization admin', () => {
 		await expect(configureOrganizationSso(ORG_ID, OKTA)).rejects.toMatchObject({ codeMessage: 'FORBIDDEN' });
 	});
 
-	it('connects the IdP on the domains set by nao staff, and keeps the secret when it is left out', async () => {
+	it('connects the IdP on the domains set by nao staff, and keeps the secret and member tokens when it is left out', async () => {
 		await activateOrganizationSso(ORG_ID, ['acme.com']);
 
 		const configured = await configureOrganizationSso(ORG_ID, OKTA);
+		await insertMemberAccount();
 		const { clientSecret: _clientSecret, ...withoutSecret } = OKTA;
-		const rotated = await configureOrganizationSso(ORG_ID, { ...withoutSecret, clientId: 'rotated' });
+		const rescoped = await configureOrganizationSso(ORG_ID, {
+			...withoutSecret,
+			additionalScopes: ['offline_access'],
+		});
 
 		expect(configured).toMatchObject({ issuer: OKTA.issuer, domains: ['acme.com'], hasClientSecret: true });
 		expect(JSON.stringify(configured)).not.toContain(OKTA.clientSecret);
-		expect(rotated).toMatchObject({ clientId: 'rotated', domains: ['acme.com'] });
+		expect(rescoped).toMatchObject({ additionalScopes: ['offline_access'], domains: ['acme.com'] });
 		const provider = await ssoProviderQueries.getSsoProviderByOrganizationId(ORG_ID);
 		expect(JSON.parse(provider?.oidcConfig ?? '{}')).toMatchObject({
-			clientId: 'rotated',
 			clientSecret: OKTA.clientSecret,
 			tokenEndpoint: `${OKTA.issuer}/oauth2/v1/token`,
 		});
+		expect(await readMemberTokens()).toEqual({ accessToken: 'member-access', refreshToken: 'member-refresh' });
+	});
+
+	it.each([
+		{ name: 'client', change: { clientId: 'other-client' } },
+		{ name: 'issuer', change: { issuer: 'https://attacker.example.com' } },
+	])('asks for the secret again and forgets member tokens when the $name changes', async ({ change }) => {
+		await activateOrganizationSso(ORG_ID, ['acme.com']);
+		await configureOrganizationSso(ORG_ID, OKTA);
+		await insertMemberAccount();
+		const { clientSecret: _clientSecret, ...withoutSecret } = OKTA;
+
+		await expect(configureOrganizationSso(ORG_ID, { ...withoutSecret, ...change })).rejects.toMatchObject({
+			message: 'Enter the client secret again when the IdP application changes.',
+		});
+		expect(await readMemberTokens()).toEqual({ accessToken: 'member-access', refreshToken: 'member-refresh' });
+
+		await configureOrganizationSso(ORG_ID, { ...OKTA, ...change, clientSecret: 'other-secret' });
+		expect(await readMemberTokens()).toEqual({ accessToken: null, refreshToken: null });
+	});
+
+	it('forgets member tokens when nao staff deactivate SSO', async () => {
+		await activateOrganizationSso(ORG_ID, ['acme.com']);
+		await configureOrganizationSso(ORG_ID, OKTA);
+		await insertMemberAccount();
+
+		await deactivateOrganizationSso(ORG_ID);
+
+		expect(await readMemberTokens()).toEqual({ accessToken: null, refreshToken: null });
 	});
 
 	it('requests the additional scopes on top of the sign-in ones', async () => {
@@ -184,7 +218,29 @@ function holdDiscoveryWhile(staffChange: () => Promise<unknown>): void {
 	});
 }
 
+async function insertMemberAccount(): Promise<void> {
+	await db.insert(s.user).values({ id: MEMBER_ID, name: 'Jane', email: 'jane@acme.com' });
+	await db.insert(s.account).values({
+		id: 'member-account',
+		accountId: 'okta-jane',
+		providerId: 'sso-acme',
+		userId: MEMBER_ID,
+		accessToken: 'member-access',
+		refreshToken: 'member-refresh',
+	});
+}
+
+async function readMemberTokens() {
+	const [account] = await db
+		.select({ accessToken: s.account.accessToken, refreshToken: s.account.refreshToken })
+		.from(s.account)
+		.where(eq(s.account.userId, MEMBER_ID));
+	return account;
+}
+
 async function clearData(): Promise<void> {
+	await db.delete(s.account);
+	await db.delete(s.user);
 	await db.delete(s.ssoProvider);
 	await db.delete(s.organization);
 }
