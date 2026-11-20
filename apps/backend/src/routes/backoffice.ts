@@ -17,7 +17,7 @@ import { checkDatabaseConnection } from '../queries/health.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
-import * as onboardingService from '../services/backoffice-onboarding.service';
+import * as onboardingService from '../services/onboarding/backoffice-onboarding.service';
 import * as ssoService from '../services/organization-sso.service';
 import { INSTANCE_LOG_SORT_KEYS, instanceLogFilterSchema } from '../types/backoffice';
 import { organizationSsoDomainsInputSchema } from '../types/organization';

@@ -91,6 +91,7 @@ import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
 import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
+import { startWarehouseProvisioningReconciler } from './services/onboarding/warehouse-provisioning';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './services/scheduler.service';
@@ -104,7 +105,6 @@ import {
 	TEST_SCHEDULE_JOB_NAME,
 	TEST_SCHEDULE_SYNC_JOB_NAME,
 } from './services/test-schedule.service';
-import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import {

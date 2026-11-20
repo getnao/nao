@@ -8,6 +8,14 @@ import { takeFirstOrThrow } from '../utils/queries';
 
 export const userMemberStatus = sql<MemberStatus>`case when ${s.user.requiresPasswordReset} then 'invited' else 'active' end`;
 
+/** SSO and social users have no credential account, so an admin cannot reset their password. */
+export const userHasPassword = sql<boolean>`exists (
+	select 1 from ${s.account}
+	where ${s.account.userId} = ${s.user.id}
+	and ${s.account.providerId} = 'credential'
+	and ${s.account.password} is not null
+)`.mapWith(Boolean);
+
 export const INVITATION_TTL_DAYS = 7;
 
 export const getUser = async (identifier: { id: string } | { email: string }): Promise<User | null> => {

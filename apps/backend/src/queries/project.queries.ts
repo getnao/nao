@@ -46,7 +46,7 @@ import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
 import { getDefaultProjectPath } from '../utils/project-paths';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
-import { userMemberStatus } from './user.queries';
+import { userHasPassword, userMemberStatus } from './user.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -57,6 +57,7 @@ export type ProjectAccessSource = 'project' | 'organization' | 'both';
 
 export interface UserWithProjectAccessDetails extends UserWithRole {
 	source: ProjectAccessSource;
+	hasPassword: boolean;
 }
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -298,6 +299,7 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 				when ${s.projectMember.userId} is not null then 'project'
 				else 'organization'
 			end`,
+			hasPassword: userHasPassword,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))

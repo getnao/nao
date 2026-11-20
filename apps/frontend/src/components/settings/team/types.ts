@@ -7,4 +7,5 @@ export interface TeamMember {
 	role: UserRole;
 	status: MemberStatus;
 	twoFactorEnabled?: boolean;
+	hasPassword?: boolean;
 }

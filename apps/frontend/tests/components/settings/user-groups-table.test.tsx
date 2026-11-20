@@ -393,6 +393,7 @@ const overview = {
 			role: 'user',
 			status: 'active',
 			source: 'project',
+			hasPassword: true,
 		},
 		{
 			id: 'organization-user',
@@ -401,6 +402,7 @@ const overview = {
 			role: 'viewer',
 			status: 'active',
 			source: 'organization',
+			hasPassword: true,
 		},
 	],
 	memberships: [
