@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectByUserId: vi.fn(),
 	getUser: vi.fn(),
 	validateApiKey: vi.fn(),
+	isSelfHostedMultiProjectEnabled: vi.fn(),
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -22,6 +23,9 @@ vi.mock('../../src/services/api-key.service', () => ({
 	isApiKey: (token: string) => token.startsWith('nao_'),
 	validateApiKey: mocks.validateApiKey,
 }));
+vi.mock('../../src/services/multi-project.service', () => ({
+	isSelfHostedMultiProjectEnabled: mocks.isSelfHostedMultiProjectEnabled,
+}));
 
 import { sessionOrApiKeyAuthMiddleware } from '../../src/middleware/auth';
 
@@ -35,6 +39,7 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		mocks.getUser.mockResolvedValue(KEY_CREATOR);
 		mocks.getProjectByOrgAndName.mockResolvedValue(ORG_PROJECT);
 		mocks.getProjectByUserId.mockResolvedValue(null);
+		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(false);
 	});
 
 	it('authenticates as the key creator on the named project of the key organization', async () => {
@@ -78,6 +83,21 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		const { reply } = await authenticate({ authorization: 'Bearer nao_valid' });
 
 		expect(reply.status).toHaveBeenCalledWith(401);
+	});
+
+	it('refuses a project name the organization does not have when the instance serves several projects', async () => {
+		mocks.isSelfHostedMultiProjectEnabled.mockResolvedValue(true);
+		mocks.getProjectByOrgAndName.mockResolvedValue(null);
+		mocks.getProjectByUserId.mockResolvedValue(ORG_PROJECT);
+
+		const { request, reply } = await authenticate({
+			authorization: 'Bearer nao_valid',
+			'x-nao-project-name': 'never-deployed',
+		});
+
+		expect(reply.status).toHaveBeenCalledWith(400);
+		expect(reply.send).toHaveBeenCalledWith({ error: expect.stringContaining('"never-deployed" does not exist') });
+		expect(request.project).toBeUndefined();
 	});
 
 	it('falls back to the default project when it belongs to the key organization', async () => {
