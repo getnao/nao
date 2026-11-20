@@ -64,6 +64,7 @@ import {
 	getStoryQuerySql,
 	getStoryQuerySqlByStoryId,
 } from '../services/story-filters';
+import { readStoryImages } from '../services/story-image';
 import { readStoryMapBoundary } from '../services/story-map-boundary';
 import { assertStoryCanRefresh } from '../services/story-refresh.service';
 import {
@@ -77,6 +78,7 @@ import { hasUserGroupFeature } from '../services/user-group-feature-access.servi
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
+	requestedStoryImages,
 	STANDALONE_SQL_UNAVAILABLE,
 	storyModelRequest,
 	storyQueryInputs,
@@ -327,6 +329,10 @@ export const sharedStoryRoutes = {
 	getCustomStoryMapBoundary: shareAccessProcedure
 		.input(z.object({ storyId: z.string(), key: mapBoundaryKey }))
 		.query(({ ctx, input }) => readStoryMapBoundary(ctx.resource.storyId, input.key)),
+
+	getCustomStoryImages: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), sources: requestedStoryImages }))
+		.query(({ ctx, input }) => readStoryImages(ctx.resource.projectId, input.sources)),
 
 	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
