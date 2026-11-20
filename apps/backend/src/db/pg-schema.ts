@@ -1085,6 +1085,27 @@ export const automation = pgTable(
 	],
 );
 
+/** Who an automation is shared with: a person, a group, or the whole project when both are null. */
+export const automationShare = pgTable(
+	'automation_share',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		automationId: text('automation_id')
+			.notNull()
+			.references(() => automation.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		groupId: text('group_id').references(() => userGroup.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
+	},
+	(t) => [
+		index('automation_share_automationId_idx').on(t.automationId),
+		index('automation_share_userId_idx').on(t.userId),
+		index('automation_share_groupId_idx').on(t.groupId),
+	],
+);
+
 export const automationRun = pgTable(
 	'automation_run',
 	{

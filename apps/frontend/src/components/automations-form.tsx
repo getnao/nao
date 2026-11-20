@@ -138,6 +138,8 @@ type AutomationFormProps = {
 	showSubmitButton?: boolean;
 	autoSaveControls?: boolean;
 	saveShortcut?: boolean;
+	/** Shows the automation without letting the user change it; the sidebar stays interactive. */
+	readOnly?: boolean;
 	onDirtyChange?: (isDirty: boolean) => void;
 	onSubmit: (value: AutomationFormValue) => Promise<void>;
 };
@@ -209,6 +211,7 @@ export function AutomationForm({
 	showSubmitButton = true,
 	autoSaveControls = false,
 	saveShortcut = false,
+	readOnly = false,
 	onDirtyChange,
 	onSubmit,
 }: AutomationFormProps) {
@@ -237,7 +240,7 @@ export function AutomationForm({
 					hasSidebar && '@4xl:grid-cols-[minmax(0,1fr)_340px] @6xl:grid-cols-[minmax(0,1fr)_380px]',
 				)}
 			>
-				<div className='grid content-start gap-6'>
+				<fieldset disabled={readOnly} className='grid min-w-0 content-start gap-6'>
 					<AutomationTitleField
 						value={form.value.title}
 						onChange={form.setTitle}
@@ -278,6 +281,7 @@ export function AutomationForm({
 						modelDisabled={form.controlsDisabled}
 						email={form.userEmail}
 						onInsertPromptTrigger={form.handleInsertPromptTrigger}
+						readOnly={readOnly}
 					/>
 
 					<ToolsSection
@@ -303,7 +307,7 @@ export function AutomationForm({
 							{isPending ? 'Saving...' : submitLabel}
 						</Button>
 					)}
-				</div>
+				</fieldset>
 
 				{hasSidebar && (
 					<div className='grid content-start gap-4'>
@@ -988,6 +992,7 @@ function AgentInstructionsSection({
 	modelDisabled,
 	email,
 	onInsertPromptTrigger,
+	readOnly,
 }: {
 	promptRef: RefObject<PromptHandle | null>;
 	promptValue: string;
@@ -1002,7 +1007,16 @@ function AgentInstructionsSection({
 	modelDisabled: boolean;
 	email?: string;
 	onInsertPromptTrigger: (trigger: string) => void;
+	readOnly: boolean;
 }) {
+	if (readOnly) {
+		return (
+			<section className='grid gap-2'>
+				<h2 className='text-sm font-medium'>Agent instructions</h2>
+				<p className='rounded-xl border bg-background/60 p-3 text-sm whitespace-pre-wrap'>{promptValue}</p>
+			</section>
+		);
+	}
 	return (
 		<section className='grid gap-2'>
 			<label className='text-sm font-medium'>Agent instructions</label>

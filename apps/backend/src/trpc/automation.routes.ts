@@ -1,12 +1,23 @@
 import { getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
-import { type AutomationEventTriggers, FEEDBACK_SOURCES, FEEDBACK_VOTES, type UserRole } from '@nao/shared/types';
+import {
+	type AutomationEventTriggers,
+	FEEDBACK_SOURCES,
+	FEEDBACK_VOTES,
+	SHARE_ROLES,
+	SHARE_VISIBILITY,
+	type UserRole,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod/v4';
 
 import { env } from '../env';
 import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.handler';
-import type { AutomationWithSchedule, ProjectAutomationSummary } from '../queries/automation.queries';
+import type {
+	AutomationWithAccess,
+	AutomationWithSchedule,
+	ProjectAutomationSummary,
+} from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -14,6 +25,7 @@ import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
 import { startAutomationEditChat } from '../services/automation-editor.service';
 import { canRoleReceiveChatFeedback } from '../services/automation-feedback-trigger.service';
+import { getAutomationShareSettings, saveAutomationShareSettings } from '../services/automation-share.service';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { listShareableMembers } from '../services/project-sharing.service';
@@ -143,6 +155,16 @@ const writeAutomationSchema = z.object({
 	eventTriggers: eventTriggersSchema,
 });
 
+const shareGrantSchema = z.object({ id: z.string(), role: z.enum(SHARE_ROLES) });
+
+const saveShareSettingsSchema = z.object({
+	id: z.string(),
+	visibility: z.enum(SHARE_VISIBILITY),
+	projectRole: z.enum(SHARE_ROLES).default('viewer'),
+	users: z.array(shareGrantSchema).default([]),
+	groups: z.array(shareGrantSchema).default([]),
+});
+
 const createAutomationSchema = writeAutomationSchema.extend({
 	title: z.string().trim().max(255).optional(),
 	/** The chat the automation was drafted in, which then follows the automation. */
@@ -160,12 +182,12 @@ export const automationRoutes = {
 			return automationQueries.listAutomationFeedRuns(ctx.project.id, ctx.user.id, input.limit);
 		}),
 
-	get: automationProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
+	get: automationReadProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'viewer');
 		if (!automation) {
 			return null;
 		}
-		const runs = await automationQueries.listAutomationRuns(ctx.project.id, ctx.user.id, input.id);
+		const runs = await automationQueries.listAutomationRuns(ctx.project.id, input.id);
 		return { automation, runs };
 	}),
 
@@ -218,7 +240,10 @@ export const automationRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			assertTriggers(input, ctx.userRole);
 			const { id, cron, enabled, ...data } = input;
-			const automation = await automationQueries.updateAutomation(ctx.project.id, ctx.user.id, id, {
+			if (!(await automationQueries.getAutomation(ctx.project.id, ctx.user.id, id, 'editor'))) {
+				return null;
+			}
+			const automation = await automationQueries.updateAutomation(ctx.project.id, id, {
 				...data,
 				scheduleDescription: data.scheduleDescription || null,
 				timezone: getServerTimezone(),
@@ -233,7 +258,7 @@ export const automationRoutes = {
 		}),
 
 	setEnabled: automationToggleProcedure.mutation(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
+		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'editor');
 		if (!automation) {
 			return null;
 		}
@@ -241,7 +266,7 @@ export const automationRoutes = {
 	}),
 
 	delete: automationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
+		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'owner');
 		if (!automation) {
 			return { success: true };
 		}
@@ -253,7 +278,7 @@ export const automationRoutes = {
 	}),
 
 	runNow: automationMutationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id);
+		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'editor');
 		if (!automation) {
 			return null;
 		}
@@ -271,7 +296,7 @@ export const automationRoutes = {
 	 * (or any other status mismatch) can be unstuck from the UI.
 	 */
 	cancelRun: automationProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
-		const run = await automationQueries.getAutomationRunForUser(ctx.project.id, ctx.user.id, input.runId);
+		const run = await getEditableRun(ctx.project.id, ctx.user.id, input.runId);
 		if (!run) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
 		}
@@ -283,7 +308,7 @@ export const automationRoutes = {
 			agentService.get(run.chatId)?.stop();
 		}
 		const updated = await automationQueries.cancelAutomationRun(input.runId);
-		const fresh = await automationQueries.getAutomationRunForUser(ctx.project.id, ctx.user.id, input.runId);
+		const fresh = await automationQueries.getProjectAutomationRun(ctx.project.id, input.runId);
 		if (!fresh) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
 		}
@@ -313,6 +338,22 @@ export const automationRoutes = {
 			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
+
+	getShareSettings: automationReadProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+		const automation = await getAutomationToShare(ctx, input.id);
+		return getAutomationShareSettings(automation, toShareActor(ctx));
+	}),
+
+	saveShareSettings: automationProcedure.input(saveShareSettingsSchema).mutation(async ({ ctx, input }) => {
+		const { id, ...change } = input;
+		const automation = await getAutomationToShare(ctx, id);
+		await saveAutomationShareSettings(automation, toShareActor(ctx), change);
+		return { success: true as const };
+	}),
+
+	listShareCandidates: automationProcedure.query(async ({ ctx }) => {
+		return listShareableMembers(ctx.project.id, ctx.user.id);
+	}),
 
 	listEmailRecipients: automationProcedure.query(async ({ ctx }) => {
 		const members = await listShareableMembers(ctx.project.id, ctx.user.id);
@@ -388,6 +429,37 @@ async function listProjectAutomationsWithOwnerAccess(
 		...automation,
 		ownerHasProjectAccess: automation.owner !== null && userIdsWithAccess.has(automation.owner.id),
 	}));
+}
+
+type AutomationRequestContext = {
+	user: { id: string; name: string };
+	userRole: UserRole | null;
+	project: { id: string };
+};
+
+/** Admins manage the sharing of every automation of the project; others need to see it. */
+async function getAutomationToShare(ctx: AutomationRequestContext, id: string): Promise<AutomationWithAccess> {
+	const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, id, 'viewer');
+	if (automation) {
+		return automation;
+	}
+	const projectAutomation =
+		ctx.userRole === 'admin' && (await automationQueries.getProjectAutomation(ctx.project.id, id));
+	if (!projectAutomation) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Automation not found: ${id}` });
+	}
+	return { ...projectAutomation, accessRole: 'viewer' };
+}
+
+function toShareActor(ctx: AutomationRequestContext) {
+	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
+}
+
+/** A run can be cancelled by whoever may edit its automation. */
+async function getEditableRun(projectId: string, userId: string, runId: string) {
+	const run = await automationQueries.getProjectAutomationRun(projectId, runId);
+	const automation = run && (await automationQueries.getAutomation(projectId, userId, run.automationId, 'editor'));
+	return automation ? run : null;
 }
 
 async function getProjectAutomationOrThrow(projectId: string, id: string): Promise<AutomationWithSchedule> {
