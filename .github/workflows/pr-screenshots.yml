@@ -20,8 +20,10 @@ concurrency:
 # - PR code (npm install scripts, backend, Vite, the capture script) only runs inside the
 #   `nao-app` container, which holds no secret, mounts a copy of the sources and never the
 #   docker socket. The host runner, where the user has passwordless sudo, runs no PR code.
-# - Claude runs on the host with the API key, can only edit its own work directory and only
-#   run `capture-screens`, which copies the PNGs out of the container with `docker cp`.
+# - Claude runs on the host with the API key. Its permission rules let it edit only its work
+#   directory and run only `capture-screens` (plus read-only commands inside its directories, never
+#   env or /proc). The wrapper drops the key and copies the PNGs out of the container with `docker cp`.
+#   CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is not used: its mandatory sandbox blocks the docker socket.
 # - The `publish` job holds the only write token and never checks out or runs the PR code:
 #   it validates the uploaded PNGs and sanitises the captions before posting them.
 # Fork PRs are skipped, GitHub gives them no secrets anyway.
@@ -94,6 +96,7 @@ jobs:
                   printf '#!/usr/bin/env bash\nWORK_DIR=%q\nSHOTS_DIR=%q\n' "$WORK_DIR" "$SHOTS_DIR" > "$RUNNER_TEMP/bin/capture-screens"
                   cat >> "$RUNNER_TEMP/bin/capture-screens" <<'EOF'
                   set -uo pipefail
+                  unset ANTHROPIC_API_KEY
                   docker exec nao-app bash -c 'rm -rf /shots && mkdir /shots'
                   docker cp "$WORK_DIR/capture.mjs" nao-app:/app/pr-screenshots-capture.mjs
                   docker exec nao-app bash -c '
@@ -121,7 +124,6 @@ jobs:
               working-directory: ${{ env.WORK_DIR }}
               env:
                   ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_CI_API_KEY }}
-                  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_TITLE: ${{ github.event.pull_request.title }}
               run: |
