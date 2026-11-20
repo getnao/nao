@@ -17,9 +17,7 @@ export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 export const ValueFormatSchema = z.object({
 	d3_format: z
 		.string()
-		.describe(
-			'd3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s".',
-		)
+		.describe('d3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s".')
 		.optional(),
 	compact: z
 		.enum(['financial', 'si'])
@@ -27,18 +25,8 @@ export const ValueFormatSchema = z.object({
 			'How d3 SI-prefix "s" output is displayed. Defaults to "financial", which maps k to K and G to B while leaving M and T unchanged. Use "si" for scientific units such as bytes so d3 letters remain unchanged.',
 		)
 		.optional(),
-	prefix: z
-		.string()
-		.describe(
-			'Free text placed before the number, such as a currency symbol.',
-		)
-		.optional(),
-	suffix: z
-		.string()
-		.describe(
-			'Free text placed after the number, such as "%" or a unit.',
-		)
-		.optional(),
+	prefix: z.string().describe('Free text placed before the number, such as a currency symbol.').optional(),
+	suffix: z.string().describe('Free text placed after the number, such as "%" or a unit.').optional(),
 });
 
 export const ComparisonModeEnum = z.enum(['percentage', 'variation', 'absolute', 'none']);

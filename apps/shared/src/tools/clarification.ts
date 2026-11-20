@@ -4,9 +4,7 @@ export const InputSchema = z.object({
 	question: z
 		.string()
 		.min(1)
-		.describe(
-			'A single, focused question to ask the user. Keep it short, specific, and actionable.',
-		),
+		.describe('A single, focused question to ask the user. Keep it short, specific, and actionable.'),
 	options: z
 		.array(
 			z
@@ -16,9 +14,7 @@ export const InputSchema = z.object({
 		.min(2)
 		.max(5)
 		.optional()
-		.describe(
-			'Optional 2-5 mutually exclusive answer choices.',
-		),
+		.describe('Optional 2-5 mutually exclusive answer choices.'),
 });
 
 export const OutputSchema = z.object({

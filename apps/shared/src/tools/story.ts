@@ -36,9 +36,7 @@ export const InputSchema = z.object({
 	code: z
 		.string()
 		.optional()
-		.describe(
-			'The markdown content. Required for "create" (initial content) and "replace" (new content).',
-		),
+		.describe('The markdown content. Required for "create" (initial content) and "replace" (new content).'),
 	paths: z
 		.array(z.string())
 		.optional()
