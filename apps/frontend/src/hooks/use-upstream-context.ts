@@ -39,12 +39,14 @@ export function useContextFile(path: string | null): ContextFile {
 	const branchContent = path ? findBranchContent(upstreamChanges.data?.changes ?? [], path) : null;
 	const branchFile = useMemo(() => (branchContent === null ? null : toBranchFile(branchContent)), [branchContent]);
 	const isWaitingForBranch = source !== null && upstreamChanges.isPending;
+	/** A failed refresh keeps the branch loaded before, so the file open on it stays shown with its edits. */
+	const hasBranchFailedToLoad = source !== null && upstreamChanges.isError && upstreamChanges.data === undefined;
 	const savedFile = useQuery({
 		...trpc.contextExplorer.readFile.queryOptions({ path: path ?? '' }),
 		enabled: path !== null && branchFile === null && !isWaitingForBranch,
 	});
 
-	if (source !== null && upstreamChanges.isError) {
+	if (hasBranchFailedToLoad) {
 		return {
 			data: undefined,
 			isLoading: false,
