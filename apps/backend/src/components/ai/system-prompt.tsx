@@ -533,8 +533,8 @@ function PermanentStorageBlock({
 				</ListItem>
 				<ListItem>
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
-					export or update something, or when a result is clearly worth reusing later. Everything else in
-					the tree is read-only. Do not save intermediate work nobody asked for.
+					export or update something, or when a result is clearly worth reusing later. Everything else in the
+					tree is read-only. Do not save intermediate work nobody asked for.
 					{canExecuteSql && (
 						<>
 							{' '}
@@ -759,8 +759,8 @@ function LocalDatabaseBlock({
 			{canSaveResults && (
 				<Span>
 					<Bold>save_to</Bold> keeps the result as a file as well as returning it. Use it for a long
-					computation worth keeping — a heavy join later steps build on, or an export the user asked for.
-					Do not save every query: an ordinary answer is the rows, not a file. Return it with the{' '}
+					computation worth keeping — a heavy join later steps build on, or an export the user asked for. Do
+					not save every query: an ordinary answer is the rows, not a file. Return it with the{' '}
 					<Bold>saved-file</Bold> chip described above, not as a bare path.
 				</Span>
 			)}
