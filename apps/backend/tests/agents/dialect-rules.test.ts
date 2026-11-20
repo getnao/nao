@@ -80,7 +80,10 @@ describe('dialect-aware system prompt', () => {
 
 	it('omits dialect rules when warehouse SQL is disabled by an exclusive semantic layer', () => {
 		const markdown = renderToMarkdown(
-			SystemPrompt({ connections: [{ type: 'bigquery', database: 'analytics' }], semanticLayerMode: 'exclusive' }),
+			SystemPrompt({
+				connections: [{ type: 'bigquery', database: 'analytics' }],
+				semanticLayerMode: 'exclusive',
+			}),
 		);
 		expect(markdown).not.toContain('dialect:');
 	});
