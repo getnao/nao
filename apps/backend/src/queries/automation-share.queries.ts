@@ -111,10 +111,25 @@ export async function listProjectWideSharedAutomationIds(projectId: string, owne
 	return rows.map((row) => row.id);
 }
 
-export async function deleteAutomationShares(automationIds: string[]): Promise<void> {
-	if (automationIds.length > 0) {
-		await db.delete(s.automationShare).where(inArray(s.automationShare.automationId, automationIds)).execute();
+/**
+ * Unshares the automations that are still shared with the whole project, with the per-person roles set on top of it.
+ * One statement, so an automation switched to specific people in the meantime keeps its new access.
+ */
+export async function deleteProjectWideAutomationShares(automationIds: string[]): Promise<void> {
+	if (automationIds.length === 0) {
+		return;
 	}
+	const stillProjectWide = db
+		.select({ automationId: s.automationShare.automationId })
+		.from(s.automationShare)
+		.where(
+			and(
+				inArray(s.automationShare.automationId, automationIds),
+				isNull(s.automationShare.userId),
+				isNull(s.automationShare.groupId),
+			),
+		);
+	await db.delete(s.automationShare).where(inArray(s.automationShare.automationId, stillProjectWide)).execute();
 }
 
 /** A role given to the person wins; otherwise the best role of their groups or of the whole project applies. */

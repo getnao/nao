@@ -114,7 +114,7 @@ export async function revokeUnauthorizedProjectWideShares(projectId: string): Pr
 	const state = await loadProjectSharingState(projectId);
 	const { chatShareIds, storyShares, automationIds } = await findUnauthorizedProjectWideShares(projectId, state);
 	await sharedChatQueries.deleteSharedChats(chatShareIds);
-	await automationShareQueries.deleteAutomationShares(automationIds);
+	await automationShareQueries.deleteProjectWideAutomationShares(automationIds);
 	for (const storyShare of storyShares) {
 		await unshareProjectWideStory(storyShare);
 	}

@@ -12,6 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import { deleteProjectWideAutomationShares } from '../../src/queries/automation-share.queries';
 import {
 	assertCanShareToProject,
 	assertCanShareWith,
@@ -87,6 +88,7 @@ describe('project sharing permission', () => {
 		vi.clearAllMocks();
 		await db.delete(s.sharedChat);
 		await db.delete(s.sharedStory);
+		await db.delete(s.automation);
 		await setProjectSharing(ALL_USERS_ID, 'inherit');
 		await setProjectSharing(CLIENT_A_ID, 'inherit');
 		await setProjectSharing(CLIENT_B_ID, 'inherit');
@@ -225,6 +227,25 @@ describe('project sharing permission', () => {
 			projectId: PROJECT_ID,
 		});
 		expect(mocks.teardownStoryDelivery).toHaveBeenCalledWith('alice-story');
+	});
+
+	it('keeps the specific shares an automation got after the revocation was planned', async () => {
+		await db
+			.insert(s.automation)
+			.values({
+				id: 'specific-automation',
+				projectId: PROJECT_ID,
+				userId: ALICE_ID,
+				title: 'Specific',
+				prompt: 'Run',
+			});
+		await db
+			.insert(s.automationShare)
+			.values({ automationId: 'specific-automation', userId: CAROL_ID, role: 'viewer' });
+
+		await deleteProjectWideAutomationShares(['specific-automation']);
+
+		expect(await listSharedAutomationIds()).toContain('specific-automation');
 	});
 
 	it('keeps a story share that was limited to specific people after being listed for revocation', async () => {
