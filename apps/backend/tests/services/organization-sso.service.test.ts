@@ -133,6 +133,22 @@ describe('organization SSO configured by an organization admin', () => {
 		await expect(configureOrganizationSso(ORG_ID, input)).rejects.toMatchObject({ message: error });
 		expect((await ssoProviderQueries.getSsoProviderByOrganizationId(ORG_ID))?.oidcConfig).toBeNull();
 	});
+
+	it.each([
+		{ endpoint: 'https://acme.okta.com/oauth2/v1/token', isTrusted: true },
+		{ endpoint: 'https://10.0.0.5/oauth2/v1/token', isTrusted: false },
+		{ endpoint: 'https://metadata.google.internal/token', isTrusted: false },
+		{ endpoint: 'http://acme.okta.com/oauth2/v1/token', isTrusted: false },
+	])('trusts the endpoint $endpoint of a discovery document: $isTrusted', async ({ endpoint, isTrusted }) => {
+		await activateOrganizationSso(ORG_ID, ['acme.com']);
+
+		await configureOrganizationSso(ORG_ID, OKTA);
+
+		const [{ isTrustedOrigin }] = mocks.discoverOIDCConfig.mock.lastCall as [
+			{ isTrustedOrigin: (url: string) => boolean },
+		];
+		expect(isTrustedOrigin(endpoint)).toBe(isTrusted);
+	});
 });
 
 /** Runs a staff change while discovery is in flight, then lets discovery answer as usual. */
