@@ -10,7 +10,9 @@ import {
 	createStoryVersion,
 	getStandaloneStoryByUserAndSlug,
 	getStoryByChatAndSlug,
+	getStoryCertification,
 	renameStory,
+	setStoryCertification,
 } from '../../src/queries/story.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -105,5 +107,35 @@ describe('story title persistence', () => {
 		expect(version.title).toBe('Renamed title');
 		expect(stored?.title).toBe('Renamed title');
 		expect(stored?.slug).toBe('standalone-story');
+	});
+
+	it.each([
+		{
+			kind: 'chat',
+			saveVersion: (code: string) =>
+				createStoryVersion({ chatId, slug: 'kpis', title: 'KPIs', code, action: 'update', source: 'user' }),
+		},
+		{
+			kind: 'standalone',
+			saveVersion: (code: string) =>
+				createStandaloneVersion({
+					userId,
+					projectId,
+					slug: 'kpis',
+					title: 'KPIs',
+					code,
+					action: 'update',
+					source: 'user',
+				}),
+		},
+	])('stops certifying a $kind story once a version its admin never reviewed is saved', async ({ saveVersion }) => {
+		const { storyId } = await saveVersion('# Reviewed');
+		await setStoryCertification(storyId, userId);
+		const certifiedBefore = await getStoryCertification(storyId);
+
+		await saveVersion('# Rewritten');
+
+		expect(certifiedBefore.certifiedByName).toBe('Story Owner');
+		expect(await getStoryCertification(storyId)).toEqual({ certifiedAt: null, certifiedByName: null });
 	});
 });

@@ -11,7 +11,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
-import type { VersionProvenance } from './story.queries';
+import { type VersionProvenance, withdrawStoryCertification } from './story.queries';
 
 export interface StoryFileInput {
 	path: string;
@@ -203,6 +203,7 @@ async function cutVersion(
 		)
 		.returning()
 		.execute();
+	await withdrawStoryCertification(data.storyId, tx);
 
 	return { version, files };
 }

@@ -8,6 +8,7 @@ import {
 	desc,
 	eq,
 	inArray,
+	isNotNull,
 	isNull,
 	max,
 	ne,
@@ -384,6 +385,7 @@ export async function createStoryVersion(
 			})
 			.returning()
 			.execute();
+		await withdrawStoryCertification(story.id, executor);
 		return { ...created, title: story.title };
 	} catch (error) {
 		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
@@ -433,6 +435,7 @@ export async function createStandaloneVersion(data: {
 			})
 			.returning()
 			.execute();
+		await withdrawStoryCertification(story.id);
 		return { ...created, title: story.title };
 	} catch (error) {
 		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
@@ -598,6 +601,15 @@ export async function archiveByStoryId(storyId: string): Promise<void> {
 
 export async function unarchiveByStoryId(storyId: string): Promise<void> {
 	await db.update(s.story).set({ archivedAt: null }).where(eq(s.story.id, storyId)).execute();
+}
+
+/** An admin certifies the version they reviewed, so a story stops being certified once a new version is saved. */
+export async function withdrawStoryCertification(storyId: string, executor: DBExecutor = db): Promise<void> {
+	await executor
+		.update(s.story)
+		.set({ certifiedAt: null, certifiedBy: null })
+		.where(and(eq(s.story.id, storyId), isNotNull(s.story.certifiedAt)))
+		.execute();
 }
 
 export async function setStoryCertification(storyId: string, certifiedBy: string | null): Promise<Date | null> {
