@@ -22,7 +22,13 @@ import {
 } from './custom-story';
 import { buildCustomStoryDocumentByStoryId } from './custom-story-export';
 import { getCustomStoryStateByStoryId } from './custom-story-state';
-import { isCacheExpired, loadViewerStorySnapshot, type ViewerStorySnapshot } from './live-story';
+import {
+	createStoryExecutionContext,
+	isCacheExpired,
+	loadViewerStorySnapshot,
+	type ViewerStoryRequest,
+	type ViewerStorySnapshot,
+} from './live-story';
 import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 
 const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
@@ -139,30 +145,37 @@ export async function getViewerCustomStoryThumbnail(
 		}
 		throw error;
 	}
-	const key = `${version.version.id}:${viewerUserId}:${mode}`;
+	const request = {
+		chatId: story.chatId,
+		slug: story.slug,
+		storyVersionId: version.version.id,
+		viewerUserId,
+		executionContext: await createStoryExecutionContext(story.chatId, viewerUserId),
+	};
+	const key = `${version.version.id}:${viewerUserId}:${request.executionContext.permissionRevision}:${mode}`;
 	const failedAt = viewerThumbnails.get(key)?.failedAt;
 	if (failedAt && Date.now() - failedAt < RETRY_AFTER_MS) {
 		return null;
 	}
 	const rendering =
 		pendingViewerThumbnails.get(key) ??
-		refreshViewerThumbnail(key, { ...story, chatId: story.chatId }, version, viewerUserId, mode).finally(() =>
-			pendingViewerThumbnails.delete(key),
-		);
+		refreshViewerThumbnail(key, request, story, version, mode).finally(() => pendingViewerThumbnails.delete(key));
 	pendingViewerThumbnails.set(key, rendering);
 	return rendering;
 }
 
+/** Keyed by the viewer's access, so a render started under narrower or wider access is never handed out after a change. */
 async function refreshViewerThumbnail(
 	key: string,
-	story: DBStory & { chatId: string },
+	request: ViewerStoryRequest,
+	story: DBStory,
 	version: CustomStoryVersionView,
-	viewerUserId: string,
 	mode: StoryThemeMode,
 ): Promise<Buffer | null> {
+	const { viewerUserId } = request;
 	try {
 		const snapshot = await loadViewerStorySnapshot(
-			{ chatId: story.chatId, slug: story.slug, storyVersionId: version.version.id, viewerUserId },
+			request,
 			(cache) => !isCacheExpired(cache.cachedAt, story.cacheSchedule),
 		);
 		const snapshotAt = snapshot.cachedAt.getTime();

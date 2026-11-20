@@ -10,6 +10,7 @@ import { db } from '../../src/db/db';
 import * as projectQueries from '../../src/queries/project.queries';
 import * as storyQueries from '../../src/queries/story.queries';
 import * as storyFileQueries from '../../src/queries/story-file.queries';
+import { invalidateProjectViewerCaches } from '../../src/queries/story-viewer-data-cache.queries';
 import {
 	canShowStoredCustomStoryThumbnail,
 	getCustomStoryThumbnail,
@@ -211,7 +212,13 @@ describe('custom story thumbnails', () => {
 
 		expect((await sharp(thumbnail!).metadata()).format).toBe('webp');
 		expect(viewer.requests).toEqual([
-			{ chatId: 'chat-1', slug: 'revenue', storyVersionId: versionIds.current, viewerUserId: 'user-2' },
+			{
+				chatId: 'chat-1',
+				slug: 'revenue',
+				storyVersionId: versionIds.current,
+				viewerUserId: 'user-2',
+				executionContext: expect.objectContaining({ isViewerScoped: true }),
+			},
 		]);
 		expect(documents.queryData).toEqual([viewer.snapshot.queryData]);
 		expect(documents.options).toEqual([expect.objectContaining({ narratives: viewer.snapshot.narratives })]);
@@ -295,6 +302,25 @@ describe('custom story thumbnails', () => {
 		expect(second).toBe(first);
 		expect(viewer.requests).toHaveLength(1);
 		expect(screenshots.calls).toBe(1);
+	});
+
+	it('does not hand out a render started before the viewer access changed', async () => {
+		const story = await storyQueries.getStoryById(STORY_ID);
+		let releaseSnapshot!: () => void;
+		viewer.gate = new Promise<void>((resolve) => (releaseSnapshot = resolve));
+		viewer.gateSlug = 'revenue';
+
+		const startedBefore = getViewerCustomStoryThumbnail(story!, 'user-2');
+		await vi.waitFor(() => expect(viewer.requests).toHaveLength(1));
+		await invalidateProjectViewerCaches('project-1');
+		const requestedAfter = getViewerCustomStoryThumbnail(story!, 'user-2');
+		await vi.waitFor(() => expect(viewer.requests).toHaveLength(2));
+		releaseSnapshot();
+		await Promise.all([startedBefore, requestedAfter]);
+
+		const [before, after] = viewer.requests.map((request) => request.executionContext?.permissionRevision);
+		expect(after).not.toBe(before);
+		expect(screenshots.calls).toBe(2);
 	});
 
 	it('reuses a viewer thumbnail until the viewer snapshot changes', async () => {

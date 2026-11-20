@@ -474,6 +474,8 @@ export interface ViewerStoryRequest {
 	slug: string;
 	storyVersionId?: string;
 	viewerUserId: string;
+	/** The viewer's context when the caller already built it, so their access is resolved once per request. */
+	executionContext?: ViewerExecutionContext;
 }
 
 /** A story as one restricted viewer sees it. A query they cannot read stays in `queryData`, flagged `accessDenied`. */
@@ -501,10 +503,7 @@ export async function loadViewerStorySnapshot(
 	if (!storyVersionId) {
 		throw new Error('Story not found');
 	}
-	const executionContext = await createViewerExecutionContext(
-		{ projectId: await requireChatProjectId(chatId), chatId },
-		viewerUserId,
-	);
+	const executionContext = request.executionContext ?? (await createStoryExecutionContext(chatId, viewerUserId));
 	const cacheKey = {
 		storyId: story.id,
 		storyVersionId,
@@ -1018,6 +1017,14 @@ async function executeLocalSql(sqlQuery: string, context: ToolContext | Chatless
 }
 
 /** Queries run with the access of `viewerUserId` when given, of the chat owner otherwise. */
+export async function createStoryExecutionContext(
+	chatId: string,
+	viewerUserId: string,
+): Promise<ViewerExecutionContext>;
+export async function createStoryExecutionContext(
+	chatId: string,
+	viewerUserId?: string,
+): Promise<StoryExecutionContext>;
 export async function createStoryExecutionContext(
 	chatId: string,
 	viewerUserId?: string,
