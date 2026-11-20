@@ -1,4 +1,5 @@
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import { Effect } from 'effect';
 
 import { getModelCapabilities, getModelReasoningEfforts } from '../agents/provider-meta';
 import { clampEffort } from '../agents/providers';
@@ -24,6 +25,7 @@ import {
 	type TestSourceQuery,
 	type TestSuite,
 } from '../types/test-run';
+import { fromPromise, runEffect, withHeartbeat } from '../utils/effect-runtime';
 import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
@@ -397,21 +399,36 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 
 	const abortController = new AbortController();
 	liveRuns.set(run.id, abortController);
-	const heartbeat = setInterval(() => void recordHeartbeat(run, abortController), TEST_RUN_HEARTBEAT_MS);
+	const attempts = runAttempts(jobs, plan.threads, (job) =>
+		runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
+	);
+	const heartbeat = {
+		name: `Test run ${run.id} heartbeat`,
+		beat: () => recordHeartbeat(run, abortController),
+		every: TEST_RUN_HEARTBEAT_MS,
+	};
 	try {
-		await mcpService.initializeMcpState(run.projectId);
-		await skillService.initializeSkills(run.projectId);
-		await runWithConcurrency(jobs, plan.threads, (job) =>
-			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
+		await runEffect(
+			fromPromise(() => initializeAgentTools(run.projectId)).pipe(
+				Effect.andThen(attempts),
+				withHeartbeat(heartbeat),
+				Effect.withSpan('test-runner.run', {
+					attributes: { 'test_run.id': run.id, 'test_run.jobs': jobs.length },
+				}),
+			),
 		);
 		await testRunQueries.completeRun(run.id);
 	} catch (error) {
 		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
 	} finally {
-		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
 	}
 	await notifyScheduledRunOutcome(run);
+}
+
+async function initializeAgentTools(projectId: string): Promise<void> {
+	await mcpService.initializeMcpState(projectId);
+	await skillService.initializeSkills(projectId);
 }
 
 async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
@@ -596,24 +613,14 @@ function listAgentQueries(queryResults: AgentRunResult['queryResults']): TestSou
 }
 
 /**
- * Once a job fails no other job starts, and the failure is thrown only after the jobs in flight settle, so that none
- * of them outlives the run and the context snapshot it reads.
+ * Once a job fails no other job starts, and the failure is thrown only after the jobs in flight settle: they are
+ * uninterruptible, so none of them outlives the run and the context snapshot it reads.
  */
-async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
-	let nextIndex = 0;
-	const errors: unknown[] = [];
-	const runNext = async (): Promise<void> => {
-		while (errors.length === 0 && nextIndex < items.length) {
-			const item = items[nextIndex++];
-			await worker(item).catch((error: unknown) => {
-				errors.push(error);
-			});
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, runNext));
-	if (errors.length > 0) {
-		throw errors[0];
-	}
+function runAttempts<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
+	return Effect.forEach(items, (item) => fromPromise(() => worker(item)).pipe(Effect.uninterruptible), {
+		concurrency,
+		discard: true,
+	});
 }
 
 async function getProjectFolder(projectId: string): Promise<string> {

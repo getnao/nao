@@ -699,7 +699,7 @@ describe('cancelTestRun', () => {
 	});
 
 	it('aborts the attempts in flight once the heartbeat finds the run cancelled by another replica', async () => {
-		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.recordHeartbeat.mockResolvedValue(false);
 		let abortSignal: AbortSignal | undefined;

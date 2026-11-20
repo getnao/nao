@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { generateOnboardingRules as generateOnboardingRulesTool } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
+import { Effect } from 'effect';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
@@ -29,6 +30,7 @@ import {
 	type WarehouseSetup,
 	type WarehouseSetupOutcome,
 } from '../types/warehouse';
+import { fromPromise, repeatInBackground, runEffect, withHeartbeat } from '../utils/effect-runtime';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { describeError, logger, serializeError } from '../utils/logger';
 import { extractConfiguredDatabases } from '../utils/nao-config';
@@ -984,7 +986,7 @@ function runNaoCommand(
 		};
 		const clearTimers = () => {
 			clearTimeout(timeout);
-			clearInterval(cancellationCheck);
+			void stopCancellationChecks();
 		};
 		const flushOutput = async () => {
 			if (logUpdate) {
@@ -1017,17 +1019,21 @@ function runNaoCommand(
 						child.kill('SIGTERM');
 						void flushOutput().finally(() => reject(new Error(`nao ${args[0]} timed out`)));
 					}, timeoutMs);
-		const cancellationCheck = setInterval(() => {
-			void logs.assertNotCancelled().catch((error) => {
-				if (error instanceof WarehouseSetupCancelledError) {
-					stopCommand(error);
-					return;
-				}
-				logger.warn(`Could not check whether warehouse setup was cancelled: ${String(error)}`, {
-					source: 'system',
-				});
-			});
-		}, COMMAND_CANCELLATION_CHECK_MS);
+		const stopCancellationChecks = repeatInBackground(
+			'Warehouse setup cancellation check',
+			fromPromise(() =>
+				logs.assertNotCancelled().catch((error) => {
+					if (error instanceof WarehouseSetupCancelledError) {
+						stopCommand(error);
+						return;
+					}
+					logger.warn(`Could not check whether warehouse setup was cancelled: ${String(error)}`, {
+						source: 'system',
+					});
+				}),
+			),
+			COMMAND_CANCELLATION_CHECK_MS,
+		);
 
 		child.once('error', async (error) => {
 			if (settled) {
@@ -1067,11 +1073,12 @@ export function startWarehouseProvisioningReconciler(): void {
 	}
 	reconcilerStarted = true;
 
-	void reconcileWarehouseProvisioningJobs().catch(logReconciliationError);
-	const interval = setInterval(() => {
-		void reconcileWarehouseProvisioningJobs().catch(logReconciliationError);
-	}, JOB_RECONCILIATION_MS);
-	interval.unref?.();
+	repeatInBackground(
+		'Warehouse provisioning reconciliation',
+		fromPromise(() => reconcileWarehouseProvisioningJobs()),
+		JOB_RECONCILIATION_MS,
+		{ immediately: true },
+	);
 }
 
 export async function reconcileWarehouseProvisioningJobs(): Promise<void> {
@@ -1230,17 +1237,18 @@ async function claimJob(
 }
 
 async function withJobLease(jobId: string, operation: () => Promise<void>): Promise<void> {
-	const heartbeat = setInterval(() => {
-		void warehouseProvisioningJobQueries
-			.renewWarehouseProvisioningJobLock(jobId, WORKER_ID)
-			.catch(logReconciliationError);
-	}, JOB_HEARTBEAT_MS);
-	heartbeat.unref?.();
-
 	try {
-		await operation();
+		await runEffect(
+			fromPromise(() => operation()).pipe(
+				withHeartbeat({
+					name: 'Warehouse provisioning job lease renewal',
+					beat: () => warehouseProvisioningJobQueries.renewWarehouseProvisioningJobLock(jobId, WORKER_ID),
+					every: JOB_HEARTBEAT_MS,
+				}),
+				Effect.withSpan('warehouse-provisioning.job', { attributes: { 'job.id': jobId } }),
+			),
+		);
 	} finally {
-		clearInterval(heartbeat);
 		await warehouseProvisioningJobQueries.releaseWarehouseProvisioningJobLock(jobId, WORKER_ID);
 	}
 }
