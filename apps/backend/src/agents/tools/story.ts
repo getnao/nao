@@ -15,12 +15,14 @@ import {
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
 import { ensureStoryChat, findEditableStory } from '../../services/editable-story';
+import { getQueryResult } from '../../services/query-result.service';
 import { describeSemanticLayerCached } from '../../services/semantic-layer.service';
 import { acquireStoryEditLock, StoryEditLockedError } from '../../services/story-edit-lock.service';
+import { describeBlockedStoryImages, findBlockedStoryImageSources } from '../../services/story-image';
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
 import { copyQueriesToStoryChat } from '../../services/story-question';
 import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
-import type { LinkedStory, ToolContext } from '../../types/tools';
+import type { LinkedStory, QueryResult, ToolContext } from '../../types/tools';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
 import { extractCustomStoryQueryIds } from '../../utils/story-query-data';
@@ -444,6 +446,15 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			);
 		}
 
+		const blockedImages = await findBlockedStoryImageSources(
+			context.projectId,
+			draft.map((file) => file.content),
+			await draftQueryResults(draft, context),
+		);
+		if (blockedImages.length > 0) {
+			return fail(existingStory.slug, blockedImagesError(existingStory.slug, blockedImages), published);
+		}
+
 		const result = await publishCustomStoryDraft(existingStory, context, {
 			source: 'assistant',
 			...agentProvenance(context),
@@ -475,6 +486,28 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			published,
 		);
 	}
+}
+
+async function draftQueryResults(
+	draft: { content: string }[],
+	context: ToolContext,
+): Promise<Record<string, QueryResult>> {
+	const queryIds = [...extractCustomStoryQueryIds(draft)];
+	const results = await Promise.all(queryIds.map((queryId) => getQueryResult(context, queryId)));
+	return Object.fromEntries(
+		queryIds.flatMap((queryId, index) => {
+			const result = results[index];
+			return result ? [[queryId, result]] : [];
+		}),
+	);
+}
+
+function blockedImagesError(slug: string, sources: string[]): string {
+	return [
+		`Story "${slug}" was not published. ${describeBlockedStoryImages(sources)}`,
+		'If they agree, remove those images and what only exists to show them, from the code or by rerunning the query with execute_sql (same query_id) without their rows.',
+		'Never add a placeholder or note, copy the allowed sources into the code, or swap the images for drawings without asking.',
+	].join(' ');
 }
 
 function customResult(id: string, story: { title: string; version: number }, files: string[]): story.Output {

@@ -13,6 +13,7 @@ import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@
 import {
 	fetchChartPluginSource,
 	fetchMapBoundary,
+	fetchStoryImage,
 	narrativesOptions,
 	queryDataOptions,
 	modelsOptions,
@@ -267,6 +268,18 @@ export function CustomStoryFrame({
 		[dataSource, queryClient, reply],
 	);
 
+	const answerImage = useCallback(
+		async (requestId: string, src: string) => {
+			try {
+				const dataUri = await fetchStoryImage(queryClient, dataSource, src);
+				reply({ type: 'nao-story:image-result', requestId, dataUri });
+			} catch (error) {
+				reply({ type: 'nao-story:image-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
 	const answerNarratives = useCallback(
 		async (requestId: string) => {
 			const narratives = await queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({}));
@@ -380,6 +393,9 @@ export function CustomStoryFrame({
 				case 'nao-story:map-boundary':
 					void answerMapBoundary(message.requestId, message.key);
 					break;
+				case 'nao-story:image':
+					void answerImage(message.requestId, message.src);
+					break;
 				case 'nao-story:set-state':
 					if (message.shared === true && hasReadViewerRowsRef.current) {
 						onError?.({ message: SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE });
@@ -400,6 +416,7 @@ export function CustomStoryFrame({
 	}, [
 		answerChartPlugin,
 		answerMapBoundary,
+		answerImage,
 		answerModel,
 		answerModels,
 		answerNarratives,

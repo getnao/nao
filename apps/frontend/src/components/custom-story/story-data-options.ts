@@ -6,6 +6,7 @@ import type {
 	StorySqlRequest,
 	StoryStateChange,
 } from '@nao/shared/story-app';
+import type { StoryImageResult } from '@nao/shared/story-image';
 import type { StoryModelRequest, StoryModelResult } from '@nao/shared/story-models';
 import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import { trpc, trpcClient } from '@/main';
@@ -23,6 +24,7 @@ export type CustomStoryDataSource =
 
 const QUERY_RETRY_DELAY_MS = 1500;
 const MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING = 10;
+const IMAGE_STALE_TIME_MS = 5 * 60 * 1000;
 
 /** Files are readable by the owner and by read-only viewers of the chat, never through a story share link. */
 export type CustomStoryFileSource = Extract<CustomStoryDataSource, { kind: 'owner' | 'viewer' | 'standalone' }>;
@@ -210,6 +212,41 @@ function mapBoundaryOptions(dataSource: CustomStoryDataSource, key: string) {
 	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryMapBoundary.queryOptions({ chatId, storySlug, key });
+}
+
+export async function fetchStoryImage(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	src: string,
+): Promise<string> {
+	const result = (await fetchStoryImageBatch(queryClient, dataSource, [src]))[src];
+	if ('error' in result) {
+		throw new Error(result.error);
+	}
+	return result.dataUri;
+}
+
+export function fetchStoryImageBatch(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	sources: string[],
+): Promise<Record<string, StoryImageResult>> {
+	return queryClient.fetchQuery({ ...imagesOptions(dataSource, sources), staleTime: IMAGE_STALE_TIME_MS });
+}
+
+function imagesOptions(dataSource: CustomStoryDataSource, sources: string[]) {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpc.customStoryViewer.getImages.queryOptions({ access, storySlug, sources });
+	}
+	if (dataSource.kind === 'share') {
+		return trpc.storyShare.getCustomStoryImages.queryOptions({ storyId: dataSource.storyId, sources });
+	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getImages.queryOptions({ storyId: dataSource.storyId, sources });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpc.story.getCustomStoryImages.queryOptions({ chatId, storySlug, sources });
 }
 
 export function narrativesOptions(dataSource: CustomStoryDataSource) {

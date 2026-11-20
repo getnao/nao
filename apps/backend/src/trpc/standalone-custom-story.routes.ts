@@ -15,11 +15,13 @@ import {
 } from '../services/custom-story';
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
+import { readStoryImages } from '../services/story-image';
 import { readStoryMapBoundary } from '../services/story-map-boundary';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
+	requestedStoryImages,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -141,6 +143,10 @@ export const standaloneCustomStoryRoutes = {
 	getMapBoundary: standaloneOwnerProcedure
 		.input(z.object({ key: mapBoundaryKey }))
 		.query(({ ctx, input }) => readStoryMapBoundary(ctx.story.id, input.key)),
+
+	getImages: standaloneOwnerProcedure
+		.input(z.object({ sources: requestedStoryImages }))
+		.query(({ ctx, input }) => readStoryImages(ctx.story.projectId, input.sources)),
 
 	getState: standaloneOwnerProcedure.query(({ ctx }) => getCustomStoryStateByStoryId(ctx.story.id, ctx.user.id)),
 

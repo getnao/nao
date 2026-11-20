@@ -6,6 +6,9 @@ export type WebSearchMode = 'provider';
 export interface AgentSettings {
 	memoryEnabled?: boolean;
 	mapEnabled?: boolean;
+	storyImages?: {
+		allowedSources?: string[];
+	};
 	experimental?: {
 		codemode?: boolean;
 		sandboxes?: boolean;
