@@ -66,6 +66,14 @@ describe('automation sharing', () => {
 		await expect(rolesOf([MEMBER_ID, GROUP_MEMBER_ID])).resolves.toEqual([null, 'editor']);
 	});
 
+	it('never lets a project viewer edit', async () => {
+		await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: MEMBER_ID, role: 'viewer' });
+		await replaceAutomationShares(AUTOMATION.id, [{ userId: MEMBER_ID, groupId: null, role: 'editor' }]);
+
+		await expect(rolesOf([MEMBER_ID])).resolves.toEqual(['viewer']);
+		await db.delete(s.projectMember).execute();
+	});
+
 	it('lists shared automations and refuses roles above the one granted', async () => {
 		await replaceAutomationShares(AUTOMATION.id, [{ userId: MEMBER_ID, groupId: null, role: 'viewer' }]);
 
@@ -78,6 +86,9 @@ describe('automation sharing', () => {
 
 async function rolesOf(userIds: string[]) {
 	return Promise.all(
-		userIds.map(async (userId) => (await resolveAutomationRoles([AUTOMATION], userId)).get(AUTOMATION.id) ?? null),
+		userIds.map(
+			async (userId) =>
+				(await resolveAutomationRoles(PROJECT_ID, [AUTOMATION], userId)).get(AUTOMATION.id) ?? null,
+		),
 	);
 }

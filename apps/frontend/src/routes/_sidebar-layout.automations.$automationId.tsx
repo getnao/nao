@@ -225,52 +225,51 @@ function AutomationDetailPage() {
 			{!detail.isLoading && !automation && <p className='text-sm text-muted-foreground'>Automation not found.</p>}
 
 			{automation && (
-				<fieldset disabled={!canEdit} inert={!canEdit} className='contents'>
-					<AutomationForm
-						key={automationId}
-						id={automationFormId}
-						handleRef={formHandleRef}
-						automationId={automationId}
-						initialValue={{
-							title: automation.title,
-							prompt: automation.prompt,
-							cron: automation.cron,
-							scheduleDescription: automation.scheduleDescription ?? undefined,
-							modelProvider: automation.modelProvider ?? undefined,
-							modelId: automation.modelId ?? undefined,
-							enabled: automation.enabled,
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers ?? undefined,
-							integrations: automation.integrations,
-							webhookEnabled: automation.webhookEnabled,
-							eventTriggers: automation.eventTriggers,
-						}}
-						details={{
-							enabled: automation.enabled,
-							scheduleDescription: automation.scheduleDescription,
-							cron: automation.cron,
-							webhookEnabled: automation.webhookEnabled,
-							eventTriggers: automation.eventTriggers,
-							nextRunAt: automation.scheduledJob?.runAt,
-							lastRunAt: runs[0]?.startedAt,
-						}}
-						submitLabel='Save changes'
-						isPending={updateAutomation.isPending}
-						aside={
-							<PreviousRuns
-								runs={runs}
-								onCancelRun={canEdit ? handleCancelRun : undefined}
-								cancellingRunId={cancellingRunId}
-								canOpenChats={isOwner}
-							/>
-						}
-						showSubmitButton={false}
-						autoSaveControls
-						saveShortcut={canEdit}
-						onDirtyChange={setHasUnsavedChanges}
-						onSubmit={handleUpdate}
-					/>
-				</fieldset>
+				<AutomationForm
+					key={automationId}
+					id={automationFormId}
+					handleRef={formHandleRef}
+					automationId={automationId}
+					initialValue={{
+						title: automation.title,
+						prompt: automation.prompt,
+						cron: automation.cron,
+						scheduleDescription: automation.scheduleDescription ?? undefined,
+						modelProvider: automation.modelProvider ?? undefined,
+						modelId: automation.modelId ?? undefined,
+						enabled: automation.enabled,
+						mcpEnabled: automation.mcpEnabled,
+						mcpServers: automation.mcpServers ?? undefined,
+						integrations: automation.integrations,
+						webhookEnabled: automation.webhookEnabled,
+						eventTriggers: automation.eventTriggers,
+					}}
+					details={{
+						enabled: automation.enabled,
+						scheduleDescription: automation.scheduleDescription,
+						cron: automation.cron,
+						webhookEnabled: automation.webhookEnabled,
+						eventTriggers: automation.eventTriggers,
+						nextRunAt: automation.scheduledJob?.runAt,
+						lastRunAt: runs[0]?.startedAt,
+					}}
+					submitLabel='Save changes'
+					isPending={updateAutomation.isPending}
+					aside={
+						<PreviousRuns
+							runs={runs}
+							onCancelRun={canEdit ? handleCancelRun : undefined}
+							cancellingRunId={cancellingRunId}
+							canOpenChats={isOwner}
+						/>
+					}
+					showSubmitButton={false}
+					autoSaveControls
+					saveShortcut={canEdit}
+					readOnly={!canEdit}
+					onDirtyChange={setHasUnsavedChanges}
+					onSubmit={handleUpdate}
+				/>
 			)}
 		</AutomationEditorLayout>
 	);

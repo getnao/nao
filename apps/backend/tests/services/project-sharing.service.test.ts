@@ -203,10 +203,13 @@ describe('project sharing permission', () => {
 		const carolProjectChat = await shareChat('carol-project-chat', CAROL_ID, 'project');
 		await shareStory('alice-story', ALICE_ID);
 		await shareStory('admin-story', ADMIN_ID);
+		await shareAutomationWithProject('alice-automation', ALICE_ID);
+		await shareAutomationWithProject('admin-automation', ADMIN_ID);
 
 		expect(await previewProjectWideShareRevocation(PROJECT_ID, CLIENT_A_ID, 'blocked')).toEqual({
 			chatCount: 1,
 			storyCount: 1,
+			automationCount: 1,
 		});
 		expect(await listSharedChatIds()).toHaveLength(3);
 
@@ -216,6 +219,7 @@ describe('project sharing permission', () => {
 		expect(await listSharedChatIds()).toEqual(expect.arrayContaining([aliceSpecificChat, carolProjectChat]));
 		expect(await listSharedChatIds()).not.toContain(aliceProjectChat);
 		expect(await listSharedStoryIds()).toEqual(['admin-story']);
+		expect(await listSharedAutomationIds()).toEqual(['admin-automation']);
 		expect(mocks.ensureStoryPrivate).toHaveBeenCalledWith('alice-story', {
 			storyOwnerId: ALICE_ID,
 			projectId: PROJECT_ID,
@@ -280,4 +284,14 @@ async function listSharedChatIds() {
 
 async function listSharedStoryIds() {
 	return (await db.select({ storyId: s.sharedStory.storyId }).from(s.sharedStory)).map((row) => row.storyId);
+}
+
+async function shareAutomationWithProject(id: string, ownerId: string): Promise<void> {
+	await db.insert(s.automation).values({ id, projectId: PROJECT_ID, userId: ownerId, title: id, prompt: 'Run' });
+	await db.insert(s.automationShare).values({ automationId: id, userId: null, groupId: null, role: 'viewer' });
+}
+
+async function listSharedAutomationIds(): Promise<string[]> {
+	const rows = await db.selectDistinct({ id: s.automationShare.automationId }).from(s.automationShare);
+	return rows.map((row) => row.id);
 }

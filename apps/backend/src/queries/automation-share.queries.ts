@@ -1,9 +1,10 @@
 import type { ShareRole } from '@nao/shared/types';
-import { and, countDistinct, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, countDistinct, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 
 import s, { type DBAutomation } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
+import { getUserRoleInProject } from './project.queries';
 
 export type AutomationRole = 'owner' | ShareRole;
 
@@ -19,15 +20,17 @@ export function hasAutomationRole(role: AutomationRole | undefined, minimumRole:
 	return role !== undefined && ROLE_RANK[role] >= ROLE_RANK[minimumRole];
 }
 
-/** What the user can do with each automation; automations they cannot see are left out. */
+/** What the user can do with each automation of the project; automations they cannot see are left out. */
 export async function resolveAutomationRoles(
+	projectId: string,
 	automations: Pick<DBAutomation, 'id' | 'userId'>[],
 	userId: string,
 ): Promise<Map<string, AutomationRole>> {
 	const sharedIds = automations.filter((automation) => automation.userId !== userId).map(({ id }) => id);
-	const [shares, groupIds] = await Promise.all([
+	const [shares, groupIds, projectRole] = await Promise.all([
 		listSharesOfAutomations(sharedIds),
 		listActiveGroupIdsOfMember(userId),
+		sharedIds.length > 0 ? getUserRoleInProject(projectId, userId) : null,
 	]);
 	const memberGroupIds = new Set(groupIds);
 	const roles = new Map<string, AutomationRole>();
@@ -37,7 +40,7 @@ export async function resolveAutomationRoles(
 				? 'owner'
 				: resolveSharedRole(shares.get(automation.id) ?? [], userId, memberGroupIds);
 		if (role) {
-			roles.set(automation.id, role);
+			roles.set(automation.id, role === 'editor' && projectRole === 'viewer' ? 'viewer' : role);
 		}
 	}
 	return roles;
@@ -85,6 +88,33 @@ export async function replaceAutomationShares(automationId: string, shares: Auto
 				.execute();
 		}
 	});
+}
+
+/** Automations of the given owners that are shared with the whole project. */
+export async function listProjectWideSharedAutomationIds(projectId: string, ownerIds: string[]): Promise<string[]> {
+	if (ownerIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.selectDistinct({ id: s.automation.id })
+		.from(s.automationShare)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationShare.automationId))
+		.where(
+			and(
+				eq(s.automation.projectId, projectId),
+				inArray(s.automation.userId, ownerIds),
+				isNull(s.automationShare.userId),
+				isNull(s.automationShare.groupId),
+			),
+		)
+		.execute();
+	return rows.map((row) => row.id);
+}
+
+export async function deleteAutomationShares(automationIds: string[]): Promise<void> {
+	if (automationIds.length > 0) {
+		await db.delete(s.automationShare).where(inArray(s.automationShare.automationId, automationIds)).execute();
+	}
 }
 
 /** A role given to the person wins; otherwise the best role of their groups or of the whole project applies. */

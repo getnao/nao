@@ -19,7 +19,6 @@ import type {
 	ProjectAutomationSummary,
 } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
-import type { AutomationRole } from '../queries/automation-share.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
@@ -183,7 +182,7 @@ export const automationRoutes = {
 			return automationQueries.listAutomationFeedRuns(ctx.project.id, ctx.user.id, input.limit);
 		}),
 
-	get: automationProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+	get: automationReadProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
 		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'viewer');
 		if (!automation) {
 			return null;
@@ -340,14 +339,14 @@ export const automationRoutes = {
 			return { cron };
 		}),
 
-	getShareSettings: automationProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
-		const automation = await getAutomationOrThrow(ctx, input.id, 'viewer');
+	getShareSettings: automationReadProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+		const automation = await getAutomationToShare(ctx, input.id);
 		return getAutomationShareSettings(automation, toShareActor(ctx));
 	}),
 
 	saveShareSettings: automationProcedure.input(saveShareSettingsSchema).mutation(async ({ ctx, input }) => {
 		const { id, ...change } = input;
-		const automation = await getAutomationOrThrow(ctx, id, 'viewer');
+		const automation = await getAutomationToShare(ctx, id);
 		await saveAutomationShareSettings(automation, toShareActor(ctx), change);
 		return { success: true as const };
 	}),
@@ -438,16 +437,18 @@ type AutomationRequestContext = {
 	project: { id: string };
 };
 
-async function getAutomationOrThrow(
-	ctx: AutomationRequestContext,
-	id: string,
-	minimumRole: AutomationRole,
-): Promise<AutomationWithAccess> {
-	const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, id, minimumRole);
-	if (!automation) {
+/** Admins manage the sharing of every automation of the project; others need to see it. */
+async function getAutomationToShare(ctx: AutomationRequestContext, id: string): Promise<AutomationWithAccess> {
+	const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, id, 'viewer');
+	if (automation) {
+		return automation;
+	}
+	const projectAutomation =
+		ctx.userRole === 'admin' && (await automationQueries.getProjectAutomation(ctx.project.id, id));
+	if (!projectAutomation) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Automation not found: ${id}` });
 	}
-	return automation;
+	return { ...projectAutomation, accessRole: 'viewer' };
 }
 
 function toShareActor(ctx: AutomationRequestContext) {

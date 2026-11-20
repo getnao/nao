@@ -46,6 +46,7 @@ export const listAutomations = async (projectId: string, userId: string): Promis
 		.orderBy(desc(s.automation.updatedAt))
 		.execute();
 	const roles = await resolveAutomationRoles(
+		projectId,
 		rows.map((row) => row.automation),
 		userId,
 	);
@@ -173,7 +174,7 @@ export const getAutomation = async (
 	if (!automation) {
 		return null;
 	}
-	const accessRole = (await resolveAutomationRoles([automation], userId)).get(id);
+	const accessRole = (await resolveAutomationRoles(projectId, [automation], userId)).get(id);
 	if (!accessRole || !hasAutomationRole(accessRole, minimumRole)) {
 		return null;
 	}
