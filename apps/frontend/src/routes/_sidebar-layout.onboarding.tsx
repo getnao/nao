@@ -13,12 +13,12 @@ import {
 	isDeployStepReached,
 	OnboardingProgress,
 	useOnboardingMissingEnvVars,
-} from '@/components/onboarding-progress';
+} from '@/components/onboarding/onboarding-progress';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
-import { isStoppedStatus } from '@/components/tool-calls/warehouse-setup-progress';
+import { isStoppedStatus } from '@/components/tool-calls/onboarding/warehouse-setup-progress';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -29,15 +29,15 @@ import {
 	DialogTrigger,
 } from '@/components/ui/dialog';
 import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
-import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding-floating-slot';
-import { StartNewOnboardingProvider } from '@/contexts/onboarding-restart';
+import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding/onboarding-floating-slot';
+import { StartNewOnboardingProvider } from '@/contexts/onboarding/onboarding-restart';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
 import { getOnboardingChatIdStorage } from '@/hooks/use-agent';
 import { ChatIdContext } from '@/hooks/use-chat-id';
 import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useHeight } from '@/hooks/use-height';
-import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
+import { useOnboardingCompletion } from '@/hooks/onboarding/use-onboarding-completion';
 import { usePermissions } from '@/hooks/use-permissions';
 import { setActiveProjectId } from '@/lib/active-project';
 import { NEW_CHAT_ID } from '@/lib/ai';

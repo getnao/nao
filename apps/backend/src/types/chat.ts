@@ -18,6 +18,7 @@ import {
 import z from 'zod/v4';
 
 import { getTools, uiToolset } from '../agents/tools';
+import type { onboardingTools } from '../agents/tools/onboarding';
 import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
@@ -179,7 +180,8 @@ export type ContextUsage = {
 	contextWindow: number | null;
 };
 
-export type AgentTools = Awaited<ReturnType<typeof getTools>>;
+/** The onboarding profile passes its tools to `getTools` as extra tools. */
+export type AgentTools = Awaited<ReturnType<typeof getTools>> & Partial<typeof onboardingTools>;
 
 /**
  * Agent Request Types

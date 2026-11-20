@@ -22,6 +22,7 @@ import {
 	createUIMessageStream,
 	FinishReason,
 	generateText,
+	hasToolCall,
 	InferUIMessageChunk,
 	ModelMessage,
 	type OutputInterface,
@@ -601,7 +602,11 @@ export class AgentManager {
 	}
 
 	private get _stopConditions(): StopCondition<AgentTools>[] {
-		return this._profile.maxSteps ? [stepCountIs(this._profile.maxSteps)] : interactiveStopConditions;
+		if (this._profile.maxSteps) {
+			return [stepCountIs(this._profile.maxSteps)];
+		}
+		const turnEndingToolCalls = (this._profile.turnEndingTools ?? []).map((toolName) => hasToolCall(toolName));
+		return [...interactiveStopConditions, ...turnEndingToolCalls];
 	}
 
 	private async _prepareStep(

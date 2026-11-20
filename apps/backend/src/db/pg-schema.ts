@@ -89,7 +89,6 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
-import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
 import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
@@ -114,6 +113,17 @@ import {
 	TelegramSettings,
 	WhatsappSettings,
 } from '../types/messaging-provider';
+import {
+	EXAMPLE_CHAT_ALLOWANCE_SCOPES,
+	type ExampleChatAllowanceScope,
+} from '../types/onboarding/example-chat-allowance';
+import {
+	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
+	WAREHOUSE_PROVISIONING_STATUSES,
+	type WarehouseProvisioningBusinessContext,
+	type WarehouseProvisioningModelSelection,
+	type WarehouseProvisioningStep,
+} from '../types/onboarding/warehouse-provisioning';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
 import {
@@ -125,14 +135,7 @@ import {
 	TestRunResultDetails,
 } from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
-import {
-	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
-	WAREHOUSE_PROVISIONING_STATUSES,
-	type WarehouseProvider,
-	type WarehouseProvisioningBusinessContext,
-	type WarehouseProvisioningModelSelection,
-	type WarehouseProvisioningStep,
-} from '../types/warehouse';
+import type { WarehouseProvider } from '../types/warehouse';
 import { pgEncryptedText } from './encrypted-text';
 
 export const user = pgTable('user', {
