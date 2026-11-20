@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, not, or, type SQ
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { listLockedUserGroupIds } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 import * as storyDeliveryQueries from './story-delivery.queries';
@@ -561,10 +562,7 @@ export async function moveFolder(
 ): Promise<void> {
 	await assertNotSystemFolder(id);
 
-	await db.transaction(async (tx) => {
-		await serializeFolderMovesInProject(tx, projectId);
-		await relocateFolder(userId, projectId, id, newParentId, tx);
-	}, writeTransactionConfig);
+	await inProjectFolderTransaction(projectId, (tx) => relocateFolder(userId, projectId, id, newParentId, tx));
 }
 
 /** All-or-nothing, so a failing item never leaves part of the selection moved. */
@@ -578,15 +576,14 @@ export async function moveItemsToFolder(
 		await assertNotSystemFolder(folderId);
 	}
 
-	await db.transaction(async (tx) => {
-		await serializeFolderMovesInProject(tx, projectId);
+	await inProjectFolderTransaction(projectId, async (tx) => {
 		for (const folderId of items.folderIds) {
 			await relocateFolder(userId, projectId, folderId, targetFolderId, tx);
 		}
 		for (const { storyId, storyOwnerId } of items.stories) {
 			await placeStoryInFolder(storyId, targetFolderId, { storyOwnerId, projectId }, tx);
 		}
-	}, writeTransactionConfig);
+	});
 }
 
 async function relocateFolder(
@@ -960,8 +957,7 @@ export async function setGroupTeamFolders(
 	folderIds: string[],
 	actorId: string,
 ): Promise<void> {
-	await db.transaction(async (tx) => {
-		await serializeFolderMovesInProject(tx, projectId);
+	await inProjectFolderTransaction(projectId, async (tx) => {
 		const currentFolderIds = await listGroupFolderIds(groupId, tx);
 		const wantedFolderIds = [...new Set(folderIds)];
 		const addedFolderIds = wantedFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
@@ -990,7 +986,7 @@ export async function setGroupTeamFolders(
 		}
 
 		await propagateFolderAudienceChanges(previousAudiences, projectId, actorId, tx);
-	}, writeTransactionConfig);
+	});
 }
 
 /** Archived team folders are left out: the group editor does not list them, so a save must not take them away. */
@@ -1125,14 +1121,16 @@ async function getStoryIdsInFolders(folderIds: string[], executor: DBExecutor = 
 	return rows.map((r) => r.storyId);
 }
 
-async function serializeFolderMovesInProject(tx: FolderMoveTx, projectId: string): Promise<void> {
-	if (dbConfig.dialect !== Dialect.Postgres) {
-		return;
-	}
-	const lockKey = `story-folder-move:${projectId}`;
-	await (tx as unknown as { execute: (q: SQL) => Promise<unknown> }).execute(
-		sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`,
-	);
+/**
+ * Runs changes to who a project's folders and stories are shared with one at a time, so the checks made inside still
+ * hold when the change is written. `work` must not take this lock again.
+ */
+export function withProjectFolderLock<T>(projectId: string, work: () => Promise<T>): Promise<T> {
+	return withKeyedLock(`story-folders:${projectId}`, work);
+}
+
+function inProjectFolderTransaction<T>(projectId: string, work: (tx: FolderMoveTx) => Promise<T>): Promise<T> {
+	return withProjectFolderLock(projectId, () => db.transaction(work, writeTransactionConfig));
 }
 
 export async function proposedParentChainContains(
