@@ -241,7 +241,9 @@ export async function resolveAnnotationModelId(
 	const config = modelSelection.llmConfigId
 		? await projectLlmConfigQueries.getProjectLlmConfigById(projectId, modelSelection.llmConfigId)
 		: await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
-	if (config?.baseUrl) {
+	const configBaseUrl =
+		config?.credentialSource === 'env' ? (config.baseUrl ?? getEnvBaseUrl(provider)) : config?.baseUrl;
+	if (configBaseUrl) {
 		return modelId;
 	}
 

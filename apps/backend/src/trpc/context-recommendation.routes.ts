@@ -139,6 +139,7 @@ export const contextRecommendationRoutes = {
 			z.object({
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().min(1).optional(),
 				frequency: z.enum(CONTEXT_RECOMMENDATION_FREQUENCIES).optional(),
 				customSystemPromptInstructions: z.string().max(MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH).optional(),
 				autoCreatePrs: z.boolean().optional(),
@@ -160,6 +161,7 @@ export const contextRecommendationRoutes = {
 				await setContextRecommendationModel(ctx.project.id, {
 					provider: input.modelProvider,
 					modelId: input.modelId,
+					...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
 				});
 			}
 			if (input.frequency) {

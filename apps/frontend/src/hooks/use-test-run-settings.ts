@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { TestModelSelection } from '@nao/backend/test-run';
 import type { ActiveEffort } from '@nao/backend/llm';
 
+import { findAvailableModel } from '@/lib/llm-model';
 import { createLocalStorage } from '@/lib/local-storage';
 import { useTestSuite } from '@/hooks/use-upstream-context';
 import { trpc } from '@/main';
@@ -68,7 +69,12 @@ export function useTestRunSettings(): TestRunSettings {
 		}
 		setRevision((revision) => revision + 1);
 	}, [availableModels.data, projectId]);
-	const projectModels = suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : []);
+	const projectModels = (suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : [])).map(
+		(model) => {
+			const llmConfigId = findAvailableModel(availableModels.data, model)?.llmConfigId;
+			return llmConfigId ? { ...model, llmConfigId } : model;
+		},
+	);
 	const pickedModels = availableStoredModels?.length ? availableStoredModels : projectModels;
 	const models = pickedModels.slice(0, MAX_TEST_RUN_MODELS);
 	const attempts = Math.min(stored?.attempts ?? suite.data?.settings.attempts ?? 1, MAX_TEST_RUN_ATTEMPTS);
