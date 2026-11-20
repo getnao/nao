@@ -2,10 +2,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { fitMapBoundariesInExport, STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
+import { findStoryImageSources, readEmbeddableStoryImages, storyAppCode } from '@nao/shared/story-image';
 import { readRequestAnswers } from './story-request-answers';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DownloadFormat } from '@nao/shared/types';
-import type { StoryExportData, StoryMapBoundary, StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryApp, StoryExportData, StoryMapBoundary, StoryQueryResult } from '@nao/shared/story-app';
 
 import type { CustomStoryContent } from '@/components/custom-story/custom-story-body';
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
@@ -14,6 +15,7 @@ import { useActiveStoryTheme } from '@/components/custom-story/custom-story-body
 import {
 	fetchChartPluginSources,
 	fetchMapBoundary,
+	fetchStoryImageBatch,
 	narrativesOptions,
 	queryDataOptions,
 	stateOptions,
@@ -41,7 +43,14 @@ export function useCustomStoryDownload(
 			}
 			const [runtime, data] = await Promise.all([
 				loadStandaloneRuntime(),
-				fetchExportData(queryClient, dataSource, content.queryIds, content.mapBoundaryKeys, viewerId),
+				fetchExportData(
+					queryClient,
+					dataSource,
+					content.app,
+					content.queryIds,
+					content.mapBoundaryKeys,
+					viewerId,
+				),
 			]);
 			const html = buildStoryExportDocument({
 				title: content.title,
@@ -74,6 +83,7 @@ function loadStandaloneRuntime(): Promise<string> {
 async function fetchExportData(
 	queryClient: QueryClient,
 	dataSource: CustomStoryDataSource,
+	app: StoryApp,
 	queryIds: string[],
 	mapBoundaryKeys: string[],
 	viewerId: string,
@@ -97,13 +107,16 @@ async function fetchExportData(
 		fetchChartPluginSources(queryClient, dataSource).catch(() => undefined),
 		fetchMapBoundaries(queryClient, dataSource, mapBoundaryKeys),
 	]);
+	const queries = Object.fromEntries(results.filter((entry) => entry !== null));
+	const requests = readRequestAnswers(viewerId, dataSource);
 	return {
-		queries: Object.fromEntries(results.filter((entry) => entry !== null)),
-		requests: readRequestAnswers(viewerId, dataSource),
+		queries,
+		requests,
 		narratives,
 		state,
 		chartPlugins,
 		mapBoundaries,
+		images: await fetchExportImages(queryClient, dataSource, app, { ...queries, ...requests }),
 	};
 }
 
@@ -122,6 +135,18 @@ async function fetchMapBoundaries(
 		),
 	);
 	return fitMapBoundariesInExport(entries.filter((entry) => entry !== null));
+}
+
+/** The downloaded page cannot ask nao for images, so they are embedded. */
+function fetchExportImages(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	app: StoryApp,
+	queries: Record<string, StoryQueryResult>,
+): Promise<Record<string, string>> {
+	return readEmbeddableStoryImages(findStoryImageSources(storyAppCode(app), queries), (batch) =>
+		fetchStoryImageBatch(queryClient, dataSource, batch),
+	);
 }
 
 function isUnknownQueryError(error: unknown): boolean {

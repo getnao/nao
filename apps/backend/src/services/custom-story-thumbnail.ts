@@ -29,6 +29,7 @@ import {
 	type ViewerStoryRequest,
 	type ViewerStorySnapshot,
 } from './live-story';
+import { getAllowedStoryImageSources } from './story-image';
 import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 
 const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
@@ -362,16 +363,18 @@ async function saveThumbnails(versionId: string, images: ModeThumbnails, renderK
 	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
 }
 
-/** Live data, shared state, project chart plugins and boundary sets change in place, without a new version, so they are part of the key. */
+/** Live data, shared state, project chart plugins, boundary sets and image sources change in place, without a new version, so they are part of the key. */
 async function thumbnailRenderKey(
 	story: Pick<DBStory, 'id' | 'isLive'>,
 	theme: StoryThemePair | null,
 ): Promise<string> {
-	const [dataCachedAt, sharedState, chartPlugins, mapBoundaries] = await Promise.all([
+	const projectId = await storyQueries.getStoryProjectId(story.id);
+	const [dataCachedAt, sharedState, chartPlugins, mapBoundaries, allowedImageSources] = await Promise.all([
 		story.isLive ? storyQueries.getStoryDataCachedAt(story.id) : null,
 		storyAppStateQueries.listProjectStoryAppState(story.id),
 		cachedChartPluginsFingerprint(story.id),
-		mapBoundariesFingerprint(story.id),
+		projectId ? mapBoundariesFingerprint(projectId) : undefined,
+		projectId ? allowedImageSourcesFingerprint(projectId) : undefined,
 	]);
 	return [
 		`${THUMBNAIL_VIEWPORT.width}x${THUMBNAIL_VIEWPORT.height}`,
@@ -380,6 +383,7 @@ async function thumbnailRenderKey(
 		sharedState.length > 0 ? sharedStateFingerprint(sharedState) : undefined,
 		chartPlugins,
 		mapBoundaries,
+		allowedImageSources,
 	]
 		.filter((part) => part !== undefined)
 		.join('.');
@@ -409,14 +413,24 @@ function chartPluginsFingerprint(plugins: ChartPluginManifestEntry[]): string {
 	return createHash('sha256').update(versions.join('\n')).digest('hex').slice(0, 12);
 }
 
-async function mapBoundariesFingerprint(storyId: string): Promise<string | undefined> {
-	const projectId = await storyQueries.getStoryProjectId(storyId);
-	const sets = projectId ? await projectQueries.getCustomBoundaries(projectId) : [];
+async function mapBoundariesFingerprint(projectId: string): Promise<string | undefined> {
+	const sets = await projectQueries.getCustomBoundaries(projectId);
 	if (sets.length === 0) {
 		return undefined;
 	}
 	const sources = sets.map((set) => `${set.key}:${set.file?.storageKey ?? set.url}:${set.joinProperty}`).sort();
 	return createHash('sha256').update(sources.join('\n')).digest('hex').slice(0, 12);
+}
+
+async function allowedImageSourcesFingerprint(projectId: string): Promise<string | undefined> {
+	const sources = await getAllowedStoryImageSources(projectId);
+	if (sources.length === 0) {
+		return undefined;
+	}
+	return createHash('sha256')
+		.update([...sources].sort().join('\n'))
+		.digest('hex')
+		.slice(0, 12);
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {

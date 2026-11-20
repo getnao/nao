@@ -13,6 +13,7 @@ import {
 	getStoredCustomStoryNarrativesByStoryId,
 } from './custom-story';
 import { getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
+import { readStoryImagesForExport } from './story-image';
 import { readStoryMapBoundaries } from './story-map-boundary';
 
 interface StoryExportContext {
@@ -22,6 +23,12 @@ interface StoryExportContext {
 	state?: StoryExportData['state'];
 	chartPlugins: Record<string, string>;
 	mapBoundaries: Record<string, StoryMapBoundary>;
+	images: Record<string, string>;
+}
+
+interface CustomStoryDocumentOptions {
+	narratives?: StoryNarratives;
+	state?: StoryExportData['state'];
 }
 
 interface CustomStoryDocumentOptions {
@@ -48,23 +55,24 @@ export async function buildCustomStoryDocumentByStoryId(
 	mode: StoryThemeMode,
 	options: CustomStoryDocumentOptions = {},
 ): Promise<string> {
-	const [narratives, runtime, state, chartPlugins, mapBoundaries] = await Promise.all([
+	const [narratives, runtime, state, chartPlugins, mapBoundaries, images] = await Promise.all([
 		options.narratives ?? getStoredCustomStoryNarrativesByStoryId(storyId),
 		loadStandaloneStoryRuntime(),
 		options.state ?? getUnattendedCustomStoryStateByStoryId(storyId),
 		readStoryChartPluginSources(storyId),
 		readStoryMapBoundaries(storyId, version.mapBoundaryKeys),
+		version.app ? readStoryImagesForExport(storyId, version.app, pickQueries(queryData, version.queryIds)) : {},
 	]);
 	return buildCustomStoryDocumentHtml(
 		version,
-		{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries },
+		{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries, images },
 		mode,
 	);
 }
 
 function buildCustomStoryDocumentHtml(
 	version: CustomStoryVersionView,
-	{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries }: StoryExportContext,
+	{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries, images }: StoryExportContext,
 	mode: StoryThemeMode,
 ): string {
 	if (!version.app) {
@@ -77,6 +85,7 @@ function buildCustomStoryDocumentHtml(
 		state,
 		chartPlugins,
 		mapBoundaries,
+		images,
 	};
 	return buildStoryExportDocument({
 		title: version.title,
