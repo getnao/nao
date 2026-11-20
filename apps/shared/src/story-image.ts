@@ -45,7 +45,8 @@ const STORY_IMAGE_MEDIA_TYPES: Record<string, string> = {
 const BUCKET_PATTERN = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 const BUCKET_SOURCE_PATTERN = /^(gs|s3):\/\/([^/?#]+)(\/[^?#]*)?$/i;
 const SOURCE_CANDIDATE_PATTERN = /\b(?:gs|s3|https):\/\/[^\s"'`<>()[\]{}\\^|]+/gi;
-const QUOTED_BUCKET_SOURCE_PATTERN = /(["'`])((?:gs|s3):\/\/[^"'`\n]+)\1/gi;
+const QUOTED_SOURCE_PATTERN = /(["'`])((?:gs|s3):\/\/[^"'`\n]+|https:\/\/[^"'`\s]+)\1/gi;
+const WHOLE_HTTPS_SOURCE_PATTERN = /^https:\/\/\S+$/i;
 const LINK_ATTRIBUTE_PATTERN = /\bhref\s*[=:]\s*\{?\s*(["'`])[^"'`\n]*\1/gi;
 const DIRECT_IMAGE_SOURCE_PATTERN =
 	/(?:<Image\b[^>]*?\bsrc=\{?\s*|\.image\(\s*)(["'`])((?:gs|s3|https):\/\/[^"'`\n]+)\1/g;
@@ -160,12 +161,12 @@ function linksInText(text: string): string[] {
 		.filter((candidate) => parseStoryImageSource(candidate) !== null);
 }
 
-/** A link's `href` shows no image, and bucket keys often hold spaces or brackets, so a quoted bucket link is kept whole. */
+/** A link's `href` shows no image, and image paths often hold spaces or brackets, so a quoted link is kept whole. */
 function linksInCode(text: string): string[] {
 	const quoted: string[] = [];
 	const unquoted = text
 		.replace(LINK_ATTRIBUTE_PATTERN, ' ')
-		.replace(QUOTED_BUCKET_SOURCE_PATTERN, (_match, _quote: string, source: string) => {
+		.replace(QUOTED_SOURCE_PATTERN, (_match, _quote: string, source: string) => {
 			quoted.push(source);
 			return ' ';
 		});
@@ -177,10 +178,11 @@ function isLiteralImageSource(source: string): boolean {
 	return !source.includes('${') && parseStoryImageSource(source) !== null;
 }
 
-/** Bucket keys often hold spaces or brackets, so a row value that is a whole bucket link is kept as it is. */
+/** Image paths often hold spaces or brackets, so a row value that is a whole link is kept as it is. */
 function linksInValue(value: string): string[] {
 	const whole = value.trim();
-	return BUCKET_SOURCE_PATTERN.test(whole) && parseStoryImageSource(whole) ? [whole] : linksInText(value);
+	const isWholeLink = BUCKET_SOURCE_PATTERN.test(whole) || WHOLE_HTTPS_SOURCE_PATTERN.test(whole);
+	return isWholeLink && parseStoryImageSource(whole) ? [whole] : linksInText(value);
 }
 
 function collectStrings(value: unknown): string[] {
