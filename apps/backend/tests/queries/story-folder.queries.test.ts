@@ -124,6 +124,22 @@ describe('team folders', () => {
 		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
 	});
 
+	it('keeps the groups of an archived team folder on a subfolder restored on its own', async () => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		const emea = await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'EMEA', parentId: sales.id });
+		await archiveFolder(sales.id);
+
+		await unarchiveFolder(OWNER_ID, PROJECT_ID, emea.id);
+
+		expect(await visibleFolderNames(viewerOf(MEMBER_ID, [GROUP_ID]))).toEqual(['EMEA']);
+		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
+	});
+
 	it("shares a story with the folder's groups while it is filed there", async () => {
 		const sales = await createFolder({
 			ownerId: OWNER_ID,

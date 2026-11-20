@@ -502,19 +502,14 @@ async function returnStoriesToOwners(folderId: string, projectId: string, execut
 	}
 }
 
-/** An archived subfolder leaves its parent, so it keeps the groups of the team folder it was in. */
 export async function archiveFolder(folderId: string, executor: DBExecutor = db): Promise<void> {
 	await assertNotSystemFolder(folderId, executor);
 	const folderIds = await listDescendantFolderIds(folderId, executor);
 	const now = new Date();
-	const teamFolder = await findTeamFolderOf(folderId, executor);
 
 	await executor.update(s.storyFolder).set({ archivedAt: now }).where(inArray(s.storyFolder.id, folderIds)).execute();
 
-	await executor.update(s.storyFolder).set({ parentId: null }).where(eq(s.storyFolder.id, folderId)).execute();
-	if (teamFolder && teamFolder.id !== folderId) {
-		await insertFolderGroups(folderId, teamFolder.groupIds, executor);
-	}
+	await detachFolder(folderId, null, executor);
 
 	const storyIds = await getStoryIdsInFolders(folderIds, executor);
 	if (storyIds.length > 0) {
@@ -546,7 +541,16 @@ export async function unarchiveFolder(
 		return;
 	}
 	const parentId = folder.visibility === 'private' ? await ensurePrivateRoot(userId, projectId, executor) : null;
+	await detachFolder(folderId, parentId, executor);
+}
+
+/** A subfolder leaving its team folder on archive or restore keeps the team folder's groups. */
+async function detachFolder(folderId: string, parentId: string | null, executor: DBExecutor): Promise<void> {
+	const teamFolder = await findTeamFolderOf(folderId, executor);
 	await executor.update(s.storyFolder).set({ parentId }).where(eq(s.storyFolder.id, folderId)).execute();
+	if (teamFolder && teamFolder.id !== folderId) {
+		await insertFolderGroups(folderId, teamFolder.groupIds, executor);
+	}
 }
 
 export async function moveFolder(
