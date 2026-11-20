@@ -170,6 +170,7 @@ describe('custom stories through MCP without a chat', () => {
 			isMine: false,
 			isYou: true,
 			byAgent: false,
+			agentChatId: null,
 			byMcp: true,
 		});
 

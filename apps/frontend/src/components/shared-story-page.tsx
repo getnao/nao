@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { prepareRestrictedStoryCode } from '@nao/shared/story-viewer-restrictions';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -73,7 +73,12 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const queryClient = useQueryClient();
 
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
-	const presence = useStoryEditSession({ target: session?.user?.id ? { storyId } : null, isEditing: false });
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
+	const presence = useStoryEditSession({
+		target: session?.user?.id ? { storyId } : null,
+		isEditing: false,
+		conversationChatId: questionChatId,
+	});
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -195,7 +200,13 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 									</StoryElementPicker>
 								}
 							/>
-							{canAsk && <StoryAskBar storyId={storyId} canEdit={resolvedStory?.canEdit === true} />}
+							{canAsk && (
+								<StoryAskBar
+									storyId={storyId}
+									canEdit={resolvedStory?.canEdit === true}
+									onChatChange={setQuestionChatId}
+								/>
+							)}
 						</div>
 
 						{sidePanel.content && (
