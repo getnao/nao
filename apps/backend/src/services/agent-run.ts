@@ -17,7 +17,7 @@ import { resolveEditedAutomationId } from './automation-editor.service';
 import { canRoleReceiveChatFeedback } from './automation-feedback-trigger.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { assertCanEditContextFromChat } from './context-editor.service';
-import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './example-agent-run';
+import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './onboarding/example-agent-run';
 
 export interface AgentRunRequest {
 	userId: string;

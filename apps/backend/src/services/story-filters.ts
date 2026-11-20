@@ -14,9 +14,13 @@ import * as storyQueries from '../queries/story.queries';
 import {
 	createOwnerExecutionContext,
 	createStoryExecutionContext,
+	createViewerExecutionContext,
 	executeStoryQueries,
+	omitAccessDeniedQueries,
 	resolveChatQueryScope,
+	resolveRestrictedViewerId,
 	resolveStoryQueryScope,
+	runBy,
 	type StoryExecutionContext,
 	type StoryQueryData,
 	type StoryQueryScope,
@@ -27,9 +31,11 @@ import { loadStorySqlQueries } from './story-sql-queries';
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
+	viewerUserId?: string;
 }
 
 interface FilterableStory {
+	chatId: string | null;
 	code: string;
 	sqlQueries: Record<string, StoredSqlQuery>;
 	resolveScope: () => Promise<StoryQueryScope>;
@@ -93,15 +99,24 @@ async function executeFilteredQueries(
 	selections: StoryFilterSelections,
 	executionOptions: StoryFilterExecutionOptions,
 ): Promise<StoryQueryData> {
-	const [scope, executionContext] = await Promise.all([story.resolveScope(), story.createExecutionContext()]);
+	const viewerUserId = story.chatId
+		? await resolveRestrictedViewerId(story.chatId, executionOptions.viewerUserId)
+		: undefined;
+	const ownerScope = await story.resolveScope();
+	const scope = viewerUserId ? runBy(ownerScope, viewerUserId) : ownerScope;
+	const executionContext = viewerUserId
+		? await createViewerExecutionContext(scope, viewerUserId)
+		: await story.createExecutionContext();
 	const specs = filterSpecsFromCode(story.code);
 
-	return executeStoryQueries(scope, story.sqlQueries, {
-		executionContext,
-		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
-		semanticBindings: semanticBindingsFromCode(story.code, selections),
-		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
-	});
+	return omitAccessDeniedQueries(
+		await executeStoryQueries(scope, story.sqlQueries, {
+			executionContext,
+			renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
+			semanticBindings: semanticBindingsFromCode(story.code, selections),
+			billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		}),
+	);
 }
 
 async function describeStoryQuerySql(
@@ -164,6 +179,7 @@ async function loadChatFilterableStory(chatId: string, storySlug: string): Promi
 	}
 
 	return {
+		chatId,
 		code: version.code,
 		sqlQueries: await storyQueries.getSqlQueriesFromCode(chatId, version.code),
 		resolveScope: () => resolveChatQueryScope(chatId),
@@ -186,6 +202,7 @@ async function loadFilterableStoryById(storyId: string): Promise<FilterableStory
 		return scope;
 	};
 	return {
+		chatId: story.chatId,
 		code: version.code,
 		sqlQueries: await loadStorySqlQueries(story, extractQueryIds(version.code)),
 		resolveScope,

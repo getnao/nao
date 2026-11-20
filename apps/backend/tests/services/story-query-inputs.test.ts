@@ -1,3 +1,4 @@
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -41,6 +42,19 @@ describe('executeStoryQueryWithInputs', () => {
 		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
 		expect(mocks.executeStoryQueries.mock.calls[0][2].executionContext).toBe(VIEWER_CONTEXT);
 		expect(mocks.executeStoryQueries.mock.calls[0][0]).toMatchObject({ ownerId: 'viewer-1' });
+	});
+
+	it('fails with the access message when the viewer may not read the filtered query', async () => {
+		mocks.executeStoryQueries.mockResolvedValue({ query_1: { columns: [], data: [], accessDenied: true } });
+
+		await expect(
+			executeStoryQueryWithInputs(
+				'chat-1',
+				'query_1',
+				{ filters: { status: 'completed' } },
+				{ viewerId: 'viewer-1' },
+			),
+		).rejects.toThrow(STORY_QUERY_ACCESS_DENIED_MESSAGE);
 	});
 
 	it('renders the filter blocks of the saved SQL with the quoted values', async () => {

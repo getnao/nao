@@ -46,7 +46,12 @@ import type {
 	OwnedContextBranchDeletionInput,
 	OwnedContextBranchDeletionResult,
 } from './types';
-import { fetchContextRepository, requireContextExplorerGit, resolveAfterBranchChange } from './worktree.service';
+import {
+	fetchContextRepository,
+	requireContextExplorerGit,
+	resolveAfterBranchChange,
+	updateContextWorktree,
+} from './worktree.service';
 
 const MAX_LISTED_UNPUSHED_COMMITS = 20;
 const BRANCH_FIELD_SEPARATOR = '\x1f';
@@ -147,6 +152,22 @@ export async function switchContextBranch(
 	}
 	invalidateContextProjectPrefix(repo.worktreeRoot);
 	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider), context);
+}
+
+/**
+ * Brings the File Explorer branch up to date: the default branch catches up with the live context, a branch of others
+ * moves to its pushed head, and an own branch fast-forwards to its pushed head.
+ */
+export async function pullContextBranch(context: ContextExplorerGitContext): Promise<void> {
+	const { repo } = await requireContextExplorerGit(context);
+	const branch = readCurrentBranch(repo);
+	if (branch === null || branch === readDefaultBranch(repo)) {
+		await updateContextWorktree(context);
+	} else if (await isContextBranchOwnedByUser(context, branch)) {
+		await fastForwardOwnedBranch(context, branch);
+	} else {
+		await switchContextBranch(context, branch);
+	}
 }
 
 export async function createContextBranch(
@@ -387,6 +408,34 @@ function switchToBranchOfOthers(repo: ResolvedContextRepo, projectFolder: string
 		branch,
 		remoteRef,
 	]);
+}
+
+/** Refuses a branch holding unpushed commits, as taking the pushed ones would mean merging. */
+async function fastForwardOwnedBranch(context: ContextExplorerGitContext, branch: string): Promise<void> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	assertCleanWorktree(repo);
+	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	const remoteRef = `origin/${branch}`;
+	const behindCount = hasRef(repo, `refs/remotes/${remoteRef}`)
+		? readVerifiedCommitCount(repo, `${branch}..${remoteRef}`)
+		: 0;
+	if (!behindCount) {
+		return;
+	}
+	if (readVerifiedCommitCount(repo, `${remoteRef}..${branch}`) !== 0) {
+		throw new TRPCError({
+			code: 'CONFLICT',
+			message: `Branch ${branch} has commits that are not pushed. Push or undo them before pulling.`,
+		});
+	}
+	runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+		'merge',
+		'--ff-only',
+		'--quiet',
+		remoteRef,
+	]);
+	invalidateContextProjectPrefix(repo.worktreeRoot);
 }
 
 /** Null when the provider cannot list them for this user, for git to list them instead. */

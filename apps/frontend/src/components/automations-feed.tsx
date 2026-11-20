@@ -7,6 +7,7 @@ import {
 	BellPlus,
 	ChevronLeft,
 	ChevronRight,
+	FlaskConical,
 	Loader2,
 	Mail,
 	MessageSquare,
@@ -274,6 +275,7 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	story_refresh: RefreshCw,
 	shared: Share2,
 	subscription: BellPlus,
+	test_run: FlaskConical,
 };
 
 function getNotificationPresentation(

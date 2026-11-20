@@ -241,6 +241,9 @@ jobs:
                         -e "LANGFUSE_PUBLIC_KEY=${{ secrets.MOON_LANGFUSE_PUBLIC_KEY }}" \
                         -e "LANGFUSE_SECRET_KEY=${{ secrets.MOON_LANGFUSE_SECRET_KEY }}" \
                         -e "LANGFUSE_BASE_URL=${{ secrets.MOON_LANGFUSE_BASE_URL }}" \
+                        -e "OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                        -e "OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                        -e "OTEL_SERVICE_NAME=moon" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                         -e "ENABLE_USER_SIGNUP=false" \
                         -e "BETA_AUTOMATIONS_ENABLED=true" \
@@ -342,6 +345,9 @@ jobs:
                           -e "LANGFUSE_PUBLIC_KEY=${{ secrets.CLOUD_LANGFUSE_PUBLIC_KEY }}" \
                           -e "LANGFUSE_SECRET_KEY=${{ secrets.CLOUD_LANGFUSE_SECRET_KEY }}" \
                           -e "LANGFUSE_BASE_URL=${{ secrets.CLOUD_LANGFUSE_BASE_URL }}" \
+                          -e "OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                          -e "OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                          -e "OTEL_SERVICE_NAME=$APP" \
                           -e "GITHUB_SSO=false" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \

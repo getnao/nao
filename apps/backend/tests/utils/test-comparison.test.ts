@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TestContextVariant } from '../../src/types/test-run';
-import { compareContextVariants, listAddedTestPaths, listComparedResults } from '../../src/utils/test-comparison';
+import { compareContextVariants, listComparedResults, listOneSidedTests } from '../../src/utils/test-comparison';
 
 describe('compareContextVariants', () => {
 	it('classifies each test by how the draft changed its pass rate, regressions first', () => {
@@ -46,20 +46,25 @@ describe('compareContextVariants', () => {
 	});
 });
 
-describe('compareContextVariants with tests the draft adds', () => {
-	it('marks them new instead of pending, and leaves them out of the totals of both sides', () => {
+describe('compareContextVariants with tests the draft adds or deletes', () => {
+	it('marks them new or removed instead of pending, and leaves them out of the totals of both sides', () => {
 		const comparison = compareContextVariants(
 			[
 				...attempts('revenue', 'production', [true]),
 				...attempts('revenue', 'draft', [true]),
 				...attempts('margin', 'draft', [false]),
+				...attempts('orders', 'production', [false]),
 			],
 			1,
-			new Set(['margin.yml']),
+			new Map([
+				['margin.yml', 'draft'],
+				['orders.yml', 'production'],
+			]),
 		);
 
 		expect(comparison.tests.map((test) => [test.testName, test.change])).toEqual([
 			['margin', 'new'],
+			['orders', 'removed'],
 			['revenue', 'unchanged'],
 		]);
 		expect(comparison.production).toEqual({ passedAttempts: 1, totalAttempts: 1 });
@@ -67,24 +72,38 @@ describe('compareContextVariants with tests the draft adds', () => {
 	});
 
 	it('keeps the results both sides ran for the scores', () => {
-		const results = [...attempts('revenue', 'production', [true]), ...attempts('margin', 'draft', [false])];
+		const results = [
+			...attempts('revenue', 'production', [true]),
+			...attempts('margin', 'draft', [false]),
+			...attempts('orders', 'production', [false]),
+		];
 
-		expect(listComparedResults(results, new Set(['margin.yml']))).toEqual(
-			attempts('revenue', 'production', [true]),
-		);
+		expect(
+			listComparedResults(
+				results,
+				new Map([
+					['margin.yml', 'draft'],
+					['orders.yml', 'production'],
+				]),
+			),
+		).toEqual(attempts('revenue', 'production', [true]));
 	});
 });
 
-describe('listAddedTestPaths', () => {
-	it('keeps the test files the changes add, by their path in the tests folder', () => {
-		const addedTestPaths = listAddedTestPaths([
+describe('listOneSidedTests', () => {
+	it('keeps the test files the changes add or delete with the only side that has them', () => {
+		const oneSidedTests = listOneSidedTests([
 			{ path: 'tests/finance/margin.yml', kind: 'added' },
+			{ path: 'tests/orders.yml', kind: 'deleted' },
 			{ path: 'tests/revenue.yml', kind: 'modified' },
 			{ path: 'tests/outputs/run.yml', kind: 'added' },
-			{ path: 'docs/margin.md', kind: 'added' },
+			{ path: 'docs/margin.md', kind: 'deleted' },
 		]);
 
-		expect([...addedTestPaths]).toEqual(['finance/margin.yml']);
+		expect([...oneSidedTests]).toEqual([
+			['finance/margin.yml', 'draft'],
+			['orders.yml', 'production'],
+		]);
 	});
 });
 

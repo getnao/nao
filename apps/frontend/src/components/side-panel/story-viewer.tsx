@@ -562,9 +562,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								cacheSchedule={cacheSchedule}
 								queryData={versionQueryData}
 								chatId={chatId}
+								storyId={storyId}
 								storySlug={resolvedStorySlug}
 								versionKey={isViewingLatest ? undefined : currentVersionNumber}
-								filtersEnabled={isViewingLatest && !isAgentRunning}
+								filtersEnabled={isViewingLatest && !isStoryUpdating}
 								isStreaming={isStoryStreaming}
 								isDataPending={isVersionQueryDataPending}
 								isViewingLatest={isViewingLatest}

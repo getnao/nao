@@ -303,10 +303,18 @@ describe('validateStoryCode', () => {
 			expect(validateStoryCode(code)).toEqual([]);
 		});
 
-		it('flags select filters missing options, table/column and dimension', () => {
+		it('accepts a filter backed by an options query', () => {
+			const code =
+				'<filter id="customer" label="Customer" type="multi_select" options_query_id="query_customer_options" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags select filters without any options source', () => {
 			expect(
 				validateStoryCode('<filter id="country" type="select" />').some((e) =>
-					/Select filters require `options=.*or a semantic layer `dimension`/.test(e.message),
+					/Select filters require `options=.*an `options_query_id`, or a semantic layer `dimension`/.test(
+						e.message,
+					),
 				),
 			).toBe(true);
 		});

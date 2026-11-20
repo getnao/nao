@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
-type RunKindFilter = 'all' | 'runs' | 'comparisons';
+type RunKindFilter = 'all' | 'runs' | 'comparisons' | 'scheduled';
 type RunOutcomeFilter = 'all' | 'passed' | 'failed';
 
 export interface RunFilters {
@@ -30,6 +30,7 @@ const KIND_OPTIONS: { value: RunKindFilter; label: string }[] = [
 	{ value: 'all', label: 'All' },
 	{ value: 'runs', label: 'Runs' },
 	{ value: 'comparisons', label: 'Comparisons' },
+	{ value: 'scheduled', label: 'Scheduled' },
 ];
 
 const OUTCOME_OPTIONS: { value: RunOutcomeFilter; label: string }[] = [
@@ -97,6 +98,8 @@ function matchesKindFilter(trigger: TestRunSummary['trigger'], kind: RunKindFilt
 			return trigger !== 'comparison';
 		case 'comparisons':
 			return trigger === 'comparison';
+		case 'scheduled':
+			return trigger === 'scheduled';
 	}
 }
 

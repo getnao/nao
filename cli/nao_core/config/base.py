@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, model_validator
 from rich.console import Console
 
 if TYPE_CHECKING:
@@ -18,13 +18,14 @@ from nao_core.ui import UI, ask_confirm, ask_select
 from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
 from .error_handler import format_all_validation_errors, format_validation_error
+from .file_references import FileReferences, resolve_file_references
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .metabase import MetabaseConfig
 from .notion import NotionConfig
 from .obsidian import ObsidianConfig
 from .query_tag import QueryTagConfig
-from .repos import RepoConfig
+from .repos import RepoConfig, find_overlapping_targets
 from .secrets import process_secrets
 from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
@@ -84,6 +85,12 @@ class NaoConfig(BaseModel):
     )
 
     _missing_secrets: dict[str, None] = {}
+    _file_references: FileReferences = PrivateAttr(default_factory=FileReferences)
+
+    @property
+    def file_references(self) -> list[str]:
+        """The files that `from_file` values of this config are read from."""
+        return list(self._file_references.files.values())
 
     @model_validator(mode="before")
     @classmethod
@@ -92,6 +99,13 @@ class NaoConfig(BaseModel):
         if "databases" in data and isinstance(data["databases"], list):
             data["databases"] = [parse_database_config(db) if isinstance(db, dict) else db for db in data["databases"]]
         return data
+
+    @model_validator(mode="after")
+    def validate_repo_targets(self) -> "NaoConfig":
+        overlap = find_overlapping_targets(self.repos)
+        if overlap:
+            raise ValueError(f"repo targets '{overlap[0]}' and '{overlap[1]}' overlap: each needs a folder of its own")
+        return self
 
     @classmethod
     def promptConfig(cls, project_name: str, existing: "NaoConfig | None" = None) -> "NaoConfig":
@@ -213,6 +227,11 @@ class NaoConfig(BaseModel):
         serialized_config = self.model_dump(mode="json", by_alias=True, exclude_none=True)
         if self.metabase is not None:
             serialized_config["metabase"]["api_key"] = self.metabase.api_key.get_secret_value()
+        for file in self._file_references.restore(serialized_config):
+            UI.warn(
+                f"The value read with `from_file: {file}` is now written in nao_config.yaml itself: "
+                "nao moved it when loading the config, so the reference could not be kept."
+            )
         with config_file.open("w") as f:
             # Documentation Link
             f.write("# Configuration documentation:\n")
@@ -233,6 +252,7 @@ class NaoConfig(BaseModel):
         extra_env: dict[str, str] | None = None,
         drop_invalid_optional_sections: bool = False,
         process_env: bool = True,
+        allow_missing_file_references: bool = False,
     ) -> "NaoConfig":
         """Load the configuration from a YAML file.
 
@@ -241,16 +261,24 @@ class NaoConfig(BaseModel):
         do not use it can still run. Errors anywhere else fail the load as usual.
 
         With process_env=False, env references resolve from extra_env only.
+
+        With allow_missing_file_references=True, the sections holding a `from_file` value whose
+        file does not exist yet are left out instead of failing the load.
         """
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
         processed_content, missing = process_secrets(content, extra_env=extra_env, process_env=process_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
-        data = yaml.safe_load(processed_content)
+        data, file_references = resolve_file_references(
+            yaml.safe_load(processed_content), path, allow_missing=allow_missing_file_references
+        )
         cls._warn_on_legacy_llm(data)
-        if not drop_invalid_optional_sections:
-            return cls.model_validate(data)
-        return cls._validate_dropping_optional_sections(data)
+        if drop_invalid_optional_sections:
+            config = cls._validate_dropping_optional_sections(data)
+        else:
+            config = cls.model_validate(data)
+        config._file_references = file_references
+        return config
 
     @classmethod
     def _validate_dropping_optional_sections(cls, data: Any) -> "NaoConfig":
@@ -311,6 +339,7 @@ class NaoConfig(BaseModel):
         extra_env: dict[str, str] | None = None,
         drop_invalid_optional_sections: bool = False,
         process_env: bool = True,
+        allow_missing_file_references: bool = False,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
@@ -323,6 +352,8 @@ class NaoConfig(BaseModel):
                 nulled with a warning instead of failing the load (see `load`).
             process_env: If False, env references resolve from extra_env only. A server that loads
                 a tenant's config sets it, so its own environment never leaks into that config.
+            allow_missing_file_references: If True, the sections holding a `from_file` value whose
+                file does not exist yet are left out instead of failing the load (see `load`).
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
@@ -348,6 +379,7 @@ class NaoConfig(BaseModel):
                 extra_env=extra_env,
                 drop_invalid_optional_sections=drop_invalid_optional_sections,
                 process_env=process_env,
+                allow_missing_file_references=allow_missing_file_references,
             )
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")

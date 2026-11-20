@@ -119,7 +119,7 @@ function FoldedSql({ label, sql }: { label: string; sql: string }) {
  * Formatted SQL, colored like the SQL editor, one row per line so that a changed line can be tinted and its changed
  * words highlighted.
  */
-function SqlCode({
+export function SqlCode({
 	code,
 	changedLines,
 	lineChange,

@@ -9,6 +9,7 @@ import {
 	clearStaleActiveOrganization,
 	getActiveOrganizationId,
 	setActiveOrganizationId,
+	subscribeToExternalActiveOrganizationChanges,
 } from '@/lib/active-organization';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 
@@ -26,6 +27,17 @@ describe('active organization storage', () => {
 
 	it('returns null when no organization is selected', () => {
 		expect(getActiveOrganizationId()).toBeNull();
+	});
+
+	it('notifies subscribers when another tab selects an organization', () => {
+		const listener = vi.fn();
+		const unsubscribe = subscribeToExternalActiveOrganizationChanges(listener);
+
+		window.dispatchEvent(new StorageEvent('storage', { key: 'unrelated' }));
+		window.dispatchEvent(new StorageEvent('storage', { key: 'nao.active-organization-id' }));
+
+		expect(listener).toHaveBeenCalledOnce();
+		unsubscribe();
 	});
 
 	it('ignores invalid saved values', () => {

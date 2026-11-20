@@ -1,7 +1,8 @@
+import type { NotificationTable } from '../../types/notification';
 import type { EmailBranding } from '../../utils/email-branding';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
-import { EmailParagraph } from './email-text';
+import { EmailParagraph, EmailTable } from './email-text';
 import { emailColors } from './email-theme';
 
 interface NotificationEmailProps {
@@ -9,6 +10,7 @@ interface NotificationEmailProps {
 	title: string;
 	body?: string;
 	bodyHtml?: string;
+	table?: NotificationTable;
 	linkUrl?: string;
 	ctaLabel?: string;
 	unsubscribeUrl?: string;
@@ -20,6 +22,7 @@ export function NotificationEmail({
 	title,
 	body,
 	bodyHtml,
+	table,
 	linkUrl,
 	ctaLabel,
 	unsubscribeUrl,
@@ -34,6 +37,8 @@ export function NotificationEmail({
 			</EmailParagraph>
 
 			{body && <EmailParagraph>{body}</EmailParagraph>}
+
+			{table && <EmailTable table={table} />}
 
 			{linkUrl && (
 				<EmailButton href={linkUrl} color={branding.brandColor}>

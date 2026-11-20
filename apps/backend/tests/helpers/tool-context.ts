@@ -12,6 +12,7 @@ export function createToolContext(overrides: Partial<ToolContext> = {}): ToolCon
 		agentSettings: null,
 		envVars: {},
 		warehouseTableAccess: { enforced: false },
+		warehouseColumnSecurity: { enforced: false },
 		warehouseRowSecurity: { enforced: false },
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },

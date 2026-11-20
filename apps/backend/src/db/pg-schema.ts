@@ -8,7 +8,9 @@ import {
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectColumnSecurity,
 	type StoredProjectRowSecurity,
+	type StoredUserGroupColumnPolicies,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 	type StoredUserGroupRowPolicies,
@@ -87,7 +89,6 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
-import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
 import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
@@ -112,6 +113,17 @@ import {
 	TelegramSettings,
 	WhatsappSettings,
 } from '../types/messaging-provider';
+import {
+	EXAMPLE_CHAT_ALLOWANCE_SCOPES,
+	type ExampleChatAllowanceScope,
+} from '../types/onboarding/example-chat-allowance';
+import {
+	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
+	WAREHOUSE_PROVISIONING_STATUSES,
+	type WarehouseProvisioningBusinessContext,
+	type WarehouseProvisioningModelSelection,
+	type WarehouseProvisioningStep,
+} from '../types/onboarding/warehouse-provisioning';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
 import {
@@ -123,14 +135,7 @@ import {
 	TestRunResultDetails,
 } from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
-import {
-	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
-	WAREHOUSE_PROVISIONING_STATUSES,
-	type WarehouseProvider,
-	type WarehouseProvisioningBusinessContext,
-	type WarehouseProvisioningModelSelection,
-	type WarehouseProvisioningStep,
-} from '../types/warehouse';
+import type { WarehouseProvider } from '../types/warehouse';
 import { pgEncryptedText } from './encrypted-text';
 
 export const user = pgTable('user', {
@@ -338,7 +343,9 @@ export const project = pgTable(
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		menuSettings: jsonb('menu_settings').$type<SidebarMenu>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
+		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
+		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -675,6 +682,7 @@ export const userGroup = pgTable(
 			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
+		columnPolicies: jsonb('column_policies').$type<StoredUserGroupColumnPolicies>(),
 		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -733,6 +741,7 @@ export const projectLlmConfig = pgTable(
 						inputCacheWrite?: number;
 						output?: number;
 					};
+					contextWindow?: number;
 				}[]
 			>()
 			.default([])
@@ -839,6 +848,25 @@ export const projectGroupBudget = pgTable(
 	(t) => [index('project_group_budget_projectId_idx').on(t.projectId)],
 );
 
+export const projectGroupSharedBudget = pgTable(
+	'project_group_shared_budget',
+	{
+		groupId: text('group_id')
+			.primaryKey()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		limitUsd: integer('limit_usd').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_group_shared_budget_projectId_idx').on(t.projectId)],
+);
+
 export const budgetNotification = pgTable(
 	'budget_notification',
 	{
@@ -875,6 +903,27 @@ export const memberBudgetNotification = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [unique('member_budget_notification_project_user_period').on(t.projectId, t.userId, t.periodStart)],
+);
+
+export const groupBudgetNotification = pgTable(
+	'group_budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		periodStart: timestamp('period_start').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [unique('group_budget_notification_group_user_period').on(t.groupId, t.userId, t.periodStart)],
 );
 
 export const sharedChat = pgTable(
@@ -1533,6 +1582,31 @@ export const storyQuery = pgTable(
 			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.storyId, t.queryId] })],
+);
+
+export const storyViewerDataCache = pgTable(
+	'story_viewer_data_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
+		queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+		code: text('code').notNull(),
+		analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
+		cachedAt: timestamp('cached_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
 );
 
 export const storyFilterOptionsCache = pgTable(

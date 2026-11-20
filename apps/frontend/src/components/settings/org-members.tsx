@@ -64,6 +64,7 @@ export function OrgMembers() {
 			role: member.role as UserRole,
 			status: member.status,
 			twoFactorEnabled: member.twoFactorEnabled,
+			hasPassword: member.hasPassword,
 		})) ?? [];
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
@@ -184,7 +185,7 @@ export function OrgMembers() {
 							onRemove={setRemoveMember}
 							extraActions={(member) => (
 								<>
-									{!isCloud && (
+									{!isCloud && member.hasPassword && (
 										<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
 									)}
 									{member.twoFactorEnabled && (

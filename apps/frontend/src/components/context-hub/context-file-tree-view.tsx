@@ -39,7 +39,9 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useContextChanges } from '@/hooks/use-context-changes';
 import { useFileChangeMarks } from '@/hooks/use-file-change-marks';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { getTabShownAfterClosing, useOpenedTabs } from '@/hooks/use-opened-tabs';
+import { useContextFile, useContextFileTree } from '@/hooks/use-upstream-context';
 import {
 	consumeHistoricalContextDiffSearch,
 	consumeOpenTestsSearch,
@@ -183,7 +185,7 @@ export function ContextFileTreeView({
 		});
 	}, [testDrawerOpening, navigate]);
 
-	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
+	const fileTree = useContextFileTree();
 	const fileChangeMarks = useFileChangeMarks();
 	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
 	const rulesPreviewGroups = useQuery(trpc.contextExplorer.getRulesPreviewGroups.queryOptions());
@@ -192,10 +194,7 @@ export function ContextFileTreeView({
 		: rulesPreviewGroups.isError || !rulesPreviewGroups.data
 			? ({ status: 'error' } as const)
 			: ({ status: 'ready', ...rulesPreviewGroups.data } as const);
-	const fileContent = useQuery({
-		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
-		enabled: !!selectedPath,
-	});
+	const fileContent = useContextFile(selectedPath);
 	const savedFileContent = fileContent.data?.content;
 	const activeTestFile = useMemo(
 		() => resolveActiveTestFile({ activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent }),
@@ -299,6 +298,14 @@ export function ContextFileTreeView({
 			? { type: 'file', path: nextPath, openSource: false, closedFileTabs: paths }
 			: { type: 'empty', closedFileTabs: paths };
 	};
+
+	useKeyboardShortcuts({
+		'close-file-tab': () => {
+			if (selectedPath) {
+				closeFileTabs([selectedPath]);
+			}
+		},
+	});
 
 	const selectTestRun = (runId: string | null) => {
 		navigateTestDrawer({ test: activeTestPath ?? undefined, testRun: runId ?? undefined });
@@ -507,7 +514,7 @@ export function ContextFileTreeView({
 								) : (
 									<FileTree
 										changeMarks={fileChangeMarks}
-										entries={fileTree.data?.entries ?? []}
+										entries={fileTree.entries}
 										selectedPath={
 											historicalDiff?.path ??
 											selectedDiffPath ??
@@ -606,7 +613,7 @@ export function ContextFileTreeView({
 											filePath={selectedPath}
 											content={fileContent.data?.content}
 											hash={fileContent.data?.hash}
-											isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
+											isLoading={fileContent.isLoading}
 											isError={fileContent.isError && !fileContent.data}
 											isEditable={fileContent.data?.isEditable === true}
 											editabilityGuidance={fileContent.data?.guidance ?? null}

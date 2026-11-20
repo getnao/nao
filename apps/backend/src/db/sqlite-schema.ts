@@ -8,7 +8,9 @@ import {
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectColumnSecurity,
 	type StoredProjectRowSecurity,
+	type StoredUserGroupColumnPolicies,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 	type StoredUserGroupRowPolicies,
@@ -83,7 +85,6 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
-import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
 import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
@@ -108,6 +109,17 @@ import {
 	TelegramSettings,
 	WhatsappSettings,
 } from '../types/messaging-provider';
+import {
+	EXAMPLE_CHAT_ALLOWANCE_SCOPES,
+	type ExampleChatAllowanceScope,
+} from '../types/onboarding/example-chat-allowance';
+import {
+	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
+	WAREHOUSE_PROVISIONING_STATUSES,
+	type WarehouseProvisioningBusinessContext,
+	type WarehouseProvisioningModelSelection,
+	type WarehouseProvisioningStep,
+} from '../types/onboarding/warehouse-provisioning';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
 import {
@@ -119,14 +131,7 @@ import {
 	TestRunResultDetails,
 } from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
-import {
-	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
-	WAREHOUSE_PROVISIONING_STATUSES,
-	type WarehouseProvider,
-	type WarehouseProvisioningBusinessContext,
-	type WarehouseProvisioningModelSelection,
-	type WarehouseProvisioningStep,
-} from '../types/warehouse';
+import type { WarehouseProvider } from '../types/warehouse';
 import { sqliteEncryptedText } from './encrypted-text';
 
 export const user = sqliteTable('user', {
@@ -354,7 +359,9 @@ export const project = sqliteTable(
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		menuSettings: text('menu_settings', { mode: 'json' }).$type<SidebarMenu>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<DefaultModelSettings>(),
+		columnSecurity: text('column_security', { mode: 'json' }).$type<StoredProjectColumnSecurity>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
+		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -708,6 +715,7 @@ export const userGroup = sqliteTable(
 			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: text('sso_mappings', { mode: 'json' }).$type<StoredUserGroupSsoMappings>(),
+		columnPolicies: text('column_policies', { mode: 'json' }).$type<StoredUserGroupColumnPolicies>(),
 		rowPolicies: text('row_policies', { mode: 'json' }).$type<StoredUserGroupRowPolicies>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -770,6 +778,7 @@ export const projectLlmConfig = sqliteTable(
 						inputCacheWrite?: number;
 						output?: number;
 					};
+					contextWindow?: number;
 				}[]
 			>()
 			.default([])
@@ -888,6 +897,27 @@ export const projectGroupBudget = sqliteTable(
 	(t) => [index('project_group_budget_projectId_idx').on(t.projectId)],
 );
 
+export const projectGroupSharedBudget = sqliteTable(
+	'project_group_shared_budget',
+	{
+		groupId: text('group_id')
+			.primaryKey()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		limitUsd: integer('limit_usd').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('project_group_shared_budget_projectId_idx').on(t.projectId)],
+);
+
 export const budgetNotification = sqliteTable(
 	'budget_notification',
 	{
@@ -928,6 +958,29 @@ export const memberBudgetNotification = sqliteTable(
 			.notNull(),
 	},
 	(t) => [unique('member_budget_notification_project_user_period').on(t.projectId, t.userId, t.periodStart)],
+);
+
+export const groupBudgetNotification = sqliteTable(
+	'group_budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		periodStart: integer('period_start', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [unique('group_budget_notification_group_user_period').on(t.groupId, t.userId, t.periodStart)],
 );
 
 export const sharedChat = sqliteTable(
@@ -1642,6 +1695,35 @@ export const storyQuery = sqliteTable(
 			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.storyId, t.queryId] })],
+);
+
+export const storyViewerDataCache = sqliteTable(
+	'story_viewer_data_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
+		queryData: text('query_data', { mode: 'json' })
+			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
+			.notNull(),
+		code: text('code').notNull(),
+		analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
+		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
 );
 
 export const storyFilterOptionsCache = sqliteTable(

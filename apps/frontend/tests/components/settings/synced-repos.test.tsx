@@ -28,7 +28,9 @@ vi.mock('@/main', () => ({
 					queryKey: ['upstream-changes', input],
 					queryFn: () => mocks.getUpstreamChanges(input),
 				}),
+				queryKey: (input: { repo: string; branch: string }) => ['upstream-changes', input],
 			},
+			listTests: { queryKey: (input: unknown) => ['tests', input] },
 			listRuns: { queryOptions: () => ({ queryKey: ['runs'], queryFn: mocks.listRuns }) },
 			getDraftContext: {
 				queryOptions: () => ({ queryKey: ['draft-context'], queryFn: () => ({ status: 'none' }) }),
@@ -89,6 +91,18 @@ describe('SyncedRepos', () => {
 		expect(mocks.getUpstreamChanges).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		{ hasUnsavedFileChanges: false, isDisabled: false },
+		{ hasUnsavedFileChanges: true, isDisabled: true },
+	])('lets a branch be picked unless edits are unsaved: $hasUnsavedFileChanges', async (props) => {
+		renderRepos({ hasUnsavedFileChanges: props.hasUnsavedFileChanges });
+
+		fireEvent.click(await screen.findByRole('button', { name: /Synced repos/, expanded: false }));
+
+		const branchButton = screen.getByRole('button', { name: 'Branch of business: main' });
+		expect(branchButton.hasAttribute('disabled')).toBe(props.isDisabled);
+	});
+
 	it('lists what the picked branch changes, opens a change and tests the branch', async () => {
 		localStorage.setItem(
 			'nao-test-upstream-source',
@@ -107,6 +121,20 @@ describe('SyncedRepos', () => {
 		expect(screen.getByRole('link', { name: /#87/ }).getAttribute('href')).toBe(
 			'https://github.com/acme/business/pull/87',
 		);
+	});
+
+	it('pulls the latest commit of the picked branch again', async () => {
+		localStorage.setItem(
+			'nao-test-upstream-source',
+			JSON.stringify({ repo: 'business', branch: 'analyst/net-revenue' }),
+		);
+		renderRepos();
+		const pullButton = await screen.findByRole('button', { name: 'Pull the latest commit' });
+
+		expect(pullButton.getAttribute('title')).toBe('Pull the latest commit of analyst/net-revenue, now at def456');
+		fireEvent.click(pullButton);
+
+		await vi.waitFor(() => expect(mocks.getUpstreamChanges).toHaveBeenCalledTimes(2));
 	});
 
 	it.each([
@@ -134,10 +162,15 @@ describe('SyncedRepos', () => {
 	});
 });
 
-function renderRepos({ onViewDiff = vi.fn(), onOpenTests = vi.fn() } = {}) {
+function renderRepos({ onViewDiff = vi.fn(), onOpenTests = vi.fn(), hasUnsavedFileChanges = false } = {}) {
 	return render(
 		<QueryClientProvider client={createTestQueryClient()}>
-			<SyncedRepos selectedPath={null} onViewDiff={onViewDiff} onOpenTests={onOpenTests} />
+			<SyncedRepos
+				selectedPath={null}
+				hasUnsavedFileChanges={hasUnsavedFileChanges}
+				onViewDiff={onViewDiff}
+				onOpenTests={onOpenTests}
+			/>
 		</QueryClientProvider>,
 	);
 }

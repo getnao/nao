@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
-import { restartOnboarding } from '../services/onboarding-restart';
+import { restartOnboarding } from '../services/onboarding/onboarding-restart';
 import {
 	getActiveWarehouseProvisioningJob,
 	getLatestWarehouseProvisioningJob,
@@ -10,8 +10,9 @@ import {
 	retryWarehouseProvisioning,
 	startWarehouseProvisioning,
 	validateWarehouseCredentials,
-} from '../services/warehouse-provisioning';
-import { warehouseCredentialsSchema, warehouseProvisioningInputSchema } from '../types/warehouse';
+} from '../services/onboarding/warehouse-provisioning';
+import { warehouseProvisioningInputSchema } from '../types/onboarding/warehouse-provisioning';
+import { warehouseCredentialsSchema } from '../types/warehouse';
 import { organizationProtectedProcedure, protectedProcedure, router } from './trpc';
 
 export const onboardingRoutes = router({

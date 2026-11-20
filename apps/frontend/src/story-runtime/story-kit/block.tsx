@@ -1,5 +1,6 @@
 import { joinClassNames } from '@nao/shared/class-names';
 import { partAttributes } from '@nao/shared/story-parts';
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import { CodeIcon, PencilIcon } from 'lucide-react';
 import { useState } from 'react';
 import { isPrintMode, isStoryExport, requestBlockAsk, requestBlockEdit } from '../story-host';
@@ -122,6 +123,9 @@ export function BlockState({ data, emptyMessage = 'No rows.', children }: BlockS
 		return <div className='nao-skeleton' aria-busy='true' />;
 	}
 	if (data.status === 'error') {
+		if (data.error === STORY_QUERY_ACCESS_DENIED_MESSAGE) {
+			return <div className='nao-block__state'>Data unavailable with your current access.</div>;
+		}
 		return (
 			<div className='nao-block__state nao-block__state--error' role='alert'>
 				{data.error}

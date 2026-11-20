@@ -117,9 +117,12 @@ export const STORY_RUNTIME_MODULES: Record<StoryAppAllowedImport | typeof STORY_
 
 export type CustomStoryViewerAccess = { kind: 'sharedChat'; shareId: string } | { kind: 'replay'; chatId: string };
 
+export const STORY_QUERY_ACCESS_DENIED_MESSAGE = 'Query data is unavailable with your current access.';
+
 export interface StoryQueryResult {
 	columns: string[];
 	data: unknown[];
+	accessDenied?: true;
 }
 
 /** Narrative id → text regenerated from the latest data */
@@ -162,6 +165,8 @@ export const fitMapBoundariesInExport = (
 	});
 	return Object.fromEntries(kept);
 };
+
+export const STORY_NARRATIVES_REDACT_MISSING_KEY = '__nao_redact_missing_narratives__';
 
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
