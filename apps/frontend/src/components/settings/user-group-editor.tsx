@@ -107,15 +107,7 @@ export interface UserGroupEditorGroup {
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab =
-	| 'features'
-	| 'context'
-	| 'mcp'
-	| 'skills'
-	| 'folders'
-	| 'budget'
-	| 'advanced'
-	| 'sso';
+export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'skills' | 'folders' | 'budget' | 'advanced' | 'sso';
 
 export function resolveUserGroupEditorTab(value: unknown): UserGroupEditorTab {
 	if (value === 'security') {
