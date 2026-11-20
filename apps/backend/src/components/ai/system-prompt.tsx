@@ -314,6 +314,7 @@ export function SystemPrompt({
 						If you get an error, loop until you fix the error, search for the correct name using the list or
 						search tools.
 					</ListItem>,
+					<ListItem>Never guess column names: look them up in the table files first.</ListItem>,
 					<ListItem>
 						A LIMIT/TOP clause caps how many rows are returned, not how many exist. Never state a total or
 						an "exact" count based on the number of rows a limited query returned. To count rows, run a
