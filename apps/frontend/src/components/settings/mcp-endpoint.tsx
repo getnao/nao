@@ -2,13 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { LlmSelectedModel } from '@nao/shared/types';
-import {
-	CONTEXT_LAYER_TOOLS,
-	McpToolGroupSection,
-	McpToolList,
-	SHARED_TOOL_GROUPS,
-	SUB_AGENT_TOOLS,
-} from '@/components/settings/mcp-tools';
+import { McpToolsCard } from '@/components/settings/mcp-tools';
 import { findModel, ModelSelectField } from '@/components/settings/model-select-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -90,51 +84,39 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 				/>
 			</SettingsCard>
 
-			<SettingsCard
-				title='Tools'
-				description='Every tool the endpoint exposes. The two modes decide which ones an MCP client sees; the other groups depend on the role of the connected user.'
-				divide
-				className='gap-4 *:not-last:pb-4'
-			>
-				<div className='flex flex-col gap-3'>
-					<SettingsToggleRow
-						id='mcp-sub-agent-mode'
-						label='Sub-agent mode'
-						description={renderInline(
-							"Delegates analytics tasks to nao's agent, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
-						)}
-						checked={subAgentModeEnabled}
-						onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
-						disabled={!isAdmin || !enabled || pending}
-					/>
-					<McpToolList tools={SUB_AGENT_TOOLS} inactive={!enabled || !subAgentModeEnabled} />
-					{subAgentModeEnabled && (
-						<SubAgentModelField
-							value={settings?.subAgentModel ?? null}
-							disabled={!isAdmin || !enabled || pending}
-							onChange={(subAgentModel) => updateMutation.mutate({ subAgentModel })}
-						/>
+			<SettingsCard title='MCP Modes' description='Control which capabilities are exposed.'>
+				<SettingsToggleRow
+					id='mcp-sub-agent-mode'
+					label='Sub-agent mode'
+					description={renderInline(
+						"Delegates analytics tasks to nao's agent through `ask_nao`, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
 					)}
-				</div>
-				<div className='flex flex-col gap-3'>
-					<SettingsToggleRow
-						id='mcp-context-layer-mode'
-						label='Context-layer mode'
-						description='Gives the client direct access to the project context and the databases: it drives the analysis step by step.'
-						checked={contextLayerModeEnabled}
-						onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
+					checked={subAgentModeEnabled}
+					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
+					disabled={!isAdmin || !enabled || pending}
+				/>
+				{subAgentModeEnabled && (
+					<SubAgentModelField
+						value={settings?.subAgentModel ?? null}
 						disabled={!isAdmin || !enabled || pending}
+						onChange={(subAgentModel) => updateMutation.mutate({ subAgentModel })}
 					/>
-					<McpToolList tools={CONTEXT_LAYER_TOOLS} inactive={!enabled || !contextLayerModeEnabled} />
-				</div>
-				{SHARED_TOOL_GROUPS.map((group) => (
-					<McpToolGroupSection
-						key={group.title}
-						group={group}
-						inactive={!enabled || (group.requiresMode && !subAgentModeEnabled && !contextLayerModeEnabled)}
-					/>
-				))}
+				)}
+				<SettingsToggleRow
+					id='mcp-context-layer-mode'
+					label='Context-layer mode'
+					description='Gives the client direct access to the project context and the databases: it drives the analysis step by step.'
+					checked={contextLayerModeEnabled}
+					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
+					disabled={!isAdmin || !enabled || pending}
+				/>
 			</SettingsCard>
+
+			<McpToolsCard
+				endpointEnabled={enabled}
+				subAgentModeEnabled={subAgentModeEnabled}
+				contextLayerModeEnabled={contextLayerModeEnabled}
+			/>
 
 			<ConnectionCard />
 
