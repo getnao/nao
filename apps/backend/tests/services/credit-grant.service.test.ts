@@ -35,6 +35,7 @@ import {
 	recordProjectJoinCandidate,
 } from '../../src/services/credit-grant.service';
 import * as creditWalletService from '../../src/services/credit-wallet.service';
+import { addOrganizationMemberWithGroups } from '../../src/services/membership.service';
 import { saveProjectWarehouseEnvVars } from '../../src/services/warehouse-credentials';
 import { logger } from '../../src/utils/logger';
 
@@ -82,6 +83,24 @@ describe('automatic credit grants', () => {
 		expect(await getOrganizationSetupCreditGrant('setup-org')).toMatchObject({
 			amountMicroUsd: 20_000_000,
 		});
+	});
+
+	it('records a user join candidate for a member invited with group assignments', async () => {
+		await insertOrganizationAndProject('invite-org', 'invite-project', createProjectDirectory('invite', false), {});
+		await db.insert(s.user).values({
+			id: 'invite-user',
+			name: 'Invited User',
+			email: 'invite-user@example.com',
+			emailVerified: true,
+		});
+
+		await addOrganizationMemberWithGroups({ orgId: 'invite-org', userId: 'invite-user', role: 'user' }, []);
+
+		const [candidate] = await db
+			.select()
+			.from(s.creditGrantCandidate)
+			.where(eq(s.creditGrantCandidate.sourceKey, 'org-member:invite-org:invite-user'));
+		expect(candidate).toMatchObject({ grantType: 'user_join', orgId: 'invite-org', userId: 'invite-user' });
 	});
 
 	it('recognizes warehouse credentials when reconciling an organization grant', async () => {

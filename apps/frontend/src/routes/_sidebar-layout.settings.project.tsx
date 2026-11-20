@@ -128,6 +128,7 @@ function NoProjectCloudState({ isAdmin }: { isAdmin: boolean }) {
 
 					<OrgApiKeys
 						isAdmin
+						scope='deploy'
 						deployUrl={deployUrl}
 						title='Generate a deploy key'
 						description='Create an organization API key and copy the exact command you can run to deploy your first project.'

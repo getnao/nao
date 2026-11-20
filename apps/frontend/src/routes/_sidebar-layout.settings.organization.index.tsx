@@ -146,7 +146,8 @@ function OrganizationSettingsPage() {
 						</SettingsCard>
 					)}
 					<OrgTwoFactorSettings isAdmin={isOrgAdmin} />
-					<OrgApiKeys isAdmin={isOrgAdmin} />
+					<OrgApiKeys isAdmin={isOrgAdmin} scope='deploy' />
+					<OrgApiKeys isAdmin={isOrgAdmin} scope='user_management' />
 				</div>
 			</div>
 

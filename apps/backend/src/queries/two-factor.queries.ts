@@ -2,6 +2,7 @@ import { and, eq, like } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 
 const TRUSTED_DEVICE_IDENTIFIER_PREFIX = 'trust-device-';
 
@@ -53,17 +54,21 @@ export const updateOrganizationPolicy = async (orgId: string, policy: Organizati
 
 /** Removes the user's second factor and every device they trusted to skip it. */
 export const resetUserTwoFactor = async (userId: string): Promise<void> => {
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		db.transaction((tx) => {
+			tx.delete(s.twoFactor).where(eq(s.twoFactor.userId, userId)).run();
+			tx.update(s.user).set({ twoFactorEnabled: false }).where(eq(s.user.id, userId)).run();
+			tx.delete(s.verification).where(trustedDeviceMatch(userId)).run();
+		});
+		return;
+	}
+
 	await db.transaction(async (tx) => {
 		await tx.delete(s.twoFactor).where(eq(s.twoFactor.userId, userId)).execute();
 		await tx.update(s.user).set({ twoFactorEnabled: false }).where(eq(s.user.id, userId)).execute();
-		await tx
-			.delete(s.verification)
-			.where(
-				and(
-					eq(s.verification.value, userId),
-					like(s.verification.identifier, `${TRUSTED_DEVICE_IDENTIFIER_PREFIX}%`),
-				),
-			)
-			.execute();
+		await tx.delete(s.verification).where(trustedDeviceMatch(userId)).execute();
 	});
 };
+
+const trustedDeviceMatch = (userId: string) =>
+	and(eq(s.verification.value, userId), like(s.verification.identifier, `${TRUSTED_DEVICE_IDENTIFIER_PREFIX}%`));

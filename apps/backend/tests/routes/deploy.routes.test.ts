@@ -42,7 +42,12 @@ const createTemporaryFolder = useTemporaryFolders();
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	mocks.validateApiKey.mockResolvedValue({ createdBy: 'user-id', organization: { id: 'organization-id' } });
+	mocks.validateApiKey.mockResolvedValue({
+		status: 'ok',
+		org: { id: 'organization-id' },
+		scope: 'deploy',
+		createdBy: 'user-id',
+	});
 	await deployRoutes({ post: mocks.post } as never);
 });
 
@@ -63,6 +68,18 @@ describe('deploy route cloud billing access', () => {
 		expect(status).toHaveBeenCalledWith(400);
 		expect(send).toHaveBeenCalledWith({ error: 'No file uploaded. Send a tar.gz as multipart field "context".' });
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('answers 403 for a key scoped to another API, and 401 for a key that is not one', async () => {
+		mocks.validateApiKey.mockResolvedValue({ status: 'scope_mismatch' });
+		const { status, send } = await upload(vi.fn());
+		expect(status).toHaveBeenCalledWith(403);
+		expect(send).toHaveBeenCalledWith({ error: 'This API key is not scoped for deploy' });
+
+		mocks.validateApiKey.mockResolvedValue({ status: 'invalid' });
+		const invalid = await upload(vi.fn());
+		expect(invalid.status).toHaveBeenCalledWith(401);
+		expect(invalid.send).toHaveBeenCalledWith({ error: 'Invalid API key' });
 	});
 });
 
