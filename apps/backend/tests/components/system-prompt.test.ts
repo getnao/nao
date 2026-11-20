@@ -344,6 +344,23 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).toContain('Saved state works like localStorage');
 	});
 
+	it.each([
+		[
+			['https://upload.wikimedia.org/wikipedia'],
+			'only loads files under these allowed sources: https://upload.wikimedia.org/wikipedia',
+		],
+		[[], 'No image source is allowed in this project'],
+	])('tells custom stories which image sources load (%j)', (allowedStoryImageSources, expected) => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				toolNames: ['execute_sql', 'write', 'story'],
+				allowedStoryImageSources,
+				options: { customStoriesEnabled: true },
+			}),
+		);
+		expect(markdown).toContain(expected);
+	});
+
 	it('explains that an attachment arrives as a path, not as content', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 		expect(markdown).toContain('**/home/uploads**');
