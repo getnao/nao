@@ -141,7 +141,7 @@ const app = fastify({
 					},
 				}
 			: true,
-	bodyLimit: 35 * 1024 * 1024, // ~25 MB audio * 4/3 base64 overhead + JSON envelope
+	bodyLimit: 110 * 1024 * 1024, // 100 MB GeoJSON uploads plus JSON envelope
 	routerOptions: { maxParamLength: 2048 },
 	trustProxy: true,
 }).withTypeProvider<ZodTypeProvider>();
