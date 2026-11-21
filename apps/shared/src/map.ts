@@ -21,8 +21,8 @@ export interface UploadedBoundaryFile {
 	storageKey: string;
 }
 
-/** Per file, and below a story download's boundary budget, so one uploaded set always fits in a download. */
-export const MAX_BOUNDARY_FILE_BYTES = 10 * 1024 * 1024;
+/** Per file. Boundary sets larger than MAX_STORY_EXPORT_BOUNDARY_BYTES still upload and render in live maps but are dropped from story downloads by fitMapBoundariesInExport. */
+export const MAX_BOUNDARY_FILE_BYTES = 100 * 1024 * 1024;
 
 export const BOUNDARY_FILE_SIMPLIFY_HINT = 'Simplify its shapes, for example with mapshaper.org, to make it smaller.';
 
