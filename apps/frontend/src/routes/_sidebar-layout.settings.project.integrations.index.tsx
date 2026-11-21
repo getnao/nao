@@ -68,9 +68,9 @@ function ProjectIntegrationsPage() {
 					<McpEndpointSettings
 						isAdmin={isAdmin}
 						section={section ?? 'setup'}
-						onSectionChange={(nextSection) =>
-							navigate({ search: { tab, section: nextSection }, replace: true })
-						}
+						onSectionChange={(nextSection) => {
+							navigate({ search: { tab, section: nextSection }, replace: true });
+						}}
 					/>
 				)}
 				{tab === 'mcp-servers' && <McpSettings isAdmin={isAdmin} />}
