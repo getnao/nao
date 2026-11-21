@@ -33,7 +33,10 @@ vi.mock('better-auth', () => ({
 	betterAuth: mocks.betterAuth,
 }));
 vi.mock('better-auth/adapters/drizzle', () => ({ drizzleAdapter: vi.fn(() => ({})) }));
-vi.mock('better-auth/api', () => ({ createAuthMiddleware: vi.fn((handler) => handler) }));
+vi.mock('better-auth/api', () => ({
+	createAuthEndpoint: vi.fn(() => ({})),
+	createAuthMiddleware: vi.fn((handler) => handler),
+}));
 vi.mock('better-auth/plugins', () => ({ jwt: vi.fn(() => ({})) }));
 vi.mock('better-auth/plugins/bearer', () => ({ bearer: vi.fn(() => ({})) }));
 vi.mock('@better-auth/oauth-provider', () => ({

@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// The first nao server release that exposes `/api/server-info` and `/api/desktop-auth/session`.
-pub const MIN_SERVER_VERSION: &str = "0.3.29";
+pub const MIN_SERVER_VERSION: &str = "0.4.7";
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const LEGACY_API_GREETING: &str = "Welcome to the API!";
@@ -302,7 +302,7 @@ mod tests {
     #[tokio::test]
     async fn check_server_accepts_a_supported_nao_server() {
         let server = StubHttpServer::start(|path| match path {
-            "/api/server-info" => (200, r#"{"app":"nao","version":"0.4.0"}"#.into()),
+            "/api/server-info" => (200, r#"{"app":"nao","version":"0.5.0"}"#.into()),
             _ => (404, String::new()),
         })
         .await;
@@ -311,7 +311,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(info.version, "0.4.0");
+        assert_eq!(info.version, "0.5.0");
     }
 
     #[tokio::test]

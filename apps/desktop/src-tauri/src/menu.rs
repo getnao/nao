@@ -1,5 +1,5 @@
 use tauri::menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
 use crate::controller::{reload_main_window, show_server_list, MAIN_WINDOW};
 
@@ -91,8 +91,11 @@ fn build_view_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu:
 
 fn open_developer_tools(app: &AppHandle) {
     #[cfg(debug_assertions)]
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        window.open_devtools();
+    {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+            window.open_devtools();
+        }
     }
     #[cfg(not(debug_assertions))]
     let _ = (app, MAIN_WINDOW);
