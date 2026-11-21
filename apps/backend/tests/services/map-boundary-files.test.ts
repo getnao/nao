@@ -1,4 +1,4 @@
-import type { CustomBoundarySet } from '@nao/shared';
+import { BOUNDARY_FILE_SIMPLIFY_HINT, type CustomBoundarySet, MAX_BOUNDARY_FILE_BYTES } from '@nao/shared';
 import { describe, expect, it } from 'vitest';
 
 import { deleteBoundaryFile, saveBoundaryFile } from '../../src/services/map-boundary-files';
@@ -60,8 +60,38 @@ describe('uploaded map boundaries', () => {
 			'Not a valid GeoJSON',
 		);
 	});
+
+	it('accepts a GeoJSON file of about 50 MB', async () => {
+		const geojson = geojsonApproximatelyBytes(50 * 1024 * 1024);
+		const stored = await saveBoundaryFile('proj-1', { fileName: 'large.geojson', geojson });
+
+		expect(stored.file.size).toBeGreaterThan(40 * 1024 * 1024);
+		expect(stored.file.size).toBeLessThanOrEqual(MAX_BOUNDARY_FILE_BYTES);
+	});
+
+	it('refuses a GeoJSON file larger than 100 MB with the simplify hint', async () => {
+		const geojson = geojsonApproximatelyBytes(MAX_BOUNDARY_FILE_BYTES + 1);
+
+		await expect(saveBoundaryFile('proj-1', { fileName: 'huge.geojson', geojson })).rejects.toThrow(
+			BOUNDARY_FILE_SIMPLIFY_HINT,
+		);
+	});
 });
 
 function boundarySet(file: CustomBoundarySet['file']): CustomBoundarySet {
 	return { key: 'paris', label: 'Paris', file, joinProperty: 'code', regionKeyHint: 'Department code' };
+}
+
+/** Padding makes the stringified FeatureCollection reach about `bytes`; the JSON wrapper adds a little more. */
+function geojsonApproximatelyBytes(bytes: number) {
+	return {
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				properties: { code: '75', padding: 'x'.repeat(bytes) },
+				geometry: { type: 'Point', coordinates: [0, 0] },
+			},
+		],
+	};
 }
