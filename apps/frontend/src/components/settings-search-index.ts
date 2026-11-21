@@ -809,7 +809,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
@@ -829,7 +829,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'connect' },
 		section: 'nao MCP',
 		title: 'Connected apps',
 		description: 'Create and manage the OAuth clients external MCP tools use to connect (client id + secret).',
@@ -841,7 +841,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'Sub-agent mode',
 		description:
@@ -851,7 +851,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'Sub-agent model',
 		description: 'Choose the model ask_nao answers with, or let it follow the default chat model.',
@@ -861,7 +861,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'Context-layer mode',
 		description:
@@ -883,7 +883,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'tools' },
 		section: 'nao MCP',
 		title: 'Tools',
 		description:
@@ -909,6 +909,36 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'set_recommendation_status',
 			'export_member_budgets',
 		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp', section: 'connect' },
+		section: 'nao MCP',
+		title: 'Connection guide',
+		description: 'Step-by-step setup and config to connect Cursor, Codex, ChatGPT, Copilot, Claude, Dust or a CLI.',
+		keywords: [
+			'connect',
+			'setup',
+			'endpoint url',
+			'config',
+			'cursor',
+			'codex',
+			'chatgpt',
+			'copilot',
+			'claude',
+			'dust',
+		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp', section: 'activity' },
+		section: 'nao MCP',
+		title: 'Recent MCP calls',
+		description: 'The last 50 tool calls external clients made, with their input and errors.',
+		keywords: ['mcp logs', 'call logs', 'activity', 'audit', 'history'],
+		adminOnly: true,
 	},
 
 	// ── Storage ─────────────────────────────────────────────
