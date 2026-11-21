@@ -2,12 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { LlmSelectedModel } from '@nao/shared/types';
+import type { SegmentedControlOption } from '@/components/ui/segmented-control';
+import { McpToolsCard } from '@/components/settings/mcp-tools';
 import { findModel, ModelSelectField } from '@/components/settings/model-select-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
@@ -15,25 +18,72 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-interface ProjectItem {
-	id: string;
-	name: string;
-}
+export type McpEndpointSection = 'setup' | 'tools' | 'connect' | 'activity';
+
+const SECTIONS: SegmentedControlOption<McpEndpointSection>[] = [
+	{ value: 'setup', label: 'Setup' },
+	{ value: 'tools', label: 'Tools' },
+	{ value: 'connect', label: 'Connect' },
+	{ value: 'activity', label: 'Activity' },
+];
 
 interface Props {
 	isAdmin: boolean;
-	projects?: ProjectItem[];
+	section: McpEndpointSection;
+	onSectionChange: (section: McpEndpointSection) => void;
 }
 
-export function McpEndpointSettings({ isAdmin }: Props) {
-	const queryClient = useQueryClient();
-	const settingsQuery = useQuery(trpc.mcpEndpoint.getSettings.queryOptions());
-	const callLogsQuery = useQuery({
-		...trpc.mcpEndpoint.getCallLogs.queryOptions(),
-		refetchInterval: 30_000,
-		enabled: isAdmin,
-	});
+export function isMcpEndpointSection(value: unknown): value is McpEndpointSection {
+	return SECTIONS.some((section) => section.value === value);
+}
 
+export function McpEndpointSettings({ isAdmin, section, onSectionChange }: Props) {
+	const settingsQuery = useQuery(trpc.mcpEndpoint.getSettings.queryOptions());
+	const settings = settingsQuery.data;
+	const modes = {
+		endpointEnabled: settings?.enabled ?? true,
+		subAgentModeEnabled: settings?.subAgentModeEnabled ?? true,
+		contextLayerModeEnabled: settings?.contextLayerModeEnabled ?? true,
+	};
+	const sections = isAdmin ? SECTIONS : SECTIONS.filter((option) => option.value !== 'activity');
+	const activeSection = sections.some((option) => option.value === section) ? section : 'setup';
+
+	return (
+		<div className='flex flex-col gap-8'>
+			<SegmentedControl
+				label='nao MCP sections'
+				options={sections}
+				value={activeSection}
+				onChange={onSectionChange}
+				className='self-start'
+			/>
+			<div className='flex flex-col gap-12'>
+				{activeSection === 'setup' && (
+					<EndpointCard isAdmin={isAdmin} modes={modes} subAgentModel={settings?.subAgentModel ?? null} />
+				)}
+				{activeSection === 'tools' && <McpToolsCard {...modes} />}
+				{activeSection === 'connect' && (
+					<>
+						<ConnectionCard />
+						{isAdmin && <OAuthClientsCard />}
+					</>
+				)}
+				{activeSection === 'activity' && <CallLogsCard />}
+			</div>
+		</div>
+	);
+}
+
+function EndpointCard({
+	isAdmin,
+	modes,
+	subAgentModel,
+}: {
+	isAdmin: boolean;
+	modes: { endpointEnabled: boolean; subAgentModeEnabled: boolean; contextLayerModeEnabled: boolean };
+	subAgentModel: LlmSelectedModel | null;
+}) {
+	const queryClient = useQueryClient();
 	const updateMutation = useMutation(
 		trpc.mcpEndpoint.updateSettings.mutationOptions({
 			onMutate: async (newSettings) => {
@@ -57,72 +107,56 @@ export function McpEndpointSettings({ isAdmin }: Props) {
 		}),
 	);
 
-	const settings = settingsQuery.data;
-	const enabled = settings?.enabled ?? true;
 	const pending = updateMutation.isPending;
+	const modeDisabled = !isAdmin || !modes.endpointEnabled || pending;
 
 	const toggle = (field: string, value: boolean) => {
 		updateMutation.mutate({ [field]: value });
 	};
 
 	return (
-		<>
-			<SettingsCard
-				title='MCP Server'
-				description='Allow external AI clients (Claude, Cursor, Codex, ChatGPT, etc.) to connect.'
-			>
-				<SettingsToggleRow
-					id='mcp-enabled'
-					label='Enable MCP endpoint'
-					description=''
-					checked={enabled}
-					onCheckedChange={(v) => toggle('enabled', v)}
-					disabled={!isAdmin || pending}
-				/>
-			</SettingsCard>
-
-			<SettingsCard title='MCP Modes' description='Control which capabilities are exposed.'>
+		<SettingsCard
+			title='MCP Server'
+			description='Allow external AI clients (Claude, Cursor, Codex, ChatGPT, etc.) to connect, and choose what they can do.'
+			divide
+			className='gap-4 *:not-last:pb-4'
+		>
+			<SettingsToggleRow
+				id='mcp-enabled'
+				label='Enable MCP endpoint'
+				description=''
+				checked={modes.endpointEnabled}
+				onCheckedChange={(v) => toggle('enabled', v)}
+				disabled={!isAdmin || pending}
+			/>
+			<div className='flex flex-col gap-4'>
 				<SettingsToggleRow
 					id='mcp-sub-agent-mode'
 					label='Sub-agent mode'
 					description={renderInline(
-						"Exposes `ask_nao` (plus `get_nao_answer` to poll long runs) — delegates analytics tasks to nao's agent, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
+						"Delegates analytics tasks to nao's agent through `ask_nao`, on the model selected below (or the project default chat model) unless the caller names a `model`. The full reasoning trace is saved as a chat visible in the nao UI.",
 					)}
-					checked={settings?.subAgentModeEnabled ?? true}
+					checked={modes.subAgentModeEnabled}
 					onCheckedChange={(v) => toggle('subAgentModeEnabled', v)}
-					disabled={!isAdmin || !enabled || pending}
+					disabled={modeDisabled}
 				/>
-				{(settings?.subAgentModeEnabled ?? true) && (
+				{modes.subAgentModeEnabled && (
 					<SubAgentModelField
-						value={settings?.subAgentModel ?? null}
-						disabled={!isAdmin || !enabled || pending}
-						onChange={(subAgentModel) => updateMutation.mutate({ subAgentModel })}
+						value={subAgentModel}
+						disabled={modeDisabled}
+						onChange={(selection) => updateMutation.mutate({ subAgentModel: selection })}
 					/>
 				)}
-				<SettingsToggleRow
-					id='mcp-context-layer-mode'
-					label='Context-layer mode'
-					description={renderInline(
-						'Exposes `ls_nao_context`, `grep_nao_context`, `read_nao_context`, `execute_sql`, `create_story`, `update_story` — the client MCP drives the workflow step by step.',
-					)}
-					checked={settings?.contextLayerModeEnabled ?? true}
-					onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
-					disabled={!isAdmin || !enabled || pending}
-				/>
-			</SettingsCard>
-
-			<ConnectionCard />
-
-			{isAdmin && <OAuthClientsCard />}
-
-			{isAdmin && (
-				<CallLogsCard
-					logs={callLogsQuery.data ?? []}
-					isLoading={callLogsQuery.isLoading}
-					isError={callLogsQuery.isError}
-				/>
-			)}
-		</>
+			</div>
+			<SettingsToggleRow
+				id='mcp-context-layer-mode'
+				label='Context-layer mode'
+				description='Gives the client direct access to the project context and the databases: it drives the analysis step by step.'
+				checked={modes.contextLayerModeEnabled}
+				onCheckedChange={(v) => toggle('contextLayerModeEnabled', v)}
+				disabled={modeDisabled}
+			/>
+		</SettingsCard>
 	);
 }
 
@@ -812,7 +846,10 @@ type CallLog = {
 	calledAt: Date;
 };
 
-function CallLogsCard({ logs, isLoading, isError }: { logs: CallLog[]; isLoading: boolean; isError: boolean }) {
+function CallLogsCard() {
+	const callLogsQuery = useQuery({ ...trpc.mcpEndpoint.getCallLogs.queryOptions(), refetchInterval: 30_000 });
+	const logs: CallLog[] = callLogsQuery.data ?? [];
+	const { isLoading, isError } = callLogsQuery;
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 
 	const toggle = (id: string) => setExpandedId((current) => (current === id ? null : id));
