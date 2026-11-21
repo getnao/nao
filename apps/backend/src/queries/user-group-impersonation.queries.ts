@@ -28,11 +28,11 @@ export const startGroupImpersonation = async (projectId: string, userId: string,
 		.execute();
 };
 
-export const stopGroupImpersonation = async (projectId: string, userId: string): Promise<boolean> => {
-	const deleted = await db
+export const stopGroupImpersonation = async (projectId: string, userId: string): Promise<string[] | null> => {
+	const [deleted] = await db
 		.delete(s.userGroupImpersonation)
 		.where(and(eq(s.userGroupImpersonation.projectId, projectId), eq(s.userGroupImpersonation.userId, userId)))
-		.returning({ userId: s.userGroupImpersonation.userId })
+		.returning({ groupIds: s.userGroupImpersonation.groupIds })
 		.execute();
-	return deleted.length > 0;
+	return deleted?.groupIds ?? null;
 };

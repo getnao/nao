@@ -9,6 +9,9 @@ import { getUserRoleInProject } from '../../src/queries/project.queries';
 import { startGroupImpersonation, stopGroupImpersonation } from '../../src/queries/user-group-impersonation.queries';
 import { getShareAudience } from '../../src/services/project-sharing.service';
 import { resolveAvailableUserGroupAccess } from '../../src/services/user-group-availability.service';
+import { router } from '../../src/trpc/trpc';
+import { userGroupRoutes } from '../../src/trpc/user-group.routes';
+import { createTestCaller } from '../helpers/trpc-caller';
 
 vi.mock('../../src/services/license.service', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/services/license.service')>()),
@@ -23,6 +26,13 @@ vi.mock('../../src/env', async (importOriginal) => ({
 		return mode.isCloud;
 	},
 }));
+
+vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
+
+vi.mock('../../src/queries/project.queries', async (importOriginal) => {
+	const original = await importOriginal<typeof import('../../src/queries/project.queries')>();
+	return { ...original, getProjectByUserId: vi.fn(() => original.getProjectById(PROJECT_ID)) };
+});
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -94,6 +104,28 @@ describe('user group impersonation', () => {
 
 		mode.isCloud = false;
 		await stopGroupImpersonation(PROJECT_ID, ADMIN_ID);
+	});
+
+	it('records an audit activity when an admin starts and stops impersonating', async () => {
+		const caller = createTestCaller(router({ userGroup: userGroupRoutes }), {
+			userId: ADMIN_ID,
+			selectedProjectId: PROJECT_ID,
+		});
+
+		await caller.userGroup.startImpersonation({ groupIds: [FINANCE_GROUP_ID] });
+		await caller.userGroup.stopImpersonation();
+		await caller.userGroup.stopImpersonation();
+
+		const activities = await db
+			.select({ type: s.activity.type, userId: s.activity.userId, payload: s.activity.payload })
+			.from(s.activity)
+			.where(eq(s.activity.projectId, PROJECT_ID))
+			.orderBy(s.activity.startedAt);
+		const payload = { groupIds: [FINANCE_GROUP_ID], groupNames: ['Finance'] };
+		expect(activities).toEqual([
+			{ type: 'user_group.impersonation_started', userId: ADMIN_ID, payload },
+			{ type: 'user_group.impersonation_stopped', userId: ADMIN_ID, payload },
+		]);
 	});
 });
 
