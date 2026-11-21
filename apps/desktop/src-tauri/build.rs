@@ -5,6 +5,10 @@ const APP_COMMANDS: &[&str] = &[
     "select_server",
     "start_sign_in",
     "cancel_sign_in",
+    "local_agent_status",
+    "local_agent_overview",
+    "local_agent_start_turn",
+    "local_agent_stop_turn",
 ];
 
 fn main() {

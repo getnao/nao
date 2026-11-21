@@ -47,6 +47,7 @@ import { Route as SidebarLayoutSettingsLogsRouteImport } from './routes/_sidebar
 import { Route as SidebarLayoutSettingsGitRouteImport } from './routes/_sidebar-layout.settings.git'
 import { Route as SidebarLayoutSettingsEnterpriseRouteImport } from './routes/_sidebar-layout.settings.enterprise'
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
+import { Route as SidebarLayoutSettingsClaudeCodeRouteImport } from './routes/_sidebar-layout.settings.claude-code'
 import { Route as SidebarLayoutSettingsAppearanceRouteImport } from './routes/_sidebar-layout.settings.appearance'
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
 import { Route as SidebarLayoutAutomationsNewRouteImport } from './routes/_sidebar-layout.automations.new'
@@ -291,6 +292,12 @@ const SidebarLayoutSettingsContextExplorerRoute =
   SidebarLayoutSettingsContextExplorerRouteImport.update({
     id: '/context-explorer',
     path: '/context-explorer',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsClaudeCodeRoute =
+  SidebarLayoutSettingsClaudeCodeRouteImport.update({
+    id: '/claude-code',
+    path: '/claude-code',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsAppearanceRoute =
@@ -541,6 +548,7 @@ export interface FileRoutesByFullPath {
   '/automations/new': typeof SidebarLayoutAutomationsNewRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
+  '/settings/claude-code': typeof SidebarLayoutSettingsClaudeCodeRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/settings/git': typeof SidebarLayoutSettingsGitRoute
@@ -616,6 +624,7 @@ export interface FileRoutesByTo {
   '/automations/new': typeof SidebarLayoutAutomationsNewRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
+  '/settings/claude-code': typeof SidebarLayoutSettingsClaudeCodeRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/settings/git': typeof SidebarLayoutSettingsGitRoute
@@ -689,6 +698,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/automations/new': typeof SidebarLayoutAutomationsNewRoute
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/_sidebar-layout/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
+  '/_sidebar-layout/settings/claude-code': typeof SidebarLayoutSettingsClaudeCodeRoute
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/_sidebar-layout/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
   '/_sidebar-layout/settings/git': typeof SidebarLayoutSettingsGitRoute
@@ -768,6 +778,7 @@ export interface FileRouteTypes {
     | '/automations/new'
     | '/settings/account'
     | '/settings/appearance'
+    | '/settings/claude-code'
     | '/settings/context-explorer'
     | '/settings/enterprise'
     | '/settings/git'
@@ -843,6 +854,7 @@ export interface FileRouteTypes {
     | '/automations/new'
     | '/settings/account'
     | '/settings/appearance'
+    | '/settings/claude-code'
     | '/settings/context-explorer'
     | '/settings/enterprise'
     | '/settings/git'
@@ -915,6 +927,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/automations/new'
     | '/_sidebar-layout/settings/account'
     | '/_sidebar-layout/settings/appearance'
+    | '/_sidebar-layout/settings/claude-code'
     | '/_sidebar-layout/settings/context-explorer'
     | '/_sidebar-layout/settings/enterprise'
     | '/_sidebar-layout/settings/git'
@@ -1253,6 +1266,13 @@ declare module '@tanstack/react-router' {
       path: '/context-explorer'
       fullPath: '/settings/context-explorer'
       preLoaderRoute: typeof SidebarLayoutSettingsContextExplorerRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/claude-code': {
+      id: '/_sidebar-layout/settings/claude-code'
+      path: '/claude-code'
+      fullPath: '/settings/claude-code'
+      preLoaderRoute: typeof SidebarLayoutSettingsClaudeCodeRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/appearance': {
@@ -1704,6 +1724,7 @@ const SidebarLayoutSettingsUsageRouteWithChildren =
 interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsAccountRoute: typeof SidebarLayoutSettingsAccountRoute
   SidebarLayoutSettingsAppearanceRoute: typeof SidebarLayoutSettingsAppearanceRoute
+  SidebarLayoutSettingsClaudeCodeRoute: typeof SidebarLayoutSettingsClaudeCodeRoute
   SidebarLayoutSettingsContextExplorerRoute: typeof SidebarLayoutSettingsContextExplorerRoute
   SidebarLayoutSettingsEnterpriseRoute: typeof SidebarLayoutSettingsEnterpriseRoute
   SidebarLayoutSettingsGitRoute: typeof SidebarLayoutSettingsGitRoute
@@ -1723,6 +1744,7 @@ interface SidebarLayoutSettingsRouteChildren {
 const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsAccountRoute: SidebarLayoutSettingsAccountRoute,
   SidebarLayoutSettingsAppearanceRoute: SidebarLayoutSettingsAppearanceRoute,
+  SidebarLayoutSettingsClaudeCodeRoute: SidebarLayoutSettingsClaudeCodeRoute,
   SidebarLayoutSettingsContextExplorerRoute:
     SidebarLayoutSettingsContextExplorerRoute,
   SidebarLayoutSettingsEnterpriseRoute: SidebarLayoutSettingsEnterpriseRoute,

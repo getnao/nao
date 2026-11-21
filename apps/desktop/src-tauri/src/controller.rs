@@ -6,6 +6,7 @@ use tokio::sync::oneshot;
 use url::Url;
 
 use crate::health_monitor;
+use crate::local_agent;
 use crate::navigation::Destination;
 use crate::screens::{screen_url, Screen};
 use crate::server_info::{check_server, ServerCheckError};
@@ -175,6 +176,7 @@ fn show_server(app: &AppHandle, server: &Server, target: Option<Url>) {
     let generation = state.next_view_generation();
     *lock(&state.active_server) = Some(server.clone());
     *lock(&state.destination) = Destination::Server(origin.clone());
+    local_agent::allow_server_origin(app, &origin);
     navigate_main_window(app, target.unwrap_or(origin));
     health_monitor::watch(app.clone(), server.clone(), generation);
 }

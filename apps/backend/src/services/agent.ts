@@ -49,16 +49,13 @@ import {
 	ProviderOptionsMap,
 } from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
-import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { protectInternalToolResults } from '../agents/tool-result-clearing';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
-import { getConnections, getTableColumnsContent, getUserRules, listSchemaTableFqdns } from '../agents/user-rules';
-import { ChatForkContextPrompt, MessagingProviderSystemPrompt, SystemPrompt } from '../components/ai';
+import { getTableColumnsContent, listSchemaTableFqdns } from '../agents/user-rules';
 import { DBChat } from '../db/abstractSchema';
 import { env } from '../env';
-import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -75,7 +72,6 @@ import {
 	UIMessagePart,
 } from '../types/chat';
 import type { ModelCosts, ModelInferenceSettings } from '../types/llm';
-import { Provider } from '../types/messaging-provider';
 import { ChatlessToolContext, McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
 	convertToCost,
@@ -98,7 +94,6 @@ import {
 } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { sanitizeToolCalls } from '../utils/model-message';
-import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
@@ -108,41 +103,30 @@ import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { assertUserIsActive } from './account-status.service';
-import { listChartPlugins } from './chart-plugin';
+import { buildAgentSystemPrompt } from './agent-system-prompt';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService, RunCompaction } from './compaction';
 import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
-import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { posthog, PostHogEvent } from './posthog';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
-import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { buildRunSqlQueryTag, type SqlQuerySource } from './sql-query-tag.service';
-import { isStorageEnabled } from './storage';
-import { canGrepUserFiles } from './storage/user-files';
 import {
 	releaseAgentStoryEditLocks,
 	renewAgentStoryEditLocks,
 	STORY_EDIT_LOCK_RENEW_MS,
 } from './story-edit-lock.service';
-import { customStoryAuthoringError } from './story-mount';
-import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
 import {
 	describeShownStoryFilters,
 	keepStoryReferencesThroughCompaction,
-	listTrustedStoriesForPrompt,
 	safeExpandStoryReferences,
 } from './story-reference';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
-import {
-	type AgentUserGroupAccess,
-	appendAgentUserGroupRestrictions,
-	resolveAgentUserGroupAccess,
-} from './user-group-feature-access.service';
+import { type AgentUserGroupAccess, resolveAgentUserGroupAccess } from './user-group-feature-access.service';
 import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
 export interface AgentRunResult {
@@ -821,11 +805,15 @@ export class AgentManager {
 			: uiMessagesWithStoryReferences;
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
-		const selectedSystemPrompt =
-			(await this._profile.systemPrompt?.({ timezone, chat: this.chat })) ??
-			(await this._buildProjectSystemPrompt(timezone, chatUrl));
-		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
-		this._systemPrompt = systemPrompt;
+		this._systemPrompt = await buildAgentSystemPrompt({
+			chat: this.chat,
+			profile: this._profile,
+			toolContext: this._toolContext,
+			toolNames: Object.keys(this._agentTools),
+			userGroupAccess: this._userGroupAccess,
+			timezone,
+			chatUrl,
+		});
 		this._runCompaction = new RunCompaction(compactionService);
 		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
 
@@ -834,94 +822,6 @@ export class AgentManager {
 		});
 
 		return sanitizeToolCalls(modelMessages, this._modelSelection.provider);
-	}
-
-	private async _buildProjectSystemPrompt(timezone?: string, chatUrl?: string): Promise<string> {
-		const provider = this._profile.messagingProvider;
-		const override = getSystemPromptOverride(this._toolContext.projectFolder, provider);
-		let systemPrompt: string;
-		if (override && !hasNaoPromptPlaceholder(override)) {
-			systemPrompt = override;
-		} else {
-			const defaultPrompt = await this._buildDefaultSystemPrompt(provider, timezone, chatUrl);
-			systemPrompt = override ? injectNaoPrompt(override, defaultPrompt) : defaultPrompt;
-		}
-
-		return this._profile.promptAppendix ? `${systemPrompt}\n\n${this._profile.promptAppendix}` : systemPrompt;
-	}
-
-	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
-		const memories = this._profile.excludesMemories
-			? []
-			: await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = this._profile.excludesUserRules
-			? undefined
-			: getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
-		const connections = getConnections(this._toolContext.projectFolder);
-		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
-		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
-		const repoNames = repos.map((repo) => repo.name);
-		const skills = skillService
-			.getSkills(this.chat.projectId)
-			.filter((skill) => isSkillGranted(this._toolContext.skillsAccess, skill.name));
-		const preloadedSkills = skillService.getPreloadedSkills(
-			this.chat.projectId,
-			this._toolContext.preloadedSkillNames,
-		);
-		const customCharts = this._toolContext.supportsCustomCharts
-			? listChartPlugins(this._toolContext.projectFolder)
-			: [];
-		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
-			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
-			toolNames.includes('execute_sandboxed_code')
-				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
-				: Promise.resolve([]),
-			toolNames.includes('list') && toolNames.includes('read')
-				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
-				: Promise.resolve([]),
-			projectQueries.getCustomBoundaries(this.chat.projectId),
-		]);
-		const basePrompt = renderToMarkdown(
-			SystemPrompt({
-				memories,
-				userRules,
-				connections,
-				configuredDatabases,
-				skills,
-				preloadedSkills,
-				customCharts,
-				mapBoundaries,
-				mcpServers,
-				sandboxSecrets,
-				trustedStories,
-				semanticLayerMode: this._toolContext.semanticLayerMode,
-				templates,
-				repoNames,
-				contextPresence,
-				timezone,
-				role: this._profile.role,
-				toolNames,
-				options: {
-					savedFilesEnabled: isStorageEnabled(),
-					canGrepSavedFiles: canGrepUserFiles(),
-					customStoriesEnabled: customStoryAuthoringError(this._toolContext.userGroupFeatures) === null,
-				},
-			}),
-		);
-		const renderedPrompt = provider
-			? renderToMarkdown(MessagingProviderSystemPrompt({ basePrompt, provider, chatUrl }))
-			: basePrompt;
-		return this.chat.forkMetadata
-			? renderToMarkdown(
-					ChatForkContextPrompt({
-						basePrompt: renderedPrompt,
-						forkMetadata: this.chat.forkMetadata,
-						linkedStory: this._toolContext.linkedStory,
-						storyOriginConversation: await resolveStoryOriginConversationSafely(this.chat),
-					}),
-				)
-			: renderedPrompt;
 	}
 
 	private _trackMessageSent(

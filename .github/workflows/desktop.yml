@@ -4,6 +4,7 @@ on:
     pull_request:
         paths:
             - 'apps/desktop/**'
+            - 'apps/shared/src/local-agent.ts'
             - 'package-lock.json'
             - '.github/workflows/desktop.yml'
     push:
@@ -11,6 +12,7 @@ on:
             - main
         paths:
             - 'apps/desktop/**'
+            - 'apps/shared/src/local-agent.ts'
             - '.github/workflows/desktop.yml'
         tags:
             - 'desktop-v*'
@@ -40,6 +42,9 @@ jobs:
                   node-version-file: '.nvmrc'
                   cache: 'npm'
 
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
             - name: Use the pinned npm
               run: ./scripts/use-pinned-npm.sh
 
@@ -64,6 +69,12 @@ jobs:
 
             - name: Build the bundled UI
               run: npm run build:ui -w @nao/desktop
+
+            - name: Build the local agent sidecar
+              run: npm run build:agent -w @nao/desktop
+
+            - name: Local agent sidecar lint
+              run: npm run lint:agent -w @nao/desktop
 
             - name: Rust checks (fmt, clippy, tests)
               run: npm run lint:desktop:rust
@@ -200,6 +211,9 @@ jobs:
               with:
                   node-version-file: '.nvmrc'
                   cache: 'npm'
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
 
             - name: Use the pinned npm
               shell: bash

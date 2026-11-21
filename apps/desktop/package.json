@@ -8,6 +8,8 @@
 		"build": "tauri build",
 		"dev:ui": "vite --port 1420 --strictPort",
 		"build:ui": "tsc --noEmit && vite build",
+		"build:agent": "node agent/scripts/build.mjs",
+		"lint:agent": "npm run lint --prefix agent",
 		"test": "vitest run",
 		"build:e2e": "tauri build --debug --no-bundle",
 		"test:e2e": "wdio run e2e/wdio.conf.ts",

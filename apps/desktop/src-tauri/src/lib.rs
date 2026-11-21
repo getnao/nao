@@ -2,6 +2,7 @@ mod commands;
 mod controller;
 mod downloads;
 mod health_monitor;
+mod local_agent;
 mod main_window;
 mod menu;
 mod navigation;
@@ -23,6 +24,7 @@ use std::error::Error;
 use tauri::{AppHandle, Config, Manager};
 use url::Url;
 
+use crate::local_agent::LocalAgent;
 use crate::screens::Screen;
 use crate::server_info::build_http_client;
 use crate::server_store::load_server_list;
@@ -50,6 +52,10 @@ pub fn run() {
             commands::select_server,
             commands::start_sign_in,
             commands::cancel_sign_in,
+            local_agent::local_agent_status,
+            local_agent::local_agent_overview,
+            local_agent::local_agent_start_turn,
+            local_agent::local_agent_stop_turn,
         ])
         .setup(|app| setup(app.handle()))
         .run(tauri::generate_context!())
@@ -64,6 +70,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn Error>> {
         build_http_client(),
         servers,
     ));
+    app.manage(LocalAgent::default());
 
     let initial_screen = match &last_used {
         Some(server) => Screen::Connecting {

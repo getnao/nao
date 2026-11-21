@@ -1,0 +1,14 @@
+{
+	"include": ["src/**/*.ts", "tests/**/*.ts"],
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"lib": ["ES2022"],
+		"types": ["node"],
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"noFallthroughCasesInSwitch": true
+	}
+}

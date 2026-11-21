@@ -21,6 +21,7 @@
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
+		"./local-agent": "./src/local-agent.ts",
 		"./map": "./src/map.ts",
 		"./sidebar-menu": "./src/sidebar-menu.ts",
 		"./test-paths": "./src/test-paths.ts",

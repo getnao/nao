@@ -6,7 +6,8 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
 
 export function useModelSelection() {
-	const { selectedModel, usesDefaultModel, setSelectedModel } = useAgentContext();
+	const { selectedModel, usesDefaultModel, setSelectedModel, localAgentModel, setLocalAgentModel } =
+		useAgentContext();
 	const currentProjectQuery = useQuery(trpc.project.getCurrent.queryOptions());
 	const hasProject = currentProjectQuery.isError || currentProjectQuery.data != null;
 	const availableModelsQuery = useQuery({
@@ -47,5 +48,7 @@ export function useModelSelection() {
 		canCycleModels,
 		cycleModel,
 		hasProject,
+		localAgentModel,
+		setLocalAgentModel,
 	};
 }

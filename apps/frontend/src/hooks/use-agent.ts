@@ -12,6 +12,7 @@ import type { UIMessage } from '@nao/backend/chat';
 import type { ImageUploadData } from '@nao/shared/attachments';
 import type { CitationData, LlmSelectedModel } from '@nao/shared/types';
 import type { DocumentAttachment } from '@/lib/attachments';
+import type { LocalAgentSelection } from '@/lib/local-agent';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { MentionOption, SelectedMention } from 'prompt-mentions';
 
@@ -33,6 +34,8 @@ import {
 	usesChatAllowance,
 } from '@/lib/ai';
 import { useSession } from '@/lib/auth-client';
+import { isDesktopApp } from '@/lib/local-agent';
+import { LocalAgentChatTransport, SwitchingChatTransport } from '@/lib/local-agent-transport';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -72,6 +75,9 @@ export interface AgentHelpers {
 	usesDefaultModel: boolean;
 	/** Pass `null` to follow the admin default. */
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
+	/** A model of the user's own subscription, run by the desktop app; it wins over `selectedModel` when set. */
+	localAgentModel: LocalAgentSelection | null;
+	setLocalAgentModel: React.Dispatch<React.SetStateAction<LocalAgentSelection | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
 	adminMode: boolean;
 	setAdminMode: (enabled: boolean) => void;
@@ -96,6 +102,7 @@ export interface SubmittedMessage extends SendMessageArgs {
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
+export const localAgentModelStorage = createLocalStorage<LocalAgentSelection>('nao-local-agent-model');
 
 export const getOnboardingChatIdStorage = (userId: string) =>
 	createLocalStorage<string>(`nao-onboarding-chat-id:${userId}`);
@@ -108,6 +115,7 @@ interface AgentSendRefs {
 	adminModeRef: { current: boolean };
 	modeRef: { current: AgentMode };
 	selectedModelRef: { current: LlmSelectedModel | null };
+	localAgentModelRef: { current: LocalAgentSelection | null };
 	mentionsRef: { current: MentionOption[] };
 	requestBodyRef: { current: AgentRequestBodyGetter | undefined };
 }
@@ -141,6 +149,7 @@ export const useAgent = ({
 		...trpc.project.getDefaultChatModel.queryOptions(),
 		enabled: hasProject,
 	});
+	const [localAgentModel, setLocalAgentModel] = useLocalStorage(localAgentModelStorage);
 	const usesDefaultModel = pinnedModel === null;
 	const selectedModel = hasProject ? (pinnedModel ?? defaultChatModel.data ?? null) : null;
 	const setChat = useSetChat();
@@ -152,6 +161,8 @@ export const useAgent = ({
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
 	selectedModelRef.current = hasProject ? pinnedModel : null;
+	const localAgentModelRef = useRef<LocalAgentSelection | null>(null);
+	localAgentModelRef.current = hasProject && isDesktopApp() ? localAgentModel : null;
 	const modeRef = useRef(mode);
 	modeRef.current = mode;
 	const mentionsRef = useRef<MentionOption[]>([]);
@@ -237,59 +248,78 @@ export const useAgent = ({
 		};
 
 		let activeRequestProvider: LlmSelectedModel['provider'] | undefined;
-		const newAgent = new Agent<UIMessage>({
-			transport: new DefaultChatTransport({
-				api: '/api/agent',
-				prepareReconnectToStreamRequest: () => ({
-					api: `/api/agent/${agentId}/stream`,
+		const serverTransport = new DefaultChatTransport<UIMessage>({
+			api: '/api/agent',
+			prepareReconnectToStreamRequest: () => ({
+				api: `/api/agent/${agentId}/stream`,
+				headers: getProjectRequestHeaders(),
+			}),
+			prepareSendMessagesRequest: ({ body, messages }) => {
+				const messageToSend = messages.at(-1);
+				if (!messageToSend) {
+					throw new Error('No message to send.');
+				}
+
+				agentsReadingServerStream.add(newAgent);
+				const liveRefs = agentSendRefsStore.get(newAgent);
+				const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
+				const activeModeRef = liveRefs?.modeRef ?? modeRef;
+				const activeSelectedModelRef = liveRefs?.selectedModelRef ?? selectedModelRef;
+				const activeAdminModeRef = liveRefs?.adminModeRef ?? adminModeRef;
+				const activeRequestBodyRef = liveRefs?.requestBodyRef ?? requestBodyRef;
+
+				const mentions = activeMentionsRef.current;
+				activeMentionsRef.current = [];
+				const citations = agentCitationStore.get(newAgent);
+				const images = extractImagesFromMessage(messageToSend);
+				const documents = extractDocumentPathsFromMessage(messageToSend);
+				const model =
+					activeModeRef.current === 'onboarding' ? undefined : (activeSelectedModelRef.current ?? undefined);
+				const adminModeAtSend = activeAdminModeRef.current;
+				agentAdminModeStore.set(newAgent, adminModeAtSend);
+				activeRequestProvider = model?.provider;
+				return {
 					headers: getProjectRequestHeaders(),
-				}),
-				prepareSendMessagesRequest: ({ body, messages }) => {
-					const messageToSend = messages.at(-1);
-					if (!messageToSend) {
-						throw new Error('No message to send.');
-					}
-
-					agentsReadingServerStream.add(newAgent);
-					const liveRefs = agentSendRefsStore.get(newAgent);
-					const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
-					const activeModeRef = liveRefs?.modeRef ?? modeRef;
-					const activeSelectedModelRef = liveRefs?.selectedModelRef ?? selectedModelRef;
-					const activeAdminModeRef = liveRefs?.adminModeRef ?? adminModeRef;
-					const activeRequestBodyRef = liveRefs?.requestBodyRef ?? requestBodyRef;
-
-					const mentions = activeMentionsRef.current;
-					activeMentionsRef.current = [];
-					const citations = agentCitationStore.get(newAgent);
-					const images = extractImagesFromMessage(messageToSend);
-					const documents = extractDocumentPathsFromMessage(messageToSend);
-					const model =
-						activeModeRef.current === 'onboarding'
-							? undefined
-							: (activeSelectedModelRef.current ?? undefined);
-					const adminModeAtSend = activeAdminModeRef.current;
-					agentAdminModeStore.set(newAgent, adminModeAtSend);
-					activeRequestProvider = model?.provider;
-					return {
-						headers: getProjectRequestHeaders(),
-						body: {
-							...body,
-							...activeRequestBodyRef.current?.(),
-							mode: activeModeRef.current,
-							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
-							message: {
-								text: getTextFromUserMessageOrThrow(messageToSend),
-								images: images.length > 0 ? images : undefined,
-								documents: documents.length > 0 ? documents : undefined,
-								citations,
-							},
-							model,
-							mentions: mentions.length > 0 ? mentions : undefined,
-							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-							adminMode: adminModeAtSend || undefined,
+					body: {
+						...body,
+						...activeRequestBodyRef.current?.(),
+						mode: activeModeRef.current,
+						chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
+						message: {
+							text: getTextFromUserMessageOrThrow(messageToSend),
+							images: images.length > 0 ? images : undefined,
+							documents: documents.length > 0 ? documents : undefined,
+							citations,
 						},
-					};
-				},
+						model,
+						mentions: mentions.length > 0 ? mentions : undefined,
+						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+						adminMode: adminModeAtSend || undefined,
+					},
+				};
+			},
+		});
+		const getLocalAgentModel = () => {
+			const liveRefs = agentSendRefsStore.get(newAgent);
+			const isRegularChat = (liveRefs?.modeRef ?? modeRef).current === 'default';
+			const hasSurfaceContext =
+				Object.keys((liveRefs?.requestBodyRef ?? requestBodyRef).current?.() ?? {}).length > 0;
+			return isRegularChat && !hasSurfaceContext
+				? (liveRefs?.localAgentModelRef ?? localAgentModelRef).current
+				: null;
+		};
+		const localTransport = new LocalAgentChatTransport(
+			() => getLocalAgentModel()!,
+			() => (agentId === NEW_CHAT_ID ? undefined : agentId),
+		);
+		const newAgent = new Agent<UIMessage>({
+			transport: new SwitchingChatTransport(serverTransport, localTransport, () => {
+				const runsLocally = getLocalAgentModel() !== null;
+				if (runsLocally) {
+					activeRequestProvider = undefined;
+					agentsReadingServerStream.add(newAgent);
+				}
+				return runsLocally;
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
@@ -336,7 +366,14 @@ export const useAgent = ({
 		return agentService.registerAgent(agentId, newAgent);
 	}, [contextChatId, disableNavigation, navigate, setChat, queryClient]);
 
-	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef, requestBodyRef });
+	agentSendRefsStore.set(agentInstance, {
+		adminModeRef,
+		modeRef,
+		selectedModelRef,
+		localAgentModelRef,
+		mentionsRef,
+		requestBodyRef,
+	});
 	useSharedAgent(agentInstance, contextChatId);
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
@@ -639,6 +676,8 @@ export const useAgent = ({
 		selectedModel,
 		usesDefaultModel,
 		setSelectedModel,
+		localAgentModel,
+		setLocalAgentModel,
 		setMentions,
 		adminMode,
 		setAdminMode,

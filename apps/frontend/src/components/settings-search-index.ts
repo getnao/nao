@@ -21,6 +21,8 @@ export interface SettingsSearchEntry {
 	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
 	betaAutomationsOnly?: boolean;
+	/** Only shown in the nao desktop app. */
+	desktopOnly?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -31,6 +33,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Profile',
 		description: 'Manage your name, email, and sign out.',
 		keywords: ['name', 'email', 'sign out', 'logout', 'avatar'],
+	},
+	{
+		page: '/settings/claude-code',
+		pageLabel: 'Claude Code connection',
+		title: 'Claude Code connection',
+		description: 'See the Claude Code account signed in on this computer, your plan limits, and what nao used.',
+		keywords: ['claude', 'subscription', 'plan', 'rate limits', 'usage', 'tokens', 'desktop', 'local model'],
+		desktopOnly: true,
 	},
 	{
 		page: '/settings/organization/billing',

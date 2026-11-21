@@ -213,6 +213,7 @@ function useAccessSummaryRows(showAllSettings: boolean): AccessSummaryRow[] {
 		isCloud,
 		isOrgAdmin: false,
 		isViewer: false,
+		isDesktopApp: false,
 	});
 
 	return [
