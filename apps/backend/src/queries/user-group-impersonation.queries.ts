@@ -2,8 +2,12 @@ import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import { isCloud } from '../env';
 
 export const getImpersonatedGroupIds = async (projectId: string, userId: string): Promise<string[] | null> => {
+	if (isCloud) {
+		return null;
+	}
 	const [row] = await db
 		.select({ groupIds: s.userGroupImpersonation.groupIds })
 		.from(s.userGroupImpersonation)

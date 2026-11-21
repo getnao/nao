@@ -1172,6 +1172,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Use the app as a member of one or more groups to check what they can see and do.',
 		keywords: ['impersonate', 'impersonation', 'view as', 'act as', 'preview permissions', 'test group'],
 		adminOnly: true,
+		cloudHidden: true,
 	},
 	{
 		page: '/settings/project/user-groups',

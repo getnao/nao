@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { trpc } from '@/main';
 
 export function GroupImpersonationBanner() {
@@ -56,6 +57,7 @@ export function ImpersonateGroupsButton({ groups }: { groups: Array<{ id: string
 	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 	const refreshPermissions = useRefreshPermissions();
 	const navigate = useNavigate();
+	const isCloud = useIsCloud();
 	const start = useMutation(
 		trpc.userGroup.startImpersonation.mutationOptions({
 			onSuccess: async () => {
@@ -64,6 +66,10 @@ export function ImpersonateGroupsButton({ groups }: { groups: Array<{ id: string
 			},
 		}),
 	);
+
+	if (isCloud) {
+		return null;
+	}
 
 	return (
 		<Popover>

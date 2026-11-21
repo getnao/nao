@@ -46,7 +46,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
@@ -322,6 +322,12 @@ export const userGroupRoutes = {
 	startImpersonation: projectProtectedProcedure
 		.input(z.object({ groupIds: z.array(z.string().min(1)).max(100) }))
 		.mutation(async ({ ctx, input }) => {
+			if (isCloud) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'Group impersonation is not available on nao Cloud yet.',
+				});
+			}
 			if ((await projectQueries.getActualUserRoleInProject(ctx.project.id, ctx.user.id)) !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can impersonate user groups.' });
 			}

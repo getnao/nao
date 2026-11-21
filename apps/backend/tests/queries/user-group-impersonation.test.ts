@@ -15,6 +15,15 @@ vi.mock('../../src/services/license.service', async (importOriginal) => ({
 	hasFeature: vi.fn(async () => true),
 }));
 
+const mode = vi.hoisted(() => ({ isCloud: false }));
+
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return mode.isCloud;
+	},
+}));
+
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
 	return { db: createInMemoryDb() };
@@ -70,6 +79,20 @@ describe('user group impersonation', () => {
 		]);
 
 		await setAdminRole('admin');
+		await stopGroupImpersonation(PROJECT_ID, ADMIN_ID);
+	});
+
+	it('ignores a stored impersonation on nao Cloud', async () => {
+		await startGroupImpersonation(PROJECT_ID, ADMIN_ID, [FINANCE_GROUP_ID]);
+		mode.isCloud = true;
+
+		expect(await getUserRoleInProject(PROJECT_ID, ADMIN_ID)).toBe('admin');
+		expect((await resolveAvailableUserGroupAccess(PROJECT_ID, ADMIN_ID)).groupNames.sort()).toEqual([
+			'All Users',
+			'Sales',
+		]);
+
+		mode.isCloud = false;
 		await stopGroupImpersonation(PROJECT_ID, ADMIN_ID);
 	});
 });
