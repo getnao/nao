@@ -5,6 +5,7 @@ import {
 } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 
+import * as automationShareQueries from '../queries/automation-share.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
@@ -29,6 +30,7 @@ export interface ShareRecipients {
 export interface ProjectWideShareRevocation {
 	chatCount: number;
 	storyCount: number;
+	automationCount: number;
 }
 
 interface ProjectSharingState {
@@ -103,15 +105,16 @@ export async function previewProjectWideShareRevocation(
 	projectSharing: ProjectSharingPermission,
 ): Promise<ProjectWideShareRevocation> {
 	const state = withGroupProjectSharing(await loadProjectSharingState(projectId), groupId, projectSharing);
-	const { chatShareIds, storyShares } = await findUnauthorizedProjectWideShares(projectId, state);
-	return { chatCount: chatShareIds.length, storyCount: storyShares.length };
+	const { chatShareIds, storyShares, automationIds } = await findUnauthorizedProjectWideShares(projectId, state);
+	return { chatCount: chatShareIds.length, storyCount: storyShares.length, automationCount: automationIds.length };
 }
 
-/** Unshares project-wide chats and stories of users who are no longer allowed to share with the entire project. */
+/** Unshares project-wide chats, stories and automations of users no longer allowed to share with the entire project. */
 export async function revokeUnauthorizedProjectWideShares(projectId: string): Promise<void> {
 	const state = await loadProjectSharingState(projectId);
-	const { chatShareIds, storyShares } = await findUnauthorizedProjectWideShares(projectId, state);
+	const { chatShareIds, storyShares, automationIds } = await findUnauthorizedProjectWideShares(projectId, state);
 	await sharedChatQueries.deleteSharedChats(chatShareIds);
+	await automationShareQueries.deleteProjectWideAutomationShares(automationIds);
 	for (const storyShare of storyShares) {
 		await unshareProjectWideStory(storyShare);
 	}
@@ -132,7 +135,9 @@ async function loadViewerSharingState(projectId: string, userId: string): Promis
 		users: state.users.map((user) => (user.id === userId ? { ...user, role: 'user' } : user)),
 		memberships: [
 			...state.memberships.filter((membership) => membership.userId !== userId),
-			...impersonatedGroupIds.filter((groupId) => customGroupIds.has(groupId)).map((groupId) => ({ groupId, userId })),
+			...impersonatedGroupIds
+				.filter((groupId) => customGroupIds.has(groupId))
+				.map((groupId) => ({ groupId, userId })),
 		],
 	};
 }
@@ -191,11 +196,12 @@ async function findUnauthorizedProjectWideShares(projectId: string, state: Proje
 	const restrictedUserIds = state.users
 		.filter((user) => !canUserShareToProject(state, user.id))
 		.map((user) => user.id);
-	const [chatShareIds, storyShares] = await Promise.all([
+	const [chatShareIds, storyShares, automationIds] = await Promise.all([
 		sharedChatQueries.listProjectWideSharedChatIds(projectId, restrictedUserIds),
 		sharedStoryQueries.listProjectWideSharedStories(projectId, restrictedUserIds),
+		automationShareQueries.listProjectWideSharedAutomationIds(projectId, restrictedUserIds),
 	]);
-	return { chatShareIds, storyShares };
+	return { chatShareIds, storyShares, automationIds };
 }
 
 function withGroupProjectSharing(

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d7a22c4a-c405-47d2-815a-d84857ef76af",
+  "id": "1ce2ff31-d6a4-4233-8c81-c9468af6af58",
   "prevId": "c8e86f15-dc2b-48c2-a554-37572cef6b32",
   "tables": {
     "account": {
@@ -1148,6 +1148,114 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "automation_share": {
+      "name": "automation_share",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "automation_id": {
+          "name": "automation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
+        }
+      },
+      "indexes": {
+        "automation_share_automationId_idx": {
+          "name": "automation_share_automationId_idx",
+          "columns": [
+            "automation_id"
+          ],
+          "isUnique": false
+        },
+        "automation_share_userId_idx": {
+          "name": "automation_share_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "automation_share_groupId_idx": {
+          "name": "automation_share_groupId_idx",
+          "columns": [
+            "group_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "automation_share_automation_id_automation_id_fk": {
+          "name": "automation_share_automation_id_automation_id_fk",
+          "tableFrom": "automation_share",
+          "tableTo": "automation",
+          "columnsFrom": [
+            "automation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "automation_share_user_id_user_id_fk": {
+          "name": "automation_share_user_id_user_id_fk",
+          "tableFrom": "automation_share",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "automation_share_group_id_user_group_id_fk": {
+          "name": "automation_share_group_id_user_group_id_fk",
+          "tableFrom": "automation_share",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -11375,80 +11483,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "user_group_impersonation": {
-      "name": "user_group_impersonation",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "group_ids": {
-          "name": "group_ids",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "user_group_impersonation_user_id_user_id_fk": {
-          "name": "user_group_impersonation_user_id_user_id_fk",
-          "tableFrom": "user_group_impersonation",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "user_group_impersonation_project_id_project_id_fk": {
-          "name": "user_group_impersonation_project_id_project_id_fk",
-          "tableFrom": "user_group_impersonation",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "user_group_impersonation_user_id_project_id_pk": {
-          "columns": [
-            "user_id",
-            "project_id"
-          ],
-          "name": "user_group_impersonation_user_id_project_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

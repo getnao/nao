@@ -80,6 +80,7 @@ interface ToolCallDensityPolicy {
 interface ProjectWideShareRevocation {
 	chatCount: number;
 	storyCount: number;
+	automationCount: number;
 }
 
 export interface UserGroupEditorGroup {
@@ -471,7 +472,7 @@ export function UserGroupEditor({
 					}),
 					staleTime: 0,
 				});
-				if (revocation.chatCount + revocation.storyCount > 0) {
+				if (revocation.chatCount + revocation.storyCount + revocation.automationCount > 0) {
 					setShareRevocation(revocation);
 					setIsShareRevocationOpen(true);
 					return;
@@ -878,10 +879,15 @@ function LockedTabLabel({ label }: { label: TabBarItem<UserGroupEditorTab>['labe
 	);
 }
 
-function describeShareRevocation({ chatCount, storyCount }: ProjectWideShareRevocation): string {
-	const items = [pluralize(chatCount, 'chat'), pluralize(storyCount, 'story', 'stories')]
+function describeShareRevocation({ chatCount, storyCount, automationCount }: ProjectWideShareRevocation): string {
+	const items = [
+		pluralize(chatCount, 'chat'),
+		pluralize(storyCount, 'story', 'stories'),
+		pluralize(automationCount, 'automation'),
+	]
 		.filter((item): item is string => item !== null)
-		.join(' and ');
+		.join(', ')
+		.replace(/, ([^,]*)$/, ' and $1');
 	return `Turning off sharing to the entire project unshares ${items} currently shared with all project members. Their owners can share them again with their groups.`;
 }
 
