@@ -5,9 +5,9 @@
 	"version": "../package.json",
 	"identifier": "io.getnao.desktop",
 	"build": {
-		"beforeDevCommand": "npm run dev:ui",
+		"beforeDevCommand": "npm run build:agent && npm run dev:ui",
 		"devUrl": "http://localhost:1420",
-		"beforeBuildCommand": "npm run build:ui",
+		"beforeBuildCommand": "npm run build:agent && npm run build:ui",
 		"frontendDist": "../dist"
 	},
 	"app": {
@@ -43,6 +43,7 @@
 		"copyright": "© nao Labs",
 		"createUpdaterArtifacts": false,
 		"icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+		"externalBin": ["binaries/nao-agent"],
 		"macOS": {
 			"minimumSystemVersion": "11.0",
 			"signingIdentity": "-",

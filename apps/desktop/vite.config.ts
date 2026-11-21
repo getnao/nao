@@ -24,7 +24,7 @@ export default defineConfig({
 		outDir: 'dist',
 	},
 	test: {
-		include: ['tests/**/*.test.{ts,tsx}'],
+		include: ['tests/**/*.test.{ts,tsx}', 'agent/tests/**/*.test.ts'],
 		environment: 'jsdom',
 	},
 });

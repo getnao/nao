@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { useSettingsSearch } from '@/hooks/use-settings-search';
+import { isDesktopApp } from '@/lib/local-agent';
 import { cn, hideIf } from '@/lib/utils';
 
 export interface NavContext {
@@ -15,6 +16,7 @@ export interface NavContext {
 	isCloud: boolean;
 	isOrgAdmin: boolean;
 	isViewer: boolean;
+	isDesktopApp: boolean;
 }
 
 interface NavItem {
@@ -44,6 +46,11 @@ const settingsNavGroups: NavGroup[] = [
 				to: '/settings/account',
 				visible: ({ isViewer }) => !isViewer,
 				exact: true,
+			},
+			{
+				label: 'Claude Code connection',
+				to: '/settings/claude-code',
+				visible: (context) => context.isDesktopApp && !context.isViewer,
 			},
 		],
 	},
@@ -223,6 +230,7 @@ export function SidebarSettingsNav({
 		isCloud,
 		isOrgAdmin,
 		isViewer,
+		isDesktopApp: isDesktopApp(),
 	};
 	const navGroups = getVisibleSettingsNavGroups(navContext, isTrial);
 

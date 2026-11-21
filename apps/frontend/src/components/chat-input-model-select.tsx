@@ -1,17 +1,26 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
 
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import type { KeyboardEvent } from 'react';
 
+import {
+	findLocalSelection,
+	isLocalModelValue,
+	LocalModelItems,
+	LocalModelLabel,
+	localModelValue,
+} from '@/components/chat-input-local-models';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useLocalAgentStatus } from '@/hooks/use-local-agent-status';
 import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { listPickableModels } from '@/lib/local-agent';
 import { matchesShortcut } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 
@@ -44,8 +53,14 @@ export function ChatInputModelSelect({
 		canCycleModels,
 		cycleModel,
 		hasProject,
+		localAgentModel,
+		setLocalAgentModel,
 	} = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
+	const localAgent = useLocalAgentStatus();
+	const localModels = useMemo(() => listPickableModels(localAgent.status), [localAgent.status]);
+	const showsLocalModels = localAgent.isAvailable && hasProject;
+	const localSelection = showsLocalModels ? localAgentModel : null;
 
 	// Fall back to the nao default when the pinned model is no longer available
 	useEffect(() => {
@@ -57,12 +72,27 @@ export function ChatInputModelSelect({
 		}
 	}, [usesDefaultModel, availableModels, selectedModel, setSelectedModel]);
 
+	// Drop the subscription model once Claude Code no longer offers it
+	useEffect(() => {
+		if (!localAgentModel || localAgent.status === undefined) {
+			return;
+		}
+		if (!localModels.some((model) => model.value === localAgentModel.model)) {
+			setLocalAgentModel(null);
+		}
+	}, [localAgentModel, localAgent.status, localModels, setLocalAgentModel]);
+
 	const handleModelValueChange = useCallback(
 		(value: string) => {
 			if (value === MANAGE_MODELS_VALUE) {
 				navigate({ to: '/settings/project/models' });
 				return;
 			}
+			if (isLocalModelValue(value)) {
+				setLocalAgentModel(findLocalSelection(value, localModels));
+				return;
+			}
+			setLocalAgentModel(null);
 			if (value === NAO_DEFAULT_VALUE) {
 				setSelectedModel(null);
 				return;
@@ -72,7 +102,7 @@ export function ChatInputModelSelect({
 				setSelectedModel(model);
 			}
 		},
-		[availableModels, navigate, setSelectedModel],
+		[availableModels, localModels, navigate, setSelectedModel, setLocalAgentModel],
 	);
 	const handleCycleModelShortcut = useCallback(
 		(event: KeyboardEvent<HTMLButtonElement>) => {
@@ -80,6 +110,10 @@ export function ChatInputModelSelect({
 				return;
 			}
 			event.preventDefault();
+			if (localSelection) {
+				setLocalAgentModel(null);
+				return;
+			}
 			if (managedCreditsExhausted) {
 				const nextConfiguredModel = availableModels?.find((model) => model.provider !== 'nao');
 				if (nextConfiguredModel) {
@@ -89,7 +123,7 @@ export function ChatInputModelSelect({
 			}
 			cycleModel();
 		},
-		[availableModels, cycleModel, managedCreditsExhausted, setSelectedModel],
+		[availableModels, cycleModel, managedCreditsExhausted, setSelectedModel, localSelection, setLocalAgentModel],
 	);
 
 	const selectedAvailableModel = selectedModel
@@ -101,7 +135,12 @@ export function ChatInputModelSelect({
 	const isDefaultManagedModel = defaultModel?.provider === 'nao';
 	const resolvedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId;
 	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
-	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
+	const serverSelectValue = usesDefaultModel
+		? NAO_DEFAULT_VALUE
+		: selectedModel
+			? modelValue(selectedModel)
+			: undefined;
+	const selectValue = localSelection ? localModelValue(localSelection.model) : serverSelectValue;
 
 	if (isExample) {
 		return <ExampleModel />;
@@ -111,7 +150,7 @@ export function ChatInputModelSelect({
 		return null;
 	}
 
-	if (!availableModels?.length) {
+	if (!availableModels?.length && !showsLocalModels) {
 		if (!hasProject) {
 			return <ExampleModel />;
 		}
@@ -142,7 +181,7 @@ export function ChatInputModelSelect({
 		</>
 	);
 
-	if (!canCycleModels) {
+	if (!canCycleModels && !showsLocalModels) {
 		if (!isAdmin) {
 			return (
 				<div className='flex min-w-0 items-center gap-2 text-sm font-normal text-muted-foreground'>
@@ -173,30 +212,38 @@ export function ChatInputModelSelect({
 					>
 						<SelectValue>
 							<div className='flex min-w-0 items-center gap-2'>
-								{selectedModel && (
-									<LlmProviderIcon
-										provider={selectedModel.provider}
-										baseUrl={selectedAvailableModel?.baseUrl}
-										className='size-4'
-									/>
+								{localSelection ? (
+									<LocalModelLabel selection={localSelection} />
+								) : (
+									<>
+										{selectedModel && (
+											<LlmProviderIcon
+												provider={selectedModel.provider}
+												baseUrl={selectedAvailableModel?.baseUrl}
+												className='size-4'
+											/>
+										)}
+										<span
+											className={cn(
+												'flex min-w-0 items-center gap-2',
+												selectedModel && '@max-xs:sr-only',
+											)}
+										>
+											<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
+												{selectedModelName}
+											</span>
+											{usesDefaultModel
+												? resolvedModelName && (
+														<span className='truncate text-muted-foreground'>
+															{resolvedModelName}
+														</span>
+													)
+												: selectedModel && (
+														<NamedProviderHint provider={selectedModel.provider} />
+													)}
+										</span>
+									</>
 								)}
-								<span
-									className={cn(
-										'flex min-w-0 items-center gap-2',
-										selectedModel && '@max-xs:sr-only',
-									)}
-								>
-									<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
-										{selectedModelName}
-									</span>
-									{usesDefaultModel
-										? resolvedModelName && (
-												<span className='truncate text-muted-foreground'>
-													{resolvedModelName}
-												</span>
-											)
-										: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
-								</span>
 							</div>
 						</SelectValue>
 					</SelectTrigger>
@@ -237,6 +284,8 @@ export function ChatInputModelSelect({
 						{managedCreditsExhausted && model.provider === 'nao' && <ManagedCreditsLock />}
 					</SelectItem>
 				))}
+
+				{showsLocalModels && <LocalModelItems status={localAgent.status} models={localModels} />}
 
 				{isAdmin && (
 					<>

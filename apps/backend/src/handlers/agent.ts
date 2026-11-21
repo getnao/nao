@@ -115,7 +115,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 	};
 };
 
-async function persistUserMessage({
+export async function persistUserMessage({
 	userId,
 	projectId,
 	message,

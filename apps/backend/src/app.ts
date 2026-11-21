@@ -71,6 +71,7 @@ import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
+import { localAgentRoutes } from './routes/local-agent';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
@@ -248,6 +249,10 @@ app.register(agentRoutes, {
 
 app.register(attachmentRoutes, {
 	prefix: '/api/attachments',
+});
+
+app.register(localAgentRoutes, {
+	prefix: '/api/local-agent',
 });
 
 app.register(analyticsRoutes, {

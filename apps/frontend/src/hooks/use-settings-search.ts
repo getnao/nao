@@ -9,6 +9,7 @@ import { useLicenseFeatures } from '@/hooks/use-license';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
+import { isDesktopApp } from '@/lib/local-agent';
 
 export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 	const visibleEntries = useVisibleSettingsEntries();
@@ -77,7 +78,8 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudOnly || isCloud) &&
 						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled) &&
-						(!entry.betaAutomationsOnly || betaAutomationsEnabled),
+						(!entry.betaAutomationsOnly || betaAutomationsEnabled) &&
+						(!entry.desktopOnly || isDesktopApp()),
 				)
 				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),
 		[
@@ -117,4 +119,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const viewerVisiblePages = ['/settings/account', '/settings/usage'];
+const viewerVisiblePages = ['/settings/account', '/settings/claude-code', '/settings/usage'];
