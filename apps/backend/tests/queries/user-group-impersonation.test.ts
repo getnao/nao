@@ -7,6 +7,7 @@ import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { getUserRoleInProject } from '../../src/queries/project.queries';
 import { startGroupImpersonation, stopGroupImpersonation } from '../../src/queries/user-group-impersonation.queries';
+import { resolveRestrictedViewerId } from '../../src/services/live-story';
 import { getShareAudience } from '../../src/services/project-sharing.service';
 import { resolveAvailableUserGroupAccess } from '../../src/services/user-group-availability.service';
 import { router } from '../../src/trpc/trpc';
@@ -43,6 +44,7 @@ const PROJECT_ID = 'impersonation-project';
 const ADMIN_ID = 'impersonation-admin';
 const FINANCE_GROUP_ID = 'impersonation-finance';
 const SALES_GROUP_ID = 'impersonation-sales';
+const CHAT_ID = 'impersonation-chat';
 
 beforeAll(seed);
 
@@ -106,6 +108,16 @@ describe('user group impersonation', () => {
 		await stopGroupImpersonation(PROJECT_ID, ADMIN_ID);
 	});
 
+	it("reads the admin's own stories with the impersonated groups' warehouse access", async () => {
+		expect(await resolveRestrictedViewerId(CHAT_ID, ADMIN_ID)).toBeUndefined();
+
+		await startGroupImpersonation(PROJECT_ID, ADMIN_ID, [FINANCE_GROUP_ID]);
+
+		expect(await resolveRestrictedViewerId(CHAT_ID, ADMIN_ID)).toBe(ADMIN_ID);
+
+		await stopGroupImpersonation(PROJECT_ID, ADMIN_ID);
+	});
+
 	it('records an audit activity when an admin starts and stops impersonating', async () => {
 		const caller = createTestCaller(router({ userGroup: userGroupRoutes }), {
 			userId: ADMIN_ID,
@@ -147,8 +159,10 @@ async function seed() {
 			projectId: PROJECT_ID,
 			name: 'Finance',
 			featureGrants: { version: 2, features: [], projectSharing: 'blocked' },
+			contextGrants: { version: 3, access: { mode: 'restricted', strict: true, grants: [], patterns: [] } },
 		},
 		{ id: SALES_GROUP_ID, projectId: PROJECT_ID, name: 'Sales' },
 	]);
 	await db.insert(s.userGroupMember).values({ groupId: SALES_GROUP_ID, userId: ADMIN_ID });
+	await db.insert(s.chat).values({ id: CHAT_ID, userId: ADMIN_ID, projectId: PROJECT_ID });
 }

@@ -121,6 +121,10 @@ vi.mock('../../src/services/excluded-columns.service', () => ({
 	resolveExcludedColumnEnforcement: mocks.resolveExcludedColumnEnforcement,
 }));
 
+vi.mock('../../src/services/user-group-availability.service', () => ({
+	getActiveGroupImpersonation: vi.fn(async () => null),
+}));
+
 vi.mock('../../src/services/user-group-context-access.service', () => ({
 	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
 }));

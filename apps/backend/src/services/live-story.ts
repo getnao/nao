@@ -67,6 +67,7 @@ import {
 	type SqlQueryLoader,
 	type StoryQueryOrigin,
 } from './story-sql-queries';
+import { getActiveGroupImpersonation } from './user-group-availability.service';
 import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
 
@@ -463,7 +464,7 @@ export async function resolveRestrictedViewerId(
 		return undefined;
 	}
 	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
-	if (viewerUserId === ownerId) {
+	if (viewerUserId === ownerId && !(await getActiveGroupImpersonation(projectId, viewerUserId))) {
 		return undefined;
 	}
 	return (await hasEffectiveWarehouseRestrictions(projectId, viewerUserId)) ? viewerUserId : undefined;
