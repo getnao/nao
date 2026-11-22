@@ -677,8 +677,9 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 				<ListItem>
 					If a story already answers the request, whatever its format, do not rebuild it: summarize it and
 					hand it over with {`<${STORY_REFERENCE_TAG} id="<story id>">Title</${STORY_REFERENCE_TAG}>`} on its
-					own line (it renders as a card; never use a URL). Offer a new version only if the user wants it
-					changed.
+					own line (it renders as a card; never use a URL). This tag is only for stories found under {library}
+					: never write it for a story the story tool created or edited in this conversation, whose card
+					already shows. Offer a new version only if the user wants it changed.
 				</ListItem>
 				<ListItem>
 					To show or build on its data, re-run its SQL with execute_sql and say which story you built on.
