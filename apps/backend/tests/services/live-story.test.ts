@@ -167,6 +167,15 @@ import {
 import { logger } from '../../src/utils/logger';
 
 const WAREHOUSE_STORY_CODE = '<table query_id="query_warehouse" />';
+const AUTHORED_STORY_CODE = [
+	'## Usage',
+	'Usage stays flat this month.',
+	'<table query_id="query_admin" />',
+	'- Orders reached 120 last week.',
+	'- Most orders come from repeat customers.',
+	'## Channels',
+	'1. Most visits come from search.',
+].join('\n');
 const CHAT_STORY = { id: 'story-1', chatId: 'chat-1' };
 const STANDALONE_STORY = { id: 'story-standalone', chatId: null };
 const ACCESS_DENIED = { columns: [], data: [], accessDenied: true };
@@ -512,6 +521,81 @@ describe('live story SQL execution', () => {
 			expect.stringContaining('could not parse the response'),
 			expect.objectContaining({ projectId: 'project-1' }),
 		);
+	});
+
+	it.each([
+		{
+			case: 'adds a paragraph',
+			candidate: AUTHORED_STORY_CODE.replace(
+				'Usage stays flat this month.',
+				'Usage stays flat this month.\n\nSessions grew 12% since last week.',
+			),
+			saved: null,
+		},
+		{
+			case: 'adds a list item',
+			candidate: `${AUTHORED_STORY_CODE}\n- New customers placed 30 orders.`,
+			saved: null,
+		},
+		{
+			case: 'adds a figure to a sentence that had none',
+			candidate: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135').replace(
+				'Usage stays flat this month.',
+				'Usage stays flat this month,\nwith a peak in the week of November 2.',
+			),
+			saved: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135'),
+		},
+		{
+			case: 'adds a figure to a numbered list item that had none',
+			candidate: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135').replace(
+				'Most visits come',
+				'85% of visits come',
+			),
+			saved: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135'),
+		},
+		{
+			case: 'updates the figure of a sentence that had one',
+			candidate: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135'),
+			saved: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135'),
+		},
+		{
+			case: 'updates the trend of a sentence without figures',
+			candidate: AUTHORED_STORY_CODE.replace('stays flat', 'drops'),
+			saved: AUTHORED_STORY_CODE.replace('stays flat', 'drops'),
+		},
+	])('saves the owner text expected when a rewrite $case', async ({ candidate, saved }) => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			id: 'version-1',
+			code: AUTHORED_STORY_CODE,
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'classic',
+		});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['n'], rows: [{ n: 1 }], rowCount: 1 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue({ provider: 'openrouter', modelId: 'some/model' });
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'some/model' } });
+		mocks.generateText.mockResolvedValue({
+			output: { code: candidate },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+
+		await refreshStoryData('chat-1', 'usage');
+
+		expect(mocks.generateText).toHaveBeenCalledOnce();
+		if (saved) {
+			expect(mocks.updateVersionCodeIfLatest).toHaveBeenCalledWith('story-1', 'version-1', saved);
+		} else {
+			expect(mocks.updateVersionCodeIfLatest).not.toHaveBeenCalled();
+		}
 	});
 
 	it('keeps the narratives of the last refresh when the model fails to rewrite a custom story', async () => {

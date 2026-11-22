@@ -45,8 +45,11 @@ import {
 } from '../utils/story-query-data';
 import {
 	buildViewerSafeStorySource,
+	extractProseBlocks,
 	extractStructureTokens,
 	markViewerRestricted,
+	type ProseBlock,
+	restoreProseBlocks,
 	stripHardcodedFilterOptions,
 	stripViewerSensitiveTagCopy,
 } from '../utils/story-structure';
@@ -1150,7 +1153,7 @@ async function generateDynamicStoryCode(
 		return null;
 	}
 
-	return candidate;
+	return allowDisplayCopyChanges ? candidate : withoutAddedFigures(originalCode, candidate);
 }
 
 /** The fresh data is worth more than rewritten text: a model that fails to rewrite it must not fail the whole refresh. */
@@ -1376,8 +1379,36 @@ function preservesStoryStructure(
 		: extractHeadingTokens(candidateCode);
 	return (
 		JSON.stringify(originalStructure) === JSON.stringify(candidateStructure) &&
-		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings)
+		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings) &&
+		(allowDisplayCopyChanges || keepsProseBlocks(originalCode, candidateCode))
 	);
+}
+
+/** The owner's text was written or approved by a person: a refresh updates its figures, never its paragraphs. */
+function keepsProseBlocks(originalCode: string, candidateCode: string): boolean {
+	const originalBlocks = extractProseBlocks(originalCode);
+	const candidateBlocks = extractProseBlocks(candidateCode);
+	return (
+		originalBlocks.length === candidateBlocks.length &&
+		originalBlocks.every((block, index) => block.kind === candidateBlocks[index].kind)
+	);
+}
+
+/** A paragraph or list item written without figures keeps its original text when the rewrite adds some. */
+function withoutAddedFigures(originalCode: string, candidateCode: string): string {
+	const candidateBlocks = extractProseBlocks(candidateCode);
+	const blocksWithAddedFigures = extractProseBlocks(originalCode)
+		.map((original, index) => ({ original, candidate: candidateBlocks[index] }))
+		.filter(({ original, candidate }) => addsFigures(original, candidate));
+	return restoreProseBlocks(candidateCode, originalCode, blocksWithAddedFigures);
+}
+
+function addsFigures(original: ProseBlock, candidate: ProseBlock): boolean {
+	return !containsDigit(original.text) && containsDigit(candidate.text);
+}
+
+function containsDigit(text: string): boolean {
+	return /\d/.test(text);
 }
 
 function extractHeadingTokens(code: string): string[] {

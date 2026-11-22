@@ -49,6 +49,62 @@ export function extractStructureTokens(code: string): string[] {
 	return code.match(storyStructureTokenRegex()) ?? [];
 }
 
+const LIST_ITEM_MARKER = /^(?:[-*+]|\d+[.)])\s+/;
+
+export interface ProseBlock {
+	kind: 'paragraph' | 'list-item';
+	text: string;
+	firstLine: number;
+	lastLine: number;
+}
+
+/** The paragraphs and list items of a story, without its headings and tags, with the lines they span. */
+export function extractProseBlocks(code: string): ProseBlock[] {
+	const structureLines = findStructureLines(code);
+	const blocks: ProseBlock[] = [];
+	let currentBlock: ProseBlock | null = null;
+	for (const [lineIndex, line] of code.split('\n').entries()) {
+		const text = line.trim();
+		if (!text || structureLines.has(lineIndex) || isHeadingLine(text) || isThematicBreak(text)) {
+			currentBlock = null;
+		} else if (isListItemLine(text)) {
+			currentBlock = {
+				kind: 'list-item',
+				text: text.replace(LIST_ITEM_MARKER, ''),
+				firstLine: lineIndex,
+				lastLine: lineIndex,
+			};
+			blocks.push(currentBlock);
+		} else if (currentBlock) {
+			currentBlock.text += ` ${text}`;
+			currentBlock.lastLine = lineIndex;
+		} else {
+			currentBlock = { kind: 'paragraph', text, firstLine: lineIndex, lastLine: lineIndex };
+			blocks.push(currentBlock);
+		}
+	}
+	return blocks;
+}
+
+/** The candidate story with some of its blocks put back as the original story wrote them. */
+export function restoreProseBlocks(
+	candidateCode: string,
+	originalCode: string,
+	blocks: { original: ProseBlock; candidate: ProseBlock }[],
+): string {
+	const candidateLines = candidateCode.split('\n');
+	const originalLines = originalCode.split('\n');
+	const lastBlockFirst = [...blocks].sort((left, right) => right.candidate.firstLine - left.candidate.firstLine);
+	for (const { original, candidate } of lastBlockFirst) {
+		candidateLines.splice(
+			candidate.firstLine,
+			candidate.lastLine - candidate.firstLine + 1,
+			...originalLines.slice(original.firstLine, original.lastLine + 1),
+		);
+	}
+	return candidateLines.join('\n');
+}
+
 export function stripViewerSensitiveTagCopy(tag: string): string {
 	const sensitiveAttributeRegex = new RegExp(
 		String.raw`\s+(?:title|label|x_axis_label|y_axis_label|y_axis_right_label)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
@@ -68,6 +124,34 @@ function storyStructureTokenRegex(): RegExp {
 		String.raw`<grid(?:\s+${TAG_ATTRS})?>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>|<map\s+${TAG_ATTRS}\/?>|<parameter\s+${TAG_ATTRS}\/?>|<tab\s+${TAG_ATTRS}>|<\/tab>`,
 		'g',
 	);
+}
+
+function findStructureLines(code: string): Set<number> {
+	const structureLines = new Set<number>();
+	for (const match of code.matchAll(storyStructureTokenRegex())) {
+		const firstLine = countLineBreaks(code.slice(0, match.index));
+		const lastLine = firstLine + countLineBreaks(match[0]);
+		for (let line = firstLine; line <= lastLine; line++) {
+			structureLines.add(line);
+		}
+	}
+	return structureLines;
+}
+
+function countLineBreaks(text: string): number {
+	return text.split('\n').length - 1;
+}
+
+function isHeadingLine(line: string): boolean {
+	return /^#{1,6}\s+\S/.test(line);
+}
+
+function isThematicBreak(line: string): boolean {
+	return /^(?:-{3,}|\*{3,}|_{3,})$/.test(line);
+}
+
+function isListItemLine(line: string): boolean {
+	return LIST_ITEM_MARKER.test(line);
 }
 
 function redactViewerStoryTag(tag: string): string {
