@@ -538,6 +538,27 @@ describe('live story SQL execution', () => {
 			saved: null,
 		},
 		{
+			case: 'adds a paragraph beside a tag',
+			candidate: AUTHORED_STORY_CODE.replace(
+				'<table query_id="query_admin" />',
+				'\nSessions grew 12%. <table query_id="query_admin" />',
+			),
+			saved: null,
+		},
+		{
+			case: 'adds a figure to a sentence it moves beside a tag',
+			candidate: AUTHORED_STORY_CODE.replace(
+				'Usage stays flat this month.\n<table query_id="query_admin" />',
+				'Usage stays flat at 42 sessions this month. <table query_id="query_admin" />',
+			),
+			saved: null,
+		},
+		{
+			case: 'moves a list item to another section',
+			candidate: `${AUTHORED_STORY_CODE.replace('- Orders reached 120 last week.\n', '')}\n- Orders reached 135 last week.`,
+			saved: null,
+		},
+		{
 			case: 'adds a figure to a sentence that had none',
 			candidate: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135').replace(
 				'Usage stays flat this month.',

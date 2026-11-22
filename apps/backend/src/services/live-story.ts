@@ -46,6 +46,7 @@ import {
 import {
 	buildViewerSafeStorySource,
 	extractProseBlocks,
+	extractStoryLayout,
 	extractStructureTokens,
 	markViewerRestricted,
 	type ProseBlock,
@@ -1153,7 +1154,11 @@ async function generateDynamicStoryCode(
 		return null;
 	}
 
-	return allowDisplayCopyChanges ? candidate : withoutAddedFigures(originalCode, candidate);
+	if (allowDisplayCopyChanges) {
+		return candidate;
+	}
+	const merged = withoutAddedFigures(originalCode, candidate);
+	return preservesStoryStructure(originalCode, merged) ? merged : null;
 }
 
 /** The fresh data is worth more than rewritten text: a model that fails to rewrite it must not fail the whole refresh. */
@@ -1380,18 +1385,13 @@ function preservesStoryStructure(
 	return (
 		JSON.stringify(originalStructure) === JSON.stringify(candidateStructure) &&
 		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings) &&
-		(allowDisplayCopyChanges || keepsProseBlocks(originalCode, candidateCode))
+		(allowDisplayCopyChanges || keepsStoryLayout(originalCode, candidateCode))
 	);
 }
 
 /** The owner's text was written or approved by a person: a refresh updates its figures, never its paragraphs. */
-function keepsProseBlocks(originalCode: string, candidateCode: string): boolean {
-	const originalBlocks = extractProseBlocks(originalCode);
-	const candidateBlocks = extractProseBlocks(candidateCode);
-	return (
-		originalBlocks.length === candidateBlocks.length &&
-		originalBlocks.every((block, index) => block.kind === candidateBlocks[index].kind)
-	);
+function keepsStoryLayout(originalCode: string, candidateCode: string): boolean {
+	return JSON.stringify(extractStoryLayout(originalCode)) === JSON.stringify(extractStoryLayout(candidateCode));
 }
 
 /** A paragraph or list item written without figures keeps its original text when the rewrite adds some. */

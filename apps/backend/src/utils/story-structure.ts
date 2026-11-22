@@ -58,14 +58,33 @@ export interface ProseBlock {
 	lastLine: number;
 }
 
-/** The paragraphs and list items of a story, without its headings and tags, with the lines they span. */
+/** The tags, headings and kinds of prose blocks of a story, in the order they appear. */
+export function extractStoryLayout(code: string): string[] {
+	const lineOffsets = findLineOffsets(code);
+	const tags = [...code.matchAll(storyStructureTokenRegex())].map((match) => ({
+		offset: match.index,
+		value: match[0],
+	}));
+	const headings = code
+		.split('\n')
+		.map((line, lineIndex) => ({ offset: lineOffsets[lineIndex], value: line.trim() }))
+		.filter((heading) => isHeadingLine(heading.value));
+	const blocks = extractProseBlocks(code).map((block) => ({
+		offset: lineOffsets[block.firstLine],
+		value: block.kind,
+	}));
+	return [...tags, ...headings, ...blocks]
+		.sort((left, right) => left.offset - right.offset)
+		.map((entry) => entry.value);
+}
+
+/** The paragraphs and list items of a story, including text written beside its tags, with the lines they span. */
 export function extractProseBlocks(code: string): ProseBlock[] {
-	const structureLines = findStructureLines(code);
 	const blocks: ProseBlock[] = [];
 	let currentBlock: ProseBlock | null = null;
-	for (const [lineIndex, line] of code.split('\n').entries()) {
+	for (const [lineIndex, line] of blankStructureTokens(code).split('\n').entries()) {
 		const text = line.trim();
-		if (!text || structureLines.has(lineIndex) || isHeadingLine(text) || isThematicBreak(text)) {
+		if (!text || isHeadingLine(text) || isThematicBreak(text)) {
 			currentBlock = null;
 		} else if (isListItemLine(text)) {
 			currentBlock = {
@@ -126,20 +145,17 @@ function storyStructureTokenRegex(): RegExp {
 	);
 }
 
-function findStructureLines(code: string): Set<number> {
-	const structureLines = new Set<number>();
-	for (const match of code.matchAll(storyStructureTokenRegex())) {
-		const firstLine = countLineBreaks(code.slice(0, match.index));
-		const lastLine = firstLine + countLineBreaks(match[0]);
-		for (let line = firstLine; line <= lastLine; line++) {
-			structureLines.add(line);
-		}
-	}
-	return structureLines;
+/** Tags are replaced by spaces, so the text beside them stays on its line and every line keeps its index. */
+function blankStructureTokens(code: string): string {
+	return code.replace(storyStructureTokenRegex(), (tag) => tag.replace(/[^\n]/g, ' '));
 }
 
-function countLineBreaks(text: string): number {
-	return text.split('\n').length - 1;
+function findLineOffsets(code: string): number[] {
+	const offsets = [0];
+	for (const match of code.matchAll(/\n/g)) {
+		offsets.push(match.index + 1);
+	}
+	return offsets;
 }
 
 function isHeadingLine(line: string): boolean {
