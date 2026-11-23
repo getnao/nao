@@ -18,6 +18,20 @@ export function parseStoryTabs(code: string): StoryTab[] | null {
 	return findStoryTabBlocks(code).map(({ title, innerCode }) => ({ title, innerCode }));
 }
 
+/** The complete tabs of streamed code, followed by the tab still being written. */
+export function parseStreamingStoryTabs(code: string): StoryTab[] | null {
+	const tabs = parseStoryTabs(code) ?? [];
+	const lastTabEnd = findStoryTabBlocks(code).at(-1)?.end ?? 0;
+	const openTab = new RegExp(`<tab\\b(${TAG_ATTRS})>`).exec(code.slice(lastTabEnd));
+	if (openTab) {
+		tabs.push({
+			title: parseChartAttributes(openTab[1]).title ?? '',
+			innerCode: code.slice(lastTabEnd + openTab.index + openTab[0].length),
+		});
+	}
+	return tabs.length > 0 ? tabs : null;
+}
+
 export function appendBlockToStoryCode(
 	code: string,
 	block: string,

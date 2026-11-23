@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
+import { parseStoryTabs, parseStreamingStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareDialog } from '../share-dialog';
 import { StoryUnsavedChangesDialog } from '../story-unsaved-changes-dialog';
 import { StoryEditor } from './story-editor';
@@ -288,12 +288,16 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isViewingLatest,
 		latestQueryData: queryData ?? null,
 	});
-	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
+	const tabs = useMemo(
+		() => (isStoryStreaming ? parseStreamingStoryTabs(storyCode ?? '') : parseStoryTabs(storyCode ?? '')),
+		[storyCode, isStoryStreaming],
+	);
 	const isTabbedStory = Boolean(tabs?.length);
 	const [activeTab, setActiveTabIndex] = useActiveStoryTab({
 		tabs,
 		storySlug: resolvedStorySlug,
 		initialIndex: initialTabIndex,
+		followNewTabs: isStoryStreaming,
 	});
 	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
 	const isCodeDirty = storyBuffer.isDirty;

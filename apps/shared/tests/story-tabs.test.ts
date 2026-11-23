@@ -7,6 +7,7 @@ import {
 	flattenStoryTabs,
 	moveStoryTab,
 	parseStoryTabs,
+	parseStreamingStoryTabs,
 	renameStoryTab,
 	replaceStoryTabInner,
 	stripStoryTabsMarkup,
@@ -35,6 +36,17 @@ describe('story tabs', () => {
 
 	it('returns an empty array while the first tab is streaming', () => {
 		expect(parseStoryTabs('<tab title="Overview">\n# Overview')).toEqual([]);
+	});
+
+	it('adds the tab being written while streaming', () => {
+		expect(parseStreamingStoryTabs('Intro\n<tab title="Overview">\n# Overview')).toEqual([
+			{ title: 'Overview', innerCode: '\n# Overview' },
+		]);
+		expect(
+			parseStreamingStoryTabs(`${storyCode}\n\n<tab title="Appendix">\nMore`)?.map((tab) => tab.title),
+		).toEqual(['Overview', 'Details', 'Notes', 'Appendix']);
+		expect(parseStreamingStoryTabs(`${storyCode}\n\n<tab titl`)).toEqual(parseStoryTabs(storyCode));
+		expect(parseStreamingStoryTabs('# Story\n\n<table query_id="details" />')).toBeNull();
 	});
 
 	it('parses titles and inner code', () => {
