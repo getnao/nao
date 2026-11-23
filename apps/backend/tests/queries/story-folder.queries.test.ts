@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getStoryShareAccess } from '../../src/queries/shared-story.queries';
+import { getStoryShareAccess, listUserSharedStories } from '../../src/queries/shared-story.queries';
 import { canUserAccessStory } from '../../src/queries/story.queries';
 import { getByStoryId } from '../../src/queries/story-delivery.queries';
 import type { FolderAudience, FolderViewer } from '../../src/queries/story-folder.queries';
@@ -56,6 +56,9 @@ describe('team folders', () => {
 		await db
 			.insert(s.story)
 			.values({ id: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID, slug: 'pipeline', title: 'Pipeline' });
+		await db
+			.insert(s.storyVersion)
+			.values({ storyId: STORY_ID, version: 1, code: '# Pipeline', action: 'create', source: 'user' });
 	});
 
 	beforeEach(async () => {
@@ -63,6 +66,7 @@ describe('team folders', () => {
 		await db.delete(s.sharedStory);
 		await db.delete(s.storyFolderItem);
 		await db.delete(s.storyFolder);
+		await db.update(s.story).set({ archivedAt: null });
 	});
 
 	afterAll(() => {
@@ -164,6 +168,22 @@ describe('team folders', () => {
 
 		await moveStoryToFolder(STORY_ID, privateRoot, placement);
 		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toBeNull();
+	});
+
+	it('lists the stories of an archived team folder only to its groups and admins', async () => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		await moveStoryToFolder(STORY_ID, sales.id, { storyOwnerId: OWNER_ID, projectId: PROJECT_ID });
+
+		await archiveFolder(sales.id);
+
+		expect(await archivedSharedStoryIds(MEMBER_ID)).toEqual([STORY_ID]);
+		expect(await archivedSharedStoryIds(ADMIN_ID)).toEqual([STORY_ID]);
+		expect(await archivedSharedStoryIds(OUTSIDER_ID)).toEqual([]);
 	});
 
 	it("checks a move against the folder's audience left by a change still running when the move started", async () => {
@@ -285,6 +305,10 @@ async function visibleFolderNames(viewer: FolderViewer): Promise<string[]> {
 	return (await listFolderTree(viewer, PROJECT_ID))
 		.filter((folder) => !folder.systemType)
 		.map((folder) => folder.name);
+}
+
+async function archivedSharedStoryIds(userId: string): Promise<string[]> {
+	return (await listUserSharedStories(PROJECT_ID, userId, { archived: true })).map((story) => story.storyId);
 }
 
 function viewerOf(userId: string, groupIds: string[] = [], isAdmin = false): FolderViewer {

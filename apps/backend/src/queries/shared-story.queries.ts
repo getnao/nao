@@ -9,6 +9,7 @@ import {
 	desc,
 	eq,
 	inArray,
+	isNotNull,
 	isNull,
 	max,
 	notInArray,
@@ -152,27 +153,21 @@ export async function getStoryShareRole(storyId: string, userId: string): Promis
 	return Number(row.isEditor) === 1 ? 'editor' : 'viewer';
 }
 
-export async function listUserSharedStories(projectId: string, userId: string): Promise<SharedStoryWithLatest[]> {
+export async function listUserSharedStories(
+	projectId: string,
+	userId: string,
+	options: { archived?: boolean } = {},
+): Promise<SharedStoryWithLatest[]> {
 	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	return querySharedStories(
 		and(
 			eq(s.sharedStory.projectId, projectId),
-			isNull(s.story.archivedAt),
+			options.archived ? isNotNull(s.story.archivedAt) : isNull(s.story.archivedAt),
 			or(
 				eq(s.sharedStory.visibility, 'project'),
 				eq(s.sharedStory.userId, userId),
 				sharedStoryGrantsUser(userId, lockedGroupIds),
 			),
-		)!,
-	);
-}
-
-export function listProjectArchivedSharedStories(projectId: string): Promise<SharedStoryWithLatest[]> {
-	return querySharedStories(
-		and(
-			eq(s.sharedStory.projectId, projectId),
-			eq(s.sharedStory.visibility, 'project'),
-			sql`${s.story.archivedAt} IS NOT NULL`,
 		)!,
 	);
 }

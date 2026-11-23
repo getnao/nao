@@ -1292,7 +1292,7 @@ export const storyRoutes = {
 		}),
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
-		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
+		const stories = await sharedStoryQueries.listUserSharedStories(ctx.project.id, ctx.user.id, { archived: true });
 		return listSharedStoriesForViewer(stories, ctx.project.id, ctx.user.id);
 	}),
 
