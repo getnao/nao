@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, FileText, Plus, Search, Trash2, User, Users } from 'lucide-react';
+import { Check, ChevronDown, FileText, Plus, Search, SquarePen, Trash2, User, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -337,6 +337,7 @@ export function NewSkillDialog({
 	onScopeChange,
 	onClose,
 	onCreated,
+	onOpenInEditor,
 }: {
 	open: boolean;
 	scope: NewSkillScope;
@@ -344,6 +345,8 @@ export function NewSkillDialog({
 	onScopeChange: (scope: NewSkillScope) => void;
 	onClose: () => void;
 	onCreated: (skill: CreatedSkill) => void;
+	/** Saves the draft and opens it in the editor, to keep writing it with nao's chat beside it. */
+	onOpenInEditor?: (skill: CreatedSkill) => void;
 }) {
 	const scope = canCreateTeamSkill ? pickedScope : 'personal';
 	const [title, setTitle] = useState('');
@@ -371,13 +374,15 @@ export function NewSkillDialog({
 		onClose();
 	};
 
-	const handleCreate = async () => {
+	const isCreating = createPersonal.isPending || createProject.isPending;
+
+	const create = async (onDone: (skill: CreatedSkill) => void) => {
 		const created: CreatedSkill =
 			scope === 'project'
 				? { scope: 'project', path: (await createProject.mutateAsync({ name, description, body })).path }
 				: { scope: 'personal', name: (await createPersonal.mutateAsync({ name, description, body })).name };
 		close();
-		onCreated(created);
+		onDone(created);
 	};
 
 	return (
@@ -394,7 +399,7 @@ export function NewSkillDialog({
 					onSubmit={(event) => {
 						event.preventDefault();
 						event.stopPropagation();
-						void handleCreate().catch(() => undefined);
+						void create(onCreated).catch(() => undefined);
 					}}
 					onKeyDown={(event) => event.stopPropagation()}
 				>
@@ -444,14 +449,22 @@ export function NewSkillDialog({
 					/>
 					{error && <ErrorMessage message={error.message} />}
 					<DialogFooter>
+						{onOpenInEditor && (
+							<Button
+								type='button'
+								variant='ghost-muted'
+								className='sm:mr-auto'
+								disabled={!name || isCreating}
+								onClick={() => void create(onOpenInEditor).catch(() => undefined)}
+							>
+								<SquarePen className='size-4' />
+								Open in editor
+							</Button>
+						)}
 						<Button type='button' variant='outline' onClick={close}>
 							Cancel
 						</Button>
-						<Button
-							type='submit'
-							disabled={!name || !body.trim()}
-							isLoading={createPersonal.isPending || createProject.isPending}
-						>
+						<Button type='submit' disabled={!name || !body.trim()} isLoading={isCreating}>
 							Create skill
 						</Button>
 					</DialogFooter>

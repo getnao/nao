@@ -1,4 +1,5 @@
 import type { DBAutomation } from '../../db/abstractSchema';
+import { hasNaoInternalMcpTools } from '../../services/nao-internal-mcp';
 import { getTools } from '../tools';
 import type { AgentProfile } from './types';
 
@@ -19,6 +20,7 @@ export function automationAgent(
 					mcpEnabled: automation.mcpEnabled,
 					mcpServers: automation.mcpServers,
 					mcpAccess: toolContext.mcpAccess,
+					naoInternalMcp: hasNaoInternalMcpTools(toolContext),
 					excludeFollowUps: true,
 					semanticLayerMode: toolContext.semanticLayerMode,
 				},

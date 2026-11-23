@@ -1,4 +1,5 @@
 import type { AgentToolsResolver } from '../../services/agent';
+import { hasNaoInternalMcpTools } from '../../services/nao-internal-mcp';
 import { customStoryAuthoringError } from '../../services/story-mount';
 import { getTools } from '../tools';
 import type { AgentProfile } from './types';
@@ -22,6 +23,7 @@ export function analyticsToolsExcluding(
 				excludeBuiltinTools,
 				customBoundaries,
 				mcpAccess: toolContext.mcpAccess,
+				naoInternalMcp: hasNaoInternalMcpTools(toolContext),
 				semanticLayerMode: toolContext.semanticLayerMode,
 				customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
 			},

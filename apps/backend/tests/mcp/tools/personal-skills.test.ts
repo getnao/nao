@@ -19,7 +19,8 @@ vi.mock('../../../src/queries/mcp-endpoint.queries', () => ({
 vi.mock('../../../src/services/user-group-feature-access.service', () => ({
 	hasUserGroupFeature: mocks.hasUserGroupFeature,
 }));
-vi.mock('../../../src/services/user-skill.service', () => ({
+vi.mock('../../../src/services/user-skill.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../../src/services/user-skill.service')>()),
 	createPersonalSkill: mocks.createPersonalSkill,
 	listPersonalSkills: mocks.listPersonalSkills,
 }));

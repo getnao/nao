@@ -1,13 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { canRoleManagePersonalSkills } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { hasUserGroupFeature } from '../../services/user-group-feature-access.service';
-import { createPersonalSkill, listPersonalSkills } from '../../services/user-skill.service';
+import { canManagePersonalSkills, createPersonalSkill, listPersonalSkills } from '../../services/user-skill.service';
 import { USER_SKILL_SHARE_STATUSES } from '../../types/user-skill';
 import type { McpContext } from '../logging';
-import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
+import { jsonToolResult, registerMcpTool, type RegisterMcpToolOptions } from './register-mcp-tool';
+
+type SkillAuthor = Pick<McpContext, 'projectId' | 'userId'>;
 
 const CREATE_PERSONAL_SKILL_DESCRIPTION =
 	'Create a personal skill for the user in nao: instructions nao follows for one kind of request, only for this user. ' +
@@ -26,22 +26,23 @@ const SKILL_SUMMARY_SCHEMA = z.object({
 		.describe('`private`, or where a request to share it with the team stands.'),
 });
 
-/**
- * Personal skills over MCP follow the app: admins and context admins always write them, members when one of their
- * groups grants personal skills.
- */
+/** Personal skills over MCP follow the app: only the users who may write personal skills get these tools. */
 export async function registerPersonalSkillTools(server: McpServer, ctx: McpContext): Promise<void> {
-	const groupsGrantPersonalSkills =
-		ctx.role === 'user' && (await hasUserGroupFeature(ctx.projectId, ctx.userId, 'personalSkills'));
-	if (!canRoleManagePersonalSkills(ctx.role, groupsGrantPersonalSkills)) {
+	if (!(await canManagePersonalSkills(ctx.projectId, ctx.userId, ctx.role))) {
 		return;
 	}
-	registerListPersonalSkills(server, ctx);
-	registerCreatePersonalSkill(server, ctx);
+	for (const tool of personalSkillMcpTools(ctx)) {
+		registerMcpTool(server, ctx, tool);
+	}
 }
 
-function registerListPersonalSkills(server: McpServer, ctx: McpContext): void {
-	registerMcpTool(server, ctx, {
+/** The tools on the author's own personal skills, for nao's public MCP endpoint and for the agent's internal server. */
+export function personalSkillMcpTools(author: SkillAuthor): RegisterMcpToolOptions[] {
+	return [listPersonalSkillsTool(author), createPersonalSkillTool(author)];
+}
+
+function listPersonalSkillsTool(ctx: SkillAuthor): RegisterMcpToolOptions {
+	return {
 		name: 'list_personal_skills',
 		title: 'List Personal Skills',
 		description: LIST_PERSONAL_SKILLS_DESCRIPTION,
@@ -53,11 +54,11 @@ function registerListPersonalSkills(server: McpServer, ctx: McpContext): void {
 				skills: skills.map(({ name, description, shareStatus }) => ({ name, description, shareStatus })),
 			});
 		},
-	});
+	};
 }
 
-function registerCreatePersonalSkill(server: McpServer, ctx: McpContext): void {
-	registerMcpTool(server, ctx, {
+function createPersonalSkillTool(ctx: SkillAuthor): RegisterMcpToolOptions {
+	return {
 		name: 'create_personal_skill',
 		title: 'Create Personal Skill',
 		description: CREATE_PERSONAL_SKILL_DESCRIPTION,
@@ -92,5 +93,5 @@ function registerCreatePersonalSkill(server: McpServer, ctx: McpContext): void {
 			});
 			return jsonToolResult({ name: skill.name, description: skill.description, shareStatus: skill.shareStatus });
 		},
-	});
+	};
 }

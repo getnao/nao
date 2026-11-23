@@ -78,7 +78,10 @@ export function ContextDocView({
 	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
 	const isSkillsLinkOpen = contextSearch.skills === 'open';
-	const [skillPage, setSkillPage] = useState<SkillPage | null>(isSkillsLinkOpen ? { type: 'all' } : null);
+	const linkedSkillName = contextSearch.skill;
+	const [skillPage, setSkillPage] = useState<SkillPage | null>(
+		linkedSkillName ? { type: 'personal', name: linkedSkillName } : isSkillsLinkOpen ? { type: 'all' } : null,
+	);
 	const [isChatOpen, setIsChatOpen] = useContextHubChatPanelOpen();
 	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
 	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
@@ -141,6 +144,12 @@ export function ContextDocView({
 			setSkillPage({ type: 'all' });
 		}
 	}, [isSkillsLinkOpen]);
+
+	useEffect(() => {
+		if (linkedSkillName) {
+			setSkillPage({ type: 'personal', name: linkedSkillName });
+		}
+	}, [linkedSkillName]);
 
 	useEffect(() => {
 		if (unlistedRequestedPath && onSwitchView) {

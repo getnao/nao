@@ -74,7 +74,7 @@ export const skillRoutes = router({
 	listPersonal: nonViewerProtectedProcedure.query(async ({ ctx }) => listPersonalSkills(ctx.project.id, ctx.user.id)),
 
 	createPersonal: personalSkillProcedure
-		.input(personalSkillContentSchema.extend({ name: skillNameSchema }))
+		.input(personalSkillContentSchema.extend({ name: skillNameSchema, body: z.string().trim().max(50_000) }))
 		.mutation(async ({ ctx, input }) => createPersonalSkill(ctx.project.id, ctx.user.id, input)),
 
 	updatePersonal: personalSkillProcedure

@@ -3,6 +3,7 @@ import {
 	BUILTIN_BOUNDARY_REGION_KEY_HINTS,
 	type ChartPluginManifestEntry,
 	type CustomBoundarySet,
+	NAO_INTERNAL_MCP_SERVER,
 	STORY_REFERENCE_TAG,
 } from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
@@ -11,6 +12,7 @@ import type { SemanticLayerMode } from '@nao/shared/types';
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills, storyKitSkill } from '../../agents/skills';
 import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import { NAO_INTERNAL_MCP_DESCRIPTION } from '../../services/nao-internal-mcp';
 import type { SandboxSecretDefinition } from '../../services/sandbox-secret.service';
 import type { PreloadedSkill, Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
@@ -1001,7 +1003,9 @@ function McpServersBlock({ servers, canUseCodemode }: { servers: string[]; canUs
 			</Span>
 			<List>
 				{servers.map((server) => (
-					<ListItem key={server}>{server}</ListItem>
+					<ListItem key={server}>
+						{server === NAO_INTERNAL_MCP_SERVER ? `${server}: ${NAO_INTERNAL_MCP_DESCRIPTION}` : server}
+					</ListItem>
 				))}
 			</List>
 		</Block>

@@ -17,6 +17,7 @@ import type { RefObject } from 'react';
 import type { CreatedSkill, ListedSkill } from '@/components/personal-skills';
 import { NewSkillDialog, useNewSkillScope } from '@/components/personal-skills';
 import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
+import { useOpenSkillInContextHub } from '@/hooks/use-context-hub-view';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
@@ -79,6 +80,8 @@ type ChatPromptProps = {
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
 	onMentionDeleted?: (mention: SelectedMention) => void;
+	/** Opens the new skill dialog from outside the prompt, such as the + menu; the prompt keeps it to itself otherwise. */
+	newSkillDialog?: { isOpen: boolean; onOpenChange: (isOpen: boolean) => void };
 };
 
 const theme: PromptTheme = {
@@ -125,6 +128,7 @@ export function ChatPrompt({
 	onChange,
 	onEnter,
 	onMentionDeleted,
+	newSkillDialog,
 }: ChatPromptProps) {
 	const activeProjectId = useActiveProjectId();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
@@ -137,8 +141,11 @@ export function ChatPrompt({
 	const skills = hasProject && !skillsQuery.isFetching ? skillsQuery.data : undefined;
 	const canCreateSkill = useCanManagePersonalSkills();
 	const { canExploreContext } = usePermissions();
-	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
+	const [isOwnNewSkillOpen, setIsOwnNewSkillOpen] = useState(false);
+	const isNewSkillOpen = newSkillDialog?.isOpen ?? isOwnNewSkillOpen;
+	const setIsNewSkillOpen = newSkillDialog?.onOpenChange ?? setIsOwnNewSkillOpen;
 	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
+	const openSkillInContextHub = useOpenSkillInContextHub();
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const referenceOptions = useReferenceOptions();
 	const promptTheme = compact
@@ -241,6 +248,7 @@ export function ChatPrompt({
 				onScopeChange={setNewSkillScope}
 				onClose={() => setIsNewSkillOpen(false)}
 				onCreated={handleSkillCreated}
+				onOpenInEditor={canExploreContext ? openSkillInContextHub : undefined}
 			/>
 		</>
 	);
