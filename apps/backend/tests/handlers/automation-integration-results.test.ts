@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
 	getUser: vi.fn(),
 	getGithubToken: vi.fn(),
 	createAgent: vi.fn(),
-	getAgent: vi.fn(),
 }));
 
 vi.mock('../../src/queries/automation.queries', () => ({
@@ -33,7 +32,7 @@ vi.mock('../../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
 }));
 vi.mock('../../src/services/agent', () => ({
-	agentService: { create: mocks.createAgent, get: mocks.getAgent },
+	agentService: { create: mocks.createAgent },
 }));
 vi.mock('../../src/services/mcp', () => ({
 	mcpService: { initializeMcpState: vi.fn() },
@@ -132,32 +131,48 @@ describe('automation run integration results', () => {
 });
 
 describe('interrupting automation runs on shutdown', () => {
+	const interruptedMessage = 'The automation run was interrupted because the server running it stopped.';
+
 	beforeEach(() => {
 		vi.clearAllMocks();
-	});
-
-	it('fails the running run before stopping its agent', async () => {
-		const agent = createStoppableAgent();
 		mocks.getAutomationById.mockResolvedValue({ id: 'automation-1', projectId: 'project-1', userId: 'user-1' });
 		mocks.createAutomationRun.mockResolvedValue({ id: 'run-1', automationId: 'automation-1', status: 'running' });
 		mocks.getUser.mockResolvedValue({ id: 'user-1', email: 'user@example.com' });
 		mocks.createChat.mockResolvedValue([{ id: 'chat-1' }]);
 		mocks.getChat.mockResolvedValue([{ id: 'chat-1', messages: [] }]);
 		mocks.getChatMessages.mockResolvedValue([]);
+	});
+
+	it('fails the running run before stopping its agent', async () => {
+		const agent = createStoppableAgent();
 		mocks.createAgent.mockResolvedValue(agent);
-		mocks.getAgent.mockImplementation((chatId: string) => (chatId === 'chat-1' ? agent : undefined));
 
 		const run = runAutomation('automation-1', { trigger: 'manual' }).catch((error: Error) => error);
 		await vi.waitFor(() => expect(agent.stream).toHaveBeenCalled());
 		await interruptRunningAutomations();
 
-		expect(mocks.failAutomationRun).toHaveBeenNthCalledWith(
-			1,
-			'run-1',
-			'The automation run was interrupted because the server running it stopped.',
-		);
+		expect(mocks.failAutomationRun).toHaveBeenNthCalledWith(1, 'run-1', interruptedMessage);
 		expect(agent.isStopped).toBe(true);
 		expect(await run).toBeInstanceOf(Error);
+	});
+
+	it('never starts the agent of a run interrupted during its setup', async () => {
+		const agent = createStoppableAgent();
+		let finishSetup = () => {};
+		mocks.createAgent.mockReturnValue(
+			new Promise((resolve) => {
+				finishSetup = () => resolve(agent);
+			}),
+		);
+
+		const run = runAutomation('automation-1', { trigger: 'manual' }).catch((error: Error) => error);
+		await vi.waitFor(() => expect(mocks.createAgent).toHaveBeenCalled());
+		await interruptRunningAutomations();
+		finishSetup();
+
+		expect(await run).toBeInstanceOf(Error);
+		expect(agent.stream).not.toHaveBeenCalled();
+		expect(mocks.failAutomationRun).toHaveBeenNthCalledWith(1, 'run-1', interruptedMessage);
 	});
 });
 
