@@ -4,7 +4,7 @@ import { getUserRoleInProject } from '../queries/project.queries';
 
 /**
  * Whoever can open the chat (owner or share recipient) can view its content, and so can the project admins who
- * replay it and the people an automation is shared with, for the chats of its runs.
+ * replay it and the project members an automation is shared with, for the chats of its runs.
  */
 export async function canUserViewChatContent(chatId: string, chatProjectId: string, userId: string): Promise<boolean> {
 	if (await canUserAccessChat(chatId, userId)) {
@@ -14,7 +14,7 @@ export async function canUserViewChatContent(chatId: string, chatProjectId: stri
 	if (role === 'admin' || role === 'context_admin') {
 		return true;
 	}
-	return canUserViewAutomationRunChat(chatId, chatProjectId, userId);
+	return role !== null && canUserViewAutomationRunChat(chatId, chatProjectId, userId);
 }
 
 async function canUserViewAutomationRunChat(chatId: string, chatProjectId: string, userId: string): Promise<boolean> {

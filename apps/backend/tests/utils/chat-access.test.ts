@@ -22,6 +22,7 @@ const OWNER_ID = 'chat-access-owner';
 const SHARED_ID = 'chat-access-shared';
 const OUTSIDER_ID = 'chat-access-outsider';
 const ADMIN_ID = 'chat-access-admin';
+const FORMER_MEMBER_ID = 'chat-access-former-member';
 const SHARED_AUTOMATION_ID = 'chat-access-shared-automation';
 const PRIVATE_AUTOMATION_ID = 'chat-access-private-automation';
 
@@ -35,7 +36,7 @@ const CHATS = {
 describe('canUserViewChatContent', () => {
 	beforeAll(async () => {
 		await db.insert(s.user).values(
-			[OWNER_ID, SHARED_ID, OUTSIDER_ID, ADMIN_ID].map((id) => ({
+			[OWNER_ID, SHARED_ID, OUTSIDER_ID, ADMIN_ID, FORMER_MEMBER_ID].map((id) => ({
 				id,
 				name: id,
 				email: `${id}@example.com`,
@@ -93,6 +94,21 @@ describe('canUserViewChatContent', () => {
 		{ reader: 'a project admin', userId: ADMIN_ID, chat: 'privateRun', canView: true },
 	] as const)('lets $reader view the $chat chat: $canView', async ({ userId, chat, canView }) => {
 		await expect(canUserViewChatContent(CHATS[chat], PROJECT_ID, userId)).resolves.toBe(canView);
+	});
+
+	it.each([
+		{ share: 'the whole project', grant: { userId: null, groupId: null, role: 'viewer' } },
+		{ share: 'them personally', grant: { userId: FORMER_MEMBER_ID, groupId: null, role: 'viewer' } },
+	] as const)('hides run chats from users outside the project, even when shared with $share', async ({ grant }) => {
+		await replaceAutomationShares(SHARED_AUTOMATION_ID, [grant]);
+
+		await expect(canUserViewChatContent(CHATS.sharedRun, PROJECT_ID, FORMER_MEMBER_ID)).resolves.toBe(false);
+	});
+
+	it('lets project members use a project-wide share', async () => {
+		await replaceAutomationShares(SHARED_AUTOMATION_ID, [{ userId: null, groupId: null, role: 'viewer' }]);
+
+		await expect(canUserViewChatContent(CHATS.sharedRun, PROJECT_ID, OUTSIDER_ID)).resolves.toBe(true);
 	});
 
 	it('stops showing the run chats once the automation is unshared', async () => {
