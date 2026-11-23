@@ -73,6 +73,9 @@ export function AddMemberDialog({
 	};
 
 	const submit = async (members: AddMembersRequest['members']) => {
+		if (isSubmitting) {
+			return null;
+		}
 		setError('');
 		setIsSubmitting(true);
 		try {
@@ -180,6 +183,7 @@ export function AddMemberDialog({
 							names={names}
 							onNameChange={(email, name) => setNames({ ...names, [email]: name })}
 							onSkip={skipNewAccount}
+							skipDisabled={isSubmitting}
 						/>
 					</StepForm>
 				)}
@@ -230,7 +234,7 @@ function StepForm({
 						type='submit'
 						variant='primary-gradient'
 						className='rounded-full'
-						disabled={submitDisabled}
+						disabled={submitDisabled || isSubmitting}
 						isLoading={isSubmitting}
 					>
 						{submitLabel}
@@ -259,11 +263,13 @@ function NewAccountNames({
 	names,
 	onNameChange,
 	onSkip,
+	skipDisabled,
 }: {
 	emails: string[];
 	names: Record<string, string>;
 	onNameChange: (email: string, name: string) => void;
 	onSkip: (email: string) => void;
+	skipDisabled: boolean;
 }) {
 	return (
 		<div className='max-h-80 overflow-y-auto rounded-lg border'>
@@ -293,6 +299,7 @@ function NewAccountNames({
 									variant='ghost-muted'
 									size='icon-sm'
 									aria-label={`Skip ${email}`}
+									disabled={skipDisabled}
 									onClick={() => onSkip(email)}
 								>
 									<X />

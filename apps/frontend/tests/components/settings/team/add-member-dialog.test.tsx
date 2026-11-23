@@ -148,6 +148,36 @@ describe('AddMemberDialog bulk add', () => {
 		);
 	});
 
+	it('keeps apostrophes and typos visible instead of dropping them', () => {
+		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
+
+		fireEvent.paste(screen.getByLabelText('Emails'), {
+			clipboardData: { getData: () => "o'connor@acme.com bob.acme.com, 'quoted@acme.com'" },
+		});
+
+		expect(screen.getByRole('button', { name: "Remove o'connor@acme.com" })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Remove bob.acme.com' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Remove quoted@acme.com' })).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Add 3 members' }));
+		expect(screen.getByText('Fix or remove invalid emails: bob.acme.com')).toBeTruthy();
+	});
+
+	it('disables submit and skip while accounts are being created', async () => {
+		const onSubmit = vi
+			.fn()
+			.mockResolvedValueOnce([{ email: 'new@acme.com', status: 'needsName' }])
+			.mockReturnValueOnce(new Promise(() => {}));
+		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} />);
+
+		submitEmails('new@acme.com');
+		fireEvent.click(await screen.findByRole('button', { name: 'Create account' }));
+
+		await waitFor(() =>
+			expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true),
+		);
+		expect((screen.getByRole('button', { name: 'Skip new@acme.com' }) as HTMLButtonElement).disabled).toBe(true);
+	});
+
 	it('refuses to submit while an email is invalid', () => {
 		const onSubmit = vi.fn();
 		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} />);

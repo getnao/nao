@@ -11,7 +11,11 @@ export interface EmailListValue {
 export const EMPTY_EMAIL_LIST: EmailListValue = { emails: [], draft: '' };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const TOKEN_SEPARATORS = /[\s,;<>"']+/;
+const ENTRY_SEPARATORS = /[,;\n]+/;
+const ANGLE_ADDRESSES = /<([^<>]*)>/g;
+const SURROUNDING_QUOTES = /^["']+|["']+$/g;
+const TYPED_TEXT_WITH_SEPARATOR = /^([\s\S]*[\s,;])([^\s,;]*)$/;
+const UNCLOSED_ANGLE_ADDRESS = /<[^>]*$/;
 
 /** Chip input that turns typed or pasted text into a list of emails, e.g. a column copied from a spreadsheet. */
 export function EmailListInput({
@@ -24,15 +28,19 @@ export function EmailListInput({
 	onChange: (value: EmailListValue) => void;
 }) {
 	const handleDraftChange = (text: string) => {
-		const tokens = text.split(TOKEN_SEPARATORS);
-		const draft = tokens.pop() ?? '';
-		onChange({ emails: mergeEmails(value.emails, tokens.join(' ')), draft });
+		const match = UNCLOSED_ANGLE_ADDRESS.test(text) ? null : text.match(TYPED_TEXT_WITH_SEPARATOR);
+		if (!match) {
+			onChange({ ...value, draft: text });
+			return;
+		}
+		const [, completeText, draft] = match;
+		onChange({ emails: mergeEmails(value.emails, completeText), draft });
 	};
 
 	const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
 		event.preventDefault();
 		onChange({
-			emails: mergeEmails(value.emails, `${value.draft} ${event.clipboardData.getData('text')}`),
+			emails: mergeEmails(value.emails, `${value.draft}\n${event.clipboardData.getData('text')}`),
 			draft: '',
 		});
 	};
@@ -102,9 +110,12 @@ function EmailChip({ email, onRemove }: { email: string; onRemove: () => void })
 }
 
 function mergeEmails(emails: string[], text: string): string[] {
-	const parsed = text
-		.split(TOKEN_SEPARATORS)
-		.filter((token) => token.includes('@'))
-		.map((token) => token.toLowerCase());
-	return [...new Set([...emails, ...parsed])];
+	return [...new Set([...emails, ...text.split(ENTRY_SEPARATORS).flatMap(parseEntry)])];
+}
+
+/** Keeps only the address of a `Name <address>` entry; any other word stays, so typos remain visible. */
+function parseEntry(entry: string): string[] {
+	const angleAddresses = [...entry.matchAll(ANGLE_ADDRESSES)].map((match) => match[1]);
+	const tokens = angleAddresses.length > 0 ? angleAddresses : entry.split(/\s+/);
+	return tokens.map((token) => token.trim().replace(SURROUNDING_QUOTES, '').toLowerCase()).filter(Boolean);
 }
