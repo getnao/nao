@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectAvailableModels: vi.fn(),
 	getReferenceableStory: vi.fn(),
 	getStoryById: vi.fn(),
+	getStoryProjectId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
 	resolveModelSelection: vi.fn(),
@@ -26,7 +27,10 @@ vi.mock('../../src/queries/chat.queries', () => ({
 	getChat: mocks.getChat,
 }));
 vi.mock('../../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
-vi.mock('../../src/queries/story.queries', () => ({ getStoryById: mocks.getStoryById }));
+vi.mock('../../src/queries/story.queries', () => ({
+	getStoryById: mocks.getStoryById,
+	getStoryProjectId: mocks.getStoryProjectId,
+}));
 vi.mock('../../src/services/custom-story', () => ({
 	CustomStoryNotFoundError: class CustomStoryNotFoundError extends Error {},
 }));
@@ -82,7 +86,8 @@ describe('runCustomStoryModel', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.resolveModelSelection.mockImplementation(async (_projectId, model) => model ?? AVAILABLE[0]);
 		mocks.getReferenceableStory.mockResolvedValue({ title: 'Revenue story', authorName: 'Ada' });
-		mocks.getStoryById.mockResolvedValue({ id: 'story-1', format: 'custom', projectId: 'project-1' });
+		mocks.getStoryById.mockResolvedValue({ id: 'story-1', format: 'custom', projectId: null, chatId: 'chat-1' });
+		mocks.getStoryProjectId.mockResolvedValue('project-1');
 		mocks.createChat.mockResolvedValue([{ id: 'chat-9' }]);
 		mocks.getChat.mockResolvedValue([{ id: 'chat-9', title: 'Revenue story', messages: [USER_MESSAGE] }]);
 		mocks.createAgent.mockResolvedValue({ streamToCompletion: mocks.streamToCompletion });
@@ -154,12 +159,20 @@ describe('runCustomStoryModel', () => {
 		expect(mocks.createAgent).not.toHaveBeenCalled();
 	});
 
+	it('runs a story built in a chat, which belongs to its chat project', async () => {
+		const result = await runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' });
+
+		expect(result).toMatchObject({ kind: 'llm', text: 'Revenue grew.' });
+		expect(mocks.getStoryProjectId).toHaveBeenCalledWith('story-1');
+	});
+
 	it.each([
-		['a classic story', { id: 'story-1', format: 'classic', projectId: 'project-1' }],
-		["another project's story", { id: 'story-1', format: 'custom', projectId: 'project-2' }],
-		['a missing story', null],
-	])('refuses %s before any chat or call', async (_label, story) => {
+		['a classic story', { id: 'story-1', format: 'classic', projectId: 'project-1' }, 'project-1'],
+		["another project's story", { id: 'story-1', format: 'custom', projectId: null }, 'project-2'],
+		['a missing story', null, null],
+	])('refuses %s before any chat or call', async (_label, story, storyProjectId) => {
 		mocks.getStoryById.mockResolvedValue(story);
+		mocks.getStoryProjectId.mockResolvedValue(storyProjectId);
 
 		await expect(runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' })).rejects.toThrow();
 		expect(mocks.createChat).not.toHaveBeenCalled();
