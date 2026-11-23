@@ -883,12 +883,14 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			job.userId,
 		);
 
-		await updateJob(jobId, { status: 'publishing' });
-		managedRepository = await publishProject({
-			projectId: job.projectId,
-			projectName: job.projectName,
-			projectDir: registeredProjectPath,
-		});
+		if (!env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING) {
+			await updateJob(jobId, { status: 'publishing' });
+			managedRepository = await publishProject({
+				projectId: job.projectId,
+				projectName: job.projectName,
+				projectDir: registeredProjectPath,
+			});
+		}
 		await updateJob(jobId, {
 			status: 'ready',
 			encryptedCredentials: null,

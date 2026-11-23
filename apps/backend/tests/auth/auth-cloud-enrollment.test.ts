@@ -84,6 +84,7 @@ vi.mock('../../src/services/cloud-sso-auth.service', () => ({
 	getCloudSsoDisabledPaths: vi.fn(() => []),
 	isCloudSsoEmailTrusted: vi.fn().mockResolvedValue(false),
 }));
+vi.mock('../../src/services/session-rotation-auth.service', () => ({ sessionRotation: vi.fn(() => ({})) }));
 vi.mock('../../src/services/credit-grant.service', () => ({
 	activateUserJoinCandidates: vi.fn(),
 }));

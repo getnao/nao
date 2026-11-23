@@ -9,6 +9,7 @@ import { Prompt } from 'prompt-mentions';
 import { useId, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import AppWindow from './icons/app-window.svg';
+import Slash from './icons/slash.svg';
 import SquarePlay from './icons/square-play.svg';
 import { MentionOriginPreview, withOriginMarker } from './mention-origin-preview';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
@@ -102,12 +103,6 @@ const theme: PromptTheme = {
 		title: {
 			labelColor: 'var(--color-muted-foreground)',
 		},
-	},
-	pill: {
-		backgroundColor: 'var(--background)',
-		color: 'var(--foreground)',
-		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
-		borderRadius: '9999px',
 	},
 };
 
@@ -349,11 +344,9 @@ function toSkillMentionOption(skill: ListedSkill): MentionOption {
 		label: skill.name,
 		labelRight: skill.description || undefined,
 		icon: (
-			<span
+			<Slash
 				className={cn('skill-mention-icon', skill.scope === 'personal' && 'text-teal-700 dark:text-teal-400')}
-			>
-				{SKILL_MENTION_TRIGGER}
-			</span>
+			/>
 		),
 	};
 }
