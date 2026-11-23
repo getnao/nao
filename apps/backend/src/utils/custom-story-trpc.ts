@@ -24,9 +24,6 @@ export const storySnapshotHtml = z
 		message: `The story snapshot exceeds ${MAX_STORY_SNAPSHOT_BYTES / 1024 / 1024} MB.`,
 	});
 
-export const STANDALONE_QUERY_SQL_UNAVAILABLE =
-	'This story keeps the rows of its queries but not their SQL. Edit it in a chat to work on its queries.';
-
 export const STANDALONE_SQL_UNAVAILABLE = 'Only stories built in a chat can run their own SQL.';
 
 export const storyStateChange = z.object({

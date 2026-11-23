@@ -115,6 +115,7 @@ function StoryBody({
 	return (
 		<StoryTabbedContent
 			code={code}
+			storyId={null}
 			baselineQueryData={queryData}
 			theme={theme}
 			renderChart={renderChart}

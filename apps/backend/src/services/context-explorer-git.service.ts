@@ -102,6 +102,7 @@ export {
 	getContextBranchCommitMessages,
 	getContextBranches,
 	listContextRepositoryBranches,
+	pullContextBranch,
 	pushContextBranch,
 	suggestContextBranchName,
 	switchContextBranch,

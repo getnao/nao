@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { DEFAULT_RULES_FILE } from '@nao/shared/rules-template';
+import {
+	DEFAULT_SQL_QUERY_TAG_POSITION,
+	isSqlQueryTagPosition,
+	SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH,
+	type SqlQueryTagConfig,
+} from '@nao/shared/sql-query-tag';
 import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
@@ -8,16 +15,20 @@ import { z } from 'zod/v4';
 import { getModelReasoningEfforts } from '../agents/provider-meta';
 import { parseGithubRemoteRepoFullName } from '../services/github';
 import { gitlabBaseUrl } from '../services/gitlab';
-import type { LinkedContextRepo } from '../types/context-recommendation';
+import type { LinkedContextRepo, RepoTarget } from '../types/context-recommendation';
 import type { ActiveEffort } from '../types/llm';
 import {
 	type ConfiguredTestSettings,
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	testComparisonTolerancesSchema,
 	type TestModelSelection,
+	type TestScheduleSettings,
 } from '../types/test-run';
+import { getTestScheduleCronError } from './cron';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
+import { resolveFileReferences, resolveProjectFile } from './nao-config-references';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -25,16 +36,26 @@ const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
+	/** Project-relative path of the rules file, `RULES.md` unless nao_config.yaml sets `rules_file`. */
+	rulesFile?: string;
 	semantics: boolean;
 	docs: boolean;
 	notionDocs: boolean;
 	databases: boolean;
 };
-const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+/** Accepts the same spacing as the CLI, which resolves a reference left unfilled here to an empty string. */
+const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
 const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+const RULES_FILE_CACHE_MAX_ENTRIES = 100;
+const rulesFileCache = new Map<
+	string,
+	{ configSignature: string; configured: string | undefined; fileSignature: string; rulesFile: string }
+>();
+/** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
+const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
 
@@ -88,6 +109,11 @@ export function extractConfiguredRepos(projectFolder: string, envVars?: Record<s
 	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
+/** The context folders `nao sync` writes for the repositories' targets, such as `tests/analytics`. */
+export function extractRepoTargetFolders(projectFolder: string): string[] {
+	return extractConfiguredRepos(projectFolder).flatMap((repo) => repo.targets.map((target) => target.target));
+}
+
 /** Returns configured database templates, falling back to the default when unavailable. */
 export function extractConfiguredTemplates(projectFolder: string): string[] {
 	return configuredTemplatesFrom(loadProjectConfig(projectFolder));
@@ -108,13 +134,74 @@ export function readProjectContext(projectFolder: string): {
 
 /** Returns which filesystem-backed project context is available to read. */
 export function extractContextPresence(projectFolder: string): ContextPresence {
+	const rulesFile = extractRulesFile(projectFolder);
 	return {
-		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		rules: fs.existsSync(path.join(projectFolder, rulesFile)),
+		rulesFile,
 		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
 		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
 		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
 		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
 	};
+}
+
+/**
+ * The rules file `rules_file` names, such as one of a synced repository: `repos/business_context/nao/RULES.md`.
+ * It falls back to RULES.md while that file is missing, before its repository is synced, or when it is refused.
+ * Every agent read checks it, so the result is kept until nao_config.yaml or the file it names changes.
+ */
+export function extractRulesFile(projectFolder: string): string {
+	const configSignature = getStatSignature(path.join(projectFolder, 'nao_config.yaml'));
+	const cached = rulesFileCache.get(projectFolder);
+	const configured =
+		cached?.configSignature === configSignature ? cached.configured : readRulesFileSetting(projectFolder);
+	const fileSignature =
+		typeof configured === 'string' ? getStatSignature(path.resolve(projectFolder, configured)) : '';
+	if (cached?.configSignature === configSignature && cached.fileSignature === fileSignature) {
+		return cached.rulesFile;
+	}
+
+	const rulesFile = typeof configured === 'string' ? resolveRulesFile(configured, projectFolder) : DEFAULT_RULES_FILE;
+	rulesFileCache.delete(projectFolder);
+	if (rulesFileCache.size >= RULES_FILE_CACHE_MAX_ENTRIES) {
+		rulesFileCache.delete(rulesFileCache.keys().next().value ?? projectFolder);
+	}
+	rulesFileCache.set(projectFolder, { configSignature, configured, fileSignature, rulesFile });
+	return rulesFile;
+}
+
+/** Read without its `from_file` files, so the signature of nao_config.yaml alone tells when it changes. */
+function readRulesFileSetting(projectFolder: string): string | undefined {
+	try {
+		const config = yaml.load(fs.readFileSync(path.join(projectFolder, 'nao_config.yaml'), 'utf-8'));
+		const rulesFile = isRecord(config) ? config.rules_file : undefined;
+		return typeof rulesFile === 'string' && rulesFile.trim() !== '' ? rulesFile.trim() : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function resolveRulesFile(rulesFile: string, projectFolder: string): string {
+	try {
+		const filePath = resolveProjectFile(rulesFile, projectFolder);
+		if (!fs.statSync(filePath).isFile()) {
+			throw new Error('it is not a file');
+		}
+		return path.relative(fs.realpathSync(projectFolder), filePath).split(path.sep).join('/');
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : String(err);
+		logger.warn(`Ignoring rules_file '${rulesFile}' of nao_config.yaml: ${reason}`, { source: 'system' });
+		return DEFAULT_RULES_FILE;
+	}
+}
+
+function getStatSignature(filePath: string): string {
+	try {
+		const stats = fs.statSync(filePath);
+		return `${stats.ino}:${stats.mtimeMs}:${stats.ctimeMs}:${stats.size}`;
+	} catch {
+		return 'missing';
+	}
 }
 
 function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
@@ -137,6 +224,7 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			{
 				name: repo.name.trim(),
 				contextPath: `repos/${repo.name.trim()}`,
+				targets: repoTargetsFrom(resolveEnvReferences(repo.targets, envVars ?? {})),
 				url,
 				branch,
 				localPath,
@@ -145,6 +233,34 @@ function configuredReposFrom(config: unknown, envVars?: Record<string, string>):
 			},
 		];
 	});
+}
+
+/**
+ * Leaves out the targets `nao sync` refuses, so no path read here can lead out of the context. Their env references
+ * resolve like those `nao sync` gets, as targets hold no secret.
+ */
+function repoTargetsFrom(targets: unknown): RepoTarget[] {
+	if (!Array.isArray(targets)) {
+		return [];
+	}
+	return targets.flatMap((entry) => {
+		const source = isRecord(entry) ? toRelativeFolder(entry.source) : null;
+		const target = isRecord(entry) ? toRelativeFolder(entry.target) : null;
+		const isValidTarget =
+			target !== null && target.includes('/') && !RESERVED_TARGET_FOLDERS.includes(target.split('/')[0]);
+		return source && target && isValidTarget ? [{ source, target }] : [];
+	});
+}
+
+function toRelativeFolder(value: unknown): string | null {
+	if (typeof value !== 'string' || value.includes('\\') || value.trim().startsWith('/')) {
+		return null;
+	}
+	const segments = value
+		.trim()
+		.split('/')
+		.filter((segment) => segment !== '' && segment !== '.');
+	return segments.length > 0 && !segments.includes('..') ? segments.join('/') : null;
 }
 
 function configuredTemplatesFrom(config: unknown): string[] {
@@ -186,6 +302,25 @@ export function extractRawRepoConfig(projectFolder: string, repoName: string): R
 		(entry) => isRecord(entry) && typeof entry.name === 'string' && entry.name.trim() === repoName,
 	);
 	return isRecord(repo) ? repo : null;
+}
+
+/** Fills in the `{{ env('NAME') }}` references of a config value, leaving the `aws` and `k8s` ones to the CLI. */
+export function resolveEnvReferences<T>(value: T, envVars: Record<string, string>): T {
+	if (typeof value === 'string') {
+		return value.replace(
+			NAO_CONFIG_ENV_PATTERN,
+			(_reference, name: string) => envVars[name] || getDeploymentEnvVar(name) || '',
+		) as T;
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveEnvReferences(item, envVars)) as T;
+	}
+	if (isRecord(value)) {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, resolveEnvReferences(item, envVars)]),
+		) as T;
+	}
+	return value;
 }
 
 function asString(value: unknown): string | null {
@@ -291,6 +426,19 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 	};
 }
 
+/** The `query_tag` section of nao_config.yaml, or null when the project declares none or an invalid one. */
+export function extractConfiguredSqlQueryTag(projectFolder: string): SqlQueryTagConfig | null {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !isRecord(config.query_tag)) {
+		return null;
+	}
+
+	const { template, position = DEFAULT_SQL_QUERY_TAG_POSITION } = config.query_tag;
+	const isValidTemplate =
+		typeof template === 'string' && template.trim() !== '' && template.length <= SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH;
+	return isValidTemplate && isSqlQueryTagPosition(position) ? { template, position } : null;
+}
+
 /** The `test` section of nao_config.yaml, read with the same defaults and validation as `nao test`. */
 export function extractConfiguredTestSettings(projectFolder: string): ConfiguredTestSettings {
 	const config = loadProjectConfig(projectFolder);
@@ -318,7 +466,50 @@ export function extractConfiguredTestSettings(projectFolder: string): Configured
 		attempts: isValidAttempts ? attempts : 1,
 		threads: isValidThreads ? threads : null,
 		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
+		schedules: parseTestSchedules(testConfig.schedules, errors),
 		errors,
+	};
+}
+
+/** The valid entries of `test.schedules`, each one a cron with the tags, models and attempts it overrides. */
+function parseTestSchedules(schedules: unknown, errors: string[]): TestScheduleSettings[] {
+	if (schedules === undefined || schedules === null) {
+		return [];
+	}
+	if (!Array.isArray(schedules)) {
+		errors.push('test.schedules must be a list of { cron, tags, models, k } entries.');
+		return [];
+	}
+	return schedules.flatMap((schedule) => {
+		const scheduleErrors: string[] = [];
+		const parsed = parseTestSchedule(schedule, scheduleErrors);
+		errors.push(...scheduleErrors);
+		return scheduleErrors.length === 0 ? [parsed] : [];
+	});
+}
+
+function parseTestSchedule(schedule: unknown, errors: string[]): TestScheduleSettings {
+	const entry = isRecord(schedule) ? schedule : {};
+	const cron = typeof entry.cron === 'string' ? entry.cron.trim() : '';
+	const cronError = cron ? getTestScheduleCronError(cron) : `expected a 'cron', got ${JSON.stringify(schedule)}.`;
+	if (cronError) {
+		errors.push(`test.schedules has an invalid entry: ${cronError}`);
+	}
+	const tags = entry.tags ?? [];
+	const isValidTags = Array.isArray(tags) && tags.every((tag) => typeof tag === 'string' && tag.trim());
+	if (!isValidTags) {
+		errors.push(`test.schedules tags must be a list of tags, got ${JSON.stringify(tags)}.`);
+	}
+	const attempts = entry.k ?? null;
+	const isValidAttempts = attempts === null || isPositiveInteger(attempts);
+	if (!isValidAttempts) {
+		errors.push(`test.schedules k must be an integer of at least 1, got ${JSON.stringify(attempts)}.`);
+	}
+	return {
+		cron,
+		tags: isValidTags ? tags.map((tag: string) => tag.trim()) : [],
+		models: parseTestModels(entry.models, errors),
+		attempts: isValidAttempts ? attempts : null,
 	};
 }
 
@@ -425,7 +616,7 @@ function normalizeIdentifyingValue(value: unknown): string | null {
 
 function loadConfig(configPath: string): unknown {
 	try {
-		return yaml.load(fs.readFileSync(configPath, 'utf-8'));
+		return resolveFileReferences(yaml.load(fs.readFileSync(configPath, 'utf-8')), path.dirname(configPath));
 	} catch (err) {
 		logger.warn(`Failed to read or parse ${configPath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',

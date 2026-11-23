@@ -5,11 +5,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import { softDeleteNonStarredChats } from '../../src/queries/chat.queries';
 import {
 	canUserAccessSharedChat,
 	getShareAllowedGroupIds,
 	getShareAllowedUserIds,
+	getSharedChatInfo,
 	getSharedChatRecipientUserIds,
+	listUserSharedChats,
 	replaceSharedChatAccess,
 } from '../../src/queries/shared-chat.queries';
 
@@ -90,6 +93,18 @@ describe('replaceSharedChatAccess', () => {
 		expect(await getShareAllowedGroupIds(SHARE_ID)).toEqual([]);
 		const [share] = await db.select({ visibility: s.sharedChat.visibility }).from(s.sharedChat);
 		expect(share.visibility).toBe('project');
+	});
+});
+
+describe('a shared chat its owner removed with "Delete all"', () => {
+	it('no longer resolves and leaves the shared chats of its recipients', async () => {
+		expect(await getSharedChatInfo(SHARE_ID)).toMatchObject({ chatId: 'group-share-chat' });
+		expect(await listUserSharedChats([PROJECT_ID], DIRECT_RECIPIENT_ID)).toHaveLength(1);
+
+		await softDeleteNonStarredChats(OWNER_ID);
+
+		expect(await getSharedChatInfo(SHARE_ID)).toBeNull();
+		expect(await listUserSharedChats([PROJECT_ID], DIRECT_RECIPIENT_ID)).toEqual([]);
 	});
 });
 

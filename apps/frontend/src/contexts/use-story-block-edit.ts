@@ -44,7 +44,7 @@ export function useStoryBlockEdit({
 	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
 	const queueKey = `${chatId}/${storySlug}`;
 
-	const createVersionMutation = useMutation(
+	const { mutateAsync: createVersion, isPending: isSaving } = useMutation(
 		trpc.story.createVersion.mutationOptions({
 			onMutate: async (variables) => {
 				await queryClient.cancelQueries({ queryKey: latestStoryQueryKey });
@@ -97,7 +97,7 @@ export function useStoryBlockEdit({
 					}
 					queue.code = nextCode;
 					try {
-						const created = await createVersionMutation.mutateAsync({
+						const created = await createVersion({
 							chatId,
 							storySlug,
 							title: storyTitle,
@@ -118,10 +118,10 @@ export function useStoryBlockEdit({
 			queue.tail = run.catch(() => {});
 			return run;
 		},
-		[chatId, storySlug, storyTitle, storyCode, storyVersion, queueKey, createVersionMutation],
+		[chatId, storySlug, storyTitle, storyCode, storyVersion, queueKey, createVersion],
 	);
 
-	return { replaceBlock, isSaving: createVersionMutation.isPending };
+	return { replaceBlock, isSaving };
 }
 
 function getSaveQueue(key: string, code: string, version: number | undefined): StoryBlockSaveQueue {

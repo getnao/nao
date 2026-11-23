@@ -2,23 +2,11 @@ import type { onboardingProgress } from '@nao/shared/tools';
 import type { StepResult } from 'ai';
 
 import { renderOnboardingSystemPrompt } from '../../components/ai/onboarding-system-prompt';
-import { getOnboardingWarehouseState } from '../../services/warehouse-provisioning';
+import { getOnboardingWarehouseState } from '../../services/onboarding/warehouse-provisioning';
 import type { AgentTools } from '../../types/chat';
 import { getTools } from '../tools';
+import { ONBOARDING_TURN_ENDING_TOOLS, onboardingTools } from '../tools/onboarding';
 import type { AgentProfile, AgentStepTools } from './types';
-
-const ONBOARDING_TOOLS = [
-	'clarification',
-	'onboarding_agent_prompt',
-	'onboarding_command',
-	'onboarding_progress',
-	'request_warehouse_credentials',
-	'request_warehouse_selection',
-	'wait_for_warehouse_setup',
-	'retry_warehouse_setup',
-	'generate_onboarding_rules',
-	'restart_onboarding',
-];
 
 const WAREHOUSE_REQUEST_STEP_TOOLS: AgentStepTools = {
 	toolChoice: 'required',
@@ -28,8 +16,8 @@ const WAREHOUSE_REQUEST_STEP_TOOLS: AgentStepTools = {
 /** Guides a new user through connecting their warehouse and generating their first context. */
 export const onboardingAgent: AgentProfile = {
 	source: 'onboarding',
-	tools: ({ agentSettings }) =>
-		getTools(agentSettings, {}, { onboarding: true, builtinToolAllowlist: ONBOARDING_TOOLS }),
+	tools: ({ agentSettings }) => getTools(agentSettings, onboardingTools, { builtinToolAllowlist: ['clarification'] }),
+	turnEndingTools: ONBOARDING_TURN_ENDING_TOOLS,
 	stepTools: getOnboardingStepTools,
 	systemPrompt: async ({ chat }) =>
 		renderOnboardingSystemPrompt(await getOnboardingWarehouseState(chat.userId, chat.id)),

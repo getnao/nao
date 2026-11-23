@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from cyclopts import Parameter
 from rich.console import Console
+from rich.markup import escape
 
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.templates.render import render_all_templates
@@ -15,6 +16,7 @@ from .providers import (
     PROVIDER_CHOICES,
     DatabaseSyncProvider,
     ProviderSelection,
+    RepositorySyncProvider,
     SyncResult,
     get_all_providers,
     get_providers_by_names,
@@ -76,8 +78,7 @@ def sync(
     # confluence, obsidian): an integration block that fails validation — typically an unset
     # env('...') secret for llm or slack — is dropped with a warning instead of
     # failing a run that never touches it.
-    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True, drop_invalid_optional_sections=True)
-    assert config is not None  # Help type checker after exit_on_error=True
+    config = _load_config(allow_missing_file_references=True)
 
     project_path = Path.cwd()
 
@@ -94,12 +95,16 @@ def sync(
         try:
             active_providers = get_providers_by_names(provider)
         except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             sys.exit(1)
     elif _providers is not None:
         active_providers = _providers
     else:
         active_providers = get_all_providers()
+
+    config_predates_repositories = bool(config.file_references)
+    if config_predates_repositories:
+        active_providers = sorted(active_providers, key=_runs_after_repositories)
 
     if select and not any(isinstance(s.provider, DatabaseSyncProvider) for s in active_providers):
         console.print("[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here.")
@@ -111,6 +116,9 @@ def sync(
     for selection in active_providers:
         sync_provider = selection.provider
         connection_filter = selection.connection_name
+        if config_predates_repositories and _runs_after_repositories(selection):
+            config = _load_config(allow_missing_file_references=False)
+            config_predates_repositories = False
 
         # Get output directory (custom or default)
         output_dir = output_dirs.get(sync_provider.name, sync_provider.default_output_dir)
@@ -141,11 +149,15 @@ def sync(
         except Exception as e:
             # Capture error but continue with other providers
             results.append(SyncResult.from_error(sync_provider.name, e))
-            console.print(f"  [yellow]⚠[/yellow] {sync_provider.emoji} {sync_provider.name}: [red]{e}[/red]")
+            console.print(
+                f"  [yellow]⚠[/yellow] {sync_provider.emoji} {sync_provider.name}: [red]{escape(str(e))}[/red]"
+            )
 
     # Render user Jinja templates
     template_result = None
     if render_templates:
+        if config_predates_repositories:
+            config = _load_config(allow_missing_file_references=False)
         console.print("\n[bold cyan]📝 Rendering templates[/bold cyan]\n")
         template_result = render_all_templates(project_path, config, console)
 
@@ -180,7 +192,7 @@ def sync(
         has_results = True
         console.print("\n  [bold red]Errors:[/bold red]")
         for result in failed_results:
-            console.print(f"    [red]•[/red] {result.provider_name}: {result.error}")
+            console.print(f"    [red]•[/red] {result.provider_name}: {escape(result.error or '')}")
 
     if not has_results:
         console.print("  [dim]Nothing to sync[/dim]")
@@ -191,6 +203,26 @@ def sync(
     has_failures = bool(failed_results) or (template_result and template_result.templates_failed > 0)
     if has_failures:
         sys.exit(1)
+
+
+def _load_config(*, allow_missing_file_references: bool) -> NaoConfig:
+    """A `from_file` value may live in a repository that this run syncs.
+
+    The first load allows its file to be missing, repositories are synced before the other
+    providers, and the config is then loaded again for them, strictly this time.
+    """
+    config = NaoConfig.try_load(
+        resolve_project_path(),
+        exit_on_error=True,
+        drop_invalid_optional_sections=True,
+        allow_missing_file_references=allow_missing_file_references,
+    )
+    assert config is not None  # Help type checker after exit_on_error=True
+    return config
+
+
+def _runs_after_repositories(selection: ProviderSelection) -> bool:
+    return not isinstance(selection.provider, RepositorySyncProvider)
 
 
 __all__ = ["sync"]

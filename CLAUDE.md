@@ -42,6 +42,18 @@ These are useful scripts to run after changing the database schemas:
 - `npm run db:generate <migration_name>` — generate a Drizzle migration file for schema changes. **This command may hang indefinitely when schema changes are ambiguous** (e.g. a column rename that Drizzle cannot resolve automatically). If it hangs, kill it and use `db:push` instead.
 - `npm run db:push` — push schema changes directly to the database without generating a migration file. Use this as a fallback when `db:generate` hangs, or during local development when migration history does not matter.
 
+### Background Work with Effect (`apps/backend/src/utils/effect-runtime.ts`)
+
+Timed and background work in the backend runs on [Effect](https://effect.website) v4 through one shared runtime. Exported service functions stay Promise-based, so routes, tRPC procedures and tests don't change.
+
+- `repeatInBackground(name, task, every)` runs a loop and returns its stop function. Never use `setInterval`.
+- `withHeartbeat({ name, beat, every })` renews a lease or lock while an operation runs.
+- `runInBackground(task)` starts fire-and-forget work, `runEffect(program)` runs a program from Promise code, and `fromPromise(fn)` lifts Promise code into Effect.
+- Wrap a unit of work worth tracing in `Effect.withSpan`. These spans reach the OTLP exporter under the `nao-effect` tracer, never Langfuse.
+- Never call `Effect.runPromise`, `runFork` or `runSync` directly. Lint enforces this and the `setInterval` ban.
+- Effect sleeps use `setTimeout`, so tests fake `setTimeout`, not `setInterval`, to drive a loop.
+- Most Effect examples online are v3. Check names against `node_modules/effect/dist/*.d.ts` (for example `Effect.catch`, `Context.Service`).
+
 ### Settings Search Index (`apps/frontend/src/components/settings-search-index.ts`)
 
 A static index used for fuzzy search in the settings sidebar. When you add, remove, or rename a settings page/section/toggle, update this file to keep the search index in sync. Each entry maps a searchable item (card title, toggle label) to its route path with optional keywords for better matching.

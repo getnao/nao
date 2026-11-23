@@ -23,13 +23,15 @@ export function useShareAudience() {
 	};
 }
 
+type ShareSource = { chatId: string } | { storyId: string } | { automationId: string };
+
 export function useShareCandidates({
 	source,
 	withGroups,
 	excludedKeys,
 	enabled,
 }: {
-	source: { chatId: string } | { storyId: string };
+	source: ShareSource;
 	withGroups: boolean;
 	excludedKeys: Set<string>;
 	enabled: boolean;
@@ -39,15 +41,22 @@ export function useShareCandidates({
 	const projectId = project.data?.id;
 	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
 	const storyId = 'storyId' in source ? source.storyId : null;
+	const chatId = 'chatId' in source ? source.chatId : null;
 	const chatMembersQuery = useQuery({
-		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId: 'chatId' in source ? source.chatId : '' }),
-		enabled: enabled && hasProject && storyId === null,
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId: chatId ?? '' }),
+		enabled: enabled && hasProject && chatId !== null,
 	});
 	const storyMembersQuery = useQuery({
 		...trpc.project.getProjectMembersByStoryId.queryOptions({ storyId: storyId ?? '' }),
 		enabled: enabled && hasProject && storyId !== null,
 	});
-	const membersQuery = storyId === null ? chatMembersQuery : storyMembersQuery;
+	const automationMembersQuery = useQuery({
+		...trpc.automation.listShareCandidates.queryOptions(),
+		enabled: enabled && hasProject && 'automationId' in source,
+	});
+	const membersQuery = { chat: chatMembersQuery, story: storyMembersQuery, automation: automationMembersQuery }[
+		getShareSourceKind(source)
+	];
 	const groupsQuery = useQuery({
 		...trpc.storyShare.listShareableGroups.queryOptions(),
 		enabled: enabled && withGroups && hasProject,
@@ -76,6 +85,13 @@ export function useShareCandidates({
 	}, [showsGroups, groupsQuery.data, hasProject, membersQuery.isFetching, membersQuery.data, excludedKeys]);
 
 	return { candidates, isLoading: membersQuery.isFetching || (withGroups && groupsQuery.isFetching) };
+}
+
+function getShareSourceKind(source: ShareSource): 'chat' | 'story' | 'automation' {
+	if ('chatId' in source) {
+		return 'chat';
+	}
+	return 'storyId' in source ? 'story' : 'automation';
 }
 
 /** Runs one sharing change at a time and keeps the last failed one so it can be retried. */

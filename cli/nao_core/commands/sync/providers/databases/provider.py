@@ -323,6 +323,7 @@ def sync_database(
         total_errors = 0
 
         schema_tables: dict[str, list[str]] = {}
+        empty_schemas: list[str] = []
         failed_schemas: set[str] = set()
         failed_tables: set[tuple[str, str]] = set()
 
@@ -335,6 +336,9 @@ def sync_database(
                 failed_schemas.add(schema)
                 progress.update(schema_task, advance=1)
                 continue
+
+            if not all_tables:
+                empty_schemas.append(schema)
 
             tables = [
                 t
@@ -349,6 +353,12 @@ def sync_database(
                     f"(of {len(all_tables)} total, listed in {list_dur})[/dim]"
                 )
             schema_tables[schema] = tables
+
+        if empty_schemas and len(empty_schemas) + len(failed_schemas) == len(schemas):
+            UI.print(
+                f"  [yellow]⚠[/yellow] [dim]No tables listed in[/dim] {', '.join(empty_schemas)} "
+                "[dim]- check that this user can see the tables of these schemas[/dim]"
+            )
 
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
 
@@ -656,10 +666,8 @@ class DatabaseSyncProvider(SyncProvider):
                         total_tables += state.tables_synced
                         total_render_errors += state.render_errors
                     except Exception as e:
-                        error = _fmt_error(e)
-                        database_name = escape(db.name)
-                        failures.append(f"{database_name}: {error}")
-                        UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                        failures.append(f"{db.name}: {e}")
+                        UI.print(f"[bold red]✗[/bold red] Failed to sync {escape(db.name)}: {_fmt_error(e)}")
             else:
                 with (
                     ThreadPoolExecutor(max_workers=threads) as pool,
@@ -688,10 +696,8 @@ class DatabaseSyncProvider(SyncProvider):
                             total_tables += state.tables_synced
                             total_render_errors += state.render_errors
                         except Exception as e:
-                            error = _fmt_error(e)
-                            database_name = escape(db.name)
-                            failures.append(f"{database_name}: {error}")
-                            UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                            failures.append(f"{db.name}: {e}")
+                            UI.print(f"[bold red]✗[/bold red] Failed to sync {escape(db.name)}: {_fmt_error(e)}")
 
         if not select:
             for state in sync_states:

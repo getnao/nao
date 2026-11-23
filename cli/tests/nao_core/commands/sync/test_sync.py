@@ -4,14 +4,26 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from nao_core.commands.sync import sync
 from nao_core.commands.sync.providers import (
     DatabaseSyncProvider,
     ProviderSelection,
+    RepositorySyncProvider,
     SyncProvider,
     SyncResult,
 )
+
+CONFIG_WITH_TABLES_FROM_A_REPOSITORY = """
+project_name: test-project
+databases:
+  - name: warehouse
+    type: duckdb
+    path: warehouse.duckdb
+    include:
+      from_file: repos/business_context/tables.yml
+"""
 
 
 def _make_provider(
@@ -41,6 +53,13 @@ def _make_provider(
             error=result_error,
         )
     return ProviderSelection(provider)
+
+
+def _write_tables_file(project_path: Path, tables: str = "- analytics.orders\n") -> SyncResult:
+    tables_file = project_path / "repos" / "business_context" / "tables.yml"
+    tables_file.parent.mkdir(parents=True, exist_ok=True)
+    tables_file.write_text(tables)
+    return SyncResult(provider_name="Repositories", items_synced=1)
 
 
 @pytest.fixture
@@ -88,6 +107,34 @@ class TestSyncCommand:
         sync(_providers=[selection])
 
         assert selection.provider.sync.call_args.kwargs["threads"] == 3
+
+    @pytest.mark.parametrize("tables_before_sync", [None, "- analytics.stale\n"], ids=["first_sync", "later_sync"])
+    def test_sync_reads_from_file_values_once_repositories_are_synced(
+        self, tmp_path: Path, create_config, tables_before_sync: str | None
+    ):
+        create_config(CONFIG_WITH_TABLES_FROM_A_REPOSITORY)
+        if tables_before_sync:
+            _write_tables_file(tmp_path, tables_before_sync)
+        databases = _make_provider(name="Databases", output_dir="databases", spec=DatabaseSyncProvider)
+        repositories = _make_provider(name="Repositories", output_dir="repos", spec=RepositorySyncProvider)
+        repositories.provider.sync.side_effect = lambda *_args, **_kwargs: _write_tables_file(tmp_path)
+
+        sync(_providers=[databases, repositories], render_templates=False)
+
+        synced_config = databases.provider.get_items.call_args.args[0]
+        assert synced_config.databases[0].include == ["analytics.orders"]
+
+    def test_sync_fails_when_a_from_file_value_is_still_missing(self, create_config):
+        create_config(CONFIG_WITH_TABLES_FROM_A_REPOSITORY)
+        databases = _make_provider(name="Databases", output_dir="databases", spec=DatabaseSyncProvider)
+
+        with patch("nao_core.config.base.Console") as mock_console_cls:
+            with pytest.raises(SystemExit) as exc_info:
+                sync(_providers=[databases], render_templates=False)
+
+        assert exc_info.value.code == 1
+        assert "tables.yml' does not exist" in mock_console_cls.return_value.print.call_args.args[0]
+        databases.provider.sync.assert_not_called()
 
     def test_sync_forwards_select_to_database_provider(self, create_config):
         create_config()
@@ -200,3 +247,28 @@ class TestSyncCommand:
         assert exc_info.value.code == 1
         calls = [str(call) for call in sync_console.print.call_args_list]
         assert any("Sync Failed" in call for call in calls)
+
+    @pytest.mark.parametrize(
+        ("provider_kwargs", "expected_lines"),
+        [
+            ({"sync_error": "Run pip install 'nao-core[semantic-layer]'"}, ["❌ TestProvider: ", "TestProvider: "]),
+            ({"items": ["item1"], "result_error": "Run pip install 'nao-core[semantic-layer]'"}, ["TestProvider: "]),
+        ],
+    )
+    def test_sync_keeps_brackets_in_printed_errors(self, create_config, sync_console, provider_kwargs, expected_lines):
+        create_config()
+        failing = _make_provider(emoji="❌", **provider_kwargs)
+
+        with pytest.raises(SystemExit):
+            sync(_providers=[failing], render_templates=False)
+
+        error_lines = [line for line in _render_printed_lines(sync_console) if "Run pip install" in line]
+        assert error_lines == [f"{prefix}Run pip install 'nao-core[semantic-layer]'" for prefix in expected_lines]
+
+
+def _render_printed_lines(console: MagicMock) -> list[str]:
+    rendered = Console(width=200)
+    with rendered.capture() as capture:
+        for call in console.print.call_args_list:
+            rendered.print(*call.args)
+    return [line.strip(" ⚠•") for line in capture.get().splitlines()]

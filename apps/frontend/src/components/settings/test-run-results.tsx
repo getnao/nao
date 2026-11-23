@@ -1,6 +1,7 @@
 import { pluralize } from '@nao/shared';
 import { toExplorerTestPath } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
+import { CircleDashed } from 'lucide-react';
 import { useState } from 'react';
 
 import type { ReactNode } from 'react';
@@ -16,6 +17,7 @@ import { matchesResultFilter, TestResultFilterPills } from '@/components/setting
 import { TestRow } from '@/components/settings/test-row';
 import { BranchName, CHANGES_FALLBACK, ToneIcon } from '@/components/settings/test-run-labels';
 import { RunStatStrip } from '@/components/settings/test-run-stat-strip';
+import { hasTag, SelectedTagChip, TestTagBreakdown } from '@/components/settings/test-tag-breakdown';
 import {
 	ACTIVE_RUN_REFETCH_MS,
 	average,
@@ -39,6 +41,8 @@ interface RunTest {
 	outcome: { passedAttempts: number; totalAttempts: number; expectedAttempts: number; modelsDisagree: boolean };
 	failure: string | null;
 	comparison: TestComparisonRow | null;
+	/** Planned by the run, with no attempt recorded yet. */
+	isQueued: boolean;
 }
 
 type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
@@ -81,9 +85,10 @@ function RunResults({
 	onOpenTest: (explorerPath: string) => void;
 }) {
 	const [filter, setFilter] = useState<TestResultFilter>('all');
+	const [selectedTag, setSelectedTag] = useState<string | null>(null);
 	const isActive = isActiveRun(run);
 	const hasSeveralModels = run.models.length > 1;
-	const tests = listRunTests(run);
+	const tests = filterTestsByTag(run, listRunTests(run), selectedTag);
 	const visibleTests = tests.filter((test) => matchesResultFilter(test.outcome, filter));
 	const openTest = (testPath: string) => onOpenTest(toExplorerTestPath(testPath));
 	return (
@@ -95,10 +100,17 @@ function RunResults({
 					onChange={setFilter}
 					hasSeveralModels={hasSeveralModels && !run.comparison}
 				/>
+				{selectedTag !== null && <SelectedTagChip tag={selectedTag} onClear={() => setSelectedTag(null)} />}
 				<RunDescription run={run} mainBranch={mainBranch} />
 			</PanelHeader>
 			<RunContextChanges run={run} />
 			<RunModelsOverview run={run} mainBranch={mainBranch} />
+			<TestTagBreakdown
+				run={run}
+				mainBranch={mainBranch}
+				selectedTag={selectedTag}
+				onSelectTag={setSelectedTag}
+			/>
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
 					run={run}
@@ -178,11 +190,19 @@ function RunTestList({
 			{tests.map((test) => (
 				<TestRow
 					key={test.testPath}
-					icon={<ToneIcon tone={variantTone(run, test.outcome)} isLabelled />}
+					icon={
+						test.isQueued ? (
+							<QueuedIcon isActive={isActive} />
+						) : (
+							<ToneIcon tone={variantTone(run, test.outcome)} isLabelled />
+						)
+					}
 					name={test.testName}
 					path={test.testPath}
 					detail={
-						test.comparison ? (
+						test.isQueued ? (
+							<span className='text-muted-foreground'>{isActive ? 'Queued' : 'Not run'}</span>
+						) : test.comparison ? (
 							<ComparisonDetail
 								comparison={test.comparison}
 								mainBranch={mainBranch}
@@ -282,14 +302,26 @@ function ComparisonDetail({
 	return (
 		<ComparisonColumns
 			production={
-				<VariantOutcomeCell
-					side={mainBranch}
-					outcome={comparison.production}
-					attemptsPerVariant={attemptsPerVariant}
-				/>
+				comparison.change === 'new' ? (
+					<MissingVariant title={`Not on ${mainBranch}`} />
+				) : (
+					<VariantOutcomeCell
+						side={mainBranch}
+						outcome={comparison.production}
+						attemptsPerVariant={attemptsPerVariant}
+					/>
+				)
 			}
 			draft={
-				<VariantOutcomeCell side='Yours' outcome={comparison.draft} attemptsPerVariant={attemptsPerVariant} />
+				comparison.change === 'removed' ? (
+					<MissingVariant title='Deleted by your changes' />
+				) : (
+					<VariantOutcomeCell
+						side='Yours'
+						outcome={comparison.draft}
+						attemptsPerVariant={attemptsPerVariant}
+					/>
+				)
 			}
 			change={
 				comparison.change === 'unchanged' ? null : (
@@ -297,6 +329,14 @@ function ComparisonDetail({
 				)
 			}
 		/>
+	);
+}
+
+function MissingVariant({ title }: { title: string }) {
+	return (
+		<span title={title} aria-label={title} className='text-muted-foreground'>
+			—
+		</span>
 	);
 }
 
@@ -344,16 +384,45 @@ function AttemptsDetail({
 	);
 }
 
-/** The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. */
+function QueuedIcon({ isActive }: { isActive: boolean }) {
+	return (
+		<CircleDashed
+			aria-label={isActive ? 'Queued' : 'Not run'}
+			className='size-3.5 shrink-0 text-muted-foreground/60'
+		/>
+	);
+}
+
+/**
+ * The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. The
+ * tests the run planned but has not tried yet follow, as queued.
+ */
 function listRunTests(run: TestRunWithResults): RunTest[] {
 	const expectedAttempts = run.models.length * run.attempts;
+	const tests = listTestsWithResults(run, expectedAttempts);
+	const listedPaths = new Set(tests.map((test) => test.testPath));
+	const queuedTests = (run.selection ?? [])
+		.filter((testPath) => !listedPaths.has(testPath))
+		.map((testPath) => ({
+			testPath,
+			testName: getTestFileName(testPath),
+			outcome: { passedAttempts: 0, totalAttempts: 0, expectedAttempts, modelsDisagree: false },
+			failure: null,
+			comparison: null,
+			isQueued: true,
+		}));
+	return [...tests, ...queuedTests];
+}
+
+function listTestsWithResults(run: TestRunWithResults, expectedAttempts: number): RunTest[] {
 	if (run.comparison) {
 		return run.comparison.tests.map((test) => ({
 			testPath: test.testPath,
 			testName: test.testName,
-			outcome: { ...test.draft, expectedAttempts, modelsDisagree: false },
+			outcome: { ...getChangesSideOutcome(test), expectedAttempts, modelsDisagree: false },
 			failure: null,
 			comparison: test,
+			isQueued: false,
 		}));
 	}
 	const disagreeing = run.models.length > 1 ? listTestsWhereModelsDisagree(run) : new Set<string>();
@@ -368,7 +437,21 @@ function listRunTests(run: TestRunWithResults): RunTest[] {
 		},
 		failure: findFailureReason(results),
 		comparison: null,
+		isQueued: false,
 	}));
+}
+
+/** A queued test has no result to read its name from, and is named after its file unless its YAML names it. */
+function getTestFileName(testPath: string): string {
+	return (testPath.split('/').at(-1) ?? testPath).replace(/\.ya?ml$/, '');
+}
+
+function filterTestsByTag(run: TestRunWithResults, tests: RunTest[], tag: string | null): RunTest[] {
+	if (tag === null) {
+		return tests;
+	}
+	const resultsByTest = groupResultsByTest(run.results);
+	return tests.filter((test) => hasTag(resultsByTest.get(test.testPath) ?? [], tag));
 }
 
 function findFailureReason(results: TestResultOutcome[]): string | null {
@@ -389,4 +472,9 @@ function summarizeTestMetrics(results: TestResultOutcome[]) {
 		});
 	}
 	return metrics;
+}
+
+/** A test the changes delete only runs against production, so its outcome is the one of that side. */
+function getChangesSideOutcome(test: TestComparisonRow): TestComparisonRow['draft'] {
+	return test.change === 'removed' ? test.production : test.draft;
 }

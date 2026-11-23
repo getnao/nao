@@ -45,6 +45,7 @@ describe('runCustomStorySql', () => {
 			projectId: 'project-1',
 			userId: 'viewer-1',
 			chatId: 'chat-1',
+			querySource: 'story',
 		});
 		expect(mocks.executeRawSql).toHaveBeenCalledWith('SELECT 1 AS n', {
 			executionContext: { toolContext: VIEWER_CONTEXT, enforceExcludedColumns: true },

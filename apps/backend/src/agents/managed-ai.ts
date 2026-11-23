@@ -15,6 +15,7 @@ import type { TokenUsage } from '../types/chat';
 import type { ModelCosts, ModelSource } from '../types/llm';
 import type { ManagedAiUsageCategory, ManagedAiUsageCostSource, ManagedAiUsageStatus } from '../types/managed-ai-usage';
 import { logger } from '../utils/logger';
+import { resolveModelPrices } from './model-prices';
 import { createProviderModel, getProviderMeta } from './providers';
 
 export type ManagedAiUsageContext = {
@@ -93,7 +94,7 @@ function createManagedAiUsageMiddleware(
 	context: ManagedAiUsageContext,
 	declaredCosts?: ModelCosts,
 ): LanguageModelMiddleware {
-	const rates = resolveRates('nao', modelId, declaredCosts);
+	const rates = resolveModelPrices('nao', modelId, declaredCosts);
 	return {
 		specificationVersion: 'v3',
 		wrapGenerate: async ({ doGenerate, params }) => {
@@ -335,11 +336,6 @@ async function recordManagedAiUsage(options: RecordManagedAiUsageOptions): Promi
 	}
 	const customerChargeMicroUsd = options.status === 'failed' ? 0 : (costs.total ?? 0);
 	await creditWalletService.recordManagedAiUsageAndChargeWallet(usage, customerChargeMicroUsd);
-}
-
-function resolveRates(provider: LlmProvider, modelId: string, declaredCosts?: ModelCosts): ModelCosts | undefined {
-	const builtInCosts = getProviderMeta(provider).models.find((model) => model.id === modelId)?.costPerM;
-	return builtInCosts || declaredCosts ? { ...builtInCosts, ...declaredCosts } : undefined;
 }
 
 function calculateCosts(

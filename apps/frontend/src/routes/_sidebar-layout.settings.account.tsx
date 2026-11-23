@@ -4,11 +4,12 @@ import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
-import { EditMemberDialog } from '@/components/settings/team';
+import { EditMemberDialog } from '@/components/settings/team/edit-member-dialog';
 import { NewsletterSubscribeInlineForm } from '@/components/newsletter-subscribe';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
 import { useAuthRoute } from '@/hooks/use-auth-route';
+import { clearLastSeen } from '@/hooks/use-last-seen';
 import { usePermissions } from '@/hooks/use-permissions';
 import { UserProfileCard } from '@/components/settings/profile-card';
 import { useLocalStorage } from '@/hooks/use-local-storage';
@@ -18,6 +19,7 @@ import { ThemeSelector } from '@/components/settings/theme-selector';
 import { ToolCallDensitySetting } from '@/components/settings/tool-call-density-setting';
 import { DangerZone } from '@/components/settings/danger-zone';
 import { SettingsMemories } from '@/components/settings/memories';
+import { TwoFactorSettings } from '@/components/settings/two-factor-settings';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { clearRequestAnswers } from '@/components/custom-story/story-request-answers';
@@ -64,6 +66,7 @@ function GeneralPage() {
 
 	const handleSignOut = async () => {
 		queryClient.clear();
+		clearLastSeen();
 		clearRequestAnswers();
 		await signOut({
 			fetchOptions: {
@@ -123,6 +126,8 @@ function GeneralPage() {
 							control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
 						/>
 					</SettingsCard>
+
+					<TwoFactorSettings />
 
 					<SettingsMemories isAdmin={isAdmin} />
 

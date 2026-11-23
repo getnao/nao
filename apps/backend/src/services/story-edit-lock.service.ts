@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import type { DBExecutor } from '../db/db';
 import type { StoryEditHolder } from '../queries/story-edit-lock.queries';
 import * as storyEditLockQueries from '../queries/story-edit-lock.queries';
 
@@ -14,6 +15,7 @@ export type StoryEditLockState = {
 	isMine: boolean;
 	isYou: boolean;
 	byAgent: boolean;
+	agentChatId: string | null;
 	byMcp: boolean;
 } | null;
 
@@ -50,14 +52,13 @@ export async function getStoryEditLockState(storyId: string, viewer: StoryEditHo
 	if (!lock) {
 		return null;
 	}
+	const isYou = lock.userId === viewer.userId;
 	return {
 		holderName: lock.userName,
-		isMine:
-			lock.userId === viewer.userId &&
-			lock.chatId === viewer.chatId &&
-			(lock.sessionId ?? null) === (viewer.sessionId ?? null),
-		isYou: lock.userId === viewer.userId,
+		isMine: isYou && lock.chatId === viewer.chatId && (lock.sessionId ?? null) === (viewer.sessionId ?? null),
+		isYou,
 		byAgent: lock.chatId !== null,
+		agentChatId: isYou ? lock.chatId : null,
 		byMcp: lock.sessionId?.startsWith(MCP_SESSION_PREFIX) ?? false,
 	};
 }
@@ -68,6 +69,15 @@ export function newMcpStoryEditHolder(userId: string): StoryEditHolder {
 
 export async function releaseStoryEditLock(storyId: string, holder: StoryEditHolder): Promise<void> {
 	await storyEditLockQueries.releaseStoryEditLock(storyId, holder);
+}
+
+/** False once the lock lapsed, even if nobody took it since: someone may have edited the story meanwhile. */
+export async function renewStoryEditLock(
+	storyId: string,
+	holder: StoryEditHolder,
+	executor?: DBExecutor,
+): Promise<boolean> {
+	return storyEditLockQueries.renewStoryEditLock(storyId, holder, STORY_EDIT_LOCK_TTL_MS, executor);
 }
 
 /** Keeps the stories an agent run is editing locked while it thinks between two writes. */

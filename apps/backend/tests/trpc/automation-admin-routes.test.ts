@@ -5,13 +5,16 @@ const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	deleteProjectAutomation: vi.fn(),
 	deleteJob: vi.fn(),
+	getAutomation: vi.fn(),
 	getProjectAutomation: vi.fn(),
 	getAutomationById: vi.fn(),
 	linkAutomationJob: vi.fn(),
 	listProjectAutomations: vi.fn(),
+	listShareableMembers: vi.fn(),
 	listUsersWithProjectAccess: vi.fn(),
 	setAutomationEventTriggers: vi.fn(),
 	transferAutomationOwnership: vi.fn(),
+	transferProjectAutomationsOfUser: vi.fn(),
 	updateAutomation: vi.fn(),
 	upsertRecurringJob: vi.fn(),
 	roles: {} as Record<string, 'admin' | 'user' | 'viewer' | null>,
@@ -27,12 +30,14 @@ vi.mock('../../src/handlers/automation.handler', () => ({
 vi.mock('../../src/queries/automation.queries', () => ({
 	automationJobUniqueKey: (id: string) => `automation:${id}`,
 	deleteProjectAutomation: mocks.deleteProjectAutomation,
+	getAutomation: mocks.getAutomation,
 	getAutomationById: mocks.getAutomationById,
 	getProjectAutomation: mocks.getProjectAutomation,
 	linkAutomationJob: mocks.linkAutomationJob,
 	listProjectAutomations: mocks.listProjectAutomations,
 	setAutomationEventTriggers: mocks.setAutomationEventTriggers,
 	transferAutomationOwnership: mocks.transferAutomationOwnership,
+	transferProjectAutomationsOfUser: mocks.transferProjectAutomationsOfUser,
 	updateAutomation: mocks.updateAutomation,
 }));
 vi.mock('../../src/queries/scheduled-job.queries', () => ({
@@ -45,6 +50,7 @@ vi.mock('../../src/queries/project.queries', () => ({
 	listUsersWithProjectAccess: mocks.listUsersWithProjectAccess,
 }));
 vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
+vi.mock('../../src/services/project-sharing.service', () => ({ listShareableMembers: mocks.listShareableMembers }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
@@ -229,7 +235,27 @@ describe('automation admin routes', () => {
 		await expect(
 			createCaller('admin-id').automation.transferOwnership({ id: 'scheduled-id', newOwnerId: 'stranger-id' }),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'The new owner must have access to this project.' });
+		await expect(
+			createCaller('admin-id').automation.transferAllFromUser({
+				fromUserId: 'owner-id',
+				recipientId: 'viewer-id',
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Viewers cannot own automations.' });
 		expect(mocks.transferAutomationOwnership).not.toHaveBeenCalled();
+		expect(mocks.transferProjectAutomationsOfUser).not.toHaveBeenCalled();
+	});
+
+	it("transfers all of a member's automations in the project to another member", async () => {
+		mocks.transferProjectAutomationsOfUser.mockResolvedValue(2);
+
+		await expect(
+			createCaller('admin-id').automation.transferAllFromUser({
+				fromUserId: 'owner-id',
+				recipientId: 'admin-id',
+			}),
+		).resolves.toEqual({ transferredCount: 2 });
+
+		expect(mocks.transferProjectAutomationsOfUser).toHaveBeenCalledWith('project-id', 'owner-id', 'admin-id');
 	});
 
 	it("deletes another user's automation along with its schedule", async () => {
@@ -274,6 +300,7 @@ describe('automation Slack channel validation', () => {
 		mocks.roles = { 'owner-id': 'user' };
 		mocks.upsertRecurringJob.mockResolvedValue({ id: 'job-id' });
 		mocks.updateAutomation.mockResolvedValue(scheduledAutomation);
+		mocks.getAutomation.mockResolvedValue({ ...scheduledAutomation, accessRole: 'owner' });
 		mocks.getAutomationById.mockResolvedValue(scheduledAutomation);
 	});
 
@@ -285,7 +312,6 @@ describe('automation Slack channel validation', () => {
 
 		expect(mocks.updateAutomation).toHaveBeenCalledWith(
 			'project-id',
-			'owner-id',
 			'scheduled-id',
 			expect.objectContaining({
 				integrations: { slack: { enabled: true, channelId: 'C0123456789, #data-alerts' } },
@@ -313,6 +339,30 @@ describe('automation Slack channel validation', () => {
 		});
 
 		expect(mocks.updateAutomation).toHaveBeenCalled();
+	});
+});
+
+describe('automation email recipients', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.roles = { 'owner-id': 'user', 'viewer-id': 'viewer' };
+		mocks.listShareableMembers.mockResolvedValue([
+			{ id: 'member-id', name: 'Ada', email: 'ada@example.com', role: 'user', status: 'active' },
+		]);
+	});
+
+	it('lists the name and email of the members the caller can share with', async () => {
+		const recipients = await createCaller('owner-id').automation.listEmailRecipients();
+
+		expect(recipients).toEqual([{ email: 'ada@example.com', name: 'Ada' }]);
+		expect(mocks.listShareableMembers).toHaveBeenCalledWith('project-id', 'owner-id');
+	});
+
+	it('hides the members from viewers, who cannot run automations', async () => {
+		await expect(createCaller('viewer-id').automation.listEmailRecipients()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.listShareableMembers).not.toHaveBeenCalled();
 	});
 });
 

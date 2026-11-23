@@ -1,5 +1,7 @@
 import {
+	columnSecurityTableKey,
 	compileRowSecurityConditions,
+	type DatabaseContextAccess,
 	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -7,8 +9,10 @@ import {
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
 	EMPTY_SKILLS_ACCESS,
+	EMPTY_USER_GROUP_COLUMN_POLICIES,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
 	type GroupShareTargets,
+	isDatabaseContextTableGranted,
 	isMicrosoftEntraGroupId,
 	MAX_PRELOADED_SKILLS,
 	type McpAccess,
@@ -16,11 +20,14 @@ import {
 	normalizeFileTreeAccess,
 	normalizeFileTreePath,
 	normalizeMcpAccess,
+	normalizeProjectColumnSecurity,
 	normalizeProjectRowSecurity,
 	normalizeSkillsAccess,
+	normalizeUserGroupColumnPolicies,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	PROJECT_SHARING_PERMISSIONS,
+	type ProjectColumnSecurity,
 	type ProjectRowSecurity,
 	ROW_SECURITY_COMBINATORS,
 	ROW_SECURITY_MAX_CONDITIONS,
@@ -32,19 +39,24 @@ import {
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
 	USER_ROLES,
+	type UserGroupColumnPolicies,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
-import { env } from '../env';
+import type { ActivityType } from '../db/abstractSchema';
+import { env, isCloud } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import * as impersonationQueries from '../queries/user-group-impersonation.queries';
+import { logActivity } from '../services/activity';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { setGroupBudget } from '../services/member-budget.service';
+import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
 import {
 	getShareAudience,
 	previewProjectWideShareRevocation,
@@ -56,8 +68,10 @@ import {
 } from '../services/sso-user-group-mapping.service';
 import {
 	assertUserGroupManageable,
+	getActiveGroupImpersonation,
 	getAvailableUserGroupOverview,
 	listActiveUserGroups,
+	validateAssignableUserGroupIds,
 } from '../services/user-group-availability.service';
 import { USER_GROUPS_CONFIG_FILENAME } from '../services/user-group-config.service';
 import { exportUserGroupsConfig } from '../services/user-group-config-export.service';
@@ -184,6 +198,31 @@ const projectRowSecuritySchema = z
 			.max(10_000),
 	})
 	.strict();
+const projectColumnSecuritySchema = z
+	.object({
+		version: z.literal(1),
+		tables: z
+			.array(
+				rowTableIdentitySchema
+					.extend({ restrictedColumns: z.array(contextNameSchema).min(1).max(256) })
+					.strict(),
+			)
+			.max(10_000),
+	})
+	.strict();
+const updateProjectColumnSecuritySchema = projectColumnSecuritySchema.extend({
+	expectedCurrent: projectColumnSecuritySchema.optional(),
+});
+const userGroupColumnPoliciesSchema = z
+	.object({
+		version: z.literal(1),
+		policies: z
+			.array(
+				rowTableIdentitySchema.extend({ grantedColumns: z.array(contextNameSchema).min(1).max(256) }).strict(),
+			)
+			.max(10_000),
+	})
+	.strict();
 const rowSecurityConditionSchema = z
 	.object({
 		column: contextNameSchema,
@@ -282,6 +321,40 @@ export const userGroupRoutes = {
 			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId, role);
 		}),
 
+	impersonation: projectProtectedProcedure.query(async ({ ctx }) => {
+		const groupIds = await getActiveGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (!groupIds) {
+			return null;
+		}
+		return { groupNames: await listGroupNames(ctx.project.id, groupIds) };
+	}),
+
+	startImpersonation: projectProtectedProcedure
+		.input(z.object({ groupIds: z.array(z.string().min(1)).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			if (isCloud) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'Group impersonation is not available on nao Cloud yet.',
+				});
+			}
+			if ((await projectQueries.getActualUserRoleInProject(ctx.project.id, ctx.user.id)) !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can impersonate user groups.' });
+			}
+			const groupIds = await handleQuery(() => validateAssignableUserGroupIds(ctx.project.id, input.groupIds));
+			await impersonationQueries.startGroupImpersonation(ctx.project.id, ctx.user.id, groupIds);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await logImpersonationActivity(ctx.project.id, ctx.user.id, 'user_group.impersonation_started', groupIds);
+		}),
+
+	stopImpersonation: projectProtectedProcedure.mutation(async ({ ctx }) => {
+		const groupIds = await impersonationQueries.stopGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (groupIds) {
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await logImpersonationActivity(ctx.project.id, ctx.user.id, 'user_group.impersonation_stopped', groupIds);
+		}
+	}),
+
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
 	}),
@@ -342,6 +415,31 @@ export const userGroupRoutes = {
 		return getDatabaseContextCatalog(ctx.project.path, { fresh: true });
 	}),
 
+	columnSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
+		return handleQuery(() => userGroupQueries.getProjectColumnSecurity(ctx.project.id));
+	}),
+
+	updateColumnSecurity: adminProtectedProcedure
+		.input(updateProjectColumnSecuritySchema)
+		.mutation(async ({ ctx, input }) => {
+			const columnSecurity = normalizeProjectColumnSecurity({ version: input.version, tables: input.tables });
+			const expectedCurrent =
+				input.expectedCurrent === undefined ? undefined : normalizeProjectColumnSecurity(input.expectedCurrent);
+			await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
+			await validateProjectColumnSecurityCatalog(
+				ctx.project.id,
+				requireProjectPath(ctx.project.path),
+				columnSecurity,
+			);
+			const saved = await handleQuery(() =>
+				expectedCurrent === undefined
+					? userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity)
+					: userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity, expectedCurrent),
+			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			return saved;
+		}),
+
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => userGroupQueries.getProjectRowSecurity(ctx.project.id));
 	}),
@@ -351,7 +449,11 @@ export const userGroupRoutes = {
 		return withUserGroupConfigLock(ctx.project.id, async () => {
 			await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
 			await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
-			return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+			const updated = await handleQuery(() =>
+				userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity),
+			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			return updated;
 		});
 	}),
 
@@ -380,13 +482,15 @@ export const userGroupRoutes = {
 				mcpAccess: mcpAccessSchema.default(EMPTY_MCP_ACCESS),
 				skillsAccess: skillsAccessSchema.default(EMPTY_SKILLS_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
+				columnPolicies: userGroupColumnPoliciesSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(({ ctx, input }) =>
 			withUiManagedMutation(ctx.project.id, async () => {
-				await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+				await assertGroupBudgetEditable(ctx.project.id, input);
 				const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 				const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 				const filesAccess = normalizeFileTreeAccess(input.filesAccess);
@@ -396,6 +500,7 @@ export const userGroupRoutes = {
 				await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () => EMPTY_SKILLS_ACCESS);
 				const shareTargets = await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets);
 				let rowPolicies: UserGroupRowPolicies | undefined;
+				let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 				if (input.rowPolicies !== undefined) {
 					await assertRowSecurityLicensed(ctx.project.id);
 					const validation = await validateGroupRowPolicies(
@@ -403,6 +508,19 @@ export const userGroupRoutes = {
 						normalizeUserGroupRowPolicies(input.rowPolicies),
 					);
 					rowPolicies = validation.rowPolicies;
+					rowPoliciesRegistry = validation.registry;
+				}
+				let columnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES;
+				let columnPoliciesRegistry: ProjectColumnSecurity | undefined;
+				if (input.columnPolicies !== undefined) {
+					await assertColumnSecurityLicensed(ctx.project.id);
+					const validation = await validateGroupColumnPolicies(
+						ctx.project.id,
+						normalizeUserGroupColumnPolicies(input.columnPolicies),
+						databaseAccess,
+					);
+					columnPolicies = validation.columnPolicies;
+					columnPoliciesRegistry = validation.registry;
 				}
 				const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
 					? userGroupQueries.createUserGroup
@@ -423,12 +541,15 @@ export const userGroupRoutes = {
 						input.showAllSettings,
 						input.preloadedSkills,
 						skillsAccess,
+						columnPolicies,
 						shareTargets,
 						input.advancedContextExplorer,
 					] as const;
-					return createUserGroup(...values);
+					return rowPoliciesRegistry === undefined && columnPoliciesRegistry === undefined
+						? createUserGroup(...values)
+						: createUserGroup(...values, rowPoliciesRegistry, columnPoliciesRegistry);
 				});
-				await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
+				await saveGroupBudget(ctx.project.id, group.id, input);
 				return group;
 			}),
 		),
@@ -451,14 +572,16 @@ export const userGroupRoutes = {
 				mcpAccess: mcpAccessSchema.optional(),
 				skillsAccess: skillsAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
+				columnPolicies: userGroupColumnPoliciesSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(({ ctx, input }) =>
 			withUiManagedMutation(ctx.project.id, async () => {
 				await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-				await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+				await assertGroupBudgetEditable(ctx.project.id, input);
 				const databaseAccess =
 					input.databaseAccess === undefined
 						? undefined
@@ -495,6 +618,18 @@ export const userGroupRoutes = {
 					rowPolicies = validation.rowPolicies;
 					rowPoliciesRegistry = validation.registry;
 				}
+				let columnPolicies: UserGroupColumnPolicies | undefined;
+				let columnPoliciesRegistry: ProjectColumnSecurity | undefined;
+				if (input.columnPolicies !== undefined) {
+					await assertColumnSecurityLicensed(ctx.project.id);
+					const validation = await validateGroupColumnPolicies(
+						ctx.project.id,
+						normalizeUserGroupColumnPolicies(input.columnPolicies),
+						databaseAccess ?? (await getCurrentGroupDatabaseAccess(ctx.project.id, input.groupId)),
+					);
+					columnPolicies = validation.columnPolicies;
+					columnPoliciesRegistry = validation.registry;
+				}
 				const group = await handleQuery(() =>
 					userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 						name: input.name,
@@ -514,9 +649,16 @@ export const userGroupRoutes = {
 							? {}
 							: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
 						...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
+						...(columnPolicies === undefined ? {} : { columnPolicies, columnPoliciesRegistry }),
 					}),
 				);
-				await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
+				const changesWarehouseAccess = [rowPolicies, columnPolicies, databaseAccess, input.ssoMappings].some(
+					(change) => change !== undefined,
+				);
+				if (changesWarehouseAccess) {
+					await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+				}
+				await saveGroupBudget(ctx.project.id, input.groupId, input);
 				await revokeUnauthorizedProjectWideShares(ctx.project.id);
 				return group;
 			}),
@@ -526,6 +668,7 @@ export const userGroupRoutes = {
 		await withUiManagedMutation(ctx.project.id, async () => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		});
 	}),
@@ -549,6 +692,7 @@ export const userGroupRoutes = {
 						input.isMember,
 					),
 				);
+				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 				await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			});
 		}),
@@ -572,6 +716,7 @@ export const userGroupRoutes = {
 						input.isMember,
 					),
 				);
+				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 				await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			});
 		}),
@@ -588,19 +733,42 @@ async function assertUiManaged(projectId: string): Promise<void> {
 	await handleQuery(() => assertUserGroupsUiManaged(projectId));
 }
 
-async function assertGroupBudgetEditable(projectId: string, budgetLimitUsd: number | null | undefined): Promise<void> {
-	if (budgetLimitUsd !== undefined) {
+interface GroupBudgetsInput {
+	budgetLimitUsd?: number | null;
+	sharedBudgetLimitUsd?: number | null;
+}
+
+async function listGroupNames(projectId: string, groupIds: string[]): Promise<string[]> {
+	const groups = await listActiveUserGroups(projectId);
+	return groups.filter((group) => groupIds.includes(group.id)).map((group) => group.name);
+}
+
+async function logImpersonationActivity(
+	projectId: string,
+	userId: string,
+	type: Extract<ActivityType, `user_group.impersonation_${string}`>,
+	groupIds: string[],
+): Promise<void> {
+	await logActivity({
+		projectId,
+		userId,
+		type,
+		payload: { groupIds, groupNames: await listGroupNames(projectId, groupIds) },
+	});
+}
+
+async function assertGroupBudgetEditable(projectId: string, input: GroupBudgetsInput): Promise<void> {
+	if (input.budgetLimitUsd !== undefined || input.sharedBudgetLimitUsd !== undefined) {
 		await assertMemberBudgetLicensed(projectId);
 	}
 }
 
-async function saveGroupBudget(
-	projectId: string,
-	groupId: string,
-	budgetLimitUsd: number | null | undefined,
-): Promise<void> {
-	if (budgetLimitUsd !== undefined) {
-		await setGroupBudget(projectId, groupId, budgetLimitUsd);
+async function saveGroupBudget(projectId: string, groupId: string, input: GroupBudgetsInput): Promise<void> {
+	if (input.budgetLimitUsd !== undefined) {
+		await setGroupBudget(projectId, groupId, input.budgetLimitUsd);
+	}
+	if (input.sharedBudgetLimitUsd !== undefined) {
+		await setGroupSharedBudget(projectId, groupId, input.sharedBudgetLimitUsd);
 	}
 }
 
@@ -629,6 +797,12 @@ async function assertRowSecurityLicensed(projectId: string): Promise<void> {
 	}
 }
 
+async function assertColumnSecurityLicensed(projectId: string): Promise<void> {
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Column-level security requires an Enterprise license.' });
+	}
+}
+
 /** Without the license an admin may still lift MCP restrictions, so a lapsed license never locks a group in. */
 async function assertMcpAccessChangeAllowed(
 	projectId: string,
@@ -653,6 +827,11 @@ async function assertMcpAccessChangeAllowed(
 async function getCurrentGroupMcpAccess(projectId: string, groupId: string): Promise<McpAccess> {
 	const groups = await userGroupQueries.listUserGroups(projectId);
 	return groups.find((group) => group.id === groupId)?.mcpAccess ?? EMPTY_MCP_ACCESS;
+}
+
+async function getCurrentGroupDatabaseAccess(projectId: string, groupId: string): Promise<DatabaseContextAccess> {
+	const groups = await userGroupQueries.listUserGroups(projectId);
+	return groups.find((group) => group.id === groupId)?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS;
 }
 
 /** Like MCP restrictions, lifting skill restrictions stays possible without the license. */
@@ -736,6 +915,30 @@ async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: Pr
 	}
 }
 
+async function assertColumnSecurityChangeAllowed(
+	projectId: string,
+	columnSecurity: ProjectColumnSecurity,
+): Promise<void> {
+	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId })) {
+		return;
+	}
+	const current = normalizeProjectColumnSecurity(await userGroupQueries.getProjectColumnSecurity(projectId));
+	const currentTables = new Map(
+		current.tables.map((table) => [columnSecurityTableKey(table), table.restrictedColumns]),
+	);
+	const onlyRemovesTables = columnSecurity.tables.every((table) => {
+		const currentColumns = currentTables.get(columnSecurityTableKey(table));
+		return (
+			currentColumns !== undefined &&
+			currentColumns.length === table.restrictedColumns.length &&
+			currentColumns.every((column, index) => column === table.restrictedColumns[index])
+		);
+	});
+	if (!onlyRemovesTables) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Column-level security requires an Enterprise license.' });
+	}
+}
+
 async function validateProjectRowSecurityCatalog(
 	projectPath: string,
 	rowSecurity: ReturnType<typeof normalizeProjectRowSecurity>,
@@ -758,7 +961,44 @@ async function validateProjectRowSecurityCatalog(
 		if (table.constraintColumns.some((column) => !catalogTable.columns.includes(column))) {
 			throw new TRPCError({
 				code: 'BAD_REQUEST',
-				message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+				message: `Invalid filter column for ${table.schema}.${table.table}.`,
+			});
+		}
+	}
+}
+
+async function validateProjectColumnSecurityCatalog(
+	projectId: string,
+	projectPath: string,
+	columnSecurity: ReturnType<typeof normalizeProjectColumnSecurity>,
+): Promise<void> {
+	const current = normalizeProjectColumnSecurity(await userGroupQueries.getProjectColumnSecurity(projectId));
+	const currentTables = new Map(current.tables.map((table) => [columnSecurityTableKey(table), table]));
+	const catalog = getDatabaseContextCatalog(projectPath, { fresh: true });
+	for (const table of columnSecurity.tables) {
+		const currentTable = currentTables.get(columnSecurityTableKey(table));
+		const currentColumns = new Set(currentTable?.restrictedColumns ?? []);
+		const addedColumns = table.restrictedColumns.filter((column) => !currentColumns.has(column));
+		if (addedColumns.length === 0) {
+			continue;
+		}
+		const catalogTable = catalog.objects.find(
+			(candidate) =>
+				candidate.databaseType === table.databaseType &&
+				candidate.database === table.database &&
+				candidate.schema === table.schema &&
+				candidate.table === table.table,
+		);
+		if (!catalogTable) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Table ${table.schema}.${table.table} is not in the synced catalog.`,
+			});
+		}
+		if (addedColumns.some((column) => !catalogTable.columns.includes(column))) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Invalid hidden column for ${table.schema}.${table.table}.`,
 			});
 		}
 	}
@@ -799,7 +1039,7 @@ async function validateGroupRowPolicies(
 			) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
-					message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+					message: `Invalid filter column for ${table.schema}.${table.table}.`,
 				});
 			}
 			try {
@@ -825,6 +1065,40 @@ async function validateGroupRowPolicies(
 		rowPolicies: normalizeUserGroupRowPolicies({ version: 1, policies }),
 		registry,
 	};
+}
+
+async function validateGroupColumnPolicies(
+	projectId: string,
+	columnPolicies: ReturnType<typeof normalizeUserGroupColumnPolicies>,
+	databaseAccess: DatabaseContextAccess,
+): Promise<{
+	columnPolicies: ReturnType<typeof normalizeUserGroupColumnPolicies>;
+	registry: ProjectColumnSecurity;
+}> {
+	const registry = await userGroupQueries.getProjectColumnSecurity(projectId);
+	const registered = new Map(registry.tables.map((table) => [columnSecurityTableKey(table), table]));
+	for (const policy of columnPolicies.policies) {
+		const table = registered.get(columnSecurityTableKey(policy));
+		if (!table) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: 'A column policy references a table outside the project registry.',
+			});
+		}
+		if (!isDatabaseContextTableGranted(databaseAccess, policy)) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Column access cannot be granted without access to ${table.schema}.${table.table}.`,
+			});
+		}
+		if (policy.grantedColumns.some((column) => !table.restrictedColumns.includes(column))) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Invalid granted column for ${table.schema}.${table.table}.`,
+			});
+		}
+	}
+	return { columnPolicies, registry };
 }
 
 async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {

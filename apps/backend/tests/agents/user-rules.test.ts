@@ -12,6 +12,10 @@ vi.mock('../../src/utils/project-file', async () => {
 	};
 });
 
+import { extractRulesFile } from '../../src/utils/nao-config';
+
+vi.mock('../../src/utils/nao-config', () => ({ extractRulesFile: vi.fn() }));
+
 import {
 	getDatabaseContextCatalog,
 	getDatabaseObjects,
@@ -24,12 +28,14 @@ const mockExistsSync = vi.mocked(existsSync);
 const mockReaddirSync = vi.mocked(readdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockStatSync = vi.mocked(statSync);
+const mockExtractRulesFile = vi.mocked(extractRulesFile);
 const unrestrictedAccess = { enforced: false } as const;
 
 beforeEach(() => {
 	vi.resetAllMocks();
 	resetDatabaseContextCachesForTesting();
 	mockStatSync.mockReturnValue({ ino: 1, mtimeMs: 1, ctimeMs: 1, size: 1 } as Stats);
+	mockExtractRulesFile.mockReturnValue('RULES.md');
 });
 
 afterEach(() => {
@@ -84,6 +90,15 @@ describe('getUserRules', () => {
 
 		expect(getUserRules('/project', { enforced: true, groupNames: ['Finance'] })).toBe('Public\nFinance\n');
 		expect(mockReadFileSync).toHaveBeenCalledWith(join('/project', 'RULES.md'), 'utf-8');
+	});
+
+	it('reads the rules file nao_config.yaml names instead of RULES.md', () => {
+		mockExtractRulesFile.mockReturnValue('repos/business_context/nao/RULES.md');
+		mockExistsSync.mockReturnValue(true);
+		mockReadFileSync.mockReturnValue('Analyst rules\n');
+
+		expect(getUserRules('/project')).toBe('Analyst rules\n');
+		expect(mockReadFileSync).toHaveBeenCalledWith(join('/project', 'repos/business_context/nao/RULES.md'), 'utf-8');
 	});
 
 	it('includes conditional blocks when group enforcement is unavailable', () => {
@@ -510,6 +525,50 @@ describe('getTableColumnsContent', () => {
 		);
 		expect(result).toBe('# id\n# name\n');
 		expect(mockReadFileSync).toHaveBeenCalledWith(expectedPath, 'utf-8');
+	});
+
+	it('synthesizes mention context without restricted column names or descriptions', () => {
+		const root = '/project-cols-restricted';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=mydb'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockImplementation((filePath) =>
+			String(filePath).includes('.meta')
+				? JSON.stringify({
+						version: 1,
+						schemas: {
+							public: {
+								users: [
+									{ name: 'Case Sensitive', type: 'INTEGER' },
+									{ name: 'secret', type: 'TEXT', description: 'sensitive description' },
+								],
+							},
+						},
+					})
+				: '# raw secret context',
+		);
+
+		const result = getTableColumnsContent(root, 'mydb.public.users', unrestrictedAccess, {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'mydb',
+					schema: 'public',
+					table: 'users',
+					restrictedColumns: ['secret'],
+					access: 'restricted',
+					deniedColumns: ['secret'],
+				},
+			],
+		});
+
+		expect(result).toContain('- Case Sensitive (INTEGER)');
+		expect(result).not.toContain('secret');
+		expect(result).not.toContain('sensitive description');
 	});
 
 	it('selects an allowed warehouse object when multiple types share an fqdn', () => {

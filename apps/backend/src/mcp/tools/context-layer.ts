@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { executeSemanticQuery, executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ import {
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
 } from '../../services/semantic-layer.service';
+import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { generateStorySlug } from '../../utils/story-mount';
@@ -86,6 +88,10 @@ const CREATE_STORY_DESCRIPTION =
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
+	'STORY FILTERS: Hardcode `<filter options=\'["a","b"]\' />` only for universal constants that do not come from database rows. ' +
+	'Use `table` plus `column` for direct database-column values. For computed labels or other database-derived values, ' +
+	"run a separate `execute_sql` query that returns exactly one column named `value`, then set the filter's " +
+	'`options_query_id` to that query ID.\n\n' +
 	'IMPORTANT: once `create_story` returns, present its output directly to the user. Do NOT call ' +
 	'`display_chart` again for charts already embedded in the story content — the story embed renders ' +
 	'them automatically and re-calling `display_chart` would duplicate the output.';
@@ -347,7 +353,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					return errorResult(story.error);
 				}
 
-				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);
+				await saveStandaloneStoryQuerySql(story, code, ctx);
 
 				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 				const output: StoryMcpToolPayload = {
@@ -448,7 +455,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
-			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx);
+			await cacheStoryQueryData(story, newCode, query_data, effectiveChatId, ctx);
+			await saveStandaloneStoryQuerySql(story, newCode, ctx);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
@@ -474,12 +482,13 @@ function errorResult(message: string): ToolResult {
 }
 
 async function cacheStoryQueryData(
-	storyId: string,
+	story: { id: string; isLive: boolean },
 	code: string,
 	queryData: StoryQueryDataMap | undefined,
 	chatId: string | null | undefined,
 	ctx: McpContext,
 ): Promise<void> {
+	const storyId = story.id;
 	const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyId);
 	const seededQueryData: StoryQueryDataMap = {
 		...((existingCache?.queryData as StoryQueryDataMap | null) ?? {}),
@@ -493,9 +502,21 @@ async function cacheStoryQueryData(
 	if (!resolvedQueryData) {
 		return;
 	}
-	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData);
+	const keptQuerySources = story.isLive ? (existingCache?.querySources ?? null) : null;
+	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData, undefined, keptQuerySources);
 	if (chatId) {
 		await pinQueryDataToChat(chatId, resolvedQueryData);
+	}
+}
+
+/** A standalone story keeps the SQL of its MCP queries, so it can go live without a chat to read it from. */
+async function saveStandaloneStoryQuerySql(
+	story: { id: string; chatId: string | null },
+	code: string,
+	ctx: McpContext,
+): Promise<void> {
+	if (!story.chatId) {
+		await copyMcpQueriesToStory(story.id, extractQueryIds(code), ctx);
 	}
 }
 

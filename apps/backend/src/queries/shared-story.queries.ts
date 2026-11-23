@@ -28,11 +28,13 @@ const storyCertifier = aliasedTable(s.user, 'story_certifier');
 export type SharedStoryWithLatest = DBSharedStory & {
 	updatedAt: Date;
 	authorName: string;
+	ownerUserId: string;
 	chatId: string | null;
 	slug: string;
 	title: string;
 	format: StoryFormat;
 	code: string;
+	storyVersionId: string;
 	version: number;
 	isLive: boolean;
 	certifiedAt: Date | null;
@@ -176,6 +178,22 @@ export function listProjectArchivedSharedStories(projectId: string): Promise<Sha
 	);
 }
 
+/** Makes `userId` the sharer of the story, giving it a private share if it had none. */
+export async function setSharedStorySharer(
+	storyId: string,
+	projectId: string,
+	userId: string,
+	executor: DBExecutor = db,
+): Promise<string> {
+	const [row] = await executor
+		.insert(s.sharedStory)
+		.values({ storyId, projectId, userId, visibility: 'specific' })
+		.onConflictDoUpdate({ target: [s.sharedStory.projectId, s.sharedStory.storyId], set: { userId } })
+		.returning({ id: s.sharedStory.id })
+		.execute();
+	return row.id;
+}
+
 export async function pinSharedStory(storyId: string): Promise<void> {
 	await db.update(s.sharedStory).set({ isPinned: true }).where(eq(s.sharedStory.storyId, storyId)).execute();
 }
@@ -212,8 +230,9 @@ export async function getQueryDataFromCode(
 export async function getSharedStoryInfo(
 	storyId: string,
 	projectId: string,
+	executor: DBExecutor = db,
 ): Promise<Pick<DBSharedStory, 'id' | 'visibility' | 'projectRole'> | null> {
-	const [row] = await db
+	const [row] = await executor
 		.select({
 			id: s.sharedStory.id,
 			visibility: s.sharedStory.visibility,
@@ -611,11 +630,13 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			createdAt: s.sharedStory.createdAt,
 			updatedAt: s.story.updatedAt,
 			authorName: s.user.name,
+			ownerUserId: sql<string>`coalesce(${s.chat.userId}, ${s.story.userId})`,
 			chatId: s.story.chatId,
 			slug: s.story.slug,
 			title: s.story.title,
 			format: s.story.format,
 			code: s.storyVersion.code,
+			storyVersionId: s.storyVersion.id,
 			version: s.storyVersion.version,
 			isLive: s.story.isLive,
 			certifiedAt: s.story.certifiedAt,
@@ -625,6 +646,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 		})
 		.from(s.sharedStory)
 		.innerJoin(s.story, eq(s.sharedStory.storyId, s.story.id))
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.innerJoin(s.user, eq(s.sharedStory.userId, s.user.id))
 		.leftJoin(storyCertifier, eq(s.story.certifiedBy, storyCertifier.id))
 		.innerJoin(latestVersions, eq(s.story.id, latestVersions.storyId))

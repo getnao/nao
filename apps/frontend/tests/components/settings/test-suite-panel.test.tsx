@@ -20,6 +20,7 @@ vi.mock('@/main', () => ({
 			listTests: {
 				queryOptions: () => ({ queryKey: ['tests'], queryFn: mocks.listTests }),
 			},
+			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
 			getRun: {
 				queryOptions: (input: { runId: string }) => ({
 					queryKey: ['test-run', input.runId],
@@ -60,10 +61,18 @@ describe('TestSuitePanel', () => {
 			modelSummaries: [],
 			previousModelSummaries: [],
 			results: [
-				{ testPath: 'revenue.yml', testName: 'revenue', passed: true, message: 'match', errorMessage: null },
+				{
+					testPath: 'revenue.yml',
+					testName: 'revenue',
+					tags: [],
+					passed: true,
+					message: 'match',
+					errorMessage: null,
+				},
 				{
 					testPath: 'churn.yml',
 					testName: 'churn',
+					tags: [],
 					passed: false,
 					message: 'values differ',
 					errorMessage: null,
@@ -80,6 +89,43 @@ describe('TestSuitePanel', () => {
 
 		expect(screen.queryByText('revenue')).toBeNull();
 		expect(screen.getByText('churn')).toBeTruthy();
+	});
+
+	it.each([
+		{ status: 'running', label: 'Queued' },
+		{ status: 'cancelled', label: 'Not run' },
+	])('lists the tests a $status run has not tried yet as $label', async ({ status, label }) => {
+		mocks.getRun.mockResolvedValue({
+			id: 'run-1',
+			status,
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			attempts: 1,
+			completedAttempts: 1,
+			totalAttempts: 2,
+			errorMessage: null,
+			comparison: null,
+			modelSummaries: [],
+			previousModelSummaries: [],
+			selection: ['revenue.yml', 'finance/margin.yml'],
+			results: [
+				{
+					testPath: 'revenue.yml',
+					testName: 'revenue',
+					tags: [],
+					passed: true,
+					message: 'match',
+					errorMessage: null,
+				},
+			],
+		});
+		renderPanel();
+
+		expect(
+			await screen.findByRole('button', {
+				name: new RegExp(`^${label}\\s*margin.*finance/margin\\.yml\\s*${label}$`),
+			}),
+		).toBeTruthy();
+		expect(filterLabels()).toEqual(['All2', 'Passed1', 'Failed0']);
 	});
 
 	it('ranks the models of a run and shows each test against each model', async () => {
@@ -371,6 +417,7 @@ function multiModelRun(results: [testPath: string, modelId: string, passed: bool
 			id: `result-${index}`,
 			testPath,
 			testName: testPath.replace('.yml', ''),
+			tags: [],
 			llmProvider: 'anthropic',
 			llmModelId: modelId,
 			contextVariant: 'production',

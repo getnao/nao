@@ -1,3 +1,4 @@
+import { formatCount } from '@nao/shared';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Code, Copy, Download, Layers, Palette, PanelRight, Table as TableIcon } from 'lucide-react';
@@ -11,7 +12,7 @@ import type { ToolCallComponentProps } from '.';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SemanticQuerySidePanelContent } from '@/components/side-panel/semantic-query-editor';
@@ -28,7 +29,7 @@ export const ExecuteSemanticQueryToolCall = ({
 	const [conditionalFormats, setConditionalFormats] = useState<ColumnConditionalFormats>({});
 	const [isFormatOpen, setIsFormatOpen] = useState(false);
 	const { isSettled } = useToolCallContext();
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel } = useSidePanelActions();
 	const agent = useOptionalAgentContext();
 	const chatId = agent?.chatId;
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && output?.id);
@@ -137,7 +138,7 @@ export const ExecuteSemanticQueryToolCall = ({
 					</span>
 				</span>
 			}
-			badge={output?.row_count && `${output.row_count} rows`}
+			badge={output && formatCount(output.row_count, 'row')}
 			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'definition' && input ? (

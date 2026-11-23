@@ -21,6 +21,7 @@ import {
 	resolveStrongestUserRole,
 } from '../utils/sso-group-mapping';
 import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
+import { bumpProjectViewerCacheRevision } from './story-viewer-data-cache.queries';
 
 export interface SsoUserGroupMapping {
 	groupId: string;
@@ -81,9 +82,10 @@ export async function reconcileSsoUserGroupMemberships(
 					options.entraMappings ?? [],
 				);
 				insertMissingProjectMembershipsSqlite(transaction, userId, desired.projectRoles);
-				const existingGroupIds = transaction
-					.select({ groupId: s.userGroupMember.groupId })
+				const existingMemberships = transaction
+					.select({ groupId: s.userGroupMember.groupId, projectId: s.userGroup.projectId })
 					.from(s.userGroupMember)
+					.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 					.where(
 						and(
 							eq(s.userGroupMember.userId, userId),
@@ -91,8 +93,8 @@ export async function reconcileSsoUserGroupMemberships(
 							activeUserGroupMembershipCondition,
 						),
 					)
-					.all()
-					.map(({ groupId }) => groupId);
+					.all();
+				const existingGroupIds = existingMemberships.map(({ groupId }) => groupId);
 				const changes = diffMemberships(existingGroupIds, desired.groupIds);
 				if (changes.stale.length > 0) {
 					transaction
@@ -116,6 +118,13 @@ export async function reconcileSsoUserGroupMemberships(
 							set: { active: true, createdAt: new Date() },
 						})
 						.run();
+				}
+				if (changes.stale.length > 0 || changes.added.length > 0) {
+					const projectIds = changedMembershipProjectIds(mappings, existingMemberships, changes);
+					if (projectIds.length > 0) {
+						bumpProjectViewerCacheRevision(transaction, projectIds).run();
+					}
+					transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.userId, userId)).run();
 				}
 			},
 			{ behavior: 'immediate' },
@@ -141,9 +150,10 @@ export async function reconcileSsoUserGroupMemberships(
 			options.entraMappings ?? [],
 		);
 		await insertMissingProjectMembershipsPostgres(transaction, userId, desired.projectRoles);
-		const existingGroupIds = await transaction
-			.select({ groupId: s.userGroupMember.groupId })
+		const existingMemberships = await transaction
+			.select({ groupId: s.userGroupMember.groupId, projectId: s.userGroup.projectId })
 			.from(s.userGroupMember)
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 			.where(
 				and(
 					eq(s.userGroupMember.userId, userId),
@@ -151,8 +161,8 @@ export async function reconcileSsoUserGroupMemberships(
 					activeUserGroupMembershipCondition,
 				),
 			)
-			.execute()
-			.then((memberships) => memberships.map(({ groupId }) => groupId));
+			.execute();
+		const existingGroupIds = existingMemberships.map(({ groupId }) => groupId);
 		const changes = diffMemberships(existingGroupIds, desired.groupIds);
 		if (changes.stale.length > 0) {
 			await transaction
@@ -177,7 +187,30 @@ export async function reconcileSsoUserGroupMemberships(
 				})
 				.execute();
 		}
+		if (changes.stale.length > 0 || changes.added.length > 0) {
+			const projectIds = changedMembershipProjectIds(mappings, existingMemberships, changes);
+			if (projectIds.length > 0) {
+				await bumpProjectViewerCacheRevision(transaction, projectIds).execute();
+			}
+			await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.userId, userId)).execute();
+		}
 	});
+}
+
+function changedMembershipProjectIds(
+	mappings: SsoUserGroupMapping[],
+	existingMemberships: Array<{ groupId: string; projectId: string }>,
+	changes: { stale: string[]; added: string[] },
+): string[] {
+	const changedGroupIds = new Set([...changes.stale, ...changes.added]);
+	return [
+		...new Set([
+			...mappings.filter(({ groupId }) => changedGroupIds.has(groupId)).map(({ projectId }) => projectId),
+			...existingMemberships
+				.filter(({ groupId }) => changedGroupIds.has(groupId))
+				.map(({ projectId }) => projectId),
+		]),
+	];
 }
 
 export async function listAccessibleSsoUserGroupMappings(

@@ -1,0 +1,56 @@
+name: Refresh disposable email domains
+
+on:
+    schedule:
+        # Every Monday at 6am UTC
+        - cron: '0 6 * * 1'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    pull-requests: write
+
+env:
+    LIST_URL: https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/main/disposable_email_blocklist.conf
+    LIST_FILE: apps/backend/src/utils/disposable-email-domains.ts
+    BRANCH: chore/refresh-disposable-email-domains
+
+jobs:
+    refresh:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@v4
+
+            # Only plain domain names are kept, so the upstream file cannot inject code into the module.
+            - name: Regenerate the list
+              run: |
+                  {
+                      echo '/** Generated from https://github.com/disposable-email-domains/disposable-email-domains (CC0). Refreshed weekly by CI, do not edit by hand. */'
+                      echo 'export const DISPOSABLE_EMAIL_DOMAINS = ['
+                      curl -fsSL "$LIST_URL" | grep -E '^[a-z0-9-]+(\.[a-z0-9-]+)+$' | awk '{ printf "\t\047%s\047,\n", $0 }'
+                      echo '];'
+                  } > "$LIST_FILE"
+                  test "$(wc -l < "$LIST_FILE")" -gt 5000
+
+            - name: Open a pull request when the list changed
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if git diff --quiet -- "$LIST_FILE"; then
+                      echo 'The list is up to date.'
+                      exit 0
+                  fi
+
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  git checkout -B "$BRANCH"
+                  git commit -m 'chore(auth): refresh disposable email domains' -- "$LIST_FILE"
+                  git push --force origin "$BRANCH"
+
+                  if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" = "0" ]; then
+                      gh pr create --base main --head "$BRANCH" \
+                          --title 'chore(auth): refresh disposable email domains' \
+                          --body "Weekly refresh of the disposable email domains blocked at cloud signup, from $LIST_URL."
+                  fi

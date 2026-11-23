@@ -160,6 +160,13 @@ export function matchesContextHubDoc(doc: ContextHubDoc, query: string): boolean
 	return matchesQuery([doc.title, doc.folder, doc.path], query);
 }
 
+export function matchesContextHubTest(
+	test: { name: string; path: string; owner: string | null; tags: readonly string[] },
+	query: string,
+): boolean {
+	return matchesQuery([test.name, test.path, test.owner, ...test.tags], query);
+}
+
 function groupTableFiles(filePaths: readonly string[]): ContextHubTable[] {
 	const tablesByKey = new Map<string, ContextHubTable>();
 	for (const path of filePaths) {

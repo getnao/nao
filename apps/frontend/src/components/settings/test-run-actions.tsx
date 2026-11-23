@@ -4,14 +4,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, FilePen, GitCompareArrows, Play, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
+import type { DraftContext, TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { ContextRunMode } from '@/hooks/use-test-run-start';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { TestModelPicker } from '@/components/settings/test-model-picker';
 import { BranchName, getMainBranch } from '@/components/settings/test-run-labels';
-import { getContextChanges } from '@/components/settings/test-run-types';
 import { TestUpstreamPicker } from '@/components/settings/test-upstream-picker';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,8 +57,12 @@ export function SuiteRunActions({
 	draft,
 	activeRun,
 	scope,
+	tests,
 	onRunStarted,
-}: RunActionsBaseProps & { scope: SuiteRunScope }) {
+}: RunActionsBaseProps & {
+	scope: SuiteRunScope;
+	tests?: TestDefinition[];
+}) {
 	const testRun = useTestRunStart({
 		target: { paths: scope.paths },
 		blockedReason: scope.testCount === 0 ? `Add a test to the ${TESTS_FOLDER}/ folder first.` : null,
@@ -82,6 +85,7 @@ export function SuiteRunActions({
 						settings={settings}
 						testCount={scope.testCount}
 						variantCount={testRun.mode === 'compare' ? 2 : 1}
+						schedulableTests={tests}
 						disabled={!!activeRun}
 					/>
 				</>
@@ -159,7 +163,7 @@ export function TestFileRunActions({
 		activeRun,
 		onRunStarted,
 	});
-	const contextChangeCount = getContextChanges(draft).length;
+	const contextChangeCount = draft?.changes.length ?? 0;
 	const changes = testRun.upstream ? (
 		<ChangesName upstream={testRun.upstream} />
 	) : (

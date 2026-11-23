@@ -211,6 +211,7 @@ function EditableFileViewer({
 	hash: string;
 }) {
 	const queryClient = useQueryClient();
+	const openReferencedFile = useCallback((path: string) => onOpenGuidancePath(path, 'file'), [onOpenGuidancePath]);
 	const [markdownViewPreference, setMarkdownViewPreference] = useLocalStorage(markdownViewStorage);
 	const [isSourceAutoOpened, setIsSourceAutoOpened] = useState(sourceAutoOpenRequestId !== null);
 	const [draft, setDraft] = useState(content);
@@ -445,6 +446,7 @@ function EditableFileViewer({
 					readOnly={!isEditable}
 					onChange={setDraft}
 					onSave={isEditable ? handleSave : undefined}
+					onOpenFile={openReferencedFile}
 				/>
 			</div>
 		</div>
@@ -548,6 +550,7 @@ function EditableFileViewer({
 						readOnly={!isEditable}
 						onChange={setDraft}
 						onSave={isEditable ? handleSave : undefined}
+						onOpenFile={openReferencedFile}
 					/>
 				)}
 			</div>

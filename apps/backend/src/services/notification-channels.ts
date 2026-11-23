@@ -4,7 +4,7 @@ import { env } from '../env';
 import * as notificationQueries from '../queries/notification.queries';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
-import type { NotificationRecipient } from '../types/notification';
+import type { NotificationRecipient, NotificationTable } from '../types/notification';
 import { buildNotificationEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 import { getAppName } from './branding.service';
@@ -22,6 +22,7 @@ export interface DeliverableNotification {
 	projectId: string;
 	emailAttachments?: EmailAttachment[];
 	emailBodyHtml?: string;
+	table?: NotificationTable;
 	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => Promise<CreatedEmail>;
 }
 
@@ -85,6 +86,7 @@ const emailChannel: NotificationChannelHandler = {
 				notification.emailAttachments,
 				unsubscribeUrl,
 				notification.emailBodyHtml,
+				notification.table,
 			),
 			sendOptions,
 		);
@@ -110,6 +112,9 @@ const slackChannel: NotificationChannelHandler = {
 		}
 		if (notification.body) {
 			lines.push(notification.body);
+		}
+		if (notification.table) {
+			lines.push('', toMarkdownTable(notification.table));
 		}
 		const text = lines.join('\n');
 		const button = url ? { url, label: `Open in ${await getAppName()}` } : undefined;
@@ -157,4 +162,15 @@ function toAbsoluteUrl(linkUrl?: string): string | undefined {
 		return linkUrl;
 	}
 	return `${env.BETTER_AUTH_URL.replace(/\/$/, '')}${linkUrl.startsWith('/') ? '' : '/'}${linkUrl}`;
+}
+
+/** Slack turns a Markdown table into a native table block. */
+function toMarkdownTable({ headers, rows }: NotificationTable): string {
+	return [headers, headers.map(() => '---'), ...rows]
+		.map((cells) => `| ${cells.map(toMarkdownTableCell).join(' | ')} |`)
+		.join('\n');
+}
+
+function toMarkdownTableCell(cell: string): string {
+	return cell.replace(/\s+/g, ' ').replace(/\|/g, '\\|');
 }

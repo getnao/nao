@@ -85,7 +85,7 @@ function GroupToken({ token, isRemoveDisabled }: { token: UserGroupToken; isRemo
 					onClick={token.onRemove}
 					disabled={isRemoveDisabled}
 					aria-label={`Remove group ${token.name}`}
-					className='inline-flex size-4 shrink-0 items-center justify-center rounded-sm opacity-70 transition-opacity hover:bg-background/60 hover:opacity-100 disabled:pointer-events-none disabled:opacity-30'
+					className='inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-30'
 				>
 					<X className='size-3' />
 				</button>

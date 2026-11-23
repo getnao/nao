@@ -14,8 +14,6 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
-	/** Hidden from context admins whose groups do not grant the file tree view of the Context Hub. */
-	requiresAdvancedContextExplorer?: boolean;
 	/** Hidden unless the current project role can view usage analytics. */
 	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
@@ -94,6 +92,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Your memory',
 		description: 'What nao remembers about you. Only you can see and manage these.',
 		keywords: ['remember', 'learn', 'personalization', 'preferences', 'remembered facts', 'memory list'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
+		title: 'Two-factor authentication',
+		description: 'Require a code from an authenticator app or your email after your password.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'backup codes', 'security'],
 	},
 	{
 		page: '/settings/account',
@@ -190,6 +195,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
+		title: 'Single sign-on (Okta)',
+		description:
+			'Connect your Okta or other OIDC identity provider once nao has activated SSO for your organization.',
+		keywords: ['sso', 'okta', 'oidc', 'identity provider', 'idp', 'saml', 'issuer', 'client id'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
@@ -259,6 +274,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
 		cloudHidden: true,
+	},
+
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Require two-factor authentication',
+		description: 'Require a second step from members who log in with a password, and allow or forbid email codes.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'email code', 'enforce', 'mandatory', 'security'],
+		orgAdminOnly: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────
@@ -352,8 +377,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Advanced',
 		search: { tab: 'advanced' },
 		title: 'Group budgets',
-		description: 'Give every member of a user group the same spending cap instead of the default.',
-		keywords: ['group budget', 'budget per group', 'user group', 'team budget', 'enterprise'],
+		description:
+			'Give every member of a user group the same spending cap, or cap the combined spend of the whole group.',
+		keywords: [
+			'group budget',
+			'budget per group',
+			'user group',
+			'team budget',
+			'shared budget',
+			'group usage',
+			'combined spend',
+			'enterprise',
+		],
 		adminOnly: true,
 	},
 
@@ -544,8 +579,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Semantic layer',
 		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
 		keywords: [
@@ -613,8 +648,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Experimental',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
@@ -622,11 +657,32 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Exclude columns',
 		description: 'Prevent the agent from querying columns listed in exclude_columns.',
 		keywords: ['enforce excluded columns', 'sql', 'query', 'column access'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'SQL',
+		search: { tab: 'sql' },
+		title: 'Query tagging',
+		description: 'Add a comment to every SQL query nao sends to your warehouse.',
+		keywords: [
+			'query tag',
+			'query comment',
+			'sql comment',
+			'query_tag',
+			'query history',
+			'warehouse monitoring',
+			'cost attribution',
+			'user email',
+			'user groups',
+			'source',
+		],
 		adminOnly: true,
 	},
 
@@ -697,6 +753,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'shared token',
 			'co-author',
 			'pull request author',
+			'GITHUB_ACCESS_TOKEN',
+			'environment variable',
 		],
 		adminOrContextAdmin: true,
 	},
@@ -751,7 +809,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
@@ -771,7 +829,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'connect' },
 		section: 'nao MCP',
 		title: 'Connected apps',
 		description: 'Create and manage the OAuth clients external MCP tools use to connect (client id + secret).',
@@ -783,7 +841,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'Sub-agent mode',
 		description:
@@ -793,7 +851,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'Sub-agent model',
 		description: 'Choose the model ask_nao answers with, or let it follow the default chat model.',
@@ -803,16 +861,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
-		search: { tab: 'nao-mcp' },
+		search: { tab: 'nao-mcp', section: 'setup' },
 		section: 'nao MCP',
 		title: 'Context-layer mode',
 		description:
-			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, create_story, update_story — the client MCP drives the workflow step by step.',
+			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, execute_semantic_query, create_story, update_story — the client MCP drives the workflow step by step.',
 		keywords: [
 			'ls_nao_context',
 			'grep_nao_context',
 			'read_nao_context',
 			'execute_sql',
+			'execute_semantic_query',
 			'create_story',
 			'update_story',
 			'sql',
@@ -820,6 +879,66 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'story',
 			'context',
 		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp', section: 'tools' },
+		section: 'nao MCP',
+		title: 'Tools',
+		description:
+			'Every tool the nao MCP endpoint exposes: sub-agent and context-layer tools, charts and stories, chat history, tests, recommendations and budgets.',
+		keywords: [
+			'mcp tools',
+			'tool list',
+			'display_chart',
+			'display_map',
+			'list_stories',
+			'get_story',
+			'archive_story',
+			'delete_story',
+			'search_chats',
+			'get_chat',
+			'list_tests',
+			'run_tests',
+			'list_test_runs',
+			'get_test_run',
+			'cancel_test_run',
+			'list_recommendations',
+			'get_recommendation',
+			'set_recommendation_status',
+			'export_member_budgets',
+		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp', section: 'connect' },
+		section: 'nao MCP',
+		title: 'Connection guide',
+		description: 'Step-by-step setup and config to connect Cursor, Codex, ChatGPT, Copilot, Claude, Dust or a CLI.',
+		keywords: [
+			'connect',
+			'setup',
+			'endpoint url',
+			'config',
+			'cursor',
+			'codex',
+			'chatgpt',
+			'copilot',
+			'claude',
+			'dust',
+		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp', section: 'activity' },
+		section: 'nao MCP',
+		title: 'Recent MCP calls',
+		description: 'The last 50 tool calls external clients made, with their input and errors.',
+		keywords: ['mcp logs', 'call logs', 'activity', 'audit', 'history'],
+		adminOnly: true,
 	},
 
 	// ── Storage ─────────────────────────────────────────────
@@ -1075,6 +1194,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'bulk assign',
 			'add to group',
 			'filter users',
+			'transfer stories',
+			'story ownership',
+			'offboarding',
 		],
 	},
 	{
@@ -1109,6 +1231,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'account only',
 		],
 		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'Impersonate groups',
+		description: 'Use the app as a member of one or more groups to check what they can see and do.',
+		keywords: ['impersonate', 'impersonation', 'view as', 'act as', 'preview permissions', 'test group'],
+		adminOnly: true,
+		cloudHidden: true,
 	},
 	{
 		page: '/settings/project/user-groups',
@@ -1179,8 +1312,40 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Security',
 		search: { tab: 'security' },
 		title: 'Row-level security',
-		description: 'Mark sensitive tables and choose the constraint columns group row policies may use.',
-		keywords: ['security', 'rows', 'rls', 'predicates', 'where', 'constraint columns', 'sensitive tables'],
+		description: 'Limit accessible rows with filters on fields that remain visible.',
+		keywords: [
+			'security',
+			'records',
+			'rows',
+			'row-level security',
+			'rls',
+			'predicates',
+			'where',
+			'rule fields',
+			'filter columns',
+			'filtered tables',
+			'tenant',
+		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Data protection',
+		search: { tab: 'security' },
+		title: 'Sensitive fields (column-level security)',
+		description: 'Limit accessible columns by hiding selected fields unless access is granted.',
+		keywords: [
+			'security',
+			'fields',
+			'columns',
+			'column-level security',
+			'permissions',
+			'hidden columns',
+			'hide',
+			'sensitive data',
+			'pii',
+		],
 		adminOnly: true,
 	},
 
@@ -1725,10 +1890,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Tests',
-		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
+		description: 'Run the context tests from the Tests of the Context Hub and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
+	},
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'Context Hub',
+		search: { tests: 'open' },
+		title: 'Schedule the tests',
+		description: 'Run the tests on production every hour, day or week, and get notified when they fail.',
+		keywords: ['schedule', 'scheduled runs', 'cron', 'nightly', 'daily', 'recurring', 'monitoring', 'drift'],
+		adminOrContextAdmin: true,
 	},
 	{
 		page: '/settings/context-explorer',
@@ -1747,7 +1920,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'leaderboard',
 		],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
@@ -1768,6 +1940,5 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'branch',
 		],
 		adminOrContextAdmin: true,
-		requiresAdvancedContextExplorer: true,
 	},
 ];

@@ -12,7 +12,7 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { Button } from '@/components/ui/button';
 import StoryIcon from '@/components/ui/story-icon';
 import { useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useOpenMentionedStory, useMentionedStories } from '@/hooks/use-mentioned-stories';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { areChatArtifactsEqual, collectChatArtifacts, countChatArtifacts } from '@/lib/chat-artifacts';
@@ -42,7 +42,7 @@ interface ChatArtifactsMenuProps {
  */
 export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName, labelClassName }: ChatArtifactsMenuProps) {
 	const [density] = useToolCallDensity();
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel } = useSidePanelActions();
 	const artifacts = useAgentMessagesSelector(collectChatArtifacts, areChatArtifactsEqual);
 	const showQueries = density !== 'compact';
 	const mentionedStories = useMentionedStories(chatId, artifacts.mentionedStories);

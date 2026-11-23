@@ -28,7 +28,10 @@ import { createTool } from '../../utils/tools';
 
 const STORY_FILTER_DESCRIPTION = [
 	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|text|search|date_range" ... />.',
-	'For select/multi_select, provide either table+column (options from SELECT DISTINCT, searchable in the UI) or options=\'["a","b"]\' (hardcoded values). Add allow_custom="true" to let users type a value that is not in the list.',
+	'For select/multi_select, hardcode options=\'["a","b"]\' only for universal constants that do not come from database rows.',
+	'Use table+column when each option is the direct value of one database column.',
+	'For computed labels or any other database-derived values, execute a separate options query that returns exactly one column named value, then set options_query_id to that query_id.',
+	'Add allow_custom="true" to let users type a value that is not in the option list.',
 	'IDs and exact codes (user id, order id, SKU) MUST use type="text": it renders the exact value, so put AND user_id = {{ filters.user.sql }} inside its matching {% filter user %} ... {% endfilter %} block. On numeric columns add value_type="number" so the value renders unquoted (and is validated as a number).',
 	'type="search" renders \'%value%\' — already wrapped in % and escaped — so only compare it with LIKE/ILIKE: AND name ILIKE {{ filters.q.sql }}. Never use = or IN with a search filter and never strip the %; use type="text" for exact matches.',
 	'For hierarchies (category > sub-category), add depends_on="<parent_filter_id>" on the child select/multi_select: its options are narrowed by the parent selection, using the parent filter column on the child table.',
@@ -56,16 +59,22 @@ export function buildStoryToolDescription({
 		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
 		...(mapsEnabled
-			? ['Maps are embedded via <map query_id="..." map_type="points|scatter_bubble|choropleth" title="..." />.']
+			? [
+					'Maps are embedded via <map query_id="..." map_type="..." title="..." /> with the same column attributes as display_map:',
+					'map_type="points" needs latitude_key and longitude_key, "scatter_bubble" also needs size_key,',
+					'and "choropleth" needs value_key plus region_key with region_boundaries or boundaries_url, or geometry_key.',
+					'E.g. <map query_id="..." map_type="scatter_bubble" latitude_key="lat" longitude_key="lng" size_key="revenue" title="..." />.',
+					'A point map without its coordinate columns renders a placeholder instead of the map.',
+				]
 			: []),
 		...(env.BETA_STORY_FILTERS_ENABLED ? [STORY_FILTER_DESCRIPTION] : []),
 		`Use <grid>...</grid> to place 2–4 charts/tables${mapsEnabled ? '/maps' : ''} side by side; its direct <chart>/<table>${mapsEnabled ? '/<map>' : ''} blocks are the columns.`,
 		'For unequal columns add widths="w1,w2,..." to the <grid> — one positive integer per column giving its relative width (e.g. widths="2,1" makes the first column twice as wide as the second). The number of values must equal the number of columns; omit widths for equal columns. Choose widths that fit the content, e.g. a wide time-series next to a narrow KPI or pie.',
 		'Use consecutive <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
 		'Default to a single flowing story. Use tabs only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user\'s explicit request (e.g. "a tab per chart" means one chart per tab). When using tabs, the entire story must consist of <tab title="...">...</tab> blocks — no content outside a tab.',
-		'A story can also be refered as a "canva", an "artifact" or a "report".',
+		'A story can also be referred to as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; when present, the <conversation-artifacts> block of the latest user message holds the current content of every classic story in this conversation, including user edits, and the draft file paths of custom stories (read them before editing). The tool result reflects the version just produced.',
-		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
+		'Unless explicitly asked for a story, display a chart with the display_chart tool, not with a story.',
 		...(customStories ? [customStoryDescription(canReplace)] : []),
 	].join(' ');
 }

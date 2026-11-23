@@ -12,9 +12,9 @@ export type ContextHubView = 'docs' | 'files';
 const pickedViewStorage = createLocalStorage<ContextHubView>('nao-context-hub-view-mode', 'files');
 
 /**
- * The view the Context Hub shows on whichever page it is opened: the one last picked, the file tree for links to tests
- * or diffs, and always the doc view for people the file tree is not granted to. A link to a test or a diff picks the
- * file tree, so it stays once the file tree has read the link and dropped it from the URL.
+ * The view the Context Hub shows on whichever page it is opened: the one last picked, the file tree for links to past
+ * diffs, and always the doc view for people the file tree is not granted to. A link to a diff picks the file tree, so
+ * it stays once the file tree has read the link and dropped it from the URL.
  */
 export function useContextHubView(search: ContextExplorerSearch) {
 	const navigate = useNavigate();

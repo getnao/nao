@@ -46,7 +46,8 @@ import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
 import { getDefaultProjectPath } from '../utils/project-paths';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
-import { userMemberStatus } from './user.queries';
+import { userHasPassword, userMemberStatus } from './user.queries';
+import { getImpersonatedGroupIds } from './user-group-impersonation.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -58,6 +59,7 @@ export type ProjectAccessSource = 'project' | 'organization' | 'both';
 export interface UserWithProjectAccessDetails extends UserWithRole {
 	source: ProjectAccessSource;
 	emailVerified: boolean;
+	hasPassword: boolean;
 }
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -233,7 +235,16 @@ export const listUserProjects = async (userId: string, options?: ListUserProject
 	return results.map((r) => r.project);
 };
 
+/** An admin impersonating user groups acts as a regular member until they stop. */
 export const getUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
+	const role = await getActualUserRoleInProject(projectId, userId);
+	if (role === 'admin' && (await getImpersonatedGroupIds(projectId, userId))) {
+		return 'user';
+	}
+	return role;
+};
+
+export const getActualUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;
@@ -309,6 +320,7 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 				when ${s.projectMember.userId} is not null then 'project'
 				else 'organization'
 			end`,
+			hasPassword: userHasPassword,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
@@ -317,6 +329,15 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 		.execute();
 
 	return results;
+};
+
+export const listProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+	const projects = await db
+		.select({ id: s.project.id, path: s.project.path })
+		.from(s.project)
+		.where(isNotNull(s.project.path))
+		.execute();
+	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
 };
 
 export const getDefaultProject = async (): Promise<DBProject | null> => {
@@ -329,16 +350,21 @@ export const getDefaultProject = async (): Promise<DBProject | null> => {
 	return project ?? null;
 };
 
+/**
+ * A selected project the user cannot access is swapped for their default one, so a stale selection still
+ * loads the app. A write must not follow that swap: `fallbackWhenInaccessible: false` answers null instead.
+ */
 export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
+	{ fallbackWhenInaccessible = true }: { fallbackWhenInaccessible?: boolean } = {},
 ): Promise<DBProject | null> => {
 	if (isCloud || (await isSelfHostedMultiProjectEnabled())) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
-			if (selectedProject) {
-				return selectedProject;
+			if (selectedProject || !fallbackWhenInaccessible) {
+				return selectedProject ?? null;
 			}
 		}
 		return projects.find((project) => project.path === getDefaultProjectPath()) ?? projects[0] ?? null;

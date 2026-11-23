@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
 
+import { env } from '../env';
 import * as contextRecommendationQueries from '../queries/context-recommendation.queries';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { logger } from '../utils/logger';
@@ -16,9 +17,19 @@ export interface SharedGithubAccount {
 	avatarUrl: string;
 }
 
+/** `environment` when GITHUB_ACCESS_TOKEN sets it on the server, which the settings cannot change. */
+export type SharedGithubTokenSource = 'project' | 'environment';
+
 export type SharedGithubTokenStatus =
 	| { configured: false }
-	| { configured: true; account: SharedGithubAccount | null; error: string | null };
+	| {
+			configured: true;
+			source: SharedGithubTokenSource;
+			account: SharedGithubAccount | null;
+			error: string | null;
+	  };
+
+const ENVIRONMENT_TOKEN_MESSAGE = 'The access token is set with GITHUB_ACCESS_TOKEN on the server.';
 
 /** A project's shared GitHub token takes over from everyone's personal GitHub account. */
 export async function resolveRepositoryProvider(
@@ -43,6 +54,10 @@ export async function resolveRepositoryToken(
 }
 
 export async function getSharedGithubTokenStatus(projectId: string): Promise<SharedGithubTokenStatus> {
+	const environmentToken = readEnvironmentGithubToken();
+	if (environmentToken) {
+		return { configured: true, source: 'environment', ...(await checkTokenAccount(environmentToken)) };
+	}
 	const config = await contextRecommendationQueries.getConfig(projectId);
 	if (!config?.encryptedGithubAccessToken) {
 		return { configured: false };
@@ -51,24 +66,16 @@ export async function getSharedGithubTokenStatus(projectId: string): Promise<Sha
 	if (!token) {
 		return {
 			configured: true,
+			source: 'project',
 			account: null,
 			error: 'The saved access token can no longer be read. Save it again.',
 		};
 	}
-	try {
-		return { configured: true, account: await readTokenAccount(token), error: null };
-	} catch (error) {
-		return {
-			configured: true,
-			account: null,
-			error: isRejectedToken(error)
-				? 'GitHub rejected the saved access token. It may have expired or been revoked.'
-				: 'GitHub could not be reached to check the saved access token.',
-		};
-	}
+	return { configured: true, source: 'project', ...(await checkTokenAccount(token)) };
 }
 
 export async function saveSharedGithubToken(projectId: string, token: string): Promise<SharedGithubAccount> {
+	assertTokenNotFromEnvironment();
 	const account = await readTokenAccount(token).catch((error: unknown) => {
 		throw isRejectedToken(error)
 			? new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub rejected this access token.' })
@@ -83,12 +90,43 @@ export async function saveSharedGithubToken(projectId: string, token: string): P
 }
 
 export async function removeSharedGithubToken(projectId: string): Promise<void> {
+	assertTokenNotFromEnvironment();
 	await contextRecommendationQueries.updateConfig(projectId, { encryptedGithubAccessToken: null });
 }
 
 export async function readSharedGithubToken(projectId: string): Promise<string | null> {
+	const environmentToken = readEnvironmentGithubToken();
+	if (environmentToken) {
+		return environmentToken;
+	}
 	const config = await contextRecommendationQueries.getConfig(projectId);
 	return config?.encryptedGithubAccessToken ? decryptStoredToken(config.encryptedGithubAccessToken, projectId) : null;
+}
+
+/** nao Cloud ignores the server token, as its projects belong to different organizations. */
+function readEnvironmentGithubToken(): string | null {
+	return env.NAO_MODE === 'cloud' ? null : (env.GITHUB_ACCESS_TOKEN ?? null);
+}
+
+function assertTokenNotFromEnvironment(): void {
+	if (readEnvironmentGithubToken()) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: ENVIRONMENT_TOKEN_MESSAGE });
+	}
+}
+
+async function checkTokenAccount(
+	token: string,
+): Promise<{ account: SharedGithubAccount | null; error: string | null }> {
+	try {
+		return { account: await readTokenAccount(token), error: null };
+	} catch (error) {
+		return {
+			account: null,
+			error: isRejectedToken(error)
+				? 'GitHub rejected the access token. It may have expired or been revoked.'
+				: 'GitHub could not be reached to check the access token.',
+		};
+	}
 }
 
 async function readTokenAccount(token: string): Promise<SharedGithubAccount> {

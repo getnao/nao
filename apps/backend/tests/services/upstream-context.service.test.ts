@@ -12,9 +12,11 @@ vi.mock('../../src/services/shared-github-token.service', () => ({
 	resolveRepositoryProvider: mocks.resolveRepositoryProvider,
 }));
 
+import { env } from '../../src/env';
 import { REVIEW_REQUEST_PROVIDERS } from '../../src/services/review-request-provider';
 import {
 	createUpstreamContextSnapshot,
+	discoverUpstreamTests,
 	listUpstreamBranches,
 	listUpstreamRepos,
 	readUpstreamChanges,
@@ -30,14 +32,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const config = JSON.parse(fs.readFileSync('nao_config.yaml', 'utf8'));
-fs.appendFileSync(path.join(__dirname, 'invocations.jsonl'), JSON.stringify({ args: process.argv.slice(2), config }) + '\\n');
+fs.appendFileSync(path.join(__dirname, 'invocations.jsonl'), JSON.stringify({ args: process.argv.slice(2), config, env: process.env }) + '\\n');
 for (const repo of config.repos) {
 	const target = path.join('repos', repo.name);
 	execFileSync('git', ['clone', '--quiet', '--branch', repo.branch, repo.url, target]);
-	if (process.env.MOVE_BRANCH_DURING_SYNC) {
+	if (fs.existsSync(path.join(__dirname, 'move-branch-during-sync'))) {
 		execFileSync('git', ['-C', repo.url, 'update-ref', 'refs/heads/' + repo.branch, 'main']);
 	}
 	fs.rmSync(path.join(target, '.git'), { recursive: true, force: true });
+	for (const { source, target: folder } of repo.targets ?? []) {
+		fs.rmSync(folder, { recursive: true, force: true });
+		fs.mkdirSync(path.dirname(folder), { recursive: true });
+		fs.renameSync(path.join(target, source), folder);
+	}
 }
 `;
 
@@ -95,6 +102,25 @@ const BRANCHES_INPUT = () => ({ projectId: 'project-1', projectFolder, repo: 'bu
 describe('listUpstreamRepos', () => {
 	it('lists the git repositories of the project, not its local folders', async () => {
 		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([{ name: 'business', branch: 'main' }]);
+	});
+});
+
+describe('synced repos turned off with NAO_CONTEXT_SYNCED_REPOS_ENABLED', () => {
+	beforeEach(() => {
+		env.NAO_CONTEXT_SYNCED_REPOS_ENABLED = false;
+		return () => {
+			env.NAO_CONTEXT_SYNCED_REPOS_ENABLED = true;
+		};
+	});
+
+	it('lists no repository', async () => {
+		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([]);
+	});
+
+	it('refuses to read the branches of a configured repository', async () => {
+		await expect(listUpstreamBranches(BRANCHES_INPUT())).rejects.toThrow(
+			'Synced repos are turned off on this instance.',
+		);
 	});
 });
 
@@ -233,6 +259,35 @@ describe('createUpstreamContextSnapshot', () => {
 		]);
 	});
 
+	it('fills in the repository settings itself and hands `nao sync` none of the project variables', async () => {
+		writeFiles(projectFolder, {
+			'nao_config.yaml': [
+				'project_name: fibi',
+				'repos:',
+				'  - name: business',
+				`    url: "{{ env('BUSINESS_REPO_URL') }}"`,
+				`    exclude: ["{{ env('EXCLUDED_FOLDER') }}/**"]`,
+				'',
+			].join('\n'),
+		});
+		mocks.getProjectRuntimeEnvVars.mockResolvedValue({
+			BUSINESS_REPO_URL: upstreamFolder,
+			EXCLUDED_FOLDER: 'tests',
+			GIT_TRACE: '1',
+		});
+		process.env.NAO_MODE = 'cloud';
+
+		await createUpstreamContextSnapshot(netRevenueInput());
+
+		const [invocation] = readNaoInvocations();
+		expect(invocation.config.repos).toEqual([
+			{ name: 'business', url: upstreamFolder, branch: 'analyst/net-revenue', exclude: ['tests/**'] },
+		]);
+		expect(invocation.env).not.toHaveProperty('BUSINESS_REPO_URL');
+		expect(invocation.env).not.toHaveProperty('GIT_TRACE');
+		expect(invocation.env.NAO_MODE).toBe('cloud');
+	});
+
 	it.each([
 		{ upstream: { repo: 'business', branch: 'missing' }, message: /Branch missing does not exist/ },
 		{ upstream: { repo: 'local-notes', branch: 'main' }, message: /No git repository named local-notes/ },
@@ -266,6 +321,66 @@ describe('createUpstreamContextSnapshot links', () => {
 	});
 });
 
+describe('repository targets', () => {
+	beforeEach(() => {
+		runGit(upstreamFolder, ['switch', '--quiet', 'analyst/net-revenue']);
+		writeFiles(upstreamFolder, { 'nao/tests/refunds.yml': 'prompt: How many refunds?\n' });
+		commitAll(upstreamFolder, 'refunds test');
+		runGit(upstreamFolder, ['switch', '--quiet', 'main']);
+		writeFiles(projectFolder, {
+			'nao_config.yaml': [
+				'project_name: fibi',
+				'repos:',
+				'  - name: business',
+				`    url: ${upstreamFolder}`,
+				'    branch: main',
+				'    targets: [{ source: nao/tests, target: tests/business }]',
+				'',
+			].join('\n'),
+			'tests/hand-written.yml': 'prompt: How many orders?\n',
+		});
+	});
+
+	it('lists the changes of the target folders with those of the repository', async () => {
+		const upstreamChanges = await readUpstreamChanges(netRevenueInput());
+
+		expect(upstreamChanges.changes.map(({ path: changedPath, kind }) => ({ path: changedPath, kind }))).toEqual([
+			{ path: 'repos/business/legacy.md', kind: 'deleted' },
+			{ path: 'repos/business/margin.md', kind: 'added' },
+			{ path: 'repos/business/revenue.md', kind: 'modified' },
+			{ path: 'tests/business/refunds.yml', kind: 'added' },
+		]);
+		expect(upstreamChanges.changes.at(-1)?.branchContent).toBe('prompt: How many refunds?\n');
+	});
+
+	it('lists the tests of the target folders at the branch with the other tests of production', async () => {
+		writeFiles(projectFolder, { 'tests/business/removed-on-branch.yml': 'prompt: How many returns?\n' });
+
+		const suite = await discoverUpstreamTests(netRevenueInput());
+
+		expect(suite.tests.map((test) => test.path)).toEqual(['business/refunds.yml', 'hand-written.yml']);
+		expect(suite.invalidFiles).toEqual([]);
+	});
+
+	it('swaps the target folders in the snapshot and keeps the other tests', async () => {
+		const snapshot = await createUpstreamContextSnapshot(netRevenueInput());
+
+		expect(fs.readFileSync(path.join(snapshot.folder, 'tests/business/refunds.yml'), 'utf8')).toBe(
+			'prompt: How many refunds?\n',
+		);
+		expect(fs.readFileSync(path.join(snapshot.folder, 'tests/hand-written.yml'), 'utf8')).toBe(
+			'prompt: How many orders?\n',
+		);
+		const cacheFolder = fs
+			.readdirSync(path.dirname(snapshot.folder))
+			.find((entry) => entry.startsWith('upstream-business-'));
+		expect(fs.readdirSync(path.join(path.dirname(snapshot.folder), cacheFolder!)).sort()).toEqual([
+			'repos',
+			'tests',
+		]);
+	});
+});
+
 describe('readUpstreamChanges', () => {
 	it('lists the changed files with their production and branch contents', async () => {
 		const upstreamChanges = await readUpstreamChanges(netRevenueInput());
@@ -295,7 +410,7 @@ describe('readUpstreamChanges', () => {
 	});
 
 	it('refuses a sync during which the branch received new commits', async () => {
-		mocks.getProjectRuntimeEnvVars.mockResolvedValue({ MOVE_BRANCH_DURING_SYNC: '1' });
+		writeFiles(fakeNaoFolder, { 'move-branch-during-sync': '' });
 
 		await expect(readUpstreamChanges(netRevenueInput())).rejects.toThrow(
 			'received new commits while it was syncing',
@@ -328,7 +443,7 @@ function netRevenueInput() {
 	};
 }
 
-function readNaoInvocations(): { args: string[]; config: { repos: unknown[] } }[] {
+function readNaoInvocations(): { args: string[]; config: { repos: unknown[] }; env: NodeJS.ProcessEnv }[] {
 	return fs
 		.readFileSync(path.join(fakeNaoFolder, 'invocations.jsonl'), 'utf8')
 		.trim()

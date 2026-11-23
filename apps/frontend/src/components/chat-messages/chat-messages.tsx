@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouterState } from '@tanstack/react-router';
+import { Spinner } from '../ui/spinner';
 import { TextShimmer } from '../ui/text-shimmer';
 import { ChatError } from './chat-error';
 import { FollowUpSuggestions } from './follow-up-suggestions';
@@ -9,13 +10,7 @@ import { UserMessage } from './user-message';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MessageGroup } from '@/types/ai';
 import type { Chat } from '@/queries/use-chat-query';
-import {
-	groupMessages,
-	checkIsLastMessageStreaming,
-	getLastFollowUpSuggestionsToolCall,
-	checkIsSomeToolsExecuting,
-	isOnboardingContextRequestMessage,
-} from '@/lib/ai';
+import { groupMessages, getLastFollowUpSuggestionsToolCall, isOnboardingContextRequestMessage } from '@/lib/ai';
 import {
 	Conversation,
 	ConversationContent,
@@ -32,6 +27,8 @@ import { useChatQuery } from '@/queries/use-chat-query';
 import { trpc } from '@/main';
 
 const DEBUG_MESSAGES = false;
+/** A reconnection this quick shows no loader, so it never flickers. */
+const CATCH_UP_LOADER_DELAY_MS = 150;
 
 export function ChatMessages() {
 	const chatId = useParams({ strict: false }).chatId;
@@ -55,18 +52,14 @@ export function ChatMessages() {
 
 export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	const chatId = useChatId();
-	const { isRunning } = useAgentContext();
+	const { isRunning, isCatchingUp } = useAgentContext();
 	const messages = useAgentMessages();
+	const showCatchUpLoader = useDebounceValue(isCatchingUp, {
+		delay: CATCH_UP_LOADER_DELAY_MS,
+		skipDebounce: (value) => !value,
+	});
 	const { data: isAutomationRunning = false } = useChatQuery({ chatId, select: selectIsAutomationRunning });
 	const effectiveIsRunning = isRunning || isAutomationRunning;
-	const isAgentGenerating = effectiveIsRunning && checkIsLastMessageStreaming(messages);
-	const someToolsExectuting = effectiveIsRunning && checkIsSomeToolsExecuting(messages);
-
-	// Debounce when the agent is running but not generating content yet to prevent flickering
-	const showThinkingLoader = useDebounceValue(effectiveIsRunning && !isAgentGenerating && !someToolsExectuting, {
-		delay: 50,
-		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
-	});
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const displayableMessages = useMemo(
 		() => messages.filter((message) => !isOnboardingContextRequestMessage(message)),
@@ -87,7 +80,7 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 
 	return (
 		<div className='flex flex-col'>
-			<div className='flex flex-col gap-8 max-md:gap-0'>
+			<div className='chat-message-groups flex flex-col gap-8 max-md:gap-0'>
 				{messageGroups.length === 0 ? (
 					<ConversationEmptyState />
 				) : (
@@ -96,9 +89,10 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 							key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
 							userMessage={group.userMessage}
 							assistantMessages={group.assistantMessages}
-							showLoader={showThinkingLoader && isLast(group, messageGroups)}
+							showLoader={effectiveIsRunning && isLast(group, messageGroups)}
+							showCatchUpLoader={showCatchUpLoader && isLast(group, messageGroups)}
 							lastMessageId={lastMessageId}
-							isRunning={effectiveIsRunning}
+							isRunning={effectiveIsRunning && isLast(group, messageGroups)}
 							storyIntroMessageId={storyIntroMessageId}
 						/>
 					))
@@ -122,6 +116,7 @@ interface MessageGroupProps {
 	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 	showLoader: boolean;
+	showCatchUpLoader: boolean;
 	lastMessageId: string | undefined;
 	isRunning: boolean;
 	storyIntroMessageId: string | undefined;
@@ -132,6 +127,7 @@ function areMessageGroupPropsEqual(previous: MessageGroupProps, next: MessageGro
 		previous.userMessage === next.userMessage &&
 		areArraysShallowEqual(previous.assistantMessages, next.assistantMessages) &&
 		previous.showLoader === next.showLoader &&
+		previous.showCatchUpLoader === next.showCatchUpLoader &&
 		previous.lastMessageId === next.lastMessageId &&
 		previous.isRunning === next.isRunning &&
 		previous.storyIntroMessageId === next.storyIntroMessageId
@@ -143,6 +139,7 @@ const MessageGroup = memo(
 		userMessage,
 		assistantMessages,
 		showLoader,
+		showCatchUpLoader,
 		lastMessageId,
 		isRunning,
 		storyIntroMessageId,
@@ -154,14 +151,14 @@ const MessageGroup = memo(
 					<MessageBlock
 						key={message.id}
 						message={message}
-						showLoader={showLoader}
 						isLastMessage={message.id === lastMessageId}
-						isRunning={isRunning}
+						isRunning={isRunning && message.id === lastMessageId}
 						storyIntroMessageId={storyIntroMessageId}
 					/>
 				))}
 
 				{showLoader && !assistantMessages.length && <TextShimmer showLogo className='px-3' />}
+				{showCatchUpLoader && <CatchUpLoader />}
 			</div>
 		);
 	},
@@ -171,13 +168,11 @@ const MessageGroup = memo(
 const MessageBlock = memo(
 	({
 		message,
-		showLoader,
 		isLastMessage,
 		isRunning,
 		storyIntroMessageId,
 	}: {
 		message: UIMessage;
-		showLoader: boolean;
 		isLastMessage: boolean;
 		isRunning: boolean;
 		storyIntroMessageId: string | undefined;
@@ -204,7 +199,6 @@ const MessageBlock = memo(
 		return (
 			<AssistantMessage
 				message={message}
-				showLoader={showLoader && isLastMessage}
 				isSettled={!isLastMessage || !isRunning}
 				isRunning={isRunning}
 				isLastMessage={isLastMessage}
@@ -213,3 +207,12 @@ const MessageBlock = memo(
 		);
 	},
 );
+
+function CatchUpLoader() {
+	return (
+		<div className='flex items-center gap-2 px-3 text-xs text-muted-foreground animate-fade-in'>
+			<Spinner className='size-3' />
+			Catching up on the answer…
+		</div>
+	);
+}

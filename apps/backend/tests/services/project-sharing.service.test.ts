@@ -12,6 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import { deleteProjectWideAutomationShares } from '../../src/queries/automation-share.queries';
 import {
 	assertCanShareToProject,
 	assertCanShareWith,
@@ -87,6 +88,7 @@ describe('project sharing permission', () => {
 		vi.clearAllMocks();
 		await db.delete(s.sharedChat);
 		await db.delete(s.sharedStory);
+		await db.delete(s.automation);
 		await setProjectSharing(ALL_USERS_ID, 'inherit');
 		await setProjectSharing(CLIENT_A_ID, 'inherit');
 		await setProjectSharing(CLIENT_B_ID, 'inherit');
@@ -203,10 +205,13 @@ describe('project sharing permission', () => {
 		const carolProjectChat = await shareChat('carol-project-chat', CAROL_ID, 'project');
 		await shareStory('alice-story', ALICE_ID);
 		await shareStory('admin-story', ADMIN_ID);
+		await shareAutomationWithProject('alice-automation', ALICE_ID);
+		await shareAutomationWithProject('admin-automation', ADMIN_ID);
 
 		expect(await previewProjectWideShareRevocation(PROJECT_ID, CLIENT_A_ID, 'blocked')).toEqual({
 			chatCount: 1,
 			storyCount: 1,
+			automationCount: 1,
 		});
 		expect(await listSharedChatIds()).toHaveLength(3);
 
@@ -216,11 +221,29 @@ describe('project sharing permission', () => {
 		expect(await listSharedChatIds()).toEqual(expect.arrayContaining([aliceSpecificChat, carolProjectChat]));
 		expect(await listSharedChatIds()).not.toContain(aliceProjectChat);
 		expect(await listSharedStoryIds()).toEqual(['admin-story']);
+		expect(await listSharedAutomationIds()).toEqual(['admin-automation']);
 		expect(mocks.ensureStoryPrivate).toHaveBeenCalledWith('alice-story', {
 			storyOwnerId: ALICE_ID,
 			projectId: PROJECT_ID,
 		});
 		expect(mocks.teardownStoryDelivery).toHaveBeenCalledWith('alice-story');
+	});
+
+	it('keeps the specific shares an automation got after the revocation was planned', async () => {
+		await db.insert(s.automation).values({
+			id: 'specific-automation',
+			projectId: PROJECT_ID,
+			userId: ALICE_ID,
+			title: 'Specific',
+			prompt: 'Run',
+		});
+		await db
+			.insert(s.automationShare)
+			.values({ automationId: 'specific-automation', userId: CAROL_ID, role: 'viewer' });
+
+		await deleteProjectWideAutomationShares(['specific-automation']);
+
+		expect(await listSharedAutomationIds()).toContain('specific-automation');
 	});
 
 	it('keeps a story share that was limited to specific people after being listed for revocation', async () => {
@@ -280,4 +303,14 @@ async function listSharedChatIds() {
 
 async function listSharedStoryIds() {
 	return (await db.select({ storyId: s.sharedStory.storyId }).from(s.sharedStory)).map((row) => row.storyId);
+}
+
+async function shareAutomationWithProject(id: string, ownerId: string): Promise<void> {
+	await db.insert(s.automation).values({ id, projectId: PROJECT_ID, userId: ownerId, title: id, prompt: 'Run' });
+	await db.insert(s.automationShare).values({ automationId: id, userId: null, groupId: null, role: 'viewer' });
+}
+
+async function listSharedAutomationIds(): Promise<string[]> {
+	const rows = await db.selectDistinct({ id: s.automationShare.automationId }).from(s.automationShare);
+	return rows.map((row) => row.id);
 }

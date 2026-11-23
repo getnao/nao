@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
 	ThumbsUp,
 	ThumbsDown,
@@ -39,7 +39,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export function AssistantMessageActions({
+export const AssistantMessageActions = memo(function AssistantMessageActions({
 	message,
 	className,
 	chatId,
@@ -166,7 +166,7 @@ export function AssistantMessageActions({
 					variant='ghost'
 					size='icon-sm'
 					onClick={() => copy(getMessageMarkdown(message, exportOptions))}
-					className='opacity-50 hover:opacity-100 hover:rounded-full'
+					className='relative opacity-50 hover:opacity-100 hover:rounded-full'
 					aria-label='Copy message'
 				>
 					{isCopied ? <Check className='size-4' /> : <Copy className='size-4' />}
@@ -177,7 +177,7 @@ export function AssistantMessageActions({
 						<Button
 							variant='ghost'
 							size='icon-sm'
-							className='opacity-50 hover:opacity-100 hover:rounded-full'
+							className='relative opacity-50 hover:opacity-100 hover:rounded-full'
 							aria-label='More actions'
 						>
 							<Ellipsis className='size-4' />
@@ -256,7 +256,7 @@ export function AssistantMessageActions({
 			)}
 		</>
 	);
-}
+});
 
 function FeedbackButton({
 	vote,

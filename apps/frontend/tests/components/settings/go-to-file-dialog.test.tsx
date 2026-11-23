@@ -25,6 +25,10 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/main', () => ({
 	trpc: {
+		testRun: {
+			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
+			getUpstreamChanges: { queryOptions: () => ({ queryKey: ['upstream-changes'] }) },
+		},
 		contextExplorer: {
 			getFileTree: {
 				queryOptions: () => ({

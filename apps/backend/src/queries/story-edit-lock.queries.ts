@@ -1,7 +1,7 @@
 import { and, eq, gt, lte, or, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 import { databaseNow, databaseTimeIn } from './database-time';
 
 /** A person editing by hand in one browser tab (`sessionId`), or their agent working in `chatId`. */
@@ -67,6 +67,21 @@ export async function releaseStoryEditLock(storyId: string, holder: StoryEditHol
 
 export async function releaseStoryEditLocksOfChat(chatId: string): Promise<void> {
 	await db.delete(s.storyEditLock).where(eq(s.storyEditLock.chatId, chatId)).execute();
+}
+
+export async function renewStoryEditLock(
+	storyId: string,
+	holder: StoryEditHolder,
+	ttlMs: number,
+	executor: DBExecutor = db,
+): Promise<boolean> {
+	const rows = await executor
+		.update(s.storyEditLock)
+		.set({ expiresAt: databaseTimeIn(ttlMs) })
+		.where(and(eq(s.storyEditLock.storyId, storyId), isHeldBy(holder), gt(s.storyEditLock.expiresAt, databaseNow)))
+		.returning({ storyId: s.storyEditLock.storyId })
+		.execute();
+	return rows.length > 0;
 }
 
 export async function renewStoryEditLocksOfChat(chatId: string, ttlMs: number): Promise<void> {

@@ -33,6 +33,7 @@ export function GithubRepoList({ useSharedToken = false, ...props }: GithubRepoL
 				return {
 					data: repos.data && { items: repos.data.repos, hasMore: repos.data.hasMore },
 					isLoading: repos.isLoading,
+					isShowingPreviousResults: repos.isPlaceholderData,
 				};
 			}}
 			getKey={(repo) => repo.id}

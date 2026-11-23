@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 	},
 	findOrganizationByEmailDomain: vi.fn(),
 	getUser: vi.fn(),
+	loggerWarn: vi.fn(),
 	markEmailVerified: vi.fn(),
 	reconcileUserGroupConfigMembershipsForUser: vi.fn(),
 }));
@@ -79,6 +80,15 @@ vi.mock('../../src/services/user-group-config-membership.service', () => ({
 vi.mock('../../src/services/auth-user-onboarding.service', () => ({
 	initializeSelfHostedUserAfterCreation: vi.fn(),
 }));
+vi.mock('../../src/services/cloud-sso-auth.service', () => ({
+	assertCloudSsoSignInAllowed: vi.fn(),
+	augmentPluginsWithCloudSso: vi.fn(),
+	CLOUD_SSO_SIGN_IN_PATH: '/sign-in/sso',
+	findCloudSsoOrganizationId: vi.fn().mockResolvedValue(null),
+	getCloudSsoDisabledPaths: vi.fn(() => []),
+	isCloudSsoEmailTrusted: vi.fn().mockResolvedValue(false),
+}));
+vi.mock('../../src/services/session-rotation-auth.service', () => ({ sessionRotation: vi.fn(() => ({})) }));
 vi.mock('../../src/services/credit-grant.service', () => ({
 	activateUserJoinCandidates: vi.fn(),
 }));
@@ -112,7 +122,7 @@ vi.mock('../../src/utils/email-builders', () => ({
 	buildVerifyEmail: mocks.buildVerifyEmail,
 }));
 vi.mock('../../src/utils/logger', () => ({
-	logger: { error: vi.fn(), warn: vi.fn() },
+	logger: { error: vi.fn(), warn: mocks.loggerWarn },
 	serializeError: vi.fn(),
 }));
 
@@ -128,6 +138,7 @@ interface CapturedAuthOptions {
 	databaseHooks: {
 		user: {
 			create: {
+				before: (user: { email: string }, context: { params: { id: string } }) => Promise<unknown>;
 				after: (user: { id: string; email: string }, context: { params: { id: string } }) => Promise<void>;
 			};
 		};
@@ -177,6 +188,7 @@ describe('Cloud Google organization enrollment', () => {
 			requiresPasswordReset: false,
 		}));
 		mocks.markEmailVerified.mockReset().mockResolvedValue(true);
+		mocks.loggerWarn.mockReset();
 	});
 
 	it('adds a matched organization member and queues a welcome for a verified social user', async () => {
@@ -309,6 +321,28 @@ describe('Cloud Google organization enrollment', () => {
 		});
 		expect(mocks.emailSend).toHaveBeenCalledTimes(2);
 		expect(mocks.emailSend).toHaveBeenCalledWith('known@example.com', { subject: 'Exists', html: '<p>Exists</p>' });
+	});
+
+	it.each([
+		['rejects and logs a disposable email on cloud', 'cloud', 'probe@maildrop.cc', false],
+		['accepts a permanent email on cloud', 'cloud', 'someone@getnao.io', true],
+		['accepts a disposable email when self-hosted', 'self-hosted', 'probe@maildrop.cc', true],
+	])('%s', async (_name, mode, email, accepted) => {
+		mocks.env.NAO_MODE = mode;
+		const options = await getAuthOptions();
+
+		const creation = options.databaseHooks.user.create.before({ email }, { params: { id: 'google' } });
+
+		if (accepted) {
+			await expect(creation).resolves.toBe(true);
+			expect(mocks.loggerWarn).not.toHaveBeenCalled();
+		} else {
+			await expect(creation).rejects.toThrow('FORBIDDEN');
+			expect(mocks.loggerWarn).toHaveBeenCalledExactlyOnceWith('Blocked a signup with a disposable email', {
+				source: 'system',
+				context: { email: 'probe@maildrop.cc', provider: 'google' },
+			});
+		}
 	});
 
 	it('leaves self-hosted email authentication unchanged', async () => {

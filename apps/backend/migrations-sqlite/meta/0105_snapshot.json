@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7314f666-96cc-4b3a-befb-82ae79347728",
+  "id": "99d1a7d8-fca2-4fc8-82fd-95aa91047c9c",
   "prevId": "cabe6046-98ef-4609-9749-3dc9a75f239a",
   "tables": {
     "account": {
@@ -6470,14 +6470,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "user_group_management_mode": {
-          "name": "user_group_management_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'ui'"
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -9695,6 +9687,104 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "story_query": {
+      "name": "story_query",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "query_id": {
+          "name": "query_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sql_query": {
+          "name": "sql_query",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "database_id": {
+          "name": "database_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dialect": {
+          "name": "dialect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "admin_mode": {
+          "name": "admin_mode",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "semantic_query": {
+          "name": "semantic_query",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "story_query_story_id_story_id_fk": {
+          "name": "story_query_story_id_story_id_fk",
+          "tableFrom": "story_query",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "story_query_story_id_query_id_pk": {
+          "columns": [
+            "story_id",
+            "query_id"
+          ],
+          "name": "story_query_story_id_query_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "story_version": {
       "name": "story_version",
       "columns": {
@@ -10470,27 +10560,6 @@
           "autoincrement": false,
           "default": false
         },
-        "config_key": {
-          "name": "config_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_name": {
-          "name": "archived_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "feature_grants": {
           "name": "feature_grants",
           "type": "text",
@@ -10560,14 +10629,6 @@
             "name"
           ],
           "isUnique": true
-        },
-        "user_group_project_config_key_unique": {
-          "name": "user_group_project_config_key_unique",
-          "columns": [
-            "project_id",
-            "config_key"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -10586,71 +10647,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "user_group_config_member": {
-      "name": "user_group_config_member",
-      "columns": {
-        "group_id": {
-          "name": "group_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "normalized_email": {
-          "name": "normalized_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "active": {
-          "name": "active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "user_group_config_member_email_active_idx": {
-          "name": "user_group_config_member_email_active_idx",
-          "columns": [
-            "normalized_email",
-            "active"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "user_group_config_member_group_id_normalized_email_pk": {
-          "columns": [
-            "group_id",
-            "normalized_email"
-          ],
-          "name": "user_group_config_member_group_id_normalized_email_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -10678,14 +10674,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'manual'"
-        },
-        "active": {
-          "name": "active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
         },
         "created_at": {
           "name": "created_at",

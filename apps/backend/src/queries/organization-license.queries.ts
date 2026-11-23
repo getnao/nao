@@ -3,6 +3,10 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 
+/**
+ * Kept apart from `organization.queries` so `license.service` only depends on the database:
+ * importing the full organization queries puts it in an import cycle that `bun build` miscompiles.
+ */
 export type OrganizationLicenseToken = { orgId: string; license: string | null };
 
 export const getOrganizationLicenseToken = async (orgId: string): Promise<OrganizationLicenseToken | null> => {

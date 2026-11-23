@@ -10,7 +10,12 @@ import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
-import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
+import {
+	AUTOMATION_JOB_NAME,
+	automationHandler,
+	interruptRunningAutomations,
+	resolveAutomationProjectId,
+} from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
@@ -50,8 +55,9 @@ import {
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
-import { flushTelemetry } from './instrumentation';
+import { flushTelemetry, requestTracingEnabled } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { registerRequestTracing } from './middleware/request-tracing';
 import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
@@ -90,14 +96,21 @@ import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
 import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
+import { startWarehouseProvisioningReconciler } from './services/onboarding/warehouse-provisioning';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
+import {
+	resolveTestScheduleProjectId,
+	runScheduledTests,
+	syncAllConfiguredTestSchedules,
+	TEST_SCHEDULE_JOB_NAME,
+	TEST_SCHEDULE_SYNC_JOB_NAME,
+} from './services/test-schedule.service';
 import { reconcileUserGroupsConfigsAtStartup } from './services/user-group-config-reconciliation.service';
-import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import {
@@ -178,6 +191,10 @@ app.setErrorHandler((error, request, reply) => {
 	}
 	throw error;
 });
+
+if (requestTracingEnabled) {
+	registerRequestTracing(app, [HEALTH_PATH]);
+}
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
@@ -554,6 +571,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	registerJob(TEST_SCHEDULE_JOB_NAME, runScheduledTests, { resolveProjectId: resolveTestScheduleProjectId });
+	registerJob(TEST_SCHEDULE_SYNC_JOB_NAME, syncAllConfiguredTestSchedules);
+	await ensureRecurring({
+		name: TEST_SCHEDULE_SYNC_JOB_NAME,
+		cron: '*/15 * * * *',
+		uniqueKey: TEST_SCHEDULE_SYNC_JOB_NAME,
+	});
 	if (isCloud) {
 		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
 		await ensureRecurring({
@@ -628,6 +652,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 
 	const handleShutdown = async () => {
+		await interruptRunningAutomations();
 		await closeBrowser();
 		await flushTelemetry();
 		await posthog.shutdown();
@@ -638,7 +663,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		if (isDraining()) {
 			return;
 		}
-		stopScheduler();
+		void stopScheduler();
 		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
 		await handleShutdown();
 	};

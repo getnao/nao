@@ -136,6 +136,11 @@ const baseRawEnvSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	/**
+	 * GitHub access token every project commits, pushes and opens pull requests with, as when an admin saves one in
+	 * Settings > Git. It takes over from a saved token, and nao Cloud ignores it, as each project saves its own.
+	 */
+	GITHUB_ACCESS_TOKEN: optionalNonEmptyString,
 	GITHUB_SSO: z
 		.enum(['true', 'false'])
 		.optional()
@@ -170,6 +175,12 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'GITLAB_REDIRECT_URI must be a valid URL' }).optional()),
+
+	CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((value) => value === 'true'),
 
 	CLOUD_GITHUB_PROJECT_ORG: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_APP_ID: optionalNonEmptyString,
@@ -216,6 +227,10 @@ const baseRawEnvSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_PROMPT: z.preprocess(
+		blankToUndefined,
+		z.enum(['select_account', 'login', 'consent', 'none', 'omit']).optional(),
+	),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
 	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
@@ -296,6 +311,15 @@ const baseRawEnvSchema = z.object({
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+	/**
+	 * Set to false to turn off branch management of the repositories `nao sync` copies into the context: their branches
+	 * can no longer be picked in the Context Hub changes or tested. Their files stay in the context.
+	 */
+	NAO_CONTEXT_SYNCED_REPOS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
 
 	CLOUD_BILLING_ENABLED: z
 		.enum(['true', 'false'])
@@ -476,6 +500,13 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional()),
 
+	OTEL_EXPORTER_OTLP_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL' }).optional()),
+	OTEL_SERVICE_NAME: z.string().default('nao'),
+
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
@@ -566,7 +597,7 @@ const envSchema = rawEnvSchema
 			'CLOUD_GITHUB_PROJECT_PRIVATE_KEY',
 		] as const;
 		const managedGithubIsConfigured = fields.some((field) => !!data[field]);
-		if (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured) {
+		if (data.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING || (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured)) {
 			return;
 		}
 

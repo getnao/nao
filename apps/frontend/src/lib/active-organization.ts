@@ -3,7 +3,28 @@ import { TRPCClientError } from '@trpc/client';
 import { getActiveProjectId, setActiveProjectId } from './active-project';
 import { createLocalStorage } from './local-storage';
 
-const activeOrganizationStorage = createLocalStorage<string>('nao.active-organization-id');
+const ACTIVE_ORGANIZATION_STORAGE_KEY = 'nao.active-organization-id';
+const activeOrganizationStorage = createLocalStorage<string>(ACTIVE_ORGANIZATION_STORAGE_KEY);
+const externalChangeListeners = new Set<() => void>();
+
+if (typeof window !== 'undefined') {
+	window.addEventListener('storage', (event) => {
+		if (event.key !== ACTIVE_ORGANIZATION_STORAGE_KEY) {
+			return;
+		}
+		for (const listener of externalChangeListeners) {
+			listener();
+		}
+	});
+}
+
+/** Every request reads the organization from storage, so a tab must follow the organization another tab selects. */
+export function subscribeToExternalActiveOrganizationChanges(listener: () => void) {
+	externalChangeListeners.add(listener);
+	return () => {
+		externalChangeListeners.delete(listener);
+	};
+}
 
 export function getActiveOrganizationId(): string | null {
 	if (typeof window === 'undefined') {

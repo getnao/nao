@@ -228,6 +228,7 @@ describe('user group feature route enforcement', () => {
 		mockEffectiveFeatures(['storyCreation']);
 		mocks.getAutomation
 			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ id: 'automation-id', accessRole: 'owner' })
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce({ id: 'automation-id', scheduledJobId: null });
@@ -247,10 +248,10 @@ describe('user group feature route enforcement', () => {
 		await expect(caller.automation.delete({ id: 'automation-id' })).resolves.toEqual({ success: true });
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.listAutomations).toHaveBeenCalledWith('project-id', 'user-id');
-		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id');
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id', 'viewer');
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id', 'editor');
 		expect(mocks.updateAutomation).toHaveBeenCalledWith(
 			'project-id',
-			'user-id',
 			'automation-id',
 			expect.objectContaining({ title: 'Existing Automation', prompt: 'Updated prompt' }),
 		);
@@ -420,6 +421,7 @@ describe('user group feature route enforcement', () => {
 			'# Latest version',
 			true,
 			'* * * * *',
+			{ viewerUserId: 'user-id' },
 		);
 		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
 			'html',

@@ -21,7 +21,7 @@ function AutomationsPage() {
 	const { isViewer } = usePermissions();
 	const { automationCreationEnabled } = useEffectiveUserGroupFeatures();
 	const canCreateAutomation = automationCreationEnabled && !isViewer;
-	const automations = useQuery({ ...trpc.automation.list.queryOptions(), enabled: !isViewer });
+	const automations = useQuery(trpc.automation.list.queryOptions());
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-auto bg-background'>

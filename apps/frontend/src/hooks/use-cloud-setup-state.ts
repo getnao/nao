@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { shouldReturnToOnboarding } from '@/components/onboarding-progress';
+import { shouldReturnToOnboarding } from '@/components/onboarding/onboarding-progress';
 import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { trpc } from '@/main';
 

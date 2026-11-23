@@ -371,7 +371,7 @@ function getAncestorFolders(path: string): string[] {
 
 function getChangeMarkColor(mark: FileChangeMark): string {
 	if (mark.isUpstream) {
-		return 'text-primary';
+		return mark.kind === 'deleted' ? 'text-primary line-through' : 'text-primary';
 	}
 	if (mark.kind === 'deleted') {
 		return 'text-red-600 line-through dark:text-red-400';

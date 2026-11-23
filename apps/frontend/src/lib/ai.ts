@@ -20,6 +20,7 @@ import type {
 	MessageGroup,
 } from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
+import { ONBOARDING_CARD_TOOLS } from '@/components/tool-calls/onboarding/card-tools';
 import { getStoryToolPartSlug } from '@/lib/story.utils';
 
 /** The ID used for new chats not yet persisted to the db. */
@@ -53,59 +54,13 @@ export const isToolInputStreaming = (part: ToolUIPart) => {
  * Check if the agent is actively generating content (streaming text or executing tools).
  * Returns true if any part is streaming or any tool is not yet settled.
  */
-export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return isMessageStreaming(lastMessage) || isSummarizing(lastMessage);
-};
-
-const isSummarizing = ({ parts }: UIMessage) => {
-	return parts.at(-1)?.type === 'data-compactionSummaryStarted';
-};
-
-export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return lastMessage.parts.some((part) => isToolUIPart(part) && isToolExecuting(part));
-};
-
-const isToolExecuting = (part: UIToolPart) => {
-	return part.state === 'input-available' || (part.state === 'output-available' && part.preliminary === true);
-};
-
-export const isMessageStreaming = (message: UIMessage) => {
-	return message.parts.some((part) => {
-		if ('state' in part && (part.state === 'streaming' || part.state === 'input-streaming')) {
-			return true;
-		}
-	});
-};
-
 export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'status'>) => {
 	return agent.status === 'streaming' || agent.status === 'submitted';
 };
 
 /** Tools that should NOT be collapsed (important UI elements), per density setting. */
 const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName | DynamicToolName)[]> = {
-	compact: [
-		'story',
-		'display_chart',
-		'display_map',
-		'suggest_follow_ups',
-		'clarification',
-		'onboarding_agent_prompt',
-		'onboarding_command',
-		'request_warehouse_credentials',
-		'request_warehouse_selection',
-		'wait_for_warehouse_setup',
-		'retry_warehouse_setup',
-		'generate_onboarding_rules',
-		'restart_onboarding',
-	],
+	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification', ...ONBOARDING_CARD_TOOLS],
 	detailed: [
 		'story',
 		'task',
@@ -117,16 +72,9 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'display_map',
 		'suggest_follow_ups',
 		'clarification',
-		'onboarding_agent_prompt',
-		'onboarding_command',
 		'codemode',
 		'execute_sandboxed_code',
-		'request_warehouse_credentials',
-		'request_warehouse_selection',
-		'wait_for_warehouse_setup',
-		'retry_warehouse_setup',
-		'generate_onboarding_rules',
-		'restart_onboarding',
+		...ONBOARDING_CARD_TOOLS,
 	],
 };
 
@@ -220,6 +168,35 @@ export const areGroupedMessagePartsEqual = (left: GroupedMessagePart, right: Gro
 
 export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], right: GroupedMessagePart[]): boolean => {
 	return left.length === right.length && left.every((part, index) => areGroupedMessagePartsEqual(part, right[index]));
+};
+
+/**
+ * Keys grouped parts by their first underlying part, which stays put as later parts stream in or regroup.
+ * Tool parts use their tool call id; other parts use their rank among parts of the same type.
+ */
+export const getGroupedPartKeys = (parts: GroupedMessagePart[]): string[] => {
+	const countByType = new Map<string, number>();
+	const keyLeaf = (leaf: GroupedMessagePart): string => {
+		const toolCallId = getLeafToolCallId(leaf);
+		if (toolCallId) {
+			return toolCallId;
+		}
+		const rank = countByType.get(leaf.type) ?? 0;
+		countByType.set(leaf.type, rank + 1);
+		return `${leaf.type}-${rank}`;
+	};
+	return parts.map((part) => flattenGroupedPart(part).map(keyLeaf)[0]);
+};
+
+const flattenGroupedPart = (part: GroupedMessagePart): GroupedMessagePart[] => {
+	return isGroupPart(part) ? part.parts.flatMap(flattenGroupedPart) : [part];
+};
+
+const getLeafToolCallId = (part: GroupedMessagePart): string | undefined => {
+	if (isStoryStatusPart(part)) {
+		return part.part.toolCallId;
+	}
+	return !isGroupPart(part) && isToolUIPart(part) ? part.toolCallId : undefined;
 };
 
 /**
@@ -453,7 +430,11 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 	return false;
 };
 
-const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
+export const haveSameToolCallIds = <T extends { toolCallId: string }>(left: T[], right: T[]): boolean => {
+	return left.length === right.length && left.every((item, index) => item.toolCallId === right[index].toolCallId);
+};
+
+export const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
 	const leftOutput = 'output' in left ? left.output : undefined;
 	const rightOutput = 'output' in right ? right.output : undefined;
 	const leftErrorText = 'errorText' in left ? left.errorText : undefined;

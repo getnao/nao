@@ -14,7 +14,10 @@ vi.mock('@/main', () => ({
 			getDefaultChatModel: { queryOptions: () => ({ queryKey: ['default-model'] }) },
 			listAvailableTranscribeModels: { queryOptions: () => ({ queryKey: ['available-models'] }) },
 		},
-		testRun: { listTests: { queryOptions: () => ({ queryKey: ['tests'] }) } },
+		testRun: {
+			listTests: { queryOptions: () => ({ queryKey: ['tests'] }) },
+			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
+		},
 	},
 }));
 

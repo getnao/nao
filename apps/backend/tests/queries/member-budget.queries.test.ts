@@ -9,6 +9,8 @@ import {
 	getPeriodCostsByUser,
 	getUserPeriodCost,
 	listGroupBudgetsForMember,
+	listGroupSharedBudgetsForMember,
+	setGroupSharedBudget,
 } from '../../src/queries/member-budget.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -17,6 +19,7 @@ vi.mock('../../src/db/db', async () => {
 });
 
 vi.mock('../../src/utils/llm', () => ({
+	getProjectAvailableModels: async () => [],
 	getProjectDeclaredModels: async () => [
 		{
 			provider: 'openaiCompatible/litellm',
@@ -62,6 +65,15 @@ describe('member budget spend', () => {
 				outputTotalTokens: 1_000_000,
 			},
 			{
+				id: 'named-provider-sub-cent-message',
+				chatId: 'named-provider-chat',
+				role: 'assistant',
+				llmProvider: 'openaiCompatible/litellm',
+				llmModelId: 'gpt-5',
+				inputNoCacheTokens: 1_000,
+				outputTotalTokens: 0,
+			},
+			{
 				id: 'named-provider-message-last-year',
 				chatId: 'named-provider-chat',
 				role: 'assistant',
@@ -81,7 +93,13 @@ describe('member budget spend', () => {
 	it('counts spend on named providers alongside built-in ones', async () => {
 		await expect(getPeriodCostsByUser(PROJECT_ID, 'month')).resolves.toEqual({
 			[BUILT_IN_USER_ID]: 6,
-			[NAMED_PROVIDER_USER_ID]: 2,
+			[NAMED_PROVIDER_USER_ID]: 2.001,
+		});
+	});
+
+	it('only sums the spend of the requested members, keeping sub-cent costs for group totals', async () => {
+		await expect(getPeriodCostsByUser(PROJECT_ID, 'month', [NAMED_PROVIDER_USER_ID])).resolves.toEqual({
+			[NAMED_PROVIDER_USER_ID]: 2.001,
 		});
 	});
 
@@ -109,5 +127,33 @@ describe('member budget spend', () => {
 			.set({ archivedAt: new Date(), archivedName: 'Budget Group', name: '__archived__budget-group' })
 			.where(eq(s.userGroup.id, 'budget-group'));
 		await expect(listGroupBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([]);
+	});
+
+	it('finds the shared budget of a member synced from SSO, and drops it once set to 0', async () => {
+		await db.insert(s.userGroup).values({ id: 'analysts', projectId: PROJECT_ID, name: 'Analysts' });
+		await db.insert(s.userGroupMember).values([
+			{ groupId: 'analysts', userId: BUILT_IN_USER_ID, provider: 'manual' },
+			{ groupId: 'analysts', userId: BUILT_IN_USER_ID, provider: 'oidc' },
+		]);
+		await setGroupSharedBudget(PROJECT_ID, 'analysts', 500);
+
+		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([
+			{ groupId: 'analysts', groupName: 'Analysts', isDefault: false, limitUsd: 500 },
+		]);
+
+		await setGroupSharedBudget(PROJECT_ID, 'analysts', 0);
+
+		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([]);
+	});
+
+	it('applies the shared budget of All Users to a member without group rows', async () => {
+		await db
+			.insert(s.userGroup)
+			.values({ id: 'everyone', projectId: PROJECT_ID, name: 'All Users', isDefault: true });
+		await setGroupSharedBudget(PROJECT_ID, 'everyone', 2000);
+
+		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, NAMED_PROVIDER_USER_ID)).resolves.toEqual([
+			{ groupId: 'everyone', groupName: 'All Users', isDefault: true, limitUsd: 2000 },
+		]);
 	});
 });

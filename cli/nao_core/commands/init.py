@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import Parameter
+from rich.markup import escape
 
 from nao_core import __version__
 from nao_core.branding import should_show_banner
@@ -237,9 +238,9 @@ def _install_with_progress(extras: list[str]) -> bool:
         UI.success("Dependencies installed successfully.")
         return True
 
-    extras_str = ",".join(extras)
+    install_command = escape(f"pip install 'nao-core[{','.join(extras)}]'")
     UI.error("Automatic installation failed.")
-    UI.print(f"Install manually with: [bold cyan]pip install 'nao-core[{extras_str}]'[/bold cyan]")
+    UI.print(f"Install manually with: [bold cyan]{install_command}[/bold cyan]")
     return False
 
 
@@ -363,7 +364,7 @@ def init(
     except InitError as e:
         if cleanup_on_abort and project_path is not None:
             _cleanup_partial_project(project_path)
-        UI.error(str(e))
+        UI.error(escape(str(e)))
         raise SystemExit(1) from e
     except KeyboardInterrupt:
         if cleanup_on_abort and project_path is not None:

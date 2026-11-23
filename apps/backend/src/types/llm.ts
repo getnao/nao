@@ -13,7 +13,6 @@ import { z } from 'zod/v4';
 
 import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import type { ProviderModelResult } from '../agents/providers';
-import { TokenCost } from './chat';
 
 export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value === 'string' && isLlmProvider(value), {
 	message: 'Unknown LLM provider',
@@ -37,6 +36,7 @@ export const customModelMetadataSchema = z.object({
 	id: z.string().min(1),
 	displayName: z.string().optional(),
 	costPerM: customModelCostSchema.optional(),
+	contextWindow: z.number().int().positive().optional(),
 });
 
 export type ModelCosts = z.infer<typeof customModelCostSchema>;
@@ -274,7 +274,6 @@ type ProviderModel<P extends LlmProviderKind> = {
 	default?: boolean;
 	contextWindow?: number;
 	config?: ProviderConfigMap[P];
-	costPerM?: TokenCost;
 	/** Tunable inference parameters this model supports. Omit to expose no tunable parameters. */
 	capabilities?: ModelCapabilities;
 };

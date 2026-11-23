@@ -58,6 +58,7 @@ export async function listUserSharedChats(projectIds: string[], userId: string):
 		.where(
 			and(
 				inArray(s.chat.projectId, projectIds),
+				isNull(s.chat.deletedAt),
 				sql`(${s.sharedChat.visibility} = 'project' OR ${s.chat.userId} = ${userId} OR ${sharedChatGrantsUser(userId, lockedGroupIds)})`,
 			),
 		)
@@ -130,6 +131,7 @@ export async function canUserAccessSharedChat(shareId: string, userId: string): 
 	return !!row;
 }
 
+/** The share of a chat its owner deleted no longer resolves, so the chat can be neither opened nor continued. */
 export async function getSharedChatInfo(id: string): Promise<SharedChatWithDetails | null> {
 	const [row] = await db
 		.select({
@@ -146,7 +148,7 @@ export async function getSharedChatInfo(id: string): Promise<SharedChatWithDetai
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.where(eq(s.sharedChat.id, id))
+		.where(and(eq(s.sharedChat.id, id), isNull(s.chat.deletedAt)))
 		.execute();
 
 	return row ? { ...row, forkMetadata: row.forkMetadata ?? undefined } : null;

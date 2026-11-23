@@ -91,7 +91,7 @@ vi.mock('@/hooks/use-track-view-duration', () => ({ useTrackViewDuration: vi.fn(
 vi.mock('@/hooks/use-story-edit-session', () => ({
 	useStoryEditSession: () => ({
 		otherEditorName: null,
-		ownEditElsewhere: null,
+		ownEdit: null,
 		isLockedByOthers: false,
 		canEdit: true,
 		updatedByName: null,
