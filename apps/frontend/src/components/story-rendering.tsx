@@ -20,6 +20,7 @@ const markdownComponents = {
 interface SegmentRendererProps {
 	segments: Segment[];
 	versionKey?: string | number;
+	isStreaming?: boolean;
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 	renderMap: (map: ParsedMapBlock, key: number) => React.ReactNode;
@@ -28,6 +29,7 @@ interface SegmentRendererProps {
 export const SegmentList = memo(function SegmentList({
 	segments,
 	versionKey,
+	isStreaming = false,
 	renderChart,
 	renderTable,
 	renderMap,
@@ -40,7 +42,13 @@ export const SegmentList = memo(function SegmentList({
 				const key = getSegmentKey(segment, i, blockOccurrences, versionKey);
 				switch (segment.type) {
 					case 'markdown':
-						return <MarkdownSegment key={key} content={segment.content} />;
+						return (
+							<MarkdownSegment
+								key={key}
+								content={segment.content}
+								isStreaming={isStreaming && i === segments.length - 1}
+							/>
+						);
 					case 'chart':
 						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
@@ -67,11 +75,17 @@ export const SegmentList = memo(function SegmentList({
 	);
 });
 
-const MarkdownSegment = memo(function MarkdownSegment({ content }: { content: string }) {
+const MarkdownSegment = memo(function MarkdownSegment({
+	content,
+	isStreaming = false,
+}: {
+	content: string;
+	isStreaming?: boolean;
+}) {
 	return (
 		<Streamdown
 			linkSafety={markdownLinkSafety}
-			mode='static'
+			mode={isStreaming ? 'streaming' : 'static'}
 			plugins={markdownPlugins}
 			components={markdownComponents}
 		>
