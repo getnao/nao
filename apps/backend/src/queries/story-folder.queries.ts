@@ -518,7 +518,24 @@ async function returnStoriesToOwners(folderId: string, projectId: string, execut
 	}
 }
 
-export async function archiveFolder(folderId: string, executor: DBExecutor = db): Promise<void> {
+/** All-or-nothing, and a subfolder never shows without its team folder's groups while it is detached. */
+export async function archiveFolders(projectId: string, folderIds: string[]): Promise<void> {
+	await inProjectFolderTransaction(projectId, async (tx) => {
+		for (const folderId of folderIds) {
+			await archiveFolder(folderId, tx);
+		}
+	});
+}
+
+export async function unarchiveFolders(userId: string, projectId: string, folderIds: string[]): Promise<void> {
+	await inProjectFolderTransaction(projectId, async (tx) => {
+		for (const folderId of folderIds) {
+			await unarchiveFolder(userId, projectId, folderId, tx);
+		}
+	});
+}
+
+async function archiveFolder(folderId: string, executor: DBExecutor): Promise<void> {
 	await assertNotSystemFolder(folderId, executor);
 	const folderIds = await listDescendantFolderIds(folderId, executor);
 	const now = new Date();
@@ -533,11 +550,11 @@ export async function archiveFolder(folderId: string, executor: DBExecutor = db)
 	}
 }
 
-export async function unarchiveFolder(
+async function unarchiveFolder(
 	userId: string,
 	projectId: string,
 	folderId: string,
-	executor: DBExecutor = db,
+	executor: DBExecutor,
 ): Promise<void> {
 	const folderIds = await listDescendantFolderIds(folderId, executor);
 

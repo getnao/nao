@@ -4,7 +4,6 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
-import { db } from '../db/db';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { agentService } from '../services/agent';
@@ -262,14 +261,14 @@ export const storyFolderRoutes = {
 		const folder = await assertFolderInProject(input.id, ctx);
 		await assertCanSeeFolder(folder, ctx);
 		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-		await storyFolderQueries.archiveFolder(input.id);
+		await storyFolderQueries.archiveFolders(ctx.project.id, [input.id]);
 	}),
 
 	unarchive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
 		const folder = await assertFolderInProject(input.id, ctx);
 		await assertCanSeeFolder(folder, ctx);
 		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-		await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, input.id);
+		await storyFolderQueries.unarchiveFolders(ctx.user.id, ctx.project.id, [input.id]);
 	}),
 
 	bulkArchive: canSendProcedure
@@ -280,11 +279,7 @@ export const storyFolderRoutes = {
 				await assertCanSeeFolder(folder, ctx);
 				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 			}
-			await db.transaction(async (tx) => {
-				for (const id of input.ids) {
-					await storyFolderQueries.archiveFolder(id, tx);
-				}
-			});
+			await storyFolderQueries.archiveFolders(ctx.project.id, input.ids);
 		}),
 
 	bulkUnarchive: canSendProcedure
@@ -295,11 +290,7 @@ export const storyFolderRoutes = {
 				await assertCanSeeFolder(folder, ctx);
 				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 			}
-			await db.transaction(async (tx) => {
-				for (const id of input.ids) {
-					await storyFolderQueries.unarchiveFolder(ctx.user.id, ctx.project.id, id, tx);
-				}
-			});
+			await storyFolderQueries.unarchiveFolders(ctx.user.id, ctx.project.id, input.ids);
 		}),
 
 	move: canSendProcedure

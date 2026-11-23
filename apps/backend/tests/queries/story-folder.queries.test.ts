@@ -10,7 +10,7 @@ import { canUserAccessStory } from '../../src/queries/story.queries';
 import { getByStoryId } from '../../src/queries/story-delivery.queries';
 import type { FolderAudience, FolderViewer } from '../../src/queries/story-folder.queries';
 import {
-	archiveFolder,
+	archiveFolders,
 	createFolder,
 	deleteFolderMovingContentsToParent,
 	ensurePrivateRoot,
@@ -21,7 +21,7 @@ import {
 	resolveFolderAudience,
 	setGroupTeamFolders,
 	TeamFolderError,
-	unarchiveFolder,
+	unarchiveFolders,
 	withProjectFolderLock,
 } from '../../src/queries/story-folder.queries';
 
@@ -123,10 +123,10 @@ describe('team folders', () => {
 			name: 'Sales',
 			groupIds: [GROUP_ID],
 		});
-		await archiveFolder(sales.id);
+		await archiveFolders(PROJECT_ID, [sales.id]);
 
 		await setGroupTeamFolders(PROJECT_ID, GROUP_ID, [], ADMIN_ID);
-		await unarchiveFolder(OWNER_ID, PROJECT_ID, sales.id);
+		await unarchiveFolders(OWNER_ID, PROJECT_ID, [sales.id]);
 
 		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
 	});
@@ -139,9 +139,9 @@ describe('team folders', () => {
 			groupIds: [GROUP_ID],
 		});
 		const emea = await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'EMEA', parentId: sales.id });
-		await archiveFolder(sales.id);
+		await archiveFolders(PROJECT_ID, [sales.id]);
 
-		await unarchiveFolder(OWNER_ID, PROJECT_ID, emea.id);
+		await unarchiveFolders(OWNER_ID, PROJECT_ID, [emea.id]);
 
 		expect(await visibleFolderNames(viewerOf(MEMBER_ID, [GROUP_ID]))).toEqual(['EMEA']);
 		expect(await visibleFolderNames(viewerOf(OUTSIDER_ID))).toEqual([]);
@@ -179,7 +179,7 @@ describe('team folders', () => {
 		});
 		await moveStoryToFolder(STORY_ID, sales.id, { storyOwnerId: OWNER_ID, projectId: PROJECT_ID });
 
-		await archiveFolder(sales.id);
+		await archiveFolders(PROJECT_ID, [sales.id]);
 
 		expect(await archivedSharedStoryIds(MEMBER_ID)).toEqual([STORY_ID]);
 		expect(await archivedSharedStoryIds(ADMIN_ID)).toEqual([STORY_ID]);
