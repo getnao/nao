@@ -5,6 +5,7 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/sh
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
+import type { PendingStoryBlock } from '@/lib/story.utils';
 import {
 	StoryChartEmbed as LiveChartEmbed,
 	StoryMapEmbed as LiveMapEmbed,
@@ -21,11 +22,20 @@ import {
 	tableBlockReference,
 } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
+import { VisualizationSkeleton } from '@/components/tool-calls/visualization-skeleton';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters, useStreamingStoryFilterLabels } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
+import { holdBackIncompleteStoryBlock } from '@/lib/story.utils';
 import { trpc } from '@/main';
 import { useShowStoryFilters } from '@/stores/shown-story-filters';
+
+const PENDING_BLOCK_LABELS: Record<PendingStoryBlock, string> = {
+	chart: 'Loading chart',
+	table: 'Loading table',
+	map: 'Loading map',
+	grid: 'Loading charts',
+};
 
 interface StoryPreviewProps {
 	code: string;
@@ -69,14 +79,18 @@ export const StoryPreview = memo(function StoryPreview({
 	});
 	const streamingFilterLabels = useStreamingStoryFilterLabels(fullCode ?? code, isStreaming);
 	useShowStoryFilters(storyId, storyFilters.activeSelections);
+	const { code: visibleCode, pendingBlock } = useMemo(
+		() => (isStreaming ? holdBackIncompleteStoryBlock(code) : { code, pendingBlock: null }),
+		[code, isStreaming],
+	);
 	const segments = useMemo(() => {
 		const nextSegments = stabilizeStorySegments(
-			splitCodeIntoSegments(code, storyFilters.resolvedParameters),
+			splitCodeIntoSegments(visibleCode, storyFilters.resolvedParameters),
 			previousSegmentsRef.current,
 		);
 		previousSegmentsRef.current = nextSegments;
 		return nextSegments;
-	}, [code, storyFilters.resolvedParameters]);
+	}, [visibleCode, storyFilters.resolvedParameters]);
 
 	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
 		() =>
@@ -208,10 +222,12 @@ export const StoryPreview = memo(function StoryPreview({
 					<SegmentList
 						segments={segments}
 						versionKey={versionKey}
+						isStreaming={isStreaming}
 						renderChart={renderChart}
 						renderTable={renderTable}
 						renderMap={renderMap}
 					/>
+					{pendingBlock && <VisualizationSkeleton label={PENDING_BLOCK_LABELS[pendingBlock]} />}
 				</div>
 			</StoryThemeProvider>
 		</StoryQuerySqlProvider>

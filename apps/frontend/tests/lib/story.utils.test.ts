@@ -1,7 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
 import type { UIMessage } from '@nao/backend/chat';
-import { findStoryDraft } from '@/lib/story.utils';
+import { findStoryDraft, holdBackIncompleteStoryBlock } from '@/lib/story.utils';
+
+describe('holdBackIncompleteStoryBlock', () => {
+	const chart = '<chart query_id="q1" chart_type="bar" x_axis_key="month" />';
+
+	it.each([
+		{
+			name: 'a half-written chart',
+			code: `# Sales\n\n<chart query_id="q1" series='[{"da`,
+			visible: '# Sales\n\n',
+			pending: 'chart',
+		},
+		{
+			name: 'a chart with a quoted ">"',
+			code: 'Intro\n<chart title="a > b" query_id="q',
+			visible: 'Intro\n',
+			pending: 'chart',
+		},
+		{ name: 'an open grid', code: `Intro\n<grid widths="1,1">\n${chart}\n`, visible: 'Intro\n', pending: 'grid' },
+		{ name: 'a half-written filter', code: 'Intro\n<filter id="region" ty', visible: 'Intro\n', pending: null },
+		{ name: 'a half-written tag name', code: 'Intro\n<cha', visible: 'Intro\n', pending: null },
+	])('holds back $name', ({ code, visible, pending }) => {
+		expect(holdBackIncompleteStoryBlock(code)).toEqual({ code: visible, pendingBlock: pending });
+	});
+
+	it.each([
+		{ name: 'a complete chart', code: `# Sales\n\n${chart}` },
+		{ name: 'a closed grid', code: `<grid widths="1,1">\n${chart}\n${chart}\n</grid>\n\nAfter` },
+		{ name: 'plain text', code: '# Sales\n\nRevenue grew **12%' },
+	])('keeps $name', ({ code }) => {
+		expect(holdBackIncompleteStoryBlock(code)).toEqual({ code, pendingBlock: null });
+	});
+});
 
 describe('findStoryDraft', () => {
 	it('falls back to the last successful version when the latest story call failed', () => {
