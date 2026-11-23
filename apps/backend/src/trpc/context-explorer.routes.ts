@@ -34,6 +34,7 @@ import {
 	getHistoricalContextDiffActions,
 	listContextRepositoryBranches,
 	pullLiveContext,
+	revertLiveContextPull,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
@@ -62,6 +63,11 @@ import {
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
+import { UserGroupConfigError } from '../services/user-group-config.service';
+import {
+	reconcileProjectUserGroupsConfig,
+	withUserGroupConfigLock,
+} from '../services/user-group-config-reconciliation.service';
 import { ContextProjectResolutionError } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
 import { draftOwnerOf, requireProjectPath } from './route-context';
@@ -125,7 +131,7 @@ export const contextExplorerRoutes = {
 		try {
 			const gitContext = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
 			token = gitContext.token;
-			const result = await pullLiveContext(gitContext);
+			const result = await pullLiveContextAndApplyUserGroups(gitContext, ctx.user.id);
 			try {
 				await activityQueries.completeActivity(activity.id, {
 					configuredBranch: result.configuredBranch,
@@ -160,7 +166,7 @@ export const contextExplorerRoutes = {
 				code:
 					error instanceof TRPCError
 						? error.code
-						: error instanceof ContextProjectResolutionError
+						: error instanceof ContextProjectResolutionError || error instanceof UserGroupConfigError
 							? 'BAD_REQUEST'
 							: 'INTERNAL_SERVER_ERROR',
 				message: sanitizedError.message,
@@ -419,6 +425,27 @@ export const contextExplorerRoutes = {
 		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };
+
+/** A pulled groups.yaml is applied like `nao deploy` applies it, and the pull is undone when the file is rejected. */
+function pullLiveContextAndApplyUserGroups(gitContext: ContextExplorerGitContext, actorUserId: string) {
+	return withUserGroupConfigLock(gitContext.projectId, async () => {
+		const result = await pullLiveContext(gitContext);
+		if (!result.changed) {
+			return result;
+		}
+		try {
+			await reconcileProjectUserGroupsConfig(gitContext.projectId, gitContext.projectFolder, actorUserId);
+		} catch (error) {
+			// ponytail: a first pull replaces a deployed folder with a fresh clone (oldCommit is null) and cannot be
+			// undone, so a rejected file stays on disk while the groups keep their last applied state.
+			if (result.oldCommit) {
+				revertLiveContextPull(gitContext.projectFolder, result.oldCommit);
+			}
+			throw error;
+		}
+		return result;
+	});
+}
 
 function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivityRow) {
 	const payload = parsePullPayload(activity.payload);

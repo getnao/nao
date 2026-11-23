@@ -108,6 +108,11 @@ export function pullLiveContext(
 	return typeof input === 'string' ? pullDeploymentLiveContext(input) : pullConnectedLiveContext(input);
 }
 
+/** `--keep` refuses to run instead of discarding local changes to the files it would move back. */
+export function revertLiveContextPull(projectFolder: string, oldCommit: string): void {
+	runGit(projectFolder, ['reset', '--keep', oldCommit], GIT_OPERATION_TIMEOUT_MS);
+}
+
 export function getDeploymentContextSource(): DeploymentContextSource | null {
 	if (!isGitContextSource()) {
 		return null;

@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
 	loggerWarn: vi.fn(),
 	pullLiveContext: vi.fn(),
 	readFileContent: vi.fn(),
+	reconcileProjectUserGroupsConfig: vi.fn(),
+	revertLiveContextPull: vi.fn(),
 	resolveContextExplorerGit: vi.fn(),
 	resolveContextExplorerGitSafely: vi.fn(),
 	resolveContextRepository: vi.fn(),
@@ -98,12 +100,18 @@ vi.mock('../../src/services/context-explorer-git.service', () => ({
 	getContextRepositoryStatus: mocks.getContextRepositoryStatus,
 	getHistoricalContextDiffActions: mocks.getHistoricalContextDiffActions,
 	pullLiveContext: mocks.pullLiveContext,
+	revertLiveContextPull: mocks.revertLiveContextPull,
 	resolveContextExplorerGit: mocks.resolveContextExplorerGit,
 	resolveContextExplorerGitSafely: mocks.resolveContextExplorerGitSafely,
 	sanitizeLiveContextError: mocks.sanitizeLiveContextError,
 	suggestContextBranchName: vi.fn(),
 	switchContextBranch: vi.fn(),
 	updateContextWorktree: mocks.updateContextWorktree,
+}));
+
+vi.mock('../../src/services/user-group-config-reconciliation.service', () => ({
+	reconcileProjectUserGroupsConfig: mocks.reconcileProjectUserGroupsConfig,
+	withUserGroupConfigLock: (_projectId: string, operation: () => Promise<unknown>) => operation(),
 }));
 
 vi.mock('../../src/services/context-explorer-pr.service', () => ({
@@ -117,6 +125,7 @@ vi.mock('../../src/utils/context-repo', () => ({
 	sanitizeContextSourceRepositoryUrl: vi.fn((url: string) => url),
 }));
 
+import { UserGroupConfigError } from '../../src/services/user-group-config.service';
 import { contextExplorerRoutes } from '../../src/trpc/context-explorer.routes';
 import { router } from '../../src/trpc/trpc';
 import { encryptSecret } from '../../src/utils/encryption';
@@ -399,6 +408,26 @@ describe('live context update access', () => {
 			'activity-id',
 			expect.objectContaining({ configuredBranch: 'main', changed: true, files }),
 		);
+		expect(mocks.reconcileProjectUserGroupsConfig).toHaveBeenCalledWith(
+			'project-id',
+			'/tmp/nao-project',
+			'user-id',
+		);
+	});
+
+	it('undoes a pull whose groups.yaml is rejected', async () => {
+		mocks.pullLiveContext.mockReturnValue(pullResult({ files: [CONTEXT_FILE_CHANGE] }));
+		mocks.reconcileProjectUserGroupsConfig.mockRejectedValue(
+			new UserGroupConfigError('The "all_users" group is required.'),
+		);
+
+		await expect(caller.pullLiveContext()).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'The "all_users" group is required.',
+		});
+		expect(mocks.revertLiveContextPull).toHaveBeenCalledWith('/tmp/nao-project', OLD_COMMIT);
+		expect(mocks.completeActivity).not.toHaveBeenCalled();
+		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'The "all_users" group is required.');
 	});
 
 	it('limits persisted file details without truncating the pull result', async () => {

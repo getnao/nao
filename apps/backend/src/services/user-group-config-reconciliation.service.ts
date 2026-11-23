@@ -88,7 +88,9 @@ export async function reconcileUserGroupsConfigsAtStartup(): Promise<void> {
 	const failures: string[] = [];
 	for (const project of await projectQueries.listProjectDeploymentPaths()) {
 		try {
-			await withUserGroupConfigLock(project.id, () => reconcileProjectAtStartup(project.id, project.path));
+			await withUserGroupConfigLock(project.id, () =>
+				reconcileProjectUserGroupsConfig(project.id, project.path, null),
+			);
 		} catch (error) {
 			failures.push(`${project.name}: ${error instanceof Error ? error.message : String(error)}`);
 		}
@@ -106,7 +108,12 @@ export async function reconcileUserGroupsConfigsAtStartup(): Promise<void> {
 	}
 }
 
-async function reconcileProjectAtStartup(projectId: string, projectPath: string): Promise<void> {
+/** Applies the project folder's file when it differs from the last applied one. Must run within the config lock. */
+export async function reconcileProjectUserGroupsConfig(
+	projectId: string,
+	projectPath: string,
+	actorUserId: string | null,
+): Promise<void> {
 	const mode = await getUserGroupManagementMode(projectId);
 	let config: NormalizedUserGroupsConfig | null = null;
 	try {
@@ -116,10 +123,10 @@ async function reconcileProjectAtStartup(projectId: string, projectPath: string)
 		}
 		await validateUserGroupsConfig({ projectId }, projectPath, config);
 	} catch (error) {
-		await recordUserGroupConfigFailure(projectId, null, config?.hash ?? null, error);
+		await recordUserGroupConfigFailure(projectId, actorUserId, config?.hash ?? null, error);
 		throw error;
 	}
-	await reconcileUserGroupsConfigWithinLock(projectId, config, null);
+	await reconcileUserGroupsConfigWithinLock(projectId, config, actorUserId);
 }
 
 async function isLastAppliedUserGroupsConfig(projectId: string, hash: string): Promise<boolean> {

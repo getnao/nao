@@ -127,11 +127,6 @@ vi.mock('@/main', () => ({
 				queryOptions: vi.fn(() => ({ queryKey: ['management-status'] })),
 				queryKey: vi.fn(() => ['management-status']),
 			},
-			previewCodeManagement: {
-				queryOptions: vi.fn(() => ({ queryKey: ['preview-code-management'] })),
-			},
-			enableCodeManagement: { mutationOptions: vi.fn() },
-			disableCodeManagement: { mutationOptions: vi.fn() },
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
 			docsContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['docs-context-catalog'] })) },
 			filesContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['files-context-catalog'] })) },

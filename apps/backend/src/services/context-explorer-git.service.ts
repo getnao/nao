@@ -124,6 +124,7 @@ export {
 	getDeploymentContextSource,
 	getLiveContextUpdateStatus,
 	pullLiveContext,
+	revertLiveContextPull,
 } from './context-explorer-git/live-context.service';
 export type {
 	ContextExplorerGitContext,
