@@ -171,30 +171,32 @@ export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], rig
 };
 
 /**
- * Keys grouped parts by their first tool call, so regrouping a later part does not remount the ones before it.
- * Parts without a tool call are keyed by their rank among parts of the same type.
+ * Keys grouped parts by their first underlying part, which stays put as later parts stream in or regroup.
+ * Tool parts use their tool call id; other parts use their rank among parts of the same type.
  */
 export const getGroupedPartKeys = (parts: GroupedMessagePart[]): string[] => {
 	const countByType = new Map<string, number>();
-	return parts.map((part) => {
-		const toolCallId = findFirstToolCallId(part);
+	const keyLeaf = (leaf: GroupedMessagePart): string => {
+		const toolCallId = getLeafToolCallId(leaf);
 		if (toolCallId) {
 			return toolCallId;
 		}
-		const rank = countByType.get(part.type) ?? 0;
-		countByType.set(part.type, rank + 1);
-		return `${part.type}-${rank}`;
-	});
+		const rank = countByType.get(leaf.type) ?? 0;
+		countByType.set(leaf.type, rank + 1);
+		return `${leaf.type}-${rank}`;
+	};
+	return parts.map((part) => flattenGroupedPart(part).map(keyLeaf)[0]);
 };
 
-const findFirstToolCallId = (part: GroupedMessagePart): string | undefined => {
+const flattenGroupedPart = (part: GroupedMessagePart): GroupedMessagePart[] => {
+	return isGroupPart(part) ? part.parts.flatMap(flattenGroupedPart) : [part];
+};
+
+const getLeafToolCallId = (part: GroupedMessagePart): string | undefined => {
 	if (isStoryStatusPart(part)) {
 		return part.part.toolCallId;
 	}
-	if (isGroupPart(part)) {
-		return part.parts.map(findFirstToolCallId).find(Boolean);
-	}
-	return isToolUIPart(part) ? part.toolCallId : undefined;
+	return !isGroupPart(part) && isToolUIPart(part) ? part.toolCallId : undefined;
 };
 
 /**

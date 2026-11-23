@@ -398,6 +398,14 @@ describe('getGroupedPartKeys', () => {
 		expect(keysOf([query, created, text])).toEqual(['query-1', 'call-1', 'text-0']);
 		expect(keysOf([query, created, text, updated])).toEqual(['query-1', 'text-0', 'call-2']);
 	});
+
+	it('keeps the key of a reasoning group when its first tool arrives', () => {
+		const reasoning = { type: 'reasoning', text: 'Looking at orders', state: 'done' } as UIMessagePart;
+		const readPart = createToolPart({ type: 'tool-read', toolName: 'read' }) as UIMessagePart;
+
+		expect(keysOf([reasoning, PROGRESS_UPDATE])).toEqual(['reasoning-0']);
+		expect(keysOf([reasoning, PROGRESS_UPDATE, readPart])).toEqual(['reasoning-0']);
+	});
 });
 
 describe('onboarding command grouping', () => {
