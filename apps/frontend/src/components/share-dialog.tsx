@@ -280,7 +280,7 @@ function describeAudience(model: ShareModel): string {
 		return 'People you share it with can read this conversation.';
 	}
 	if (model.itemLabel === 'automation') {
-		return 'It keeps running as its owner. Editors can change its prompt, triggers and tools.';
+		return "It keeps running as its owner, and people you share it with can read its runs, including the data the owner's access returned. Editors can change its prompt, triggers and tools.";
 	}
 	return 'People you share it with always see the latest version. Editors can change it from their own chats.';
 }
