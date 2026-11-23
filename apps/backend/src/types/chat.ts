@@ -252,6 +252,22 @@ const ShownStoryFiltersSchema = z.object({
 export type ShownStoryFilters = z.infer<typeof ShownStoryFiltersSchema>;
 
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
+const contextPathSchema = z.string().max(2_000);
+const testRunIdSchema = z.string().max(100).nullable();
+
+/** What the Context Hub shows beside its chat: a context file, a change, the tests, or a skill with no file. */
+export const shownContextHubPageSchema = z.discriminatedUnion('type', [
+	z.object({ type: z.literal('overview') }),
+	z.object({ type: z.literal('file'), path: contextPathSchema }),
+	z.object({ type: z.literal('change'), path: contextPathSchema }),
+	z.object({ type: z.literal('tests'), runId: testRunIdSchema }),
+	z.object({ type: z.literal('test'), path: contextPathSchema, runId: testRunIdSchema }),
+	z.object({ type: z.literal('skills') }),
+	z.object({ type: z.literal('personal-skill'), name: z.string().max(64) }),
+	z.object({ type: z.literal('share-request'), id: z.string().max(100) }),
+]);
+export type ShownContextHubPage = z.infer<typeof shownContextHubPageSchema>;
+
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
 	chatId: z.string().optional(),
@@ -264,8 +280,8 @@ export const AgentRequestSchema = z.object({
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
 	/** The automation open beside an automation editing chat, as it stands in its form. */
 	automationDraft: automationDraftSchema.optional(),
-	/** Sent by the chat beside the Context Hub, with the context file the user has open there. */
-	contextHub: z.object({ openPath: z.string().max(2_000).nullable() }).optional(),
+	/** Sent by the chat beside the Context Hub, with what the hub shows the user. */
+	contextHub: z.object({ shown: shownContextHubPageSchema.default({ type: 'overview' }) }).optional(),
 	/** The story on screen beside the chat or above a quick question, with the filters it is shown with. */
 	storyFilters: ShownStoryFiltersSchema.optional(),
 });

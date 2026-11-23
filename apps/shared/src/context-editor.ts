@@ -8,6 +8,13 @@ export const CONTEXT_EDITOR_FILE_TOOL_NAMES = [
 /** The tools of the Context Hub chat that change the recommendations shown beside the context. */
 export const CONTEXT_EDITOR_RECOMMENDATION_TOOL_NAMES = ['apply_recommendation', 'set_recommendation_status'] as const;
 
+/** The tools of the Context Hub chat that change a personal skill or a request to share one. */
+export const CONTEXT_EDITOR_SKILL_TOOL_NAMES = [
+	'update_personal_skill',
+	'request_personal_skill_share',
+	'review_share_request',
+] as const;
+
 export type ContextEditorFileToolName = (typeof CONTEXT_EDITOR_FILE_TOOL_NAMES)[number];
 
 export interface ContextEditorFileChange {
@@ -32,6 +39,10 @@ export interface ContextRecommendationApplyResult {
 
 export function isContextEditorFileToolName(name: string): name is ContextEditorFileToolName {
 	return CONTEXT_EDITOR_FILE_TOOL_NAMES.some((toolName) => toolName === name);
+}
+
+export function isContextEditorSkillToolName(name: string): boolean {
+	return CONTEXT_EDITOR_SKILL_TOOL_NAMES.some((toolName) => toolName === name);
 }
 
 export function isContextEditorRecommendationToolName(name: string): boolean {

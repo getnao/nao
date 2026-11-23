@@ -6,13 +6,13 @@ import {
 	ALL_SKILLS_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	DEFAULT_USER_GROUP_FEATURES,
 	DEFAULT_USER_GROUP_NAME,
 	type DefaultModelSettings,
 	type MapSettings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
 	SYSTEM_EXAMPLE_PROJECT_ID,
-	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { SidebarMenu } from '@nao/shared/sidebar-menu';
@@ -611,7 +611,12 @@ const defaultUserGroupValues = (projectId: string) => ({
 	projectId,
 	name: DEFAULT_USER_GROUP_NAME,
 	isDefault: true,
-	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY, 'inherit', true),
+	featureGrants: serializeUserGroupConfig(
+		DEFAULT_USER_GROUP_FEATURES,
+		DEFAULT_TOOL_CALL_DENSITY_POLICY,
+		'inherit',
+		true,
+	),
 	contextGrants: serializeUserGroupContextAccess({
 		databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
 		docsAccess: ALL_DOCS_CONTEXT_ACCESS,

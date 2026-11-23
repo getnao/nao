@@ -5,10 +5,10 @@ import { MobileHeader } from '@/components/mobile-header';
 import { GoToFileDialog } from '@/components/settings/go-to-file-dialog';
 import { OpenContextFileCallbackProvider } from '@/contexts/open-context-file-callback';
 import { validateContextExplorerSearch } from '@/lib/context-explorer-search';
-import { requireContextHubAccess } from '@/lib/route-guards';
+import { requireContextHubOrPersonalSkillsAccess } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/context-hub')({
-	beforeLoad: requireContextHubAccess,
+	beforeLoad: requireContextHubOrPersonalSkillsAccess,
 	validateSearch: validateContextExplorerSearch,
 	component: ContextHubPage,
 });

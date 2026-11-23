@@ -9,6 +9,7 @@ import { setActiveProjectId } from '@/lib/active-project';
 
 const mocks = vi.hoisted(() => ({
 	project: null as { id: string } | null,
+	canCreateSkill: false,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -17,7 +18,13 @@ vi.mock('@tanstack/react-query', () => ({
 			case 'project':
 				return { data: mocks.project };
 			case 'skills':
-				return { data: [{ name: 'Old skill', description: null }], isFetching: false };
+				return {
+					data: [
+						{ name: 'Old skill', description: '', scope: 'project' },
+						{ name: 'my-skill', description: 'Mine.', scope: 'personal' },
+					],
+					isFetching: false,
+				};
 			case 'database-objects':
 				return {
 					data: [
@@ -39,6 +46,11 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('@tanstack/react-router', () => ({
 	useParams: () => undefined,
+	useNavigate: () => vi.fn(),
+}));
+
+vi.mock('@/hooks/use-can-manage-personal-skills', () => ({
+	useCanManagePersonalSkills: () => mocks.canCreateSkill,
 }));
 
 vi.mock('prompt-mentions', () => ({
@@ -84,6 +96,7 @@ vi.mock('@/main', () => ({
 }));
 
 beforeEach(() => {
+	mocks.canCreateSkill = false;
 	stubLocalStorage();
 	setActiveProjectId(null);
 	mocks.project = null;
@@ -113,4 +126,29 @@ it('shows project mentions when the active project id is corrected', () => {
 
 	expect(screen.getByTestId('mention-Old skill')).toBeDefined();
 	expect(screen.getByTestId('mention-old.public.orders')).toBeDefined();
+});
+
+it('lists personal skills after the skills shared with everyone, without group titles', () => {
+	setActiveProjectId('current-project');
+	mocks.project = { id: 'current-project' };
+	render(<ChatPrompt promptRef={{ current: null }} placeholder='' storyCreationEnabled={false} onChange={vi.fn()} />);
+
+	const skillIds = screen.getAllByTestId(/^mention-/).map((element) => element.dataset.testid);
+	expect(skillIds.slice(0, 2)).toEqual(['mention-Old skill', 'mention-my-skill']);
+	expect(screen.queryByTestId('mention-skills-personal')).toBeNull();
+});
+
+it('ends the skills with "Create a skill" for people who can create one', () => {
+	setActiveProjectId('current-project');
+	mocks.project = { id: 'current-project' };
+	mocks.canCreateSkill = true;
+	render(<ChatPrompt promptRef={{ current: null }} placeholder='' storyCreationEnabled={false} onChange={vi.fn()} />);
+
+	const skillIds = screen.getAllByTestId(/^mention-/).map((element) => element.dataset.testid);
+	expect(skillIds.slice(0, 3)).toEqual(['mention-Old skill', 'mention-my-skill', 'mention-:create-skill']);
+
+	cleanup();
+	mocks.canCreateSkill = false;
+	render(<ChatPrompt promptRef={{ current: null }} placeholder='' storyCreationEnabled={false} onChange={vi.fn()} />);
+	expect(screen.queryByTestId('mention-:create-skill')).toBeNull();
 });
