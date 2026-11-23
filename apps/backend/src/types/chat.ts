@@ -130,7 +130,14 @@ export type MessageCustomDataParts = {
 	compactionSummaryStarted: null;
 	/** Sent when the conversation compaction summary is finished */
 	compaction: CompactionPart;
+	/** A message the user sent while the agent was running, picked up between two steps */
+	steer: SteerPart;
 };
+
+export interface SteerPart {
+	id: string;
+	text: string;
+}
 
 export interface CompactionPart {
 	/** The summary of the compaction */

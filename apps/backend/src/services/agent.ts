@@ -69,6 +69,7 @@ import {
 	Mention,
 	MessageCustomDataParts,
 	ShownStoryFilters,
+	SteerPart,
 	TokenCost,
 	TokenUsage,
 	UIMessage,
@@ -102,6 +103,7 @@ import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-con
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { AnchoredSteer, insertSteerMessages, splitSteeredMessages } from '../utils/steering';
 import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
@@ -543,6 +545,8 @@ export class AgentManager {
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
 	private _runCompaction = new RunCompaction(compactionService);
+	private _pendingSteers: SteerPart[] = [];
+	private _steers: AnchoredSteer[] = [];
 	private _streamResult?: StreamTextResult<AgentTools, OutputInterface>;
 
 	constructor(
@@ -641,13 +645,33 @@ export class AgentManager {
 			},
 		});
 
-		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
+		this._pickUpPendingSteers(steps);
+		const conversationMessages = insertSteerMessages(
+			workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages,
+			this._steers,
+		);
 		const stepMessages = this._addCache(this._pruneMessages(conversationMessages));
 		return {
 			...this._profile.stepTools?.(steps),
 			messages: stepMessages,
 			providerOptions: this._protectInternalToolResults(stepMessages),
 		};
+	}
+
+	/** Steers wait for the tools of a step to finish, then follow their results in the next step. */
+	private _pickUpPendingSteers(steps: StepResult<AgentTools>[]): void {
+		const lastToolCall = steps
+			.at(-1)
+			?.toolCalls.filter((toolCall) => toolCall && !toolCall.providerExecuted)
+			.at(-1);
+		if (!lastToolCall || this._pendingSteers.length === 0) {
+			return;
+		}
+		for (const steer of this._pendingSteers) {
+			this._steers.push({ ...steer, afterToolCallId: lastToolCall.toolCallId });
+			this._streamWriter?.write({ type: 'data-steer', data: steer });
+		}
+		this._pendingSteers = [];
 	}
 
 	private _protectInternalToolResults(history: ModelMessage[] = []): ProviderOptionsMap {
@@ -827,7 +851,9 @@ export class AgentManager {
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
 		this._runCompaction = new RunCompaction(compactionService);
-		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
+		const conversationMessages = splitSteeredMessages(
+			uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system'),
+		);
 
 		const modelMessages = await convertToModelMessages<UIMessage>(conversationMessages, {
 			tools: this._agentTools,
@@ -1137,6 +1163,15 @@ export class AgentManager {
 
 	stop(): void {
 		this._abortController.abort();
+	}
+
+	/** Returns false when the run cannot pick the message up anymore. */
+	steer(steer: SteerPart): boolean {
+		if (this.isStopped || !this._streamWriter) {
+			return false;
+		}
+		this._pendingSteers.push(steer);
+		return true;
 	}
 
 	get isStopped(): boolean {

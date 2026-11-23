@@ -30,7 +30,7 @@ import {
 } from './chat-input-prompt';
 import { ChatInputAnimatedBorder } from './chat-input-animated-border';
 import { ChatInputModelSelect } from './chat-input-model-select';
-import { ChatInputMessageQueue } from './chat-input-message-queue';
+import { ChatInputMessageQueue, SteerShortcutHint, steerOnEnterStorage } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
 import { ManagedCreditsExhausted } from './managed-credits-exhausted';
 import { ContactSupportButton } from './contact-support-dialog';
@@ -72,6 +72,7 @@ import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 import {
 	STORIES_ROOT_ID,
 	TABLES_ROOT_ID,
@@ -100,6 +101,7 @@ import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts
 import { useIsCloud } from '@/hooks/use-nao-mode';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
+const swapSteerQueueShortcut = getShortcut('swap-steer-queue').shortcut;
 const TRIAL_ATTACHMENT_ACCEPT = ALLOWED_IMAGE_MEDIA_TYPES.join(',');
 const TRIAL_DOCUMENTS_DISABLED_REASON = 'Documents can be attached once your project is set up. Images work now.';
 
@@ -210,11 +212,14 @@ function ChatInputBase({
 		setAdminMode,
 		setMentions,
 		submitQueuedMessageNow,
+		steerQueuedMessage,
 		error,
 		clearError,
 		selectedModel,
 		mode,
 	} = useAgentContext();
+	const isSwapShortcutRef = useRef(false);
+	const [steerOnEnter] = useLocalStorage(steerOnEnterStorage);
 	const navigate = useNavigate();
 	const { canChatWithNaoData, isAdmin, isOrgAdmin } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
@@ -568,7 +573,9 @@ function ChatInputBase({
 				const { images, documents } = attachmentUpload.getPayload();
 				attachmentUpload.clearAttachments();
 
-				return onSubmitMessage({ text: message.text, images, documents, citations, mentions });
+				const steer = steerOnEnter !== isSwapShortcutRef.current;
+				isSwapShortcutRef.current = false;
+				return onSubmitMessage({ text: message.text, images, documents, citations, mentions, steer });
 			});
 		},
 		[
@@ -584,6 +591,7 @@ function ChatInputBase({
 			citationScope,
 			runGuardedAgentSend,
 			submitQueuedMessageWithGuard,
+			steerOnEnter,
 		],
 	);
 
@@ -652,7 +660,7 @@ function ChatInputBase({
 	});
 	const effectivePlaceholder =
 		isRunning && allowQueueing
-			? 'Add a follow-up...'
+			? 'Queue a follow-up, or steer the answer...'
 			: variant === 'onboarding'
 				? 'Tell me where you are starting from...'
 				: (placeholder ?? shortcutPlaceholder);
@@ -683,6 +691,10 @@ function ChatInputBase({
 		[promptRef],
 	);
 
+	const rememberSwapShortcut = (event: React.KeyboardEvent) => {
+		isSwapShortcutRef.current = matchesShortcut(event.nativeEvent, swapSteerQueueShortcut);
+	};
+
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
 			const isTypingInPrompt = event.target instanceof HTMLElement && event.target.isContentEditable;
@@ -704,6 +716,7 @@ function ChatInputBase({
 					<ChatInputMessageQueue
 						onEditMessage={handleEditQueuedMessage}
 						onSubmitNow={submitQueuedMessageWithGuard}
+						onSteer={steerQueuedMessage}
 					/>
 					<BudgetBanner />
 					{allowQueueing && !isAdminMode && (
@@ -732,6 +745,7 @@ function ChatInputBase({
 			)}
 			<form
 				onSubmit={handleSubmitMessage}
+				onKeyDownCapture={rememberSwapShortcut}
 				onKeyDown={handleKeyDown}
 				className={cn('@container mx-auto relative', isManagedCreditsBlocked && 'hidden')}
 			>
@@ -784,6 +798,7 @@ function ChatInputBase({
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
 						<div className='flex shrink-0 items-center gap-1.5 md:gap-2 ml-auto relative'>
+							{allowQueueing && isRunning && !isInputEmpty && <SteerShortcutHint />}
 							{mode !== 'onboarding' && (
 								<ChatInputPlusMenu
 									hasDatabases={hasDatabases}

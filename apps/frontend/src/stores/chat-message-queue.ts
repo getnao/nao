@@ -19,10 +19,37 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 			...msg,
 		};
 
-		const newQueue = agentQueue ? [...agentQueue, newMessage] : [newMessage];
-		this.state.set(agentId, newQueue);
+		this.state.set(agentId, insertInQueue(agentQueue ?? [], newMessage));
 		this.notify();
 		return newMessage;
+	};
+
+	steer = (agentId: string | undefined, messageId: string): QueuedMessage | undefined => {
+		agentId ??= NEW_CHAT_ID;
+		const agentQueue = this.state.get(agentId);
+		const message = agentQueue?.find((m) => m.id === messageId);
+		if (!agentQueue || !message) {
+			return undefined;
+		}
+		const steeredMessage = { ...message, steer: true };
+		const rest = agentQueue.filter((m) => m.id !== messageId);
+		this.state.set(agentId, insertInQueue(rest, steeredMessage));
+		this.notify();
+		return steeredMessage;
+	};
+
+	/** Turns steers the agent did not pick up back into queued messages. */
+	unsteer = (agentId: string | undefined, messageId?: string) => {
+		agentId ??= NEW_CHAT_ID;
+		const agentQueue = this.state.get(agentId);
+		if (!agentQueue?.some((m) => m.steer && (!messageId || m.id === messageId))) {
+			return;
+		}
+		this.state.set(
+			agentId,
+			agentQueue.map((m) => (!messageId || m.id === messageId ? { ...m, steer: false } : m)),
+		);
+		this.notify();
 	};
 
 	dequeue = (agentId: string): QueuedMessage | undefined => {
@@ -104,3 +131,13 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 }
 
 export const messageQueueStore = new MessageQueueStore();
+
+/** Steers go before queued messages, so one the agent misses is still the next message sent. */
+function insertInQueue(queue: QueuedMessage[], message: QueuedMessage): QueuedMessage[] {
+	if (!message.steer) {
+		return [...queue, message];
+	}
+	const firstQueuedIndex = queue.findIndex((m) => !m.steer);
+	const insertIndex = firstQueuedIndex === -1 ? queue.length : firstQueuedIndex;
+	return [...queue.slice(0, insertIndex), message, ...queue.slice(insertIndex)];
+}

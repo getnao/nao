@@ -229,6 +229,7 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 			part.type === 'text' ||
 			part.type === 'data-compaction' ||
 			part.type === 'data-compactionSummaryStarted' ||
+			part.type === 'data-steer' ||
 			isToolUIPart(part)
 		) {
 			flushGroup();

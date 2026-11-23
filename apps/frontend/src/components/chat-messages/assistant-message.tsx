@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { Navigation } from 'lucide-react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
 import {
@@ -134,6 +135,8 @@ export const MessagePart = memo(
 				return <AssistantReasoning text={part.text} isStreaming={isPartStreaming} />;
 			case 'data-compaction':
 				return <AssistantCompaction part={part.data} />;
+			case 'data-steer':
+				return <SteeredMessage text={part.data.text} />;
 			default:
 				return null;
 		}
@@ -141,3 +144,17 @@ export const MessagePart = memo(
 	(previous, next) =>
 		previous.isPartSettled === next.isPartSettled && areGroupedMessagePartsEqual(previous.part, next.part),
 );
+
+function SteeredMessage({ text }: { text: string }) {
+	return (
+		<div className='flex flex-col items-end gap-1 my-1'>
+			<span className='flex items-center gap-1 text-xs text-muted-foreground'>
+				<Navigation className='size-3' />
+				Steered mid-answer
+			</span>
+			<div className='rounded-2xl px-3 py-2 bg-panel text-card-foreground max-w-xl whitespace-pre-wrap'>
+				{text}
+			</div>
+		</div>
+	);
+}
