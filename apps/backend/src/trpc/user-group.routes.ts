@@ -562,8 +562,8 @@ export const userGroupRoutes = {
 					? createUserGroup(...values)
 					: createUserGroup(...values, rowPoliciesRegistry, columnPoliciesRegistry);
 			});
+			await saveNewGroupTeamFolders(ctx, group.id, input.storyFolderIds);
 			await saveGroupBudget(ctx.project.id, group.id, input);
-			await saveGroupTeamFolders(ctx, group.id, input.storyFolderIds);
 			return group;
 		}),
 
@@ -768,6 +768,20 @@ async function saveGroupTeamFolders(
 		if (error instanceof storyFolderQueries.TeamFolderError) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 		}
+		throw error;
+	}
+}
+
+/** A new group whose folders cannot be saved is removed again, so creating it again does not hit its own name. */
+async function saveNewGroupTeamFolders(
+	ctx: { project: { id: string }; user: { id: string } },
+	groupId: string,
+	storyFolderIds: string[] | undefined,
+): Promise<void> {
+	try {
+		await saveGroupTeamFolders(ctx, groupId, storyFolderIds);
+	} catch (error) {
+		await userGroupQueries.deleteUserGroup(ctx.project.id, groupId);
 		throw error;
 	}
 }

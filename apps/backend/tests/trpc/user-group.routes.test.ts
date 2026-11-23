@@ -139,6 +139,7 @@ vi.mock('../../src/services/warehouse-sql.service', () => ({
 	validateWarehouseRowPredicate: mocks.validateWarehouseRowPredicate,
 }));
 
+import { TeamFolderError } from '../../src/queries/story-folder.queries';
 import { router } from '../../src/trpc/trpc';
 import { userGroupRoutes } from '../../src/trpc/user-group.routes';
 
@@ -583,6 +584,18 @@ describe('user group routes', () => {
 
 		await update(['board']);
 		expect(mocks.setGroupTeamFolders).toHaveBeenCalledWith('project-id', 'group-id', ['board'], expect.any(String));
+	});
+
+	it('removes a new group again when its team folders cannot be saved, without saving its budget', async () => {
+		mocks.setGroupTeamFolders.mockRejectedValueOnce(
+			new TeamFolderError('Only active public folders can be team folders.'),
+		);
+
+		await expect(
+			caller.create({ name: 'Analysts', storyFolderIds: ['archived'], budgetLimitUsd: 50 }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
 	});
 
 	it('refuses team folders for a group stories cannot be shared with, like All users', async () => {
