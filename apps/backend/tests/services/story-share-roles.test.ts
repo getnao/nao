@@ -11,6 +11,7 @@ import {
 	updateSharedStoryGeneralAccess,
 } from '../../src/queries/shared-story.queries';
 import { getStoryById } from '../../src/queries/story.queries';
+import { getByStoryId } from '../../src/queries/story-delivery.queries';
 import { setStoryFolder } from '../../src/queries/story-folder.queries';
 import { getReferenceableStory } from '../../src/queries/story-reference.queries';
 import { ensureStoryChat } from '../../src/services/editable-story';
@@ -40,7 +41,9 @@ vi.mock('../../src/services/project-sharing.service', () => ({
 	assertCanShareWith: vi.fn(),
 }));
 vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
-vi.mock('../../src/queries/story-folder.queries', () => ({
+vi.mock('../../src/queries/story-folder.queries', async (importOriginal) => ({
+	keepDeliveryRecipientsWithinShare: (await importOriginal<typeof import('../../src/queries/story-folder.queries')>())
+		.keepDeliveryRecipientsWithinShare,
 	ensurePrivateRoot: vi.fn(async () => PRIVATE_FOLDER_ID),
 	ensureStoryPrivate: vi.fn(),
 	getLastUsedFolderId: vi.fn(async () => null),
@@ -80,6 +83,7 @@ describe('story edit rights shared through roles', () => {
 
 	beforeEach(async () => {
 		await db.delete(s.sharedStory);
+		await db.delete(s.storyDelivery);
 		vi.clearAllMocks();
 		mocks.storyFolderId = PRIVATE_FOLDER_ID;
 	});
@@ -300,6 +304,22 @@ describe('story edit rights shared through roles', () => {
 		await save({ visibility: 'project' }, { ...OWNER, id: OUTSIDER_ID, role: 'admin' });
 
 		expect(await getSharedStoryByStoryId(STORY_ID)).toMatchObject({ userId: OWNER_ID, authorName: OWNER_ID });
+	});
+
+	it('stops delivering the story to the people a narrower share no longer reaches', async () => {
+		await save({ visibility: 'project' });
+		await db.insert(s.storyDelivery).values({
+			storyId: STORY_ID,
+			projectId: PROJECT_ID,
+			enabled: true,
+			channels: ['email'],
+			recipientMode: 'specific',
+			recipientUserIds: [OUTSIDER_ID, GROUP_MEMBER_ID],
+		});
+
+		await save({ groups: [viewer(GROUP_ID)] });
+
+		expect(await getByStoryId(STORY_ID)).toMatchObject({ enabled: true, recipientUserIds: [GROUP_MEMBER_ID] });
 	});
 
 	it('unshares the story when it is limited to nobody', async () => {

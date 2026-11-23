@@ -819,10 +819,10 @@ async function propagateShareChange(
 }
 
 /** A delivery grants its recipients access to the story, so it must not name anyone the share no longer reaches. */
-async function keepDeliveryRecipientsWithinShare(
+export async function keepDeliveryRecipientsWithinShare(
 	storyIds: string[],
 	projectId: string,
-	executor: DBExecutor,
+	executor: DBExecutor = db,
 ): Promise<void> {
 	for (const storyId of storyIds) {
 		const delivery = await storyDeliveryQueries.getByStoryId(storyId, executor);

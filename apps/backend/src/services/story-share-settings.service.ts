@@ -123,6 +123,9 @@ async function replaceStoryAccess(story: DBStory, actor: ShareActor, change: Sto
 	} else {
 		await refileIfFolderStopsFitting(story, actor, ownerId, { ...change, groups });
 	}
+	if (change.visibility === 'specific') {
+		await storyFolderQueries.keepDeliveryRecipientsWithinShare([story.id], actor.projectId);
+	}
 
 	const currentRoles = await effectiveRoles(story.id, affectedUserIds);
 	const changes = diffRecipientRoles(previousRoles, currentRoles, actor.id);

@@ -120,6 +120,7 @@ vi.mock('../../src/queries/story.queries', async (importOriginal) => ({
 	renameStory: mocks.renameStory,
 }));
 vi.mock('../../src/queries/story-folder.queries', () => ({
+	keepDeliveryRecipientsWithinShare: vi.fn(),
 	ensurePrivateRoot: vi.fn(async () => 'private-root'),
 	ensureStoryPrivate: vi.fn(),
 	getStoryFolderItem: vi.fn(async () => null),
