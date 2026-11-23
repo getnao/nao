@@ -23,8 +23,8 @@ type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'exclude
 
 type FolderMoveTx = DBTransaction;
 
-/** Checks that must still hold when the move is written, so they run under the project folder lock. */
-type MoveCheck = () => Promise<void>;
+/** Checks that must still hold when the change is written, so they run under the project folder lock. */
+type FolderChangeCheck = () => Promise<void>;
 
 const writeTransactionConfig = dbConfig.dialect === Dialect.Sqlite ? { behavior: 'immediate' as const } : undefined;
 
@@ -519,20 +519,37 @@ async function returnStoriesToOwners(folderId: string, projectId: string, execut
 }
 
 /** All-or-nothing, and a subfolder never shows without its team folder's groups while it is detached. */
-export async function archiveFolders(projectId: string, folderIds: string[]): Promise<void> {
-	await inProjectFolderTransaction(projectId, async (tx) => {
-		for (const folderId of folderIds) {
-			await archiveFolder(folderId, tx);
-		}
-	});
+export async function archiveFolders(
+	projectId: string,
+	folderIds: string[],
+	assertAllowed?: FolderChangeCheck,
+): Promise<void> {
+	await inProjectFolderTransaction(
+		projectId,
+		async (tx) => {
+			for (const folderId of folderIds) {
+				await archiveFolder(folderId, tx);
+			}
+		},
+		assertAllowed,
+	);
 }
 
-export async function unarchiveFolders(userId: string, projectId: string, folderIds: string[]): Promise<void> {
-	await inProjectFolderTransaction(projectId, async (tx) => {
-		for (const folderId of folderIds) {
-			await unarchiveFolder(userId, projectId, folderId, tx);
-		}
-	});
+export async function unarchiveFolders(
+	userId: string,
+	projectId: string,
+	folderIds: string[],
+	assertAllowed?: FolderChangeCheck,
+): Promise<void> {
+	await inProjectFolderTransaction(
+		projectId,
+		async (tx) => {
+			for (const folderId of folderIds) {
+				await unarchiveFolder(userId, projectId, folderId, tx);
+			}
+		},
+		assertAllowed,
+	);
 }
 
 async function archiveFolder(folderId: string, executor: DBExecutor): Promise<void> {
@@ -591,7 +608,7 @@ export async function moveFolder(
 	projectId: string,
 	id: string,
 	newParentId: string | null,
-	assertAllowed?: MoveCheck,
+	assertAllowed?: FolderChangeCheck,
 ): Promise<void> {
 	await inProjectFolderTransaction(
 		projectId,
@@ -609,7 +626,7 @@ export async function moveItemsToFolder(
 	projectId: string,
 	items: { folderIds: string[]; stories: { storyId: string; storyOwnerId: string }[] },
 	targetFolderId: string | null,
-	assertAllowed?: MoveCheck,
+	assertAllowed?: FolderChangeCheck,
 ): Promise<void> {
 	await inProjectFolderTransaction(
 		projectId,
@@ -714,7 +731,7 @@ export async function ensureStoryPrivate(
 export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
-	options: { storyOwnerId: string; projectId: string; assertAllowed?: MoveCheck },
+	options: { storyOwnerId: string; projectId: string; assertAllowed?: FolderChangeCheck },
 	transaction?: DBTransaction,
 ): Promise<void> {
 	if (transaction) {
@@ -1224,7 +1241,7 @@ export function withProjectFolderLock<T>(projectId: string, work: () => Promise<
 function inProjectFolderTransaction<T>(
 	projectId: string,
 	work: (tx: FolderMoveTx) => Promise<T>,
-	assertAllowed?: MoveCheck,
+	assertAllowed?: FolderChangeCheck,
 ): Promise<T> {
 	return withProjectFolderLock(projectId, async () => {
 		await assertAllowed?.();

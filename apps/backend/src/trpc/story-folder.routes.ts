@@ -30,6 +30,14 @@ function assertCanModifyFolder(folder: DBStoryFolder, userId: string, userRole: 
 	}
 }
 
+async function assertCanModifyFolders(folderIds: string[], ctx: FolderContext) {
+	for (const folderId of folderIds) {
+		const folder = await assertFolderInProject(folderId, ctx);
+		await assertCanSeeFolder(folder, ctx);
+		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
+	}
+}
+
 function getViewer(ctx: FolderContext) {
 	return getFolderViewer(ctx.project.id, ctx.user.id, ctx.userRole);
 }
@@ -258,39 +266,31 @@ export const storyFolderRoutes = {
 	}),
 
 	archive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		const folder = await assertFolderInProject(input.id, ctx);
-		await assertCanSeeFolder(folder, ctx);
-		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-		await storyFolderQueries.archiveFolders(ctx.project.id, [input.id]);
+		await storyFolderQueries.archiveFolders(ctx.project.id, [input.id], () =>
+			assertCanModifyFolders([input.id], ctx),
+		);
 	}),
 
 	unarchive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		const folder = await assertFolderInProject(input.id, ctx);
-		await assertCanSeeFolder(folder, ctx);
-		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-		await storyFolderQueries.unarchiveFolders(ctx.user.id, ctx.project.id, [input.id]);
+		await storyFolderQueries.unarchiveFolders(ctx.user.id, ctx.project.id, [input.id], () =>
+			assertCanModifyFolders([input.id], ctx),
+		);
 	}),
 
 	bulkArchive: canSendProcedure
 		.input(z.object({ ids: z.array(z.string()).min(1).max(BULK_ITEMS_LIMIT) }))
 		.mutation(async ({ input, ctx }) => {
-			for (const id of input.ids) {
-				const folder = await assertFolderInProject(id, ctx);
-				await assertCanSeeFolder(folder, ctx);
-				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-			}
-			await storyFolderQueries.archiveFolders(ctx.project.id, input.ids);
+			await storyFolderQueries.archiveFolders(ctx.project.id, input.ids, () =>
+				assertCanModifyFolders(input.ids, ctx),
+			);
 		}),
 
 	bulkUnarchive: canSendProcedure
 		.input(z.object({ ids: z.array(z.string()).min(1).max(BULK_ITEMS_LIMIT) }))
 		.mutation(async ({ input, ctx }) => {
-			for (const id of input.ids) {
-				const folder = await assertFolderInProject(id, ctx);
-				await assertCanSeeFolder(folder, ctx);
-				assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-			}
-			await storyFolderQueries.unarchiveFolders(ctx.user.id, ctx.project.id, input.ids);
+			await storyFolderQueries.unarchiveFolders(ctx.user.id, ctx.project.id, input.ids, () =>
+				assertCanModifyFolders(input.ids, ctx),
+			);
 		}),
 
 	move: canSendProcedure

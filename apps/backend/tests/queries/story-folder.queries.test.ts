@@ -186,35 +186,45 @@ describe('team folders', () => {
 		expect(await archivedSharedStoryIds(OUTSIDER_ID)).toEqual([]);
 	});
 
-	it("checks a move against the folder's audience left by a change still running when the move started", async () => {
-		const sales = await createFolder({
-			ownerId: OWNER_ID,
-			projectId: PROJECT_ID,
-			name: 'Sales',
-			groupIds: [GROUP_ID],
-		});
-		const checkedAudiences: FolderAudience[] = [];
-		let removeGroup!: () => void;
-		const adminChange = withProjectFolderLock(PROJECT_ID, async () => {
-			await new Promise<void>((resolve) => {
-				removeGroup = resolve;
+	it.each([
+		{
+			change: 'a move',
+			run: (folderId: string, assertAllowed: () => Promise<void>) =>
+				moveStoryToFolder(STORY_ID, folderId, { storyOwnerId: OWNER_ID, projectId: PROJECT_ID, assertAllowed }),
+		},
+		{
+			change: 'an archive',
+			run: (folderId: string, assertAllowed: () => Promise<void>) =>
+				archiveFolders(PROJECT_ID, [folderId], assertAllowed),
+		},
+	])(
+		"checks $change against the folder's audience left by a change still running when it started",
+		async ({ run }) => {
+			const sales = await createFolder({
+				ownerId: OWNER_ID,
+				projectId: PROJECT_ID,
+				name: 'Sales',
+				groupIds: [GROUP_ID],
 			});
-			await db.delete(s.storyFolderGroup).where(eq(s.storyFolderGroup.folderId, sales.id));
-		});
+			const checkedAudiences: FolderAudience[] = [];
+			let removeGroup!: () => void;
+			const adminChange = withProjectFolderLock(PROJECT_ID, async () => {
+				await new Promise<void>((resolve) => {
+					removeGroup = resolve;
+				});
+				await db.delete(s.storyFolderGroup).where(eq(s.storyFolderGroup.folderId, sales.id));
+			});
 
-		const move = moveStoryToFolder(STORY_ID, sales.id, {
-			storyOwnerId: OWNER_ID,
-			projectId: PROJECT_ID,
-			assertAllowed: async () => {
+			const change = run(sales.id, async () => {
 				checkedAudiences.push(await resolveFolderAudience(sales.id));
-			},
-		});
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		removeGroup();
-		await Promise.all([adminChange, move]);
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			removeGroup();
+			await Promise.all([adminChange, change]);
 
-		expect(checkedAudiences).toEqual([{ kind: 'project' }]);
-	});
+			expect(checkedAudiences).toEqual([{ kind: 'project' }]);
+		},
+	);
 
 	it.each([
 		{
