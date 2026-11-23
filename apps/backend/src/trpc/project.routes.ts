@@ -58,7 +58,11 @@ import { slackService } from '../services/slack';
 import { resolveDefaultDatabaseId } from '../services/sql-query-tag.service';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
-import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
+import {
+	flagRecipientsWithTableAccess,
+	isDatabaseObjectAllowed,
+	resolveWarehouseTableAccess,
+} from '../services/user-group-context-access.service';
 import {
 	getAvailableModelsForUser,
 	getDefaultChatModelForUser,
@@ -1158,6 +1162,15 @@ export const projectRoutes = {
 	listUsersWithAccess: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		return projectQueries.listUsersWithProjectAccessDetails(ctx.project.id);
 	}),
+
+	listTransferRecipients: adminProtectedProcedure
+		.input(z.object({ fromUserId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const recipients = (await projectQueries.listUsersWithProjectAccess(ctx.project.id))
+				.filter((user) => user.role !== 'viewer' && user.id !== input.fromUserId)
+				.map(({ id, name, email }) => ({ id, name, email }));
+			return flagRecipientsWithTableAccess(ctx.project.id, input.fromUserId, recipients);
+		}),
 
 	getProjectMembersByChatId: protectedProcedure
 		.input(z.object({ chatId: z.string() }))
