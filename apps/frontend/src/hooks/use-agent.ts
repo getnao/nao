@@ -351,6 +351,8 @@ export const useAgent = ({
 	const cancelAgentMutation = useMutation(trpc.chat.cancel.mutationOptions());
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
+	const isRunningRef = useRef(isRunning);
+	isRunningRef.current = isRunning;
 
 	const refetchSavedMessages = useCallback(
 		async (chatIdToRefetch: string) => {
@@ -503,7 +505,7 @@ export const useAgent = ({
 				return;
 			}
 
-			if (!isRunning) {
+			if (!isRunningRef.current) {
 				agentCitationStore.set(agentInstance, citations);
 				const files = attachmentsToFileUIParts({ images, documents });
 				return handleSendMessage({ text: prompt, files: files.length > 0 ? files : undefined });
@@ -520,7 +522,7 @@ export const useAgent = ({
 				citations,
 			});
 		},
-		[isRunning, handleSendMessage, agentInstance],
+		[handleSendMessage, agentInstance],
 	);
 
 	const submitQueuedMessageNow = useCallback(
@@ -546,7 +548,7 @@ export const useAgent = ({
 			documents: newDocuments,
 			citations,
 		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents' | 'citations'>) => {
-			if (isRunning || chatAllowanceExhausted) {
+			if (isRunningRef.current || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -573,12 +575,12 @@ export const useAgent = ({
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
+		[setMessages, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const resendMessage = useCallback(
 		async ({ messageId }: { messageId: string }) => {
-			if (isRunning || chatAllowanceExhausted) {
+			if (isRunningRef.current || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -604,20 +606,20 @@ export const useAgent = ({
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
+		[setMessages, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const switchMessageVersion = useCallback(
 		async ({ messageId }: { messageId: string }) => {
 			const targetChatId = chatIdRef.current;
-			if (!targetChatId || isRunning) {
+			if (!targetChatId || isRunningRef.current) {
 				return;
 			}
 
 			await switchMessageVersionMutation.mutateAsync({ chatId: targetChatId, messageId });
 			await queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: targetChatId }) });
 		},
-		[isRunning, switchMessageVersionMutation.mutateAsync, queryClient], // eslint-disable-line
+		[switchMessageVersionMutation.mutateAsync, queryClient], // eslint-disable-line
 	);
 
 	return useMemoObject({

@@ -7,8 +7,8 @@ import {
 import type { ContextEditorFileChange, ContextRecommendationApplyResult } from '@nao/shared/context-editor';
 import type { UIMessage } from '@nao/backend/chat';
 
-import { useAgentMessages } from '@/contexts/agent.provider';
-import { getToolName, isToolSettled, isToolUIPart } from '@/lib/ai';
+import { useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { getToolName, haveSameToolCallIds, isToolSettled, isToolUIPart } from '@/lib/ai';
 
 export interface ContextEditorChanges {
 	/** The context files the agent changed. */
@@ -29,14 +29,14 @@ interface SettledChange {
  * reported once too.
  */
 export function useContextEditorChanges(onChange: (changes: ContextEditorChanges) => void) {
-	const messages = useAgentMessages();
+	const settledChanges = useAgentMessagesSelector(listSettledChanges, haveSameToolCallIds);
 	const reportedToolCallIdsRef = useRef(new Set<string>());
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
 
 	useEffect(() => {
 		const reportedToolCallIds = reportedToolCallIdsRef.current;
-		const newChanges = listSettledChanges(messages).filter((change) => !reportedToolCallIds.has(change.toolCallId));
+		const newChanges = settledChanges.filter((change) => !reportedToolCallIds.has(change.toolCallId));
 		if (newChanges.length === 0) {
 			return;
 		}
@@ -45,7 +45,7 @@ export function useContextEditorChanges(onChange: (changes: ContextEditorChanges
 			paths: newChanges.flatMap((change) => change.paths),
 			hasChangedRecommendations: newChanges.some((change) => change.hasChangedRecommendations),
 		});
-	}, [messages]);
+	}, [settledChanges]);
 }
 
 function listSettledChanges(messages: UIMessage[]): SettledChange[] {

@@ -171,6 +171,35 @@ export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], rig
 };
 
 /**
+ * Keys grouped parts by their first underlying part, which stays put as later parts stream in or regroup.
+ * Tool parts use their tool call id; other parts use their rank among parts of the same type.
+ */
+export const getGroupedPartKeys = (parts: GroupedMessagePart[]): string[] => {
+	const countByType = new Map<string, number>();
+	const keyLeaf = (leaf: GroupedMessagePart): string => {
+		const toolCallId = getLeafToolCallId(leaf);
+		if (toolCallId) {
+			return toolCallId;
+		}
+		const rank = countByType.get(leaf.type) ?? 0;
+		countByType.set(leaf.type, rank + 1);
+		return `${leaf.type}-${rank}`;
+	};
+	return parts.map((part) => flattenGroupedPart(part).map(keyLeaf)[0]);
+};
+
+const flattenGroupedPart = (part: GroupedMessagePart): GroupedMessagePart[] => {
+	return isGroupPart(part) ? part.parts.flatMap(flattenGroupedPart) : [part];
+};
+
+const getLeafToolCallId = (part: GroupedMessagePart): string | undefined => {
+	if (isStoryStatusPart(part)) {
+		return part.part.toolCallId;
+	}
+	return !isGroupPart(part) && isToolUIPart(part) ? part.toolCallId : undefined;
+};
+
+/**
  * Groups consecutive collapsible parts (tools and reasoning) into 'tool-group' parts.
  * Non-collapsible tools (depending on the density setting) and other message parts are returned as-is.
  */
@@ -401,7 +430,11 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 	return false;
 };
 
-const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
+export const haveSameToolCallIds = <T extends { toolCallId: string }>(left: T[], right: T[]): boolean => {
+	return left.length === right.length && left.every((item, index) => item.toolCallId === right[index].toolCallId);
+};
+
+export const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
 	const leftOutput = 'output' in left ? left.output : undefined;
 	const rightOutput = 'output' in right ? right.output : undefined;
 	const leftErrorText = 'errorText' in left ? left.errorText : undefined;

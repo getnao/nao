@@ -92,7 +92,7 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 							showLoader={effectiveIsRunning && isLast(group, messageGroups)}
 							showCatchUpLoader={showCatchUpLoader && isLast(group, messageGroups)}
 							lastMessageId={lastMessageId}
-							isRunning={effectiveIsRunning}
+							isRunning={effectiveIsRunning && isLast(group, messageGroups)}
 							storyIntroMessageId={storyIntroMessageId}
 						/>
 					))
@@ -152,7 +152,7 @@ const MessageGroup = memo(
 						key={message.id}
 						message={message}
 						isLastMessage={message.id === lastMessageId}
-						isRunning={isRunning}
+						isRunning={isRunning && message.id === lastMessageId}
 						storyIntroMessageId={storyIntroMessageId}
 					/>
 				))}

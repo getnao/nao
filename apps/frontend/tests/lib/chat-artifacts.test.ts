@@ -123,6 +123,28 @@ describe('collectChatArtifacts', () => {
 	});
 });
 
+describe('collectChatArtifacts while streaming', () => {
+	it('reads each message once and reads again only the message replaced by a new chunk', () => {
+		const settled = message('a1', 'assistant', {
+			type: 'text',
+			text: '<story-reference id="s1">Revenue</story-reference>',
+		});
+		const streaming = message('a2', 'assistant', { type: 'text', text: 'Also' });
+		collectChatArtifacts([settled, streaming]);
+
+		settled.parts.push({ type: 'text', text: '<story-reference id="s9">Unseen</story-reference>' });
+		const nextChunk = message('a2', 'assistant', {
+			type: 'text',
+			text: 'Also <story-reference id="s2">Churn</story-reference>',
+		});
+
+		expect(collectChatArtifacts([settled, nextChunk]).mentionedStories).toEqual([
+			{ storyId: 's1', title: 'Revenue' },
+			{ storyId: 's2', title: 'Churn' },
+		]);
+	});
+});
+
 describe('findQueryToolCallId', () => {
 	it('points a query id at the tool call of its latest run', () => {
 		const messages = [

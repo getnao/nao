@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
 	ThumbsUp,
 	ThumbsDown,
@@ -39,7 +39,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export function AssistantMessageActions({
+export const AssistantMessageActions = memo(function AssistantMessageActions({
 	message,
 	className,
 	chatId,
@@ -256,7 +256,7 @@ export function AssistantMessageActions({
 			)}
 		</>
 	);
-}
+});
 
 function FeedbackButton({
 	vote,

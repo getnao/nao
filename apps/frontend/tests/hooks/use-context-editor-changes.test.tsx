@@ -8,7 +8,9 @@ import { useContextEditorChanges } from '@/hooks/use-context-editor-changes';
 
 const mocks = vi.hoisted(() => ({ messages: [] as unknown[] }));
 
-vi.mock('@/contexts/agent.provider', () => ({ useAgentMessages: () => mocks.messages }));
+vi.mock('@/contexts/agent.provider', () => ({
+	useAgentMessagesSelector: <T,>(selector: (messages: never) => T) => selector(mocks.messages as never),
+}));
 
 describe('useContextEditorChanges', () => {
 	afterEach(cleanup);
