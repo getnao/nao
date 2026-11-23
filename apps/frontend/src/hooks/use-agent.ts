@@ -12,6 +12,7 @@ import type { UIMessage } from '@nao/backend/chat';
 import type { ImageUploadData } from '@nao/shared/attachments';
 import type { CitationData, LlmSelectedModel } from '@nao/shared/types';
 import type { DocumentAttachment } from '@/lib/attachments';
+import type { QueuedMessage } from '@/types/chat-message-queue';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { MentionOption, SelectedMention } from 'prompt-mentions';
 
@@ -42,7 +43,7 @@ import { chatActivityStore } from '@/stores/chat-activity';
 import { cancellingMessageIdStore } from '@/stores/chat-cancelling-message';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { chatInputRestoreStore } from '@/stores/chat-input-restore';
-import { messageQueueStore } from '@/stores/chat-message-queue';
+import { canSteer, messageQueueStore } from '@/stores/chat-message-queue';
 
 export type AgentMode = 'default' | 'onboarding' | 'example';
 
@@ -60,6 +61,7 @@ export interface AgentHelpers {
 	resendMessage: (args: { messageId: string }) => Promise<void | UIMessage>;
 	switchMessageVersion: (args: { messageId: string }) => Promise<void>;
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
+	steerQueuedMessage: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	/** The chat reconnects to an answer the server is still writing, and has not received any of it yet. */
@@ -89,6 +91,8 @@ export interface SendMessageArgs {
 	/** Files already uploaded to permanent storage, so the message only has to name them. */
 	documents?: DocumentAttachment[];
 	citations?: CitationData[];
+	/** While the agent runs, hands the message to it between two steps instead of queuing it. */
+	steer?: boolean;
 }
 
 /** A message as a chat input hands it over, with the context it mentions. */
@@ -215,6 +219,11 @@ export const useAgent = ({
 				return;
 			}
 
+			if (dataPart.type === 'data-steer') {
+				messageQueueStore.remove(agentId, dataPart.data.id);
+				return;
+			}
+
 			if (dataPart.type === 'data-newUserMessage') {
 				const { newId } = dataPart.data;
 				const citations = agentCitationStore.get(newAgent);
@@ -305,6 +314,7 @@ export const useAgent = ({
 						queryKey: trpc.project.listAvailableTranscribeModels.queryKey(),
 					});
 				}
+				messageQueueStore.unsteer(agentId);
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
@@ -348,6 +358,7 @@ export const useAgent = ({
 	messagesRef.current = messages;
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
+	const steerAgentMutation = useMutation(trpc.chat.steer.mutationOptions());
 	const cancelAgentMutation = useMutation(trpc.chat.cancel.mutationOptions());
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
@@ -498,8 +509,24 @@ export const useAgent = ({
 		[sendMessage, clearError, chatAllowanceExhausted],
 	);
 
+	/** A steer the server refuses (run ending, or running elsewhere) stays in the queue as a follow-up. */
+	const requestSteer = useCallback(
+		async ({ id, text }: QueuedMessage) => {
+			const targetChatId = chatIdRef.current;
+			const { accepted } = targetChatId
+				? await steerAgentMutation
+						.mutateAsync({ chatId: targetChatId, id, text })
+						.catch(() => ({ accepted: false }))
+				: { accepted: false };
+			if (!accepted) {
+				messageQueueStore.unsteer(targetChatId, id);
+			}
+		},
+		[steerAgentMutation.mutateAsync], // eslint-disable-line react-hooks/exhaustive-deps
+	);
+
 	const queueOrSendMessage = useCallback(
-		async ({ text, images, documents, citations }: SendMessageArgs) => {
+		async ({ text, images, documents, citations, steer }: SendMessageArgs) => {
 			const prompt = text.trim() || defaultAttachmentPrompt({ images, documents });
 			if (!prompt) {
 				return;
@@ -514,15 +541,26 @@ export const useAgent = ({
 			const mentions = [...mentionsRef.current];
 			mentionsRef.current = [];
 
-			messageQueueStore.enqueue(chatIdRef.current, {
-				text: prompt,
-				mentions,
-				images,
-				documents,
-				citations,
+			const message = { text: prompt, mentions, images, documents, citations };
+			const queuedMessage = messageQueueStore.enqueue(chatIdRef.current, {
+				...message,
+				steer: steer && canSteer(message),
 			});
+			if (queuedMessage?.steer) {
+				await requestSteer(queuedMessage);
+			}
 		},
-		[handleSendMessage, agentInstance],
+		[handleSendMessage, agentInstance, requestSteer],
+	);
+
+	const steerQueuedMessage = useCallback(
+		async (messageId: string) => {
+			const steeredMessage = messageQueueStore.steer(chatIdRef.current, messageId);
+			if (steeredMessage) {
+				await requestSteer(steeredMessage);
+			}
+		},
+		[requestSteer],
 	);
 
 	const submitQueuedMessageNow = useCallback(
@@ -632,6 +670,7 @@ export const useAgent = ({
 		resendMessage,
 		switchMessageVersion,
 		submitQueuedMessageNow,
+		steerQueuedMessage,
 		status,
 		isRunning,
 		isCatchingUp,

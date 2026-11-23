@@ -10,6 +10,8 @@ export interface QueuedMessage {
 	images?: ImageUploadData[];
 	documents?: DocumentAttachment[];
 	citations?: CitationData[];
+	/** Sent to the running agent, which reads it once its current tools finish. */
+	steer?: boolean;
 }
 
 export type NewQueuedMessage = Omit<QueuedMessage, 'id'>;
