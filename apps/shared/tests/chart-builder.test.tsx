@@ -106,6 +106,22 @@ describe('buildChart', () => {
 		expect(getGradient(firstChart)?.props.id).not.toBe(getGradient(secondChart)?.props.id);
 	});
 
+	it.each(['stacked_area', 'stacked_area_100'] as const)(
+		'fills %s layers with solid series colors separated by the background',
+		(chartType) => {
+			const chart = buildCategoryChart({ chartType, colorFor: () => '#5b21b6' });
+			const area = findChartElement(chart, 'Area');
+
+			expect(getGradient(chart)).toBeUndefined();
+			expect(area?.props).toMatchObject({
+				type: 'linear',
+				fill: '#5b21b6',
+				fillOpacity: 1,
+				stroke: 'var(--background, #ffffff)',
+			});
+		},
+	);
+
 	it('renders line charts without an area fill', () => {
 		const chart = buildChart({
 			data: [{ name: 'A', value: 10 }],
