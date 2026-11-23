@@ -3,11 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
+	cancelAutomationRun: vi.fn(),
+	failStaleAutomationRuns: vi.fn(),
 	deleteProjectAutomation: vi.fn(),
 	deleteJob: vi.fn(),
 	getAutomation: vi.fn(),
 	getProjectAutomation: vi.fn(),
 	getAutomationById: vi.fn(),
+	getChat: vi.fn(),
+	getProjectAutomationRun: vi.fn(),
 	linkAutomationJob: vi.fn(),
 	listProjectAutomations: vi.fn(),
 	listShareableMembers: vi.fn(),
@@ -29,16 +33,23 @@ vi.mock('../../src/handlers/automation.handler', () => ({
 }));
 vi.mock('../../src/queries/automation.queries', () => ({
 	automationJobUniqueKey: (id: string) => `automation:${id}`,
+	cancelAutomationRun: mocks.cancelAutomationRun,
+	failStaleAutomationRuns: mocks.failStaleAutomationRuns,
 	deleteProjectAutomation: mocks.deleteProjectAutomation,
 	getAutomation: mocks.getAutomation,
 	getAutomationById: mocks.getAutomationById,
 	getProjectAutomation: mocks.getProjectAutomation,
+	getProjectAutomationRun: mocks.getProjectAutomationRun,
 	linkAutomationJob: mocks.linkAutomationJob,
 	listProjectAutomations: mocks.listProjectAutomations,
 	setAutomationEventTriggers: mocks.setAutomationEventTriggers,
 	transferAutomationOwnership: mocks.transferAutomationOwnership,
 	transferProjectAutomationsOfUser: mocks.transferProjectAutomationsOfUser,
 	updateAutomation: mocks.updateAutomation,
+}));
+vi.mock('../../src/queries/chat.queries', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/queries/chat.queries')>()),
+	getChat: mocks.getChat,
 }));
 vi.mock('../../src/queries/scheduled-job.queries', () => ({
 	deleteJob: mocks.deleteJob,
@@ -284,6 +295,75 @@ describe('automation admin routes', () => {
 			code: 'FORBIDDEN',
 		});
 		expect(mocks.deleteProjectAutomation).not.toHaveBeenCalled();
+	});
+});
+
+describe('automation run threads', () => {
+	const run = { id: 'run-id', automationId: 'scheduled-id', chatId: 'run-chat-id', status: 'completed' };
+	const runInput = { automationId: 'scheduled-id', runId: 'run-id' };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.roles = { 'owner-id': 'user', 'viewer-id': 'viewer', 'shared-user-id': 'user' };
+		mocks.getProjectAutomationRun.mockResolvedValue(run);
+		mocks.getChat.mockResolvedValue([{ id: 'run-chat-id', messages: [] }, 'owner-id']);
+	});
+
+	it('opens the thread of a run for someone the automation is shared with', async () => {
+		mocks.getAutomation.mockResolvedValue({ ...scheduledAutomation, title: 'Daily report', accessRole: 'viewer' });
+
+		const result = await createCaller('viewer-id').automation.getRunChat(runInput);
+
+		expect(mocks.failStaleAutomationRuns).toHaveBeenCalled();
+		expect(mocks.getProjectAutomationRun).toHaveBeenCalledWith('project-id', 'run-id');
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'viewer-id', 'scheduled-id', 'viewer');
+		expect(result).toMatchObject({
+			automation: { id: 'scheduled-id', title: 'Daily report' },
+			run: { id: 'run-id' },
+			chat: { id: 'run-chat-id' },
+		});
+	});
+
+	it.each([
+		{
+			case: 'the automation is not shared with them',
+			automation: null,
+			runPatch: {},
+			automationId: 'scheduled-id',
+		},
+		{
+			case: 'the run has no chat',
+			automation: scheduledAutomation,
+			runPatch: { chatId: null },
+			automationId: 'scheduled-id',
+		},
+		{
+			case: 'the run belongs to another automation',
+			automation: scheduledAutomation,
+			runPatch: {},
+			automationId: 'other-id',
+		},
+	])('hides the thread when $case', async ({ automation, runPatch, automationId }) => {
+		mocks.getAutomation.mockResolvedValue(automation);
+		mocks.getProjectAutomationRun.mockResolvedValue({ ...run, ...runPatch });
+
+		await expect(
+			createCaller('viewer-id').automation.getRunChat({ ...runInput, automationId }),
+		).rejects.toMatchObject({ code: 'NOT_FOUND' });
+		expect(mocks.getChat).not.toHaveBeenCalled();
+	});
+
+	it('lets only editors of the automation cancel its runs', async () => {
+		mocks.getProjectAutomationRun.mockResolvedValue({ ...run, status: 'running' });
+		mocks.getAutomation.mockImplementation(async (_projectId, _userId, _id, minimumRole: string) =>
+			minimumRole === 'viewer' ? { ...scheduledAutomation, accessRole: 'viewer' } : null,
+		);
+
+		await expect(createCaller('shared-user-id').automation.cancelRun({ runId: 'run-id' })).rejects.toMatchObject({
+			code: 'NOT_FOUND',
+		});
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'shared-user-id', 'scheduled-id', 'editor');
+		expect(mocks.cancelAutomationRun).not.toHaveBeenCalled();
 	});
 });
 

@@ -19,6 +19,7 @@ import type {
 	ProjectAutomationSummary,
 } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
+import type { AutomationRole } from '../queries/automation-share.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
@@ -31,6 +32,7 @@ import { naturalLanguageToCron } from '../services/cron-nlp';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
 import { llmProviderSchema } from '../types/llm';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import {
 	adminProtectedProcedure,
 	canSendProcedure,
@@ -191,6 +193,27 @@ export const automationRoutes = {
 		return { automation, runs };
 	}),
 
+	/** The thread of a run, read-only, for everyone the automation is shared with. Its chat stays the owner's. */
+	getRunChat: automationReadProcedure
+		.input(z.object({ automationId: z.string(), runId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			await automationQueries.failStaleAutomationRuns();
+			const access = await getRunWithAccess(ctx.project.id, ctx.user.id, input.runId, 'viewer');
+			const isRunOfAutomation = access?.run.automationId === input.automationId;
+			const [chat] =
+				isRunOfAutomation && access.run.chatId
+					? await chatQueries.getChat(access.run.chatId, { queryResultPreviews: true })
+					: [];
+			if (!isRunOfAutomation || !chat) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
+			}
+			return {
+				automation: { id: access.automation.id, title: access.automation.title },
+				run: access.run,
+				chat: withQueryResultPreviewsInChat(chat),
+			};
+		}),
+
 	create: automationMutationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
 		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automationCreation');
 		assertTriggers(input, ctx.userRole);
@@ -296,7 +319,7 @@ export const automationRoutes = {
 	 * (or any other status mismatch) can be unstuck from the UI.
 	 */
 	cancelRun: automationProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
-		const run = await getEditableRun(ctx.project.id, ctx.user.id, input.runId);
+		const run = (await getRunWithAccess(ctx.project.id, ctx.user.id, input.runId, 'editor'))?.run;
 		if (!run) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
 		}
@@ -455,11 +478,11 @@ function toShareActor(ctx: AutomationRequestContext) {
 	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
 }
 
-/** A run can be cancelled by whoever may edit its automation. */
-async function getEditableRun(projectId: string, userId: string, runId: string) {
+/** A run carries the rights of its automation: viewers can read it, editors can cancel it. */
+async function getRunWithAccess(projectId: string, userId: string, runId: string, minimumRole: AutomationRole) {
 	const run = await automationQueries.getProjectAutomationRun(projectId, runId);
-	const automation = run && (await automationQueries.getAutomation(projectId, userId, run.automationId, 'editor'));
-	return automation ? run : null;
+	const automation = run && (await automationQueries.getAutomation(projectId, userId, run.automationId, minimumRole));
+	return automation ? { run, automation } : null;
 }
 
 async function getProjectAutomationOrThrow(projectId: string, id: string): Promise<AutomationWithSchedule> {
