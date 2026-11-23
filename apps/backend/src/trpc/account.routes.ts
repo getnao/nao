@@ -67,8 +67,9 @@ export const accountRoutes = {
 		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
 		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled() };
 	}),
+	/** Setup credits are only granted in cloud mode, so a self-hosted instance never welcomes anyone to them. */
 	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>
-		creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId),
+		isCloud ? creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId) : null,
 	),
 	listCreditLedger: walletAdminProcedure.input(creditLedgerPaginationInput).query(({ ctx, input }) => {
 		return creditWalletQueries.listCreditLedger(ctx.membership.orgId, input);
