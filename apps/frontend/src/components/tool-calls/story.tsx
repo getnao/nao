@@ -13,6 +13,7 @@ import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useRefreshStoryChat } from '@/hooks/use-refresh-story-chat';
 import { useTimeAgo } from '@/hooks/use-time-ago';
@@ -55,7 +56,8 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		enabled: !isStreaming && canOpen,
 	});
 	const summary = extractStorySummary(latestStory?.code ?? output?.code ?? '');
-	const storyTheme = useStoryThemeForCurrentMode(latestStory?.theme);
+	const projectStoryTheme = useActiveStoryTheme();
+	const storyTheme = useStoryThemeForCurrentMode(latestStory?.theme) ?? projectStoryTheme;
 
 	useEffect(() => {
 		const shouldAutoOpen = (isCreateAction && isStreaming) || isCustomPublished;

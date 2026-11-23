@@ -116,7 +116,13 @@ export const useStoryViewerContent = ({
 		}),
 		enabled: Boolean(isReadonlyMode && readonlyAccess),
 	});
-	const theme = (isReadonlyMode ? readonlyThemeQuery.data : latestStoryQuery.data?.theme) ?? null;
+	const projectThemeQuery = useQuery({
+		...trpc.storyTheme.getActive.queryOptions(),
+		enabled: !isReadonlyMode,
+	});
+	const theme =
+		(isReadonlyMode ? readonlyThemeQuery.data : (latestStoryQuery.data?.theme ?? projectThemeQuery.data?.theme)) ??
+		null;
 
 	return {
 		storyTitle,
