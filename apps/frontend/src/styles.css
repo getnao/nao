@@ -406,13 +406,15 @@ code.dollar:before {
 [data-streamdown='code-block-body'] {
 	border: none;
 	border-radius: inherit;
-	padding: 0.625rem 0rem;
+	padding: 0.625rem 0.75rem;
 }
 
-/* More breathing room between the line number gutter and the code */
+/* Gutter sized to its digits so one- and two-digit line numbers keep the same edge and gap */
 [data-streamdown='code-block-body'] code > span::before {
-	margin-right: 1.25rem;
-	padding-right: 0.5rem;
+	width: auto;
+	min-width: 2ch;
+	margin-right: 1rem;
+	padding-right: 0;
 }
 
 [data-streamdown='code-block'] > div:has(> [data-streamdown='code-block-actions']) {
