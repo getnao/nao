@@ -23,7 +23,12 @@ export const llmSelectedModelSchema = z.object({
 	modelId: z.string(),
 });
 
-export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
+export type ProviderSettings = {
+	apiKey: string;
+	baseURL?: string;
+	credentials?: Record<string, string>;
+	fetch?: typeof fetch;
+};
 
 export const customModelCostSchema = z.object({
 	inputNoCache: z.number().min(0).optional(),
