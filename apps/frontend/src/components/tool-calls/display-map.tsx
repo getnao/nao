@@ -260,6 +260,7 @@ export const DisplayMapToolCall = ({
 			<div
 				className='group flex flex-col gap-2 transition-[margin,width] duration-200 ease-out'
 				style={breakoutStyle}
+				data-overflows-chat-group={breakoutStyle ? true : undefined}
 			>
 				<div
 					className={cn(
