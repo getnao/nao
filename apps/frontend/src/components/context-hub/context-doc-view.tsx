@@ -13,7 +13,7 @@ import { ContextHubChatPanel, useContextHubChatPanelOpen } from '@/components/co
 import { ContextHubNavigator } from '@/components/context-hub/context-hub-navigator';
 import { ContextHubOverview } from '@/components/context-hub/context-hub-overview';
 import { DiscardChangesDialog } from '@/components/context-hub/discard-changes-dialog';
-import { ContextHubSkillPage } from '@/components/context-hub/context-hub-skill-page';
+import { ContextHubSkillPage, isSameSkillPage } from '@/components/context-hub/context-hub-skill-page';
 import { ContextHubTestPage, ContextHubTestSuite } from '@/components/context-hub/context-hub-tests';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
 import { ContextHubViewer } from '@/components/context-hub/context-hub-viewer';
@@ -145,9 +145,17 @@ export function ContextDocView({
 		}
 	}, [isSkillsLinkOpen]);
 
+	/** Back and Forward follow the link: leaving the skill it named closes that skill, unless another page replaced it. */
+	const previousLinkedSkillNameRef = useRef(linkedSkillName);
 	useEffect(() => {
+		const previousName = previousLinkedSkillNameRef.current;
+		previousLinkedSkillNameRef.current = linkedSkillName;
 		if (linkedSkillName) {
 			setSkillPage({ type: 'personal', name: linkedSkillName });
+		} else if (previousName) {
+			setSkillPage((current) =>
+				isSameSkillPage(current, { type: 'personal', name: previousName }) ? null : current,
+			);
 		}
 	}, [linkedSkillName]);
 

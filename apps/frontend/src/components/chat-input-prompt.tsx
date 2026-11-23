@@ -3,6 +3,7 @@ import 'prompt-mentions/style.css';
 import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER, STORY_REFERENCE_MENTION_TRIGGER } from '@nao/shared';
 import { story } from '@nao/shared/tools';
 import { useQuery } from '@tanstack/react-query';
+import { useRouterState } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { Prompt } from 'prompt-mentions';
 import { useId, useMemo, useState } from 'react';
@@ -146,6 +147,7 @@ export function ChatPrompt({
 	const setIsNewSkillOpen = newSkillDialog?.onOpenChange ?? setIsOwnNewSkillOpen;
 	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
 	const openSkillInContextHub = useOpenSkillInContextHub();
+	const isInContextHub = useRouterState({ select: (state) => isContextHubPathname(state.location.pathname) });
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const referenceOptions = useReferenceOptions();
 	const promptTheme = compact
@@ -248,11 +250,18 @@ export function ChatPrompt({
 				onScopeChange={setNewSkillScope}
 				onClose={() => setIsNewSkillOpen(false)}
 				onCreated={handleSkillCreated}
-				onOpenInEditor={canExploreContext ? openSkillInContextHub : undefined}
+				onOpenInEditor={canExploreContext && !isInContextHub ? openSkillInContextHub : undefined}
 			/>
 		</>
 	);
 }
+
+/** The Context Hub opens a new skill in place, beside this chat: leaving for the editor would drop unsaved edits. */
+function isContextHubPathname(pathname: string): boolean {
+	return CONTEXT_HUB_PATHNAMES.some((hubPathname) => pathname.startsWith(hubPathname));
+}
+
+const CONTEXT_HUB_PATHNAMES = ['/context-hub', '/settings/context-explorer'];
 
 /**
  * The prompt cannot drop one mention, so it is rewritten without the "Create a skill" pill. Citation pills cannot be

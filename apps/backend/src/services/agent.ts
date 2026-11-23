@@ -919,10 +919,13 @@ export class AgentManager {
 				: Promise.resolve([]),
 			projectQueries.getCustomBoundaries(this.chat.projectId),
 		]);
-		const mcpServers =
-			toolNames.includes('mcp_call') && hasNaoInternalMcpTools(this._toolContext)
-				? [...projectMcpServers, NAO_INTERNAL_MCP_SERVER]
-				: projectMcpServers;
+		const allowedMcpServers = this._profile.mcpServers;
+		const mcpServers = [
+			...projectMcpServers,
+			...(toolNames.includes('mcp_call') && hasNaoInternalMcpTools(this._toolContext)
+				? [NAO_INTERNAL_MCP_SERVER]
+				: []),
+		].filter((server) => !allowedMcpServers || allowedMcpServers.includes(server));
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
 				memories,

@@ -229,7 +229,7 @@ const searchNaoInternalMcp = async (
 	if (!searchPath || !(isNaoInternalMcpPath(searchPath) || isMcpSpecsFolder(searchPath))) {
 		return { matches: [], totalMatches: 0 };
 	}
-	const files = await listNaoInternalMcpSpecFilesUnder(context, searchPath);
+	const files = await listNaoInternalMcpSpecFilesUnder(context, searchPath, options.glob);
 	return searchVirtualFiles(rgPath, files, options);
 };
 

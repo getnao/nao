@@ -12,6 +12,7 @@ export function automationAgent(
 ): AgentProfile {
 	return {
 		source: 'automation',
+		mcpServers: automation.mcpServers,
 		tools: ({ agentSettings, toolContext, webTools }) =>
 			getTools(
 				agentSettings,

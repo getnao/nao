@@ -3,6 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { NAO_INTERNAL_MCP_SERVER } from '@nao/shared';
 import type { list } from '@nao/shared/tools';
+import { minimatch } from 'minimatch';
 import path from 'path';
 
 import { personalSkillMcpTools } from '../mcp/tools/personal-skills';
@@ -82,10 +83,15 @@ export async function readNaoInternalMcpFile(context: InternalMcpContext, virtua
 export async function listNaoInternalMcpSpecFilesUnder(
 	context: InternalMcpContext,
 	virtualPath: string,
+	glob?: string,
 ): Promise<NaoInternalMcpSpecFile[]> {
 	const root = normalizeVirtualPath(virtualPath);
 	const files = await listNaoInternalMcpSpecFiles(context);
-	return files.filter((file) => file.virtualPath === root || file.virtualPath.startsWith(`${root}/`));
+	return files.filter(
+		(file) =>
+			(file.virtualPath === root || file.virtualPath.startsWith(`${root}/`)) &&
+			(!glob || minimatch(file.virtualPath, glob, { matchBase: true, dot: true })),
+	);
 }
 
 /** One OpenAPI spec per tool, like the specs written for the project's servers. */
