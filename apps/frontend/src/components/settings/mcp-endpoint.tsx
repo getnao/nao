@@ -535,8 +535,10 @@ function useRotateBearerToken(onRotated: () => void) {
 			}
 			return data;
 		},
-		onSuccess: (data) => {
-			queryClient.setQueryData(trpc.mcpEndpoint.getBearerToken.queryOptions().queryKey, data);
+		onSuccess: async (data) => {
+			const queryKey = trpc.mcpEndpoint.getBearerToken.queryOptions().queryKey;
+			await queryClient.cancelQueries({ queryKey });
+			queryClient.setQueryData(queryKey, data);
 			authClient.$store.notify('$sessionSignal');
 			onRotated();
 		},
