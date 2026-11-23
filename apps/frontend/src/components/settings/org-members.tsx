@@ -5,13 +5,8 @@ import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
-import {
-	AddMemberDialog,
-	EditMemberDialog,
-	NewCredentialsDialog,
-	RemoveMemberDialog,
-	TeamMembersList,
-} from '@/components/settings/team';
+import { AddMemberDialog, NewCredentialsDialog, RemoveMemberDialog, TeamMembersList } from '@/components/settings/team';
+import { EditMemberDialog } from '@/components/settings/team/edit-member-dialog';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';

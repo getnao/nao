@@ -904,6 +904,17 @@ code.dollar:before {
 	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
+/*
+ * Off-screen message groups skip rendering; the padding keeps highlight outlines inside their paint containment.
+ * Groups showing an inline popup or an expanded map opt out, since containment would clip them.
+ */
+.chat-message-groups > :not(:last-child):not(:has([data-overflows-chat-group])) {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 600px;
+	margin: -0.5rem;
+	padding: 0.5rem;
+}
+
 .chat-artifact-reveal-highlight {
 	@apply rounded-lg;
 	outline: 1px solid var(--primary);

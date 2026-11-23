@@ -34,7 +34,7 @@ import { ActionErrorBanner } from '@/components/custom-story/custom-story-body';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { MentionedStoriesProvider } from '@/contexts/mentioned-stories';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanel, useSidePanelActions } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
@@ -170,7 +170,7 @@ function useStoryFormat(
 type MovedStory = { ownerName: string; storyId: string | null };
 
 function ClosableSidePanelNotice({ children, className }: { children: React.ReactNode; className?: string }) {
-	const { close } = useSidePanel();
+	const { close } = useSidePanelActions();
 	return (
 		<div className={cn('relative flex h-full', className)}>
 			<Button
