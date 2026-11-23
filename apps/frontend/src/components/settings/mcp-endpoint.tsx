@@ -503,7 +503,7 @@ function RotatableToken({ token }: { token: string }) {
 				onClick={() => setConfirmOpen(true)}
 				aria-label='Rotate token'
 				title='Rotate token'
-				className='absolute -right-5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/token:opacity-100'
+				className='absolute -right-7 top-1/2 -translate-y-1/2 p-0.5 pl-1.5 rounded cursor-pointer text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/token:opacity-100'
 			>
 				<RotateCw className='size-3' />
 			</button>
@@ -529,7 +529,10 @@ function useRotateBearerToken(onRotated: () => void) {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: async () => {
-			const { data, error } = await authClient.$fetch<{ token: string }>('/rotate-session', { method: 'POST' });
+			const { data, error } = await authClient.$fetch<{ token: string }>('/rotate-session', {
+				method: 'POST',
+				body: {},
+			});
 			if (error) {
 				throw new Error(error.message ?? 'Failed to rotate the token.');
 			}

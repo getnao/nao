@@ -75,7 +75,8 @@ function rotate(auth: TestAuth, token: string) {
 	return auth.handler(
 		new Request(`${BASE_URL}/api/auth/rotate-session`, {
 			method: 'POST',
-			headers: { authorization: `Bearer ${token}` },
+			headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+			body: '{}',
 		}),
 	);
 }
