@@ -25,6 +25,10 @@ import { logger } from '../utils/logger';
 
 export const AUTOMATION_JOB_NAME = 'automation.run';
 const STREAM_PERSIST_INTERVAL_MS = 1_000;
+const AUTOMATION_RUN_INTERRUPTED_MESSAGE = 'The automation run was interrupted because the server running it stopped.';
+
+/** The chat of each automation run in progress on this instance, by run id, once the chat exists. */
+const runningAutomationChats = new Map<string, string | undefined>();
 
 type AutomationJobPayload = {
 	automationId?: string;
@@ -69,6 +73,17 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 		throw new Error(`Automation not found: ${automationId}`);
 	}
 	return automation.projectId;
+}
+
+/** Fails the automation runs of this instance and stops their agents, so a restart never leaves a run going. */
+export async function interruptRunningAutomations(): Promise<void> {
+	const interruptions = [...runningAutomationChats].map(([runId, chatId]) => interruptAutomationRun(runId, chatId));
+	const results = await Promise.allSettled(interruptions);
+	results
+		.filter((result) => result.status === 'rejected')
+		.forEach((result) =>
+			logger.error(`Failed to interrupt an automation run: ${String(result.reason)}`, { source: 'system' }),
+		);
 }
 
 export async function runAutomation(
@@ -118,6 +133,7 @@ async function finishAutomationRun(
 	}: Pick<RunAutomationOptions, 'billingAccessVerifiedProjectId' | 'triggerEvent'>,
 ): Promise<DBAutomationRun> {
 	const automationId = automation.id;
+	runningAutomationChats.set(run.id, undefined);
 	try {
 		const automationUser = await userQueries.getUser({ id: automation.userId });
 		if (!automationUser) {
@@ -141,6 +157,7 @@ async function finishAutomationRun(
 			},
 		);
 		await automationQueries.attachRunChat(run.id, chat.id);
+		runningAutomationChats.set(run.id, chat.id);
 
 		const [uiChat] = await chatQueries.getChat(chat.id);
 		if (!uiChat) {
@@ -180,7 +197,7 @@ async function finishAutomationRun(
 		// Persist partial UIMessage snapshots while draining server-side so users
 		// can open the automation chat and see progress before the stream finishes.
 		const stream = agent.stream(uiChat.messages, { timezone: automation.timezone ?? undefined });
-		await drainAndPersistStream(stream, chat.id);
+		await drainAndPersistStream(stream, chat.id, () => agent.isStopped);
 
 		const messages = await chatQueries.getChatMessages(chat.id);
 		const assistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -228,16 +245,30 @@ async function finishAutomationRun(
 			});
 		}
 		throw err;
+	} finally {
+		runningAutomationChats.delete(run.id);
 	}
 }
 
+/** Fails the run before stopping its agent, so the failure of the cut agent loop never replaces the reason. */
+async function interruptAutomationRun(runId: string, chatId: string | undefined): Promise<void> {
+	await automationQueries.failAutomationRun(runId, AUTOMATION_RUN_INTERRUPTED_MESSAGE);
+	const agent = chatId ? agentService.get(chatId) : undefined;
+	agent?.stop();
+	await agent?.waitUntilFinished();
+}
+
+/** Stops saving snapshots once the agent is stopped, since the agent then saves the settled answer itself. */
 async function drainAndPersistStream(
 	stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 	chatId: string,
+	isStopped: () => boolean,
 ): Promise<void> {
 	const persistence = createStreamPersistence(chatId);
 	for await (const message of readUIMessageStream<UIMessage>({ stream })) {
-		await persistence.persist(message);
+		if (!isStopped()) {
+			await persistence.persist(message);
+		}
 	}
 }
 
