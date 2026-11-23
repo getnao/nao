@@ -197,6 +197,16 @@ export function PersonalSkillEditor({
 	);
 	const isDirty = description !== loaded.description || body !== loaded.body;
 
+	/** The server trims what it saves: the editor takes the saved text unless it was edited again meanwhile. */
+	const save = (edits: { name: string; description: string; body: string }) =>
+		update.mutate(edits, {
+			onSuccess: (saved) => {
+				setLoaded({ description: saved.description, body: saved.body });
+				setDescription((current) => (current === edits.description ? saved.description : current));
+				setBody((current) => (current === edits.body ? saved.body : current));
+			},
+		});
+
 	/** The skill changes under the editor when the chat beside it edits it: unsaved edits are kept over its version. */
 	if (skill.description !== loaded.description || skill.body !== loaded.body) {
 		setLoaded({ description: skill.description, body: skill.body });
@@ -229,7 +239,7 @@ export function PersonalSkillEditor({
 					<Button
 						disabled={!isDirty || !body.trim()}
 						isLoading={update.isPending}
-						onClick={() => update.mutate({ name: skill.name, description, body })}
+						onClick={() => save({ name: skill.name, description, body })}
 					>
 						Save
 					</Button>
@@ -383,8 +393,10 @@ export function NewSkillDialog({
 					className='flex flex-col gap-4'
 					onSubmit={(event) => {
 						event.preventDefault();
+						event.stopPropagation();
 						void handleCreate().catch(() => undefined);
 					}}
+					onKeyDown={(event) => event.stopPropagation()}
 				>
 					<DialogHeader>
 						<DialogTitle className='flex items-center gap-1.5'>
