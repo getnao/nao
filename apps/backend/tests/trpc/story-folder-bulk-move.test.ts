@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryProjectId: vi.fn(),
 	moveItemsToFolder: vi.fn(),
 	proposedParentChainContains: vi.fn(),
+	writeMove: vi.fn(),
 }));
 
 const SystemFolderError = vi.hoisted(
@@ -72,6 +73,12 @@ describe('storyFolder.bulkMove', () => {
 		mocks.getStoryById.mockImplementation(async (id: string) => ({ id, chatId: `chat-${id}` }));
 		mocks.getAgent.mockReturnValue(undefined);
 		mocks.proposedParentChainContains.mockResolvedValue(false);
+		mocks.moveItemsToFolder.mockImplementation(
+			async (_userId, _projectId, _items, _targetId, assertAllowed: () => Promise<void>) => {
+				await assertAllowed();
+				mocks.writeMove();
+			},
+		);
 	});
 
 	it('moves every selected folder and story into the target folder in one batch', async () => {
@@ -93,7 +100,9 @@ describe('storyFolder.bulkMove', () => {
 				],
 			},
 			'target',
+			expect.any(Function),
 		);
+		expect(mocks.writeMove).toHaveBeenCalledTimes(1);
 	});
 
 	it('moves nothing when the target sits inside a selected folder', async () => {
@@ -109,7 +118,7 @@ describe('storyFolder.bulkMove', () => {
 			}),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 
-		expect(mocks.moveItemsToFolder).not.toHaveBeenCalled();
+		expect(mocks.writeMove).not.toHaveBeenCalled();
 	});
 
 	it('moves nothing when the agent is editing a selected story', async () => {

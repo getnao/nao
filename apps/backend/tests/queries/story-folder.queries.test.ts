@@ -1,5 +1,6 @@
 import '../../src/env';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
@@ -7,7 +8,7 @@ import { db } from '../../src/db/db';
 import { getStoryShareAccess } from '../../src/queries/shared-story.queries';
 import { canUserAccessStory } from '../../src/queries/story.queries';
 import { getByStoryId } from '../../src/queries/story-delivery.queries';
-import type { FolderViewer } from '../../src/queries/story-folder.queries';
+import type { FolderAudience, FolderViewer } from '../../src/queries/story-folder.queries';
 import {
 	archiveFolder,
 	createFolder,
@@ -17,9 +18,11 @@ import {
 	listFolderTree,
 	moveFolder,
 	moveStoryToFolder,
+	resolveFolderAudience,
 	setGroupTeamFolders,
 	TeamFolderError,
 	unarchiveFolder,
+	withProjectFolderLock,
 } from '../../src/queries/story-folder.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -161,6 +164,36 @@ describe('team folders', () => {
 
 		await moveStoryToFolder(STORY_ID, privateRoot, placement);
 		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toBeNull();
+	});
+
+	it("checks a move against the folder's audience left by a change still running when the move started", async () => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		const checkedAudiences: FolderAudience[] = [];
+		let removeGroup!: () => void;
+		const adminChange = withProjectFolderLock(PROJECT_ID, async () => {
+			await new Promise<void>((resolve) => {
+				removeGroup = resolve;
+			});
+			await db.delete(s.storyFolderGroup).where(eq(s.storyFolderGroup.folderId, sales.id));
+		});
+
+		const move = moveStoryToFolder(STORY_ID, sales.id, {
+			storyOwnerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			assertAllowed: async () => {
+				checkedAudiences.push(await resolveFolderAudience(sales.id));
+			},
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		removeGroup();
+		await Promise.all([adminChange, move]);
+
+		expect(checkedAudiences).toEqual([{ kind: 'project' }]);
 	});
 
 	it.each([

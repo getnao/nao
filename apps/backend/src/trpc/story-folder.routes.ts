@@ -156,6 +156,21 @@ async function assertTargetOutsideMovedFolders(folderIds: string[], targetFolder
 	}
 }
 
+async function assertCanBulkMove(
+	input: { storyIds: string[]; folderIds: string[]; targetFolderId: string | null },
+	ctx: FolderContext,
+) {
+	const target = await resolveMoveTarget(input.targetFolderId, ctx);
+	await Promise.all(input.folderIds.map((id) => assertCanMoveFolder(id, target, ctx)));
+	await assertTargetOutsideMovedFolders(input.folderIds, input.targetFolderId);
+	if (input.storyIds.length > 0) {
+		await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(input.targetFolderId), ctx);
+	}
+	for (const folderId of input.folderIds) {
+		await assertCanShareMovedFolder(folderId, input.targetFolderId, ctx);
+	}
+}
+
 async function runFolderMove<T>(move: () => Promise<T>): Promise<T> {
 	try {
 		return await move();
@@ -290,11 +305,12 @@ export const storyFolderRoutes = {
 	move: canSendProcedure
 		.input(z.object({ id: z.string(), newParentId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
-			const target = await resolveMoveTarget(input.newParentId, ctx);
-			await assertCanMoveFolder(input.id, target, ctx);
-			await assertCanShareMovedFolder(input.id, input.newParentId, ctx);
 			await runFolderMove(() =>
-				storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId),
+				storyFolderQueries.moveFolder(ctx.user.id, ctx.project.id, input.id, input.newParentId, async () => {
+					const target = await resolveMoveTarget(input.newParentId, ctx);
+					await assertCanMoveFolder(input.id, target, ctx);
+					await assertCanShareMovedFolder(input.id, input.newParentId, ctx);
+				}),
 			);
 		}),
 
@@ -302,11 +318,16 @@ export const storyFolderRoutes = {
 		.input(z.object({ storyId: z.string(), folderId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
 			const storyOwnerId = await assertCanMoveStory(input.storyId, ctx);
-			await resolveMoveTarget(input.folderId, ctx, 'Folder');
-			await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(input.folderId), ctx);
 			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {
 				storyOwnerId,
 				projectId: ctx.project.id,
+				assertAllowed: async () => {
+					await resolveMoveTarget(input.folderId, ctx, 'Folder');
+					await assertCanShareWithAudience(
+						await storyFolderQueries.resolveFolderAudience(input.folderId),
+						ctx,
+					);
+				},
 			});
 		}),
 
@@ -323,21 +344,7 @@ export const storyFolderRoutes = {
 				}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const target = await resolveMoveTarget(input.targetFolderId, ctx);
-			await Promise.all(input.folderIds.map((id) => assertCanMoveFolder(id, target, ctx)));
 			const storyOwnerIds = await Promise.all(input.storyIds.map((id) => assertCanMoveStory(id, ctx)));
-			await assertTargetOutsideMovedFolders(input.folderIds, input.targetFolderId);
-
-			if (input.storyIds.length > 0) {
-				await assertCanShareWithAudience(
-					await storyFolderQueries.resolveFolderAudience(input.targetFolderId),
-					ctx,
-				);
-			}
-			for (const folderId of input.folderIds) {
-				await assertCanShareMovedFolder(folderId, input.targetFolderId, ctx);
-			}
-
 			const stories = input.storyIds.map((storyId, index) => ({ storyId, storyOwnerId: storyOwnerIds[index] }));
 			await runFolderMove(() =>
 				storyFolderQueries.moveItemsToFolder(
@@ -345,6 +352,7 @@ export const storyFolderRoutes = {
 					ctx.project.id,
 					{ folderIds: input.folderIds, stories },
 					input.targetFolderId,
+					() => assertCanBulkMove(input, ctx),
 				),
 			);
 		}),

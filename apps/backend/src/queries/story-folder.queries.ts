@@ -23,6 +23,9 @@ type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'exclude
 
 type FolderMoveTx = DBTransaction;
 
+/** Checks that must still hold when the move is written, so they run under the project folder lock. */
+type MoveCheck = () => Promise<void>;
+
 const writeTransactionConfig = dbConfig.dialect === Dialect.Sqlite ? { behavior: 'immediate' as const } : undefined;
 
 export class MoveFolderCycleError extends Error {
@@ -571,10 +574,16 @@ export async function moveFolder(
 	projectId: string,
 	id: string,
 	newParentId: string | null,
+	assertAllowed?: MoveCheck,
 ): Promise<void> {
-	await assertNotSystemFolder(id);
-
-	await inProjectFolderTransaction(projectId, (tx) => relocateFolder(userId, projectId, id, newParentId, tx));
+	await inProjectFolderTransaction(
+		projectId,
+		async (tx) => {
+			await assertNotSystemFolder(id, tx);
+			await relocateFolder(userId, projectId, id, newParentId, tx);
+		},
+		assertAllowed,
+	);
 }
 
 /** All-or-nothing, so a failing item never leaves part of the selection moved. */
@@ -583,19 +592,23 @@ export async function moveItemsToFolder(
 	projectId: string,
 	items: { folderIds: string[]; stories: { storyId: string; storyOwnerId: string }[] },
 	targetFolderId: string | null,
+	assertAllowed?: MoveCheck,
 ): Promise<void> {
-	for (const folderId of items.folderIds) {
-		await assertNotSystemFolder(folderId);
-	}
-
-	await inProjectFolderTransaction(projectId, async (tx) => {
-		for (const folderId of items.folderIds) {
-			await relocateFolder(userId, projectId, folderId, targetFolderId, tx);
-		}
-		for (const { storyId, storyOwnerId } of items.stories) {
-			await placeStoryInFolder(storyId, targetFolderId, { storyOwnerId, projectId }, tx);
-		}
-	});
+	await inProjectFolderTransaction(
+		projectId,
+		async (tx) => {
+			for (const folderId of items.folderIds) {
+				await assertNotSystemFolder(folderId, tx);
+			}
+			for (const folderId of items.folderIds) {
+				await relocateFolder(userId, projectId, folderId, targetFolderId, tx);
+			}
+			for (const { storyId, storyOwnerId } of items.stories) {
+				await placeStoryInFolder(storyId, targetFolderId, { storyOwnerId, projectId }, tx);
+			}
+		},
+		assertAllowed,
+	);
 }
 
 async function relocateFolder(
@@ -684,13 +697,17 @@ export async function ensureStoryPrivate(
 export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
-	options: { storyOwnerId: string; projectId: string },
+	options: { storyOwnerId: string; projectId: string; assertAllowed?: MoveCheck },
 	transaction?: DBTransaction,
 ): Promise<void> {
 	if (transaction) {
 		return placeStoryInFolder(storyId, folderId, options, transaction);
 	}
-	await inProjectFolderTransaction(options.projectId, (tx) => placeStoryInFolder(storyId, folderId, options, tx));
+	await inProjectFolderTransaction(
+		options.projectId,
+		(tx) => placeStoryInFolder(storyId, folderId, options, tx),
+		options.assertAllowed,
+	);
 }
 
 /** Folder placement and share visibility must change together, otherwise a story can sit in a public folder unshared. */
@@ -1187,8 +1204,15 @@ export function withProjectFolderLock<T>(projectId: string, work: () => Promise<
 	return withKeyedLock(`story-folders:${projectId}`, work);
 }
 
-function inProjectFolderTransaction<T>(projectId: string, work: (tx: FolderMoveTx) => Promise<T>): Promise<T> {
-	return withProjectFolderLock(projectId, () => db.transaction(work, writeTransactionConfig));
+function inProjectFolderTransaction<T>(
+	projectId: string,
+	work: (tx: FolderMoveTx) => Promise<T>,
+	assertAllowed?: MoveCheck,
+): Promise<T> {
+	return withProjectFolderLock(projectId, async () => {
+		await assertAllowed?.();
+		return db.transaction(work, writeTransactionConfig);
+	});
 }
 
 export async function proposedParentChainContains(
