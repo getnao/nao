@@ -53,6 +53,12 @@ groups:
                     - column: region
                       operator: is_one_of
                       values: [emea, apac]
+          columns:
+              - database_type: Postgres
+                database: warehouse
+                schema: finance
+                table: employees
+                granted_columns: [salary, iban]
 `;
 
 describe('parseUserGroupsConfig', () => {
@@ -79,6 +85,18 @@ describe('parseUserGroupsConfig', () => {
 			filesAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'semantics/revenue.yaml' }] },
 			rowPolicies: {
 				policies: [{ table: 'invoices', conditions: [{ operator: 'is-one-of', value: 'emea,apac' }] }],
+			},
+			columnPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: 'postgres',
+						database: 'warehouse',
+						schema: 'finance',
+						table: 'employees',
+						grantedColumns: ['iban', 'salary'],
+					},
+				],
 			},
 		});
 		expect(parsed.hash).toMatch(/^[a-f0-9]{64}$/);
@@ -111,9 +129,12 @@ describe('parseUserGroupsConfig', () => {
 			'Protected tables are not managed by groups.yaml yet',
 		],
 		[
-			'a column policy',
-			['          rows:', '          columns: [{table: t}]\n          rows:'],
-			'not supported yet',
+			'two column policies on one table',
+			[
+				'granted_columns: [salary, iban]',
+				'granted_columns: [salary]\n              - {database_type: postgres, database: warehouse, schema: finance, table: employees, granted_columns: [iban]}',
+			],
+			'Each table can only have one column policy.',
 		],
 		['a comma in a list value', ['values: [emea, apac]', 'values: ["emea,apac"]'], 'cannot contain commas'],
 	])('rejects %s', (_label, [search, replacement], message) => {

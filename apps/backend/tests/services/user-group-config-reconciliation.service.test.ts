@@ -54,7 +54,7 @@ describe('user group config reconciliation', () => {
 
 		expect(enabled.summary).toMatchObject({ adopted: 1, archived: 1 });
 		expect(enabled.pendingEmails).toEqual([]);
-		expect(enabled.shareRevocations).toEqual({ chats: 1, stories: 0 });
+		expect(enabled.shareRevocations).toEqual({ chats: 1, stories: 0, automations: 0 });
 		expect(await db.select().from(s.sharedChat)).toEqual([]);
 		expect(await projectMode()).toBe('code');
 		expect(await storedGroup()).toMatchObject({

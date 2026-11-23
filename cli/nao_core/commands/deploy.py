@@ -166,5 +166,6 @@ def _print_user_group_diff(diff: object) -> None:
         revocation_data = cast(dict[str, object], revocations)
         chats = revocation_data.get("chats", 0)
         stories = revocation_data.get("stories", 0)
-        if chats or stories:
-            UI.warn(f"Shares revoked: {chats} chats, {stories} stories")
+        automations = revocation_data.get("automations", 0)
+        if chats or stories or automations:
+            UI.warn(f"Shares revoked: {chats} chats, {stories} stories, {automations} automations")

@@ -102,7 +102,7 @@ Rules the agent cannot infer:
 - **Hidden defaults are closed**: no features, no MCP, no skills, no databases, no files. A group with no settings sees nothing beyond what `all_users` grants.
 - **Membership is a union** of `list_of_emails` and users whose SSO groups match `sso_groups` at login. An email with no project user yet stays pending. The file never sends invitations.
 - **Docs are files**: grant `docs/...` under `access.files`. A `docs` folder grant opens every doc.
-- **`policies.columns` must stay `[]`**, and leave `protected_tables` and `budget` out. Both are reserved and still managed in the UI.
+- **Leave `protected_tables` and `budget` out.** Both are reserved and still managed in the UI, like the tables and columns that row and column policies point to.
 
 #### `capabilities`
 
@@ -171,10 +171,17 @@ policies:
               predicate: WHERE amount < 10000,
           }
         - { database_type: postgres, database: warehouse, schema: finance, table: budgets, access: full }
-    columns: []
+    columns:
+        - database_type: postgres
+          database: warehouse
+          schema: finance
+          table: employees
+          granted_columns: [salary, iban] # hidden columns this group can see
 ```
 
 Operators: `equals`, `does_not_equal`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal` take `value`. `is_one_of` and `is_not_one_of` take `values`. `is_null` and `is_not_null` take neither. SQL predicates must start with `WHERE`.
+
+Row policies only apply to tables protected in the Row-level security settings. Column policies only apply to tables with hidden fields in the Column-level security settings, can only grant those hidden columns, and need the table in `access.databases`. One policy per table.
 
 #### `sso_groups`
 

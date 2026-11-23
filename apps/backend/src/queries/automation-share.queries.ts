@@ -3,6 +3,7 @@ import { and, countDistinct, eq, inArray, isNull, notInArray } from 'drizzle-orm
 
 import s, { type DBAutomation } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
 import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
 import { getUserRoleInProject } from './project.queries';
 
@@ -70,8 +71,11 @@ export async function listAutomationGroupGrants(automationId: string): Promise<A
 		})
 		.from(s.automationShare)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.automationShare.groupId))
-		.leftJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.userGroup.id))
-		.where(eq(s.automationShare.automationId, automationId))
+		.leftJoin(
+			s.userGroupMember,
+			and(eq(s.userGroupMember.groupId, s.userGroup.id), activeUserGroupMembershipCondition),
+		)
+		.where(and(eq(s.automationShare.automationId, automationId), activeUserGroupCondition))
 		.groupBy(s.userGroup.id, s.userGroup.name, s.automationShare.role)
 		.orderBy(s.userGroup.name)
 		.execute();
@@ -177,9 +181,12 @@ async function listActiveGroupIdsOfMember(userId: string): Promise<string[]> {
 	const rows = await db
 		.selectDistinct({ groupId: s.userGroupMember.groupId })
 		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 		.where(
 			and(
 				eq(s.userGroupMember.userId, userId),
+				activeUserGroupMembershipCondition,
+				activeUserGroupCondition,
 				lockedGroupIds.length > 0 ? notInArray(s.userGroupMember.groupId, lockedGroupIds) : undefined,
 			),
 		)

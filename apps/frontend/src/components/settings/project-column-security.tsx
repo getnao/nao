@@ -37,9 +37,11 @@ type ColumnSecurityDialog = { mode: 'add' } | { mode: 'edit'; definition: Sensit
 export function ProjectColumnSecurity({
 	objects,
 	catalogState = 'ready',
+	groupPoliciesManagedAsCode = false,
 }: {
 	objects: DatabaseContextObject[];
 	catalogState?: 'loading' | 'error' | 'ready';
+	groupPoliciesManagedAsCode?: boolean;
 }) {
 	const queryClient = useQueryClient();
 	const security = useQuery(trpc.userGroup.columnSecurity.queryOptions());
@@ -135,7 +137,11 @@ export function ProjectColumnSecurity({
 		<>
 			<SettingsCard
 				title='Sensitive fields (column-level security)'
-				description='Limit which columns each group can access. Selected fields are hidden by default, then can be made visible to specific groups in Data access.'
+				description={
+					groupPoliciesManagedAsCode
+						? 'Hidden fields remain managed here. Group column policies are read-only and managed in groups.yaml.'
+						: 'Limit which columns each group can access. Selected fields are hidden by default, then can be made visible to specific groups in Data access.'
+				}
 				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 				unstyled
 			>

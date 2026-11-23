@@ -31,7 +31,7 @@ export interface UserGroupConfigDiff {
 	allUsersChanged: boolean;
 	groups: UserGroupConfigChange[];
 	pendingEmails: string[];
-	shareRevocations: { chats: number; stories: number };
+	shareRevocations: { chats: number; stories: number; automations: number };
 	summary: Record<UserGroupConfigAction, number>;
 }
 
@@ -149,6 +149,7 @@ export async function diffUserGroupsConfig(
 		shareRevocations: {
 			chats: groupShareRevocations.chats + projectShareRevocations.chatCount,
 			stories: groupShareRevocations.stories + projectShareRevocations.storyCount,
+			automations: groupShareRevocations.automations + projectShareRevocations.automationCount,
 		},
 		summary: Object.fromEntries(
 			(['created', 'adopted', 'updated', 'archived', 'reactivated', 'unchanged'] as const).map((action) => [
@@ -205,6 +206,7 @@ function sameSettings(
 		mcpAccess: current.mcpAccess,
 		skillsAccess: current.skillsAccess,
 		rowPolicies: current.rowPolicies,
+		columnPolicies: current.columnPolicies,
 	};
 	const comparable: NormalizedUserGroupSettings = {
 		features: desired.features,
@@ -220,6 +222,7 @@ function sameSettings(
 		mcpAccess: desired.mcpAccess,
 		skillsAccess: desired.skillsAccess,
 		rowPolicies: desired.rowPolicies,
+		columnPolicies: desired.columnPolicies,
 	};
 	return JSON.stringify(stored) === JSON.stringify(comparable);
 }
@@ -239,11 +242,13 @@ function groupUsersByNormalizedEmail(
 	return grouped;
 }
 
-async function countShareRevocations(groupIds: string[]): Promise<{ chats: number; stories: number }> {
+async function countShareRevocations(
+	groupIds: string[],
+): Promise<{ chats: number; stories: number; automations: number }> {
 	if (groupIds.length === 0) {
-		return { chats: 0, stories: 0 };
+		return { chats: 0, stories: 0, automations: 0 };
 	}
-	const [[chatCount], [storyCount]] = await Promise.all([
+	const [[chatCount], [storyCount], [automationCount]] = await Promise.all([
 		db
 			.select({ count: count() })
 			.from(s.sharedChatGroupAccess)
@@ -254,8 +259,17 @@ async function countShareRevocations(groupIds: string[]): Promise<{ chats: numbe
 			.from(s.sharedStoryGroupAccess)
 			.where(inArray(s.sharedStoryGroupAccess.groupId, groupIds))
 			.execute(),
+		db
+			.select({ count: count() })
+			.from(s.automationShare)
+			.where(inArray(s.automationShare.groupId, groupIds))
+			.execute(),
 	]);
-	return { chats: chatCount?.count ?? 0, stories: storyCount?.count ?? 0 };
+	return {
+		chats: chatCount?.count ?? 0,
+		stories: storyCount?.count ?? 0,
+		automations: automationCount?.count ?? 0,
+	};
 }
 
 function diffGroupSettings(before: ResolvedUserGroupEntry, after: ResolvedUserGroupEntry): UserGroupSettingChange[] {

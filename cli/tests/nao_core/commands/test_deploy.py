@@ -15,7 +15,7 @@ def test_dry_run_sends_preview_flag_and_renders_summary(tmp_path, monkeypatch):
             "userGroups": {
                 "summary": {"created": 1, "unchanged": 2},
                 "pendingEmails": ["pending@example.com"],
-                "shareRevocations": {"chats": 1, "stories": 0},
+                "shareRevocations": {"chats": 1, "stories": 0, "automations": 2},
             },
         },
     )
@@ -32,4 +32,4 @@ def test_dry_run_sends_preview_flag_and_renders_summary(tmp_path, monkeypatch):
     assert post.call_args.kwargs["params"] == {"dryRun": "true"}
     assert any("created: 1" in str(call.args[0]) for call in print_message.call_args_list)
     assert any("pending@example.com" in str(call.args[0]) for call in warn.call_args_list)
-    assert any("1 chats, 0 stories" in str(call.args[0]) for call in warn.call_args_list)
+    assert any("1 chats, 0 stories, 2 automations" in str(call.args[0]) for call in warn.call_args_list)

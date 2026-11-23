@@ -14,6 +14,7 @@ import {
 	normalizeFileTreePath,
 	normalizeMcpAccess,
 	normalizeSkillsAccess,
+	normalizeUserGroupColumnPolicies,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	PROJECT_SHARING_PERMISSIONS,
@@ -28,6 +29,7 @@ import {
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
 	USER_ROLES,
+	type UserGroupColumnPolicies,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 	type UserGroupSsoMappings,
@@ -228,10 +230,27 @@ const rowPolicySchema = z.discriminatedUnion('access', [
 	]),
 ]);
 
+const columnPolicySchema = z
+	.object({
+		...tableIdentityShape,
+		granted_columns: z
+			.array(contextNameSchema)
+			.min(1)
+			.max(256)
+			.refine((columns) => new Set(columns).size === columns.length, 'Granted columns must be unique.'),
+	})
+	.strict();
+
 const policiesSchema = z
 	.object({
 		rows: z.array(rowPolicySchema).max(MAX_GRANTS),
-		columns: z.array(z.unknown()).max(0, 'Column policies are not supported yet. Leave the list empty.'),
+		columns: z
+			.array(columnPolicySchema)
+			.max(MAX_GRANTS)
+			.refine(
+				(columns) => new Set(columns.map((column) => tableKey(column))).size === columns.length,
+				'Each table can only have one column policy.',
+			),
 	})
 	.strict()
 	.partial();
@@ -314,6 +333,7 @@ export interface NormalizedUserGroupSettings {
 	mcpAccess: McpAccess;
 	skillsAccess: SkillsAccess;
 	rowPolicies: UserGroupRowPolicies;
+	columnPolicies: UserGroupColumnPolicies;
 }
 
 export interface NormalizedConfiguredUserGroup extends NormalizedUserGroupSettings {
@@ -514,6 +534,16 @@ function toNormalizedSettings({ capabilities, access, policies }: ResolvedSettin
 			skills.mode === 'all' ? { mode: 'all' } : { mode: 'restricted', skills: skills.allowed },
 		),
 		rowPolicies: normalizeUserGroupRowPolicies(toRowPolicies(policies.rows)),
+		columnPolicies: normalizeUserGroupColumnPolicies({
+			version: 1,
+			policies: policies.columns.map(
+				({ database_type: databaseType, granted_columns: grantedColumns, ...table }) => ({
+					...table,
+					databaseType,
+					grantedColumns,
+				}),
+			),
+		}),
 	};
 }
 
@@ -596,6 +626,10 @@ export function groupIdFromName(name: string): string {
 		return 'group';
 	}
 	return /^[a-z]/.test(slug) ? slug : `group_${slug}`;
+}
+
+function tableKey(table: { database_type: string; database: string; schema: string; table: string }): string {
+	return [table.database_type.toLowerCase(), table.database, table.schema, table.table].join('\0');
 }
 
 function snakeCaseAll<T extends string>(values: readonly T[]): [string, ...string[]] {

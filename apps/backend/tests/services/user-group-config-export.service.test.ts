@@ -14,6 +14,7 @@ import { formatUserGroupsConfig } from '../../src/services/user-group-config-for
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const createTemporaryFolder = useTemporaryFolders();
+const EMPLOYEES_TABLE = { databaseType: 'postgres', database: 'warehouse', schema: 'hr', table: 'employees' };
 
 describe('exportUserGroupsConfig', () => {
 	it('exports a minimal file that parses back to the stored groups', async () => {
@@ -41,6 +42,7 @@ describe('exportUserGroupsConfig', () => {
 				name: 'Finance',
 				configKey: 'finance',
 				featureGrants: storedFeatureGrants(true),
+				columnPolicies: { version: 1, policies: [{ ...EMPLOYEES_TABLE, grantedColumns: ['iban', 'salary'] }] },
 			},
 		]);
 		await db
@@ -61,6 +63,7 @@ describe('exportUserGroupsConfig', () => {
 				name: 'Finance',
 				members: ['pending@example.com'],
 				advancedContextExplorer: true,
+				columnPolicies: { version: 1, policies: [{ ...EMPLOYEES_TABLE, grantedColumns: ['iban', 'salary'] }] },
 			}),
 			expect.objectContaining({
 				key: 'les_nobles',

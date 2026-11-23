@@ -24,6 +24,17 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 			},
 		],
 	}),
+	getProjectColumnSecurity: () => ({
+		tables: [
+			{
+				databaseType: 'postgres',
+				database: 'warehouse',
+				schema: 'finance',
+				table: 'invoices',
+				restrictedColumns: ['amount', 'iban'],
+			},
+		],
+	}),
 }));
 vi.mock('../../src/services/file-tree-catalog.service', () => ({
 	getDocsContextCatalog: () => ({ entries: [] }),
@@ -51,6 +62,9 @@ const ROW_POLICY = `
       policies:
           rows:
               - {database_type: postgres, database: warehouse, schema: finance, table: invoices, access: full}`;
+const SCHEMA_ACCESS = `
+      access:
+          databases: {mode: restricted, grants: [{kind: schema, database_type: postgres, database: warehouse, schema: finance}]}`;
 
 describe('validateUserGroupsConfig', () => {
 	beforeEach(() => {
@@ -92,6 +106,26 @@ describe('validateUserGroupsConfig', () => {
 		await expect(
 			validateUserGroupsConfig({ orgId: 'org-id' }, '/project', parseGroups(`    - id: finance${ROW_POLICY}`)),
 		).rejects.toThrow('references a table that is not protected');
+	});
+
+	it('accepts a column policy on hidden columns of a table the group can access', async () => {
+		mocks.hasFeature.mockResolvedValue(true);
+
+		await expect(
+			validateUserGroupsConfig(PROJECT, '/project', parseGroups(columnPolicyGroup('table: invoices', '[iban]'))),
+		).resolves.toBeUndefined();
+	});
+
+	it.each([
+		['a table without hidden columns', 'table: payments', '[iban]', SCHEMA_ACCESS, 'without hidden columns'],
+		['a column that is not hidden', 'table: invoices', '[region]', SCHEMA_ACCESS, 'Invalid granted column'],
+		['a table outside the group access', 'table: invoices', '[iban]', '', 'without access to finance.invoices'],
+	])('rejects a column policy on %s', async (_label, table, columns, access, message) => {
+		mocks.hasFeature.mockResolvedValue(true);
+
+		await expect(
+			validateUserGroupsConfig(PROJECT, '/project', parseGroups(columnPolicyGroup(table, columns, access))),
+		).rejects.toThrow(message);
 	});
 
 	it('reports every unknown reference at once', async () => {
@@ -148,6 +182,13 @@ describe('validateUserGroupsConfig', () => {
 const SKILL_GROUP = `    - id: finance
       capabilities:
           skills: {mode: restricted, allowed: [analysis], preloaded: [analysis]}`;
+
+function columnPolicyGroup(table: string, grantedColumns: string, access = SCHEMA_ACCESS) {
+	return `    - id: finance${access}
+      policies:
+          columns:
+              - {database_type: postgres, database: warehouse, schema: finance, ${table}, granted_columns: ${grantedColumns}}`;
+}
 
 function parseGroups(groups: string) {
 	return parseUserGroupsConfig(`groups:\n    - id: all_users\n${groups}\n`);

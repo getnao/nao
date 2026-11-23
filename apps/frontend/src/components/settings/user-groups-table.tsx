@@ -185,7 +185,11 @@ function UserGroupsContent({
 							onRetryCatalog={() => void contextCatalog.refetch()}
 							groupPoliciesManagedAsCode={isCodeManaged}
 						/>
-						<ProjectColumnSecurity objects={contextObjects} catalogState={databaseCatalogState} />
+						<ProjectColumnSecurity
+							objects={contextObjects}
+							catalogState={databaseCatalogState}
+							groupPoliciesManagedAsCode={isCodeManaged}
+						/>
 					</div>
 				)}
 			</TabPanel>

@@ -66,6 +66,17 @@ describe('automation sharing', () => {
 		await expect(rolesOf([MEMBER_ID, GROUP_MEMBER_ID])).resolves.toEqual([null, 'editor']);
 	});
 
+	it.each([
+		['an inactive membership', s.userGroupMember, { active: false }, { active: true }],
+		['an archived group', s.userGroup, { archivedAt: new Date() }, { archivedAt: null }],
+	] as const)('ignores the group role through %s', async (_label, table, change, restore) => {
+		await replaceAutomationShares(AUTOMATION.id, [{ userId: null, groupId: GROUP_ID, role: 'editor' }]);
+		await db.update(table).set(change);
+
+		await expect(rolesOf([GROUP_MEMBER_ID])).resolves.toEqual([null]);
+		await db.update(table).set(restore);
+	});
+
 	it('never lets a project viewer edit', async () => {
 		await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: MEMBER_ID, role: 'viewer' });
 		await replaceAutomationShares(AUTOMATION.id, [{ userId: MEMBER_ID, groupId: null, role: 'editor' }]);

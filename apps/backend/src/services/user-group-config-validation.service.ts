@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { compileRowSecurityConditions, rowSecurityTableKey, stripRowSecurityWhereClause } from '@nao/shared';
+import {
+	columnSecurityTableKey,
+	compileRowSecurityConditions,
+	isDatabaseContextTableGranted,
+	rowSecurityTableKey,
+	stripRowSecurityWhereClause,
+} from '@nao/shared';
 import matter from 'gray-matter';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
@@ -68,6 +74,7 @@ export async function validateUserGroupsConfig(
 	assertEnvironmentMappingsDisabled();
 	lintUserGroupsConfig(projectPath, config);
 	await assertRowPolicies(scope, config);
+	await assertColumnPolicies(scope, config);
 }
 
 async function assertLicenses(
@@ -94,7 +101,7 @@ async function assertLicenses(
 		!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, scope))
 	) {
 		throw new UserGroupConfigError(
-			'Row policies and restricted MCP or skill access require an Enterprise license.',
+			'Row and column policies and restricted MCP or skill access require an Enterprise license.',
 		);
 	}
 }
@@ -103,7 +110,8 @@ function sameLicensedSettings(left: NormalizedUserGroupSettings, right: Normaliz
 	return (
 		JSON.stringify(left.mcpAccess) === JSON.stringify(right.mcpAccess) &&
 		JSON.stringify(left.skillsAccess) === JSON.stringify(right.skillsAccess) &&
-		JSON.stringify(left.rowPolicies) === JSON.stringify(right.rowPolicies)
+		JSON.stringify(left.rowPolicies) === JSON.stringify(right.rowPolicies) &&
+		JSON.stringify(left.columnPolicies) === JSON.stringify(right.columnPolicies)
 	);
 }
 
@@ -111,6 +119,7 @@ function sameLicensedSettings(left: NormalizedUserGroupSettings, right: Normaliz
 function requiresRowSecurityLicense(settings: NormalizedUserGroupSettings): boolean {
 	return (
 		settings.rowPolicies.policies.length > 0 ||
+		settings.columnPolicies.policies.length > 0 ||
 		(settings.mcpAccess.mode === 'restricted' && settings.mcpAccess.grants.length > 0) ||
 		(settings.skillsAccess.mode === 'restricted' && settings.skillsAccess.skills.length > 0)
 	);
@@ -248,6 +257,30 @@ async function assertRowPolicies(scope: LicenseScope, config: NormalizedUserGrou
 					? compileRowSecurityConditions(policy.conditions, table.databaseType, policy.combinator)
 					: stripRowSecurityWhereClause(policy.predicate)!;
 			await validateWarehouseRowPredicate(predicate, table.constraintColumns, table.databaseType);
+		}
+	}
+}
+
+async function assertColumnPolicies(scope: LicenseScope, config: NormalizedUserGroupsConfig): Promise<void> {
+	const registry =
+		'projectId' in scope ? await userGroupQueries.getProjectColumnSecurity(scope.projectId) : { tables: [] };
+	const registered = new Map(registry.tables.map((table) => [columnSecurityTableKey(table), table]));
+	for (const settings of [config.allUsers, ...config.groups]) {
+		for (const policy of settings.columnPolicies.policies) {
+			const table = registered.get(columnSecurityTableKey(policy));
+			if (!table) {
+				throw new UserGroupConfigError(
+					`Column policy on ${policy.schema}.${policy.table} references a table without hidden columns. Register it in the Column security settings first.`,
+				);
+			}
+			if (!isDatabaseContextTableGranted(settings.databaseAccess, policy)) {
+				throw new UserGroupConfigError(
+					`Column access cannot be granted without access to ${table.schema}.${table.table}.`,
+				);
+			}
+			if (policy.grantedColumns.some((column) => !table.restrictedColumns.includes(column))) {
+				throw new UserGroupConfigError(`Invalid granted column for ${table.schema}.${table.table}.`);
+			}
 		}
 	}
 }

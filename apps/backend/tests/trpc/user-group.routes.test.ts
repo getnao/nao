@@ -328,6 +328,20 @@ describe('user group routes', () => {
 		});
 	});
 
+	it('rejects a column registry change that would prune a groups.yaml column policy', async () => {
+		const orders = { databaseType: 'duckdb', database: 'sales', schema: 'main', table: 'orders' };
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
+		mocks.listUserGroups.mockResolvedValue([
+			{ id: 'group-id', columnPolicies: { version: 1, policies: [{ ...orders, grantedColumns: ['email'] }] } },
+		]);
+
+		await expect(
+			caller.updateColumnSecurity({ version: 1, tables: [{ ...orders, restrictedColumns: ['phone'] }] }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('groups.yaml column policy') });
+		expect(mocks.withUserGroupConfigLock).toHaveBeenCalledWith('project-id', expect.any(Function));
+		expect(mocks.updateProjectColumnSecurity).not.toHaveBeenCalled();
+	});
+
 	it('passes the expected column registry revision into updates', async () => {
 		const orders = {
 			databaseType: 'duckdb',

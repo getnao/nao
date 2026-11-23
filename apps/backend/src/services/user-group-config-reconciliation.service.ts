@@ -1,4 +1,5 @@
 import {
+	serializeUserGroupColumnPolicies,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
 	serializeUserGroupRowPolicies,
@@ -225,6 +226,7 @@ async function applyConfig(
 				pendingEmails: diff.pendingEmails.length,
 				chatShareRevocations: diff.shareRevocations.chats,
 				storyShareRevocations: diff.shareRevocations.stories,
+				automationShareRevocations: diff.shareRevocations.automations,
 			},
 		}),
 	);
@@ -367,7 +369,7 @@ function membershipOperations(
 function storedSettings(
 	settings: NormalizedUserGroupSettings,
 	idsByKey: ReadonlyMap<string, string>,
-): Pick<NewUserGroup, 'featureGrants' | 'contextGrants' | 'rowPolicies'> {
+): Pick<NewUserGroup, 'featureGrants' | 'contextGrants' | 'rowPolicies' | 'columnPolicies'> {
 	return {
 		featureGrants: serializeUserGroupConfig(
 			settings.features,
@@ -389,6 +391,7 @@ function storedSettings(
 			skillsAccess: settings.skillsAccess,
 		}),
 		rowPolicies: serializeUserGroupRowPolicies(settings.rowPolicies),
+		columnPolicies: serializeUserGroupColumnPolicies(settings.columnPolicies),
 	};
 }
 

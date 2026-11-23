@@ -1,4 +1,11 @@
-import type { DatabaseContextAccess, FileTreeAccess, McpAccess, SkillsAccess, UserGroupRowPolicies } from '@nao/shared';
+import type {
+	DatabaseContextAccess,
+	FileTreeAccess,
+	McpAccess,
+	SkillsAccess,
+	UserGroupColumnPolicies,
+	UserGroupRowPolicies,
+} from '@nao/shared';
 import yaml from 'js-yaml';
 
 import * as userGroupQueries from '../queries/user-group.queries';
@@ -157,7 +164,7 @@ function settingsSections(
 		}),
 		policies: withoutHiddenDefaults(HIDDEN_DEFAULTS.policies, {
 			rows: exportRowPolicies(group.rowPolicies),
-			columns: [],
+			columns: exportColumnPolicies(group.columnPolicies),
 		}),
 	};
 	return Object.fromEntries(Object.entries(sections).filter(([, section]) => Object.keys(section).length > 0));
@@ -216,6 +223,16 @@ function exportFileAccess(
 		mode: 'restricted',
 		grants: [...docsGrants, ...(filesAccess.mode === 'all' ? topLevelFileGrants : filesAccess.grants)],
 	};
+}
+
+function exportColumnPolicies(columnPolicies: UserGroupColumnPolicies): ExportedSection[] {
+	return columnPolicies.policies.map(({ databaseType: database_type, database, schema, table, grantedColumns }) => ({
+		database_type,
+		database,
+		schema,
+		table,
+		granted_columns: grantedColumns,
+	}));
 }
 
 function exportRowPolicies(rowPolicies: UserGroupRowPolicies): ExportedSection[] {

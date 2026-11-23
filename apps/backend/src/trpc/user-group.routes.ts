@@ -425,19 +425,21 @@ export const userGroupRoutes = {
 			const columnSecurity = normalizeProjectColumnSecurity({ version: input.version, tables: input.tables });
 			const expectedCurrent =
 				input.expectedCurrent === undefined ? undefined : normalizeProjectColumnSecurity(input.expectedCurrent);
-			await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
-			await validateProjectColumnSecurityCatalog(
-				ctx.project.id,
-				requireProjectPath(ctx.project.path),
-				columnSecurity,
-			);
-			const saved = await handleQuery(() =>
-				expectedCurrent === undefined
-					? userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity)
-					: userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity, expectedCurrent),
-			);
-			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
-			return saved;
+			return withUserGroupConfigLock(ctx.project.id, async () => {
+				await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
+				await validateProjectColumnSecurityCatalog(
+					ctx.project.id,
+					requireProjectPath(ctx.project.path),
+					columnSecurity,
+				);
+				const saved = await handleQuery(() =>
+					expectedCurrent === undefined
+						? userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity)
+						: userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity, expectedCurrent),
+				);
+				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+				return saved;
+			});
 		}),
 
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -919,6 +921,25 @@ async function assertColumnSecurityChangeAllowed(
 	projectId: string,
 	columnSecurity: ProjectColumnSecurity,
 ): Promise<void> {
+	if ((await getUserGroupManagementMode(projectId)) === 'code') {
+		const groups = await userGroupQueries.listUserGroups(projectId);
+		const nextTables = new Map(
+			columnSecurity.tables.map((table) => [columnSecurityTableKey(table), table.restrictedColumns]),
+		);
+		const changesYamlPolicy = groups.some((group) =>
+			group.columnPolicies.policies.some((policy) => {
+				const nextColumns = nextTables.get(columnSecurityTableKey(policy));
+				return !nextColumns || policy.grantedColumns.some((column) => !nextColumns.includes(column));
+			}),
+		);
+		if (changesYamlPolicy) {
+			throw new TRPCError({
+				code: 'FORBIDDEN',
+				message:
+					'This registry change would modify a groups.yaml column policy. Remove the policy from YAML and deploy it first.',
+			});
+		}
+	}
 	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId })) {
 		return;
 	}
