@@ -6,7 +6,7 @@ import type { ShareCandidate, ShareOwner } from '@/lib/share-access';
 import type { ShareDraft } from '@/lib/share-draft';
 import type { TransferCandidate } from '@/components/transfer-ownership-dialog';
 import { SHARE_ROLE_LABELS, ShareRoleSelect } from '@/components/share-role-select';
-import { MISSING_TABLE_ACCESS_REASON } from '@/components/transfer-ownership-dialog';
+import { MISSING_TABLE_ACCESS_REASON, NO_ELIGIBLE_RECIPIENT_MESSAGE } from '@/components/transfer-ownership-dialog';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -419,6 +419,11 @@ function OwnerSelect({
 						</div>
 					</DropdownMenuItem>
 				))}
+				{candidates.every((candidate) => !candidate.hasTableAccess) && (
+					<p className='px-2 py-1.5 text-[11px] leading-tight text-muted-foreground'>
+						{NO_ELIGIBLE_RECIPIENT_MESSAGE}
+					</p>
+				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
