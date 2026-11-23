@@ -10,7 +10,12 @@ import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
-import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
+import {
+	AUTOMATION_JOB_NAME,
+	automationHandler,
+	interruptRunningAutomations,
+	resolveAutomationProjectId,
+} from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
@@ -644,6 +649,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 
 	const handleShutdown = async () => {
+		await interruptRunningAutomations();
 		await closeBrowser();
 		await flushTelemetry();
 		await posthog.shutdown();
