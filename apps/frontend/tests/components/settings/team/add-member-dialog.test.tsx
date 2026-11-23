@@ -162,6 +162,31 @@ describe('AddMemberDialog bulk add', () => {
 		expect(screen.getByText('Fix or remove invalid emails: bob.acme.com')).toBeTruthy();
 	});
 
+	it('keeps plain addresses next to display-name addresses', () => {
+		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
+
+		fireEvent.paste(screen.getByLabelText('Emails'), {
+			clipboardData: { getData: () => 'alice@acme.com Bob <bob@acme.com>' },
+		});
+
+		expect(screen.getByRole('button', { name: 'Remove alice@acme.com' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Remove bob@acme.com' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Remove bob' })).toBeNull();
+	});
+
+	it('keeps a typed display name together until its address is complete', () => {
+		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
+		const input = screen.getByLabelText('Emails');
+
+		for (const text of ['Jane ', 'Jane Doe ', 'Jane Doe <jane@acme.com>', 'Jane Doe <jane@acme.com>,']) {
+			fireEvent.change(input, { target: { value: text } });
+		}
+
+		expect(screen.getByRole('button', { name: 'Remove jane@acme.com' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Remove jane' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove doe' })).toBeNull();
+	});
+
 	it('disables submit and skip while accounts are being created', async () => {
 		const onSubmit = vi
 			.fn()

@@ -28,8 +28,8 @@ export function EmailListInput({
 	onChange: (value: EmailListValue) => void;
 }) {
 	const handleDraftChange = (text: string) => {
-		const match = UNCLOSED_ANGLE_ADDRESS.test(text) ? null : text.match(TYPED_TEXT_WITH_SEPARATOR);
-		if (!match) {
+		const match = text.match(TYPED_TEXT_WITH_SEPARATOR);
+		if (!match || !isCompleteTypedText(match[1])) {
 			onChange({ ...value, draft: text });
 			return;
 		}
@@ -113,9 +113,21 @@ function mergeEmails(emails: string[], text: string): string[] {
 	return [...new Set([...emails, ...text.split(ENTRY_SEPARATORS).flatMap(parseEntry)])];
 }
 
-/** Keeps only the address of a `Name <address>` entry; any other word stays, so typos remain visible. */
+/**
+ * Typed text becomes chips at a comma or semicolon, or at a space once it holds an address,
+ * so a display name such as `Jane Doe <jane@acme.com>` can be typed in full.
+ */
+function isCompleteTypedText(text: string): boolean {
+	return !UNCLOSED_ANGLE_ADDRESS.test(text) && (/[,;]/.test(text) || text.includes('@'));
+}
+
+/** Drops display names next to `<address>` entries; any other word stays, so typos remain visible. */
 function parseEntry(entry: string): string[] {
 	const angleAddresses = [...entry.matchAll(ANGLE_ADDRESSES)].map((match) => match[1]);
-	const tokens = angleAddresses.length > 0 ? angleAddresses : entry.split(/\s+/);
+	const otherWords = entry.replace(ANGLE_ADDRESSES, ' ').split(/\s+/);
+	const tokens =
+		angleAddresses.length > 0
+			? [...angleAddresses, ...otherWords.filter((word) => word.includes('@'))]
+			: otherWords;
 	return tokens.map((token) => token.trim().replace(SURROUNDING_QUOTES, '').toLowerCase()).filter(Boolean);
 }
