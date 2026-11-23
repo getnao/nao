@@ -387,6 +387,17 @@ export const getAutomationRunByChatId = async (
 	return run ?? null;
 };
 
+/** Read-only, unlike `getAutomationRunByChatId`, so access checks never write. */
+export const getAutomationIdOfRunChat = async (chatId: string): Promise<string | null> => {
+	const [run] = await db
+		.select({ automationId: s.automationRun.automationId })
+		.from(s.automationRun)
+		.where(eq(s.automationRun.chatId, chatId))
+		.limit(1)
+		.execute();
+	return run?.automationId ?? null;
+};
+
 export const createAutomationRun = async (data: NewAutomationRun): Promise<DBAutomationRun> => {
 	const [created] = await db.insert(s.automationRun).values(data).returning().execute();
 	return created;
