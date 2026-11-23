@@ -61,6 +61,7 @@ import {
 } from './services/microsoft-auth.service';
 import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
 import { enqueueOnce } from './services/scheduler.service';
+import { sessionRotation } from './services/session-rotation-auth.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
@@ -268,6 +269,7 @@ async function createAuthInstance(baseURL: string) {
 		plugins: [
 			bearer(),
 			jwt(),
+			sessionRotation(),
 			oauthProvider({
 				loginPage: OAUTH_LOGIN_PAGE,
 				consentPage: OAUTH_CONSENT_PAGE,
