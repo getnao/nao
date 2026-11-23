@@ -28,7 +28,7 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 		agentId ??= NEW_CHAT_ID;
 		const agentQueue = this.state.get(agentId);
 		const message = agentQueue?.find((m) => m.id === messageId);
-		if (!agentQueue || !message) {
+		if (!agentQueue || !message || !canSteer(message)) {
 			return undefined;
 		}
 		const steeredMessage = { ...message, steer: true };
@@ -131,6 +131,11 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 }
 
 export const messageQueueStore = new MessageQueueStore();
+
+/** The agent reads a steer as plain text, so a message carrying anything else stays queued. */
+export function canSteer({ images, documents, citations, mentions }: NewQueuedMessage): boolean {
+	return !images?.length && !documents?.length && !citations?.length && !mentions.length;
+}
 
 /** Steers go before queued messages, so one the agent misses is still the next message sent. */
 function insertInQueue(queue: QueuedMessage[], message: QueuedMessage): QueuedMessage[] {

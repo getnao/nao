@@ -43,7 +43,7 @@ import { chatActivityStore } from '@/stores/chat-activity';
 import { cancellingMessageIdStore } from '@/stores/chat-cancelling-message';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { chatInputRestoreStore } from '@/stores/chat-input-restore';
-import { messageQueueStore } from '@/stores/chat-message-queue';
+import { canSteer, messageQueueStore } from '@/stores/chat-message-queue';
 
 export type AgentMode = 'default' | 'onboarding' | 'example';
 
@@ -541,14 +541,10 @@ export const useAgent = ({
 			const mentions = [...mentionsRef.current];
 			mentionsRef.current = [];
 
-			const isTextOnly = !images?.length && !documents?.length && !citations?.length && !mentions.length;
+			const message = { text: prompt, mentions, images, documents, citations };
 			const queuedMessage = messageQueueStore.enqueue(chatIdRef.current, {
-				text: prompt,
-				mentions,
-				images,
-				documents,
-				citations,
-				steer: steer && isTextOnly,
+				...message,
+				steer: steer && canSteer(message),
 			});
 			if (queuedMessage?.steer) {
 				await requestSteer(queuedMessage);

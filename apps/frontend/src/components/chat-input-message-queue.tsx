@@ -19,7 +19,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { getShortcutTokens } from '@/lib/keyboard-shortcuts';
 import { createLocalStorage } from '@/lib/local-storage';
 import { cn } from '@/lib/utils';
-import { messageQueueStore } from '@/stores/chat-message-queue';
+import { canSteer, messageQueueStore } from '@/stores/chat-message-queue';
 
 /** While the agent runs, Enter queues the message and the swap shortcut steers, unless the user swapped them. */
 export const steerOnEnterStorage = createLocalStorage<boolean>('nao-steer-on-enter', false);
@@ -153,7 +153,7 @@ function SortableQueuedMessageRow({
 				<QueuedMessageActions
 					isFirst={isFirst}
 					onSubmitNow={() => onSubmitNow?.(messageId)}
-					onSteer={() => onSteer?.(messageId)}
+					onSteer={canSteer(message) ? () => onSteer?.(messageId) : undefined}
 					onEdit={() => {
 						messageQueueStore.remove(chatId, messageId);
 						onEdit?.(message);
@@ -174,7 +174,7 @@ function QueuedMessageActions({
 }: {
 	isFirst: boolean;
 	onSubmitNow: () => void;
-	onSteer: () => void;
+	onSteer?: () => void;
 	onEdit: () => void;
 	onRemove: () => void;
 }) {
@@ -188,21 +188,23 @@ function QueuedMessageActions({
 			)}
 
 			<div className='hidden group-hover:flex items-center'>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							className='rounded-full'
-							type='button'
-							aria-label='Steer now'
-							onClick={onSteer}
-						>
-							<Navigation className='size-3' />
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent side='top'>Steer now: read after the running tools</TooltipContent>
-				</Tooltip>
+				{onSteer && (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								className='rounded-full'
+								type='button'
+								aria-label='Steer now'
+								onClick={onSteer}
+							>
+								<Navigation className='size-3' />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side='top'>Steer now: read after the running tools</TooltipContent>
+					</Tooltip>
+				)}
 				<Button
 					variant='ghost-muted'
 					size='icon-xs'

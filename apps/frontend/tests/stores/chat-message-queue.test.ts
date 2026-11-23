@@ -23,4 +23,14 @@ describe('steering in the message queue', () => {
 		messageQueueStore.unsteer('chat-b');
 		expect(texts('chat-b')).toEqual(['two', 'one']);
 	});
+
+	it('keeps a message with mentions queued, since a steer only carries text', () => {
+		const withMention = messageQueueStore.enqueue('chat-c', {
+			text: 'use this table',
+			mentions: [{ id: 'db.orders', label: 'orders' }],
+		})!;
+
+		expect(messageQueueStore.steer('chat-c', withMention.id)).toBeUndefined();
+		expect(texts('chat-c')).toEqual(['use this table']);
+	});
 });
