@@ -50,7 +50,6 @@ import {
 	extractStructureTokens,
 	markViewerRestricted,
 	type ProseBlock,
-	restoreProseBlocks,
 	stripHardcodedFilterOptions,
 	stripViewerSensitiveTagCopy,
 } from '../utils/story-structure';
@@ -1154,11 +1153,7 @@ async function generateDynamicStoryCode(
 		return null;
 	}
 
-	if (allowDisplayCopyChanges) {
-		return candidate;
-	}
-	const merged = withoutAddedFigures(originalCode, candidate);
-	return preservesStoryStructure(originalCode, merged) ? merged : null;
+	return candidate;
 }
 
 /** The fresh data is worth more than rewritten text: a model that fails to rewrite it must not fail the whole refresh. */
@@ -1385,22 +1380,20 @@ function preservesStoryStructure(
 	return (
 		JSON.stringify(originalStructure) === JSON.stringify(candidateStructure) &&
 		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings) &&
-		(allowDisplayCopyChanges || keepsStoryLayout(originalCode, candidateCode))
+		(allowDisplayCopyChanges || keepsOwnerProse(originalCode, candidateCode))
 	);
 }
 
-/** The owner's text was written or approved by a person: a refresh updates its figures, never its paragraphs. */
-function keepsStoryLayout(originalCode: string, candidateCode: string): boolean {
-	return JSON.stringify(extractStoryLayout(originalCode)) === JSON.stringify(extractStoryLayout(candidateCode));
-}
-
-/** A paragraph or list item written without figures keeps its original text when the rewrite adds some. */
-function withoutAddedFigures(originalCode: string, candidateCode: string): string {
+/**
+ * The owner's text was written or approved by a person: a refresh may update its figures, but not add paragraphs,
+ * move them, or put figures into a paragraph that had none. Any other rewrite keeps the current text.
+ */
+function keepsOwnerProse(originalCode: string, candidateCode: string): boolean {
+	if (JSON.stringify(extractStoryLayout(originalCode)) !== JSON.stringify(extractStoryLayout(candidateCode))) {
+		return false;
+	}
 	const candidateBlocks = extractProseBlocks(candidateCode);
-	const blocksWithAddedFigures = extractProseBlocks(originalCode)
-		.map((original, index) => ({ original, candidate: candidateBlocks[index] }))
-		.filter(({ original, candidate }) => addsFigures(original, candidate));
-	return restoreProseBlocks(candidateCode, originalCode, blocksWithAddedFigures);
+	return extractProseBlocks(originalCode).every((block, index) => !addsFigures(block, candidateBlocks[index]));
 }
 
 function addsFigures(original: ProseBlock, candidate: ProseBlock): boolean {

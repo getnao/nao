@@ -54,8 +54,6 @@ const LIST_ITEM_MARKER = /^(?:[-*+]|\d+[.)])\s+/;
 export interface ProseBlock {
 	kind: 'paragraph' | 'list-item';
 	text: string;
-	firstLine: number;
-	lastLine: number;
 }
 
 /** The tags, headings and kinds of prose blocks of a story, in the order they appear. */
@@ -63,28 +61,9 @@ export function extractStoryLayout(code: string): string[] {
 	return walkStory(code).layout;
 }
 
-/** The paragraphs and list items of a story, including text written beside its tags, with the lines they span. */
+/** The paragraphs and list items of a story, including text written beside its tags. */
 export function extractProseBlocks(code: string): ProseBlock[] {
 	return walkStory(code).blocks;
-}
-
-/** The candidate story with some of its blocks put back as the original story wrote them. */
-export function restoreProseBlocks(
-	candidateCode: string,
-	originalCode: string,
-	blocks: { original: ProseBlock; candidate: ProseBlock }[],
-): string {
-	const candidateLines = candidateCode.split('\n');
-	const originalLines = originalCode.split('\n');
-	const lastBlockFirst = [...blocks].sort((left, right) => right.candidate.firstLine - left.candidate.firstLine);
-	for (const { original, candidate } of lastBlockFirst) {
-		candidateLines.splice(
-			candidate.firstLine,
-			candidate.lastLine - candidate.firstLine + 1,
-			...originalLines.slice(original.firstLine, original.lastLine + 1),
-		);
-	}
-	return candidateLines.join('\n');
 }
 
 export function stripViewerSensitiveTagCopy(tag: string): string {
@@ -108,50 +87,42 @@ function storyStructureTokenRegex(): RegExp {
 	);
 }
 
-const TAG_BOUNDARY = '\u0000';
-
-/** A tag ends the current block, as the page splits its text there, and keeps its line breaks so line indexes stay. */
+/** A tag ends the current block, as the page splits the story's text there. */
 function walkStory(code: string): { blocks: ProseBlock[]; layout: string[] } {
-	const tags = extractStructureTokens(code);
 	const blocks: ProseBlock[] = [];
 	const layout: string[] = [];
 	let currentBlock: ProseBlock | null = null;
 
-	const startBlock = (kind: ProseBlock['kind'], text: string, lineIndex: number) => {
-		currentBlock = { kind, text, firstLine: lineIndex, lastLine: lineIndex };
+	const startBlock = (kind: ProseBlock['kind'], text: string) => {
+		currentBlock = { kind, text };
 		blocks.push(currentBlock);
 		layout.push(kind);
 	};
 
-	const readText = (part: string, lineIndex: number) => {
-		const text = part.trim();
+	const readLine = (line: string) => {
+		const text = line.trim();
 		if (!text || isThematicBreak(text)) {
 			currentBlock = null;
 		} else if (isHeadingLine(text)) {
 			layout.push(text);
 			currentBlock = null;
 		} else if (isListItemLine(text)) {
-			startBlock('list-item', text.replace(LIST_ITEM_MARKER, ''), lineIndex);
+			startBlock('list-item', text.replace(LIST_ITEM_MARKER, ''));
 		} else if (currentBlock) {
 			currentBlock.text += ` ${text}`;
-			currentBlock.lastLine = lineIndex;
 		} else {
-			startBlock('paragraph', text, lineIndex);
+			startBlock('paragraph', text);
 		}
 	};
 
-	let tagIndex = 0;
-	const markedCode = code.replace(storyStructureTokenRegex(), (tag) => TAG_BOUNDARY + tag.replace(/[^\n]/g, ''));
-	for (const [lineIndex, line] of markedCode.split('\n').entries()) {
-		for (const [partIndex, part] of line.split(TAG_BOUNDARY).entries()) {
-			if (partIndex > 0) {
-				layout.push(tags[tagIndex]);
-				tagIndex += 1;
-				currentBlock = null;
-			}
-			readText(part, lineIndex);
-		}
+	let textStart = 0;
+	for (const tag of code.matchAll(storyStructureTokenRegex())) {
+		code.slice(textStart, tag.index).split('\n').forEach(readLine);
+		layout.push(tag[0]);
+		currentBlock = null;
+		textStart = tag.index + tag[0].length;
 	}
+	code.slice(textStart).split('\n').forEach(readLine);
 	return { blocks, layout };
 }
 

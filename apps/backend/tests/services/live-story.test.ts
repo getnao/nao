@@ -546,14 +546,6 @@ describe('live story SQL execution', () => {
 			saved: null,
 		},
 		{
-			case: 'adds a figure to a sentence it moves beside a tag',
-			candidate: AUTHORED_STORY_CODE.replace(
-				'Usage stays flat this month.\n<table query_id="query_admin" />',
-				'Usage stays flat at 42 sessions this month. <table query_id="query_admin" />',
-			),
-			saved: null,
-		},
-		{
 			case: 'moves a list item to another section',
 			candidate: `${AUTHORED_STORY_CODE.replace('- Orders reached 120 last week.\n', '')}\n- Orders reached 135 last week.`,
 			saved: null,
@@ -564,7 +556,7 @@ describe('live story SQL execution', () => {
 				'Usage stays flat this month.',
 				'Usage stays flat this month,\nwith a peak in the week of November 2.',
 			),
-			saved: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135'),
+			saved: null,
 		},
 		{
 			case: 'adds a figure to a numbered list item that had none',
@@ -572,7 +564,7 @@ describe('live story SQL execution', () => {
 				'Most visits come',
 				'85% of visits come',
 			),
-			saved: AUTHORED_STORY_CODE.replace('reached 120', 'reached 135'),
+			saved: null,
 		},
 		{
 			case: 'updates the figure of a sentence that had one',
