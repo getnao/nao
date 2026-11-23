@@ -1,10 +1,14 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthEndpoint, sessionMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
+import { generateRandomString } from 'better-auth/crypto';
+
+const SESSION_TOKEN_LENGTH = 32;
 
 /**
- * Replaces the current session with a fresh token while keeping its timestamps, so the
- * browser stays signed in and the previous token (e.g. pasted in an MCP client) stops working.
+ * Swaps the current session token in place, so the browser stays signed in, the session keeps
+ * its lifetime, and the previous token (e.g. pasted in an MCP client) stops working. The swap is a
+ * single conditional update: concurrent rotations of the same token cannot both succeed.
  */
 export function sessionRotation() {
 	return {
@@ -15,17 +19,11 @@ export function sessionRotation() {
 				{ method: 'POST', use: [sessionMiddleware] },
 				async (ctx) => {
 					const { session, user } = ctx.context.session;
-					const { id: _id, token: previousToken, ...preservedFields } = session;
-					const rotated = await ctx.context.internalAdapter.createSession(
-						user.id,
-						false,
-						preservedFields,
-						true,
-					);
+					const token = generateRandomString(SESSION_TOKEN_LENGTH, 'a-z', 'A-Z', '0-9');
+					const rotated = await ctx.context.internalAdapter.updateSession(session.token, { token });
 					if (!rotated) {
-						throw new APIError('INTERNAL_SERVER_ERROR', { message: 'Failed to rotate the session.' });
+						throw new APIError('CONFLICT', { message: 'The session was already rotated.' });
 					}
-					await ctx.context.internalAdapter.deleteSession(previousToken);
 					await setSessionCookie(ctx, { session: rotated, user });
 					return ctx.json({ token: rotated.token });
 				},

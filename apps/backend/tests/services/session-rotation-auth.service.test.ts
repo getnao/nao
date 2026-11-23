@@ -12,12 +12,7 @@ describe('sessionRotation', () => {
 		const auth = createAuth();
 		const previous = await signUp(auth);
 
-		const response = await auth.handler(
-			new Request(`${BASE_URL}/api/auth/rotate-session`, {
-				method: 'POST',
-				headers: { authorization: `Bearer ${previous.token}` },
-			}),
-		);
+		const response = await rotate(auth, previous.token);
 		const { token } = (await response.json()) as { token: string };
 
 		expect(response.status).toBe(200);
@@ -29,6 +24,16 @@ describe('sessionRotation', () => {
 		expect(rotated?.user.id).toBe(previous.userId);
 		expect(rotated?.session.createdAt).toEqual(previous.createdAt);
 		expect(rotated?.session.expiresAt).toEqual(previous.expiresAt);
+	});
+
+	it('lets only one of two concurrent rotations of the same token succeed', async () => {
+		const auth = createAuth();
+		const previous = await signUp(auth);
+
+		const responses = await Promise.all([rotate(auth, previous.token), rotate(auth, previous.token)]);
+		const succeeded = responses.filter((response) => response.ok);
+
+		expect(succeeded).toHaveLength(1);
 	});
 
 	it('rejects unauthenticated requests', async () => {
@@ -64,6 +69,15 @@ async function signUp(auth: TestAuth) {
 		createdAt: session!.session.createdAt,
 		expiresAt: session!.session.expiresAt,
 	};
+}
+
+function rotate(auth: TestAuth, token: string) {
+	return auth.handler(
+		new Request(`${BASE_URL}/api/auth/rotate-session`, {
+			method: 'POST',
+			headers: { authorization: `Bearer ${token}` },
+		}),
+	);
 }
 
 function getSession(auth: TestAuth, token: string) {

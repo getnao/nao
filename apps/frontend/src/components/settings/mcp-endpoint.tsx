@@ -397,7 +397,7 @@ function ConnectionGuide({ projectName, endpointUrl }: { projectName: string; en
 	const tokenQuery = useQuery({
 		...trpc.mcpEndpoint.getBearerToken.queryOptions(),
 		enabled: needsToken,
-		staleTime: Infinity,
+		staleTime: 0,
 	});
 
 	const goPrev = () => setActive((i) => (i === 0 ? providers.length - 1 : i - 1));
