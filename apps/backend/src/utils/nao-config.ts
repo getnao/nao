@@ -52,7 +52,7 @@ const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'ca
 const RULES_FILE_CACHE_MAX_ENTRIES = 100;
 const rulesFileCache = new Map<
 	string,
-	{ configSignature: string; configured: unknown; fileSignature: string; rulesFile: string }
+	{ configSignature: string; configured: string | undefined; fileSignature: string; rulesFile: string }
 >();
 /** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
 const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
@@ -170,9 +170,15 @@ export function extractRulesFile(projectFolder: string): string {
 	return rulesFile;
 }
 
-function readRulesFileSetting(projectFolder: string): unknown {
-	const config = loadProjectConfig(projectFolder);
-	return isRecord(config) ? config.rules_file : undefined;
+/** Read without its `from_file` files, so the signature of nao_config.yaml alone tells when it changes. */
+function readRulesFileSetting(projectFolder: string): string | undefined {
+	try {
+		const config = yaml.load(fs.readFileSync(path.join(projectFolder, 'nao_config.yaml'), 'utf-8'));
+		const rulesFile = isRecord(config) ? config.rules_file : undefined;
+		return typeof rulesFile === 'string' && rulesFile.trim() !== '' ? rulesFile.trim() : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function resolveRulesFile(rulesFile: string, projectFolder: string): string {

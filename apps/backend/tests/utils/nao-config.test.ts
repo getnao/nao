@@ -249,7 +249,7 @@ describe('extractRulesFile', () => {
 	const syncedRulesFile = 'repos/business_context/nao/RULES.md';
 
 	it('returns the file rules_file names, such as one of a synced repository', () => {
-		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: ${syncedRulesFile}`] });
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: " ${syncedRulesFile} "`] });
 		writeProjectFile(dir, syncedRulesFile);
 
 		expect(extractRulesFile(dir)).toBe(syncedRulesFile);
