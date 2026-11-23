@@ -50,7 +50,7 @@ import { useDateFormat } from '@/hooks/use-date-format';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
 import { useStoryIds } from '@/hooks/use-story-ids';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
@@ -76,7 +76,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	const agent = useOptionalAgentContext();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
+	const { open: openSidePanel, getState: getSidePanelState } = useSidePanelActions();
 	const { isSettled } = useToolCallContext();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const chartConfig = config && displayChart.isChartInput(config) ? config : undefined;
@@ -218,6 +218,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	}
 
 	const handleAddToStory = async () => {
+		const { isVisible, currentStorySlug, currentStoryTabIndex } = getSidePanelState();
 		const latestStoryId = storyIds[storyIds.length - 1];
 		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
 		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;

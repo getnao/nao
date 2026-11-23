@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
-import { EditMemberDialog } from '@/components/settings/team';
+import { EditMemberDialog } from '@/components/settings/team/edit-member-dialog';
 import { NewsletterSubscribeInlineForm } from '@/components/newsletter-subscribe';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';

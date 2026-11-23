@@ -80,7 +80,7 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 
 	return (
 		<div className='flex flex-col'>
-			<div className='flex flex-col gap-8 max-md:gap-0'>
+			<div className='chat-message-groups flex flex-col gap-8 max-md:gap-0'>
 				{messageGroups.length === 0 ? (
 					<ConversationEmptyState />
 				) : (
