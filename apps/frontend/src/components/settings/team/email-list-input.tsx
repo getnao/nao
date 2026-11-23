@@ -13,7 +13,7 @@ export const EMPTY_EMAIL_LIST: EmailListValue = { emails: [], draft: '' };
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ENTRY_SEPARATORS = /[,;\n]+/;
 const ANGLE_ADDRESSES = /<([^<>]*)>/g;
-const QUOTED_DISPLAY_NAMES = /"[^"]*"/g;
+const QUOTED_DISPLAY_NAMES = /"[^"]*"\s*(?=<)/g;
 const SURROUNDING_QUOTES = /^["']+|["']+$/g;
 const TYPED_TEXT_WITH_SEPARATOR = /^([\s\S]*[\s,;])([^\s,;]*)$/;
 const UNCLOSED_ANGLE_ADDRESS = /<[^>]*$/;
@@ -122,13 +122,13 @@ function isCompleteTypedText(text: string): boolean {
 	return !UNCLOSED_ANGLE_ADDRESS.test(text) && (/[,;]/.test(text) || text.includes('@'));
 }
 
-/** Drops display names (quoted ones even when they hold an `@`) next to `<address>` entries; any other word stays, so typos remain visible. */
+/** Drops display names before `<address>` entries, quoted ones even when they hold an `@`; any other word stays, so typos remain visible. */
 function parseEntry(entry: string): string[] {
 	const angleAddresses = [...entry.matchAll(ANGLE_ADDRESSES)].map((match) => match[1]);
 	if (angleAddresses.length === 0) {
 		return normalizeTokens(entry.split(/\s+/));
 	}
-	const otherWords = entry.replace(ANGLE_ADDRESSES, ' ').replace(QUOTED_DISPLAY_NAMES, ' ').split(/\s+/);
+	const otherWords = entry.replace(QUOTED_DISPLAY_NAMES, ' ').replace(ANGLE_ADDRESSES, ' ').split(/\s+/);
 	return normalizeTokens([...angleAddresses, ...otherWords.filter((word) => word.includes('@'))]);
 }
 

@@ -178,12 +178,15 @@ describe('AddMemberDialog bulk add', () => {
 		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
 
 		fireEvent.paste(screen.getByLabelText('Emails'), {
-			clipboardData: { getData: () => '"alice@old.com" <alice@new.com>, "bob@acme.com"' },
+			clipboardData: {
+				getData: () => '"alice@old.com" <alice@new.com>, "bob@acme.com"; Carl <carl@acme.com> "dan@acme.com"',
+			},
 		});
 
 		expect(screen.getByRole('button', { name: 'Remove alice@new.com' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Remove alice@old.com' })).toBeNull();
 		expect(screen.getByRole('button', { name: 'Remove bob@acme.com' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Remove dan@acme.com' })).toBeTruthy();
 	});
 
 	it('keeps a typed display name together until its address is complete', () => {
