@@ -1,7 +1,7 @@
 import {
-	ALL_DATABASE_CONTEXT_ACCESS,
 	ALL_MCP_ACCESS,
 	type DatabaseContextAccess,
+	type DatabaseContextTableIdentity,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	type FileTreeAccess,
 	isDatabaseContextTableGranted,
@@ -165,13 +165,12 @@ export async function flagRecipientsWithTableAccess<T extends { id: string }>(
 	]);
 	const tables = project?.path ? getDatabaseContextCatalog(project.path).objects : [];
 	const databaseAccessByMember = resolveDatabaseAccessByMember(overview);
-	const queryableAccessOf = (userId: string) =>
-		toQueryableAccess(databaseAccessByMember.get(userId) ?? EMPTY_DATABASE_CONTEXT_ACCESS);
-	const previousOwnerAccess = queryableAccessOf(previousOwnerId);
+	const databaseAccessOf = (userId: string) => databaseAccessByMember.get(userId) ?? EMPTY_DATABASE_CONTEXT_ACCESS;
+	const previousOwnerAccess = databaseAccessOf(previousOwnerId);
 	const previousOwnerTables = tables.filter((table) => isDatabaseContextTableGranted(previousOwnerAccess, table));
 	return recipients.map((recipient) => {
-		const access = queryableAccessOf(recipient.id);
-		const hasTableAccess = previousOwnerTables.every((table) => isDatabaseContextTableGranted(access, table));
+		const access = databaseAccessOf(recipient.id);
+		const hasTableAccess = canQueryEveryTable(access, previousOwnerAccess, previousOwnerTables);
 		return { ...recipient, hasTableAccess };
 	});
 }
@@ -196,9 +195,21 @@ function resolveDatabaseAccessByMember(overview: AvailableUserGroupOverview): Ma
 	);
 }
 
-/** Without strict mode, grants only narrow the agent's context: SQL still reads every table. */
-function toQueryableAccess(access: DatabaseContextAccess): DatabaseContextAccess {
-	return access.strict ? access : ALL_DATABASE_CONTEXT_ACCESS;
+/**
+ * Without strict mode, grants only narrow the agent's context: SQL still reads every table, even the ones the synced
+ * catalog leaves out, which a strict member can never query.
+ */
+function canQueryEveryTable(
+	access: DatabaseContextAccess,
+	previousOwnerAccess: DatabaseContextAccess,
+	previousOwnerTables: DatabaseContextTableIdentity[],
+): boolean {
+	if (!access.strict) {
+		return true;
+	}
+	return (
+		previousOwnerAccess.strict && previousOwnerTables.every((table) => isDatabaseContextTableGranted(access, table))
+	);
 }
 
 async function resolveMemberWarehouseAccess(projectId: string, userId: string) {

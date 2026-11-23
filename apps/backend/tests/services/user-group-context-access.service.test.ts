@@ -659,6 +659,12 @@ describe('table access of transfer recipients', () => {
 			ordersOnlyAccess,
 			false,
 		],
+		[
+			'every synced table as a previous owner without strict mode',
+			{ ...publicSchemaAccess, strict: false },
+			{ mode: 'all', strict: true },
+			false,
+		],
 	])('flags a recipient whose groups grant %s', async (_, previousOwnerAccess, recipientAccess, hasTableAccess) => {
 		vi.mocked(getAvailableUserGroupOverview).mockResolvedValue(
 			groupOverview([
