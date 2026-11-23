@@ -39,6 +39,10 @@ vi.mock('../../src/services/user-group-availability.service', () => ({
 }));
 
 vi.mock('../../src/utils/llm', () => ({
+	attachServingLlmConfig: async (_projectId: string, selection: object) => ({
+		...selection,
+		llmConfigId: 'serving-config',
+	}),
 	filterModelsByConfigAccess: (
 		models: (typeof clientAModel)[],
 		configIds: string[],
@@ -88,7 +92,7 @@ describe('user group LLM access', () => {
 		expect(mocks.resolveAvailableUserGroupAccess).not.toHaveBeenCalled();
 	});
 
-	it('keeps explicit models outside the picker catalog in project mode', async () => {
+	it('keeps explicit models outside the picker catalog in project mode, on the credential serving them', async () => {
 		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
 
 		await expect(
@@ -96,7 +100,7 @@ describe('user group LLM access', () => {
 				provider: 'openai',
 				modelId: 'gpt-4.1',
 			}),
-		).resolves.toEqual({ provider: 'openai', modelId: 'gpt-4.1' });
+		).resolves.toEqual({ provider: 'openai', modelId: 'gpt-4.1', llmConfigId: 'serving-config' });
 	});
 
 	it('uses only the union of config ids resolved from the users groups', async () => {

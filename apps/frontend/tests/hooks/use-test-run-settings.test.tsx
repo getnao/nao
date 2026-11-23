@@ -32,6 +32,7 @@ describe('useTestRunSettings', () => {
 	afterEach(() => {
 		cleanup();
 		mocks.availableModels = [];
+		localStorage.clear();
 	});
 
 	it('runs no more models than a run accepts when nao_config.yaml lists more', () => {
@@ -53,7 +54,27 @@ describe('useTestRunSettings', () => {
 
 		expect(result.current.models).toEqual([{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'credential-a' }]);
 	});
+
+	it('keeps settings saved before credentials were named, on the credential serving their model', () => {
+		mocks.availableModels = [{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'credential-a' }];
+		localStorage.setItem(
+			STORAGE_KEY,
+			JSON.stringify({ models: [{ provider: 'openai', modelId: 'gpt-5' }], attempts: 3, threads: 2 }),
+		);
+
+		const { result } = renderHook(() => useTestRunSettings());
+
+		const expected = {
+			models: [{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'credential-a' }],
+			attempts: 3,
+			threads: 2,
+		};
+		expect(result.current).toMatchObject({ ...expected, isCustom: true });
+		expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')).toEqual(expected);
+	});
 });
+
+const STORAGE_KEY = 'nao-test-run-settings:project-1';
 
 function queryData(key: string): unknown {
 	switch (key) {

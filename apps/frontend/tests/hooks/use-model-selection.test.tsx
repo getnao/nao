@@ -94,3 +94,21 @@ it('falls back to the project default when a stored credential is no longer auth
 
 	await waitFor(() => expect(mocks.setSelectedModel).toHaveBeenCalledWith(null));
 });
+
+it('moves a selection saved before credentials were named onto the credential serving it', async () => {
+	mocks.currentProjectQuery = { data: { id: 'project-1' }, isPending: false, isError: false };
+	mocks.availableModels = [{ provider: 'openai', modelId: 'gpt-5-mini', llmConfigId: 'serving-config' }];
+	mocks.selectedModel = { provider: 'openai', modelId: 'gpt-5-mini' };
+	mocks.usesDefaultModel = false;
+
+	renderHook(() => useModelSelection());
+
+	await waitFor(() =>
+		expect(mocks.setSelectedModel).toHaveBeenCalledWith({
+			provider: 'openai',
+			modelId: 'gpt-5-mini',
+			llmConfigId: 'serving-config',
+		}),
+	);
+	expect(mocks.setSelectedModel).not.toHaveBeenCalledWith(null);
+});

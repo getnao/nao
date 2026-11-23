@@ -6,6 +6,7 @@ import * as projectLlmConfigQueries from '../queries/project-llm-config.queries'
 import { mergeUserGroupLlmAccess } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import {
+	attachServingLlmConfig,
 	filterModelsByConfigAccess,
 	getProjectAvailableModels,
 	getProjectAvailableModelsForConfigs,
@@ -195,7 +196,7 @@ export async function resolveUserModelSelection(
 		throw new HandlerError('BAD_REQUEST', 'Select a credential for this model and try again.');
 	}
 	if (mode === 'project') {
-		return requested;
+		return attachServingLlmConfig(projectId, requested);
 	}
 	throw new HandlerError('FORBIDDEN', 'The selected model is not available for this user.');
 }

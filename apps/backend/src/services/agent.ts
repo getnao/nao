@@ -89,6 +89,7 @@ import { normalizeCitationMarkersStream } from '../utils/citation-markers-stream
 import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { HandlerError } from '../utils/error';
 import {
+	attachServingLlmConfig,
 	getProjectDeclaredModels,
 	resolveAnnotationModelId,
 	resolveDefaultChatModel,
@@ -450,7 +451,7 @@ export class AgentService {
 			return resolveUserModelSelection(projectId, userId, modelSelection);
 		}
 		if (modelSelection) {
-			return modelSelection;
+			return attachServingLlmConfig(projectId, modelSelection);
 		}
 
 		const defaultModel = await resolveDefaultChatModel(projectId);

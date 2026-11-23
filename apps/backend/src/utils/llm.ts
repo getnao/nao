@@ -165,6 +165,18 @@ export async function resolveProviderModel(
 	return null;
 }
 
+/** Names the saved credential `resolveProviderModel` serves a selection with when the selection names none. */
+export async function attachServingLlmConfig(
+	projectId: string,
+	selection: LlmSelectedModel,
+): Promise<LlmSelectedModel> {
+	if (selection.llmConfigId || isManagedProvider(selection.provider)) {
+		return selection;
+	}
+	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, selection.provider);
+	return config && isProjectLlmConfigAvailable(config) ? { ...selection, llmConfigId: config.id } : selection;
+}
+
 /** The context window of a model: the one the project declares for it wins over nao's catalogue. */
 export async function resolveContextWindow(projectId: string, model: LlmSelectedModel): Promise<number> {
 	return (await getDeclaredContextWindow(projectId, model)) ?? getContextWindow(model.provider, model.modelId);

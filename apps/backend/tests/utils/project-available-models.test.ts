@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __reloadEnvForTesting } from '../../src/env';
 import {
+	attachServingLlmConfig,
 	filterModelsByConfigAccess,
 	getProjectAvailableModels,
 	resolveContextWindow,
@@ -309,6 +310,27 @@ describe('getProjectAvailableModels', () => {
 			apiKey: 'restored-key',
 		});
 	});
+
+	it.each([
+		{ envKey: 'env-key', expected: { provider: 'openai', modelId: 'gpt-4.1', llmConfigId: 'env-openai' } },
+		{ envKey: undefined, expected: { provider: 'openai', modelId: 'gpt-4.1' } },
+	])(
+		'attributes a selection without a credential to the saved one serving it (env key $envKey)',
+		async ({ envKey, expected }) => {
+			if (envKey) {
+				process.env.OPENAI_API_KEY = envKey;
+			}
+			mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+				id: 'env-openai',
+				provider: 'openai',
+				credentialSource: 'env',
+			});
+
+			await expect(
+				attachServingLlmConfig('project-1', { provider: 'openai', modelId: 'gpt-4.1' }),
+			).resolves.toEqual(expected);
+		},
+	);
 
 	it('gives a model the context window nao_config.yaml declares for it, over the one nao knows', async () => {
 		const dir = writeConfig([
