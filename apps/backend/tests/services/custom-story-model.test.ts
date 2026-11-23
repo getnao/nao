@@ -159,10 +159,15 @@ describe('runCustomStoryModel', () => {
 		expect(mocks.createAgent).not.toHaveBeenCalled();
 	});
 
-	it('runs a story built in a chat, which belongs to its chat project', async () => {
-		const result = await runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' });
+	it.each([
+		['a story built in a chat, through its chat project', { projectId: null, chatId: 'chat-1' }],
+		['a standalone story, through its own project', { projectId: 'project-1', chatId: null }],
+	])('runs %s', async (_label, ownership) => {
+		mocks.getStoryById.mockResolvedValue({ id: 'story-1', format: 'custom', ...ownership });
 
-		expect(result).toMatchObject({ kind: 'llm', text: 'Revenue grew.' });
+		expect(await runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' })).toMatchObject({
+			text: 'Revenue grew.',
+		});
 		expect(mocks.getStoryProjectId).toHaveBeenCalledWith('story-1');
 	});
 
