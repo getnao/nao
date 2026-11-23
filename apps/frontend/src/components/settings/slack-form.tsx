@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { ExternalLink } from 'lucide-react';
+import { CloudSlackOAuth } from './slack-oauth';
 import { Button } from '@/components/ui/button';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
 import { getSubmitErrorMessage, PasswordField } from '@/components/ui/form-fields';
 import { cn } from '@/lib/utils';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 
 export type SlackTransportMode = 'webhook' | 'socket';
 
 export interface SlackFormProps {
 	webhookUrl: string;
+	oauthInstallUrl?: string;
 	hasProjectConfig: boolean;
 	onSubmit: (values: {
 		botToken: string;
@@ -95,7 +98,12 @@ function buildManifestUrl(webhookUrl: string, mentionName: string, transportMode
 	return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
-export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
+export function SlackForm({ oauthInstallUrl, ...props }: SlackFormProps) {
+	const isCloud = useIsCloud();
+	return isCloud ? <CloudSlackOAuth oauthInstallUrl={oauthInstallUrl} /> : <ManualSlackForm {...props} />;
+}
+
+function ManualSlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [mentionName, setMentionName] = useState('nao');
 	const [transportMode, setTransportMode] = useState<SlackTransportMode>('webhook');
 	const [submitError, setSubmitError] = useState<string>();

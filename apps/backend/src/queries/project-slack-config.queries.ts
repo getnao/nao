@@ -7,6 +7,7 @@ import { env } from '../env';
 import { llmProviderSchema } from '../types/llm';
 import { SlackReplyMode, SlackTransportMode } from '../types/messaging-provider';
 import { updateProjectSettings } from './project-settings.queries';
+import * as SlackInstallationQueries from './project-slack-installation.queries';
 
 function toLlmSelectedModel(
 	provider: string | null | undefined,
@@ -20,35 +21,55 @@ function toLlmSelectedModel(
 }
 
 export const getProjectSlackConfig = async (projectId: string): Promise<SlackConfig | null> => {
-	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
+	const [project, installation] = await Promise.all([
+		db
+			.select()
+			.from(s.project)
+			.where(eq(s.project.id, projectId))
+			.then(([result]) => result),
+		SlackInstallationQueries.getSlackInstallationByProjectId(projectId),
+	]);
+
+	if (!project) {
+		return null;
+	}
+
 	const settings = project?.slackSettings;
+	const isOAuth = Boolean(installation);
+	const botToken = installation?.encryptedBotToken ?? settings?.slackBotToken;
+	const signingSecret = isOAuth ? env.CLOUD_SLACK_OAUTH_SIGNING_SECRET : settings?.slackSigningSecret;
 
-	if (!settings?.slackBotToken) {
+	if (!botToken || !signingSecret) {
 		return null;
 	}
 
-	const transportMode: SlackTransportMode = settings.slackTransportMode === 'socket' ? 'socket' : 'webhook';
+	const transportMode: SlackTransportMode = isOAuth
+		? 'webhook'
+		: settings?.slackTransportMode === 'socket'
+			? 'socket'
+			: 'webhook';
 
-	if (transportMode === 'webhook' && !settings.slackSigningSecret) {
+	if (!isOAuth && transportMode === 'webhook' && !settings?.slackSigningSecret) {
 		return null;
 	}
-	if (transportMode === 'socket' && !settings.slackAppToken) {
+
+	if (transportMode === 'socket' && !settings?.slackAppToken) {
 		return null;
 	}
 
 	return {
 		projectId,
-		botToken: settings.slackBotToken,
-		signingSecret: settings.slackSigningSecret ?? '',
-		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
-		autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
-		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+		botToken,
+		signingSecret,
+		redirectUrl: env.BETTER_AUTH_URL,
+		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
+		autoCreateUsersEnabled: settings?.autoCreateUsersEnabled ?? false,
+		autoCreateUsersDomains: settings?.autoCreateUsersDomains ?? [],
 		transportMode,
-		appToken: settings.slackAppToken ?? '',
-		replyMode: toSlackReplyMode(settings.slackReplyMode),
-		dmScopeMissing: settings.slackDmScopeMissing ?? false,
-		dmThreadsEnabled: settings.slackDmThreadsEnabled ?? false,
+		appToken: isOAuth ? '' : (settings?.slackAppToken ?? ''),
+		replyMode: toSlackReplyMode(settings?.slackReplyMode),
+		dmScopeMissing: settings?.slackDmScopeMissing ?? false,
+		dmThreadsEnabled: settings?.slackDmThreadsEnabled ?? false,
 	};
 };
 

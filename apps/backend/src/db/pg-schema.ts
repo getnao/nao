@@ -404,6 +404,33 @@ export const projectDiscordLink = pgTable(
 	],
 );
 
+export const projectSlackInstallation = pgTable(
+	'project_slack_installation',
+	{
+		projectId: text('project_id')
+			.primaryKey()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		teamId: text('team_id').notNull(),
+		teamName: text('team_name').notNull(),
+		enterpriseId: text('enterprise_id'),
+		botUserId: text('bot_user_id').notNull(),
+		encryptedBotToken: pgEncryptedText('encrypted_bot_token').notNull(),
+		scopes: text('scopes').notNull(),
+		installedByUserId: text('installed_by_user_id').references(() => user.id, {
+			onDelete: 'set null',
+		}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		uniqueIndex('project_slack_installation_teamId_idx').on(t.teamId),
+		index('project_slack_installation_installedByUserId_idx').on(t.installedByUserId),
+	],
+);
+
 export const projectWarehouseCredentials = pgTable('project_warehouse_credentials', {
 	projectId: text('project_id')
 		.notNull()

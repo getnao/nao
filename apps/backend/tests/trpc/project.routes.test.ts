@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
 	renameProject: vi.fn(),
 	canUserAccessStory: vi.fn(),
 	listShareableMembers: vi.fn(),
+	deleteProjectSlackConfig: vi.fn(),
+	disconnectSlackWorkspace: vi.fn(),
+	stopSlackProject: vi.fn(),
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({
@@ -41,7 +44,9 @@ vi.mock('../../src/queries/story.queries', () => ({
 }));
 vi.mock('../../src/services/project-sharing.service', () => ({ listShareableMembers: mocks.listShareableMembers }));
 vi.mock('../../src/queries/project-saved-prompt.queries', () => ({}));
-vi.mock('../../src/queries/project-slack-config.queries', () => ({}));
+vi.mock('../../src/queries/project-slack-config.queries', () => ({
+	deleteProjectSlackConfig: mocks.deleteProjectSlackConfig,
+}));
 vi.mock('../../src/queries/project-teams-config.queries', () => ({}));
 vi.mock('../../src/queries/project-telegram-config.queries', () => ({}));
 vi.mock('../../src/queries/project-whatsapp-config.queries', () => ({}));
@@ -49,7 +54,11 @@ vi.mock('../../src/queries/project-whatsapp-link.queries', () => ({}));
 vi.mock('../../src/agents/user-rules', () => ({ getDatabaseObjects: vi.fn() }));
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/services/posthog', () => ({ posthog: {}, PostHogEvent: {} }));
-vi.mock('../../src/services/slack', () => ({ slackService: {} }));
+vi.mock('../../src/services/slack', () => ({ slackService: { stopProject: mocks.stopSlackProject } }));
+vi.mock('../../src/services/slack-oauth.service', () => ({
+	disconnectSlackWorkspace: mocks.disconnectSlackWorkspace,
+	isSlackOAuthConfigured: vi.fn(() => true),
+}));
 vi.mock('../../src/services/transcribe.service', () => ({ listAvailableTranscribeModels: vi.fn() }));
 vi.mock('../../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -65,6 +74,20 @@ const createTemporaryFolder = useTemporaryFolders();
 
 beforeEach(() => {
 	mocks.getUserRoleInProject.mockResolvedValue('admin');
+});
+
+describe('project.deleteSlackConfig', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('uninstalls an OAuth workspace before clearing its project configuration', async () => {
+		await caller.deleteSlackConfig();
+
+		expect(mocks.disconnectSlackWorkspace).toHaveBeenCalledWith('project-id');
+		expect(mocks.deleteProjectSlackConfig).toHaveBeenCalledWith('project-id');
+		expect(mocks.stopSlackProject).toHaveBeenCalledWith('project-id');
+	});
 });
 
 describe('project.regenerateMessagingProviderCode', () => {

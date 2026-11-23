@@ -1,10 +1,16 @@
 import { createFileRoute, Link, redirect } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
+import { useEffect } from 'react';
 
 import type { IntegrationId } from '@/components/settings/integrations';
 
 import { IntegrationStatusBadge } from '@/components/settings/integration-card';
-import { integrations, isIntegrationId, useIntegrationStatuses } from '@/components/settings/integrations';
+import {
+	integrations,
+	isIntegrationId,
+	SLACK_OAUTH_CONNECTED_STORAGE_KEY,
+	useIntegrationStatuses,
+} from '@/components/settings/integrations';
 import { LinkingCodesCard } from '@/components/settings/linking-code-section';
 import { DiscordConfigSection } from '@/components/settings/discord-config-section';
 import { MattermostConfigSection } from '@/components/settings/mattermost-config-section';
@@ -38,6 +44,18 @@ function IntegrationDetailPage() {
 	const navigate = Route.useNavigate();
 	const integrationStatuses = useIntegrationStatuses();
 	const { isAdmin } = usePermissions();
+
+	useEffect(() => {
+		const callbackUrl = new URL(window.location.href);
+		if (integrationId !== 'slack' || callbackUrl.searchParams.get('slack') !== 'connected') {
+			return;
+		}
+
+		localStorage.setItem(SLACK_OAUTH_CONNECTED_STORAGE_KEY, Date.now().toString());
+		callbackUrl.searchParams.delete('slack');
+		window.history.replaceState(null, '', callbackUrl);
+		window.close();
+	}, [integrationId]);
 
 	const handleCancelSetup = () => {
 		void navigate({

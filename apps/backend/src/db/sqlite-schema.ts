@@ -426,6 +426,35 @@ export const projectDiscordLink = sqliteTable(
 	],
 );
 
+export const projectSlackInstallation = sqliteTable(
+	'project_slack_installation',
+	{
+		projectId: text('project_id')
+			.primaryKey()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		teamId: text('team_id').notNull(),
+		teamName: text('team_name').notNull(),
+		enterpriseId: text('enterprise_id'),
+		botUserId: text('bot_user_id').notNull(),
+		encryptedBotToken: sqliteEncryptedText('encrypted_bot_token').notNull(),
+		scopes: text('scopes').notNull(),
+		installedByUserId: text('installed_by_user_id').references(() => user.id, {
+			onDelete: 'set null',
+		}),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		uniqueIndex('project_slack_installation_teamId_idx').on(t.teamId),
+		index('project_slack_installation_installedByUserId_idx').on(t.installedByUserId),
+	],
+);
+
 export const projectWarehouseCredentials = sqliteTable('project_warehouse_credentials', {
 	projectId: text('project_id')
 		.notNull()
