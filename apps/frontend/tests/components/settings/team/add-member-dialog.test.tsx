@@ -174,6 +174,18 @@ describe('AddMemberDialog bulk add', () => {
 		expect(screen.queryByRole('button', { name: 'Remove bob' })).toBeNull();
 	});
 
+	it('ignores a quoted display name that looks like an address', () => {
+		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
+
+		fireEvent.paste(screen.getByLabelText('Emails'), {
+			clipboardData: { getData: () => '"alice@old.com" <alice@new.com>, "bob@acme.com"' },
+		});
+
+		expect(screen.getByRole('button', { name: 'Remove alice@new.com' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Remove alice@old.com' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Remove bob@acme.com' })).toBeTruthy();
+	});
+
 	it('keeps a typed display name together until its address is complete', () => {
 		render(<AddMemberDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
 		const input = screen.getByLabelText('Emails');
