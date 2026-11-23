@@ -1,7 +1,6 @@
 import { type Document, isMap, isScalar, isSeq, type Pair, parseDocument, visit, type YAMLMap } from 'yaml';
 
-import { DOCS_ROOT, toSnakeCase, UserGroupConfigError } from './user-group-config.service';
-import { groupIdFromName } from './user-group-config-export.service';
+import { DOCS_ROOT, groupIdFromName, toSnakeCase, UserGroupConfigError } from './user-group-config.service';
 
 interface MapContext {
 	order: string[];

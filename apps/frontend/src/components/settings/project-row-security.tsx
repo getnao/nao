@@ -38,10 +38,12 @@ export function ProjectRowSecurity({
 	objects,
 	catalogState = 'ready',
 	onRetryCatalog,
+	groupPoliciesManagedAsCode = false,
 }: {
 	objects: DatabaseContextObject[];
 	catalogState?: 'loading' | 'error' | 'ready';
 	onRetryCatalog?: () => void;
+	groupPoliciesManagedAsCode?: boolean;
 }) {
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const license = useLicenseFeatures();
@@ -116,7 +118,11 @@ export function ProjectRowSecurity({
 		<>
 			<SettingsCard
 				title='Row-level security'
-				description='Protect tables by choosing the columns that group policies should use.'
+				description={
+					groupPoliciesManagedAsCode
+						? 'Protected tables remain managed here. Group row policies are read-only and managed in groups.yaml.'
+						: 'Protect tables by choosing the columns that group policies should use.'
+				}
 				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 				unstyled
 			>

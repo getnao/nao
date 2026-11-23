@@ -42,7 +42,7 @@ When `groups.yaml` already exists, the project is already code-managed, and edit
 - [ ] 0. No groups.yaml yet? Get explicit approval, then have the user save the UI export as groups.yaml
 - [ ] 1. Collect the changes the user wants
 - [ ] 2. Inventory what exists in the project
-- [ ] 3. Edit groups.yaml
+- [ ] 3. Edit groups.yaml and ensure it contains exactly one `all_users` entry
 - [ ] 4. nao group format, then nao group lint, until clean
 - [ ] 5. Hand over to the user, who ships it
 ```
@@ -70,6 +70,13 @@ Every reference is checked against the project folder, so read the real values i
 | `share_targets.group_ids`                      | Ids of custom groups in the same file.                                                                                                                   |
 
 ### 3. Write the file
+
+**Hard invariant:** every file this skill creates or edits must contain exactly one `all_users` entry. Preserve its existing settings. If it is missing, add the minimal entry below rather than guessing access. Put it after `default` when `default` exists, otherwise put it first. Never add `name`, `list_of_emails`, or `sso_groups` to it.
+
+```yaml
+groups:
+    - id: all_users
+```
 
 File shape:
 
@@ -190,6 +197,8 @@ nao group lint   # schema, ids, inheritance, and every reference against the loc
 ```
 
 `lint` runs offline. These checks only run on the server, at deploy or startup, so mention them to the user when they apply:
+
+Do not hand over a file while lint fails. In particular, if lint says `The "all_users" group is required`, add the minimal `all_users` entry from step 3, preserve every custom group, and rerun format and lint.
 
 - A **user groups license** is required. Row policies, and restricted MCP or skill access with at least one grant, need an **Enterprise** license.
 - Row policies need their table registered in **Row security**, and guided conditions need its constraint columns.

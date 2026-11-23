@@ -53,8 +53,6 @@ groups:
                     - column: region
                       operator: is_one_of
                       values: [emea, apac]
-protected_tables:
-    rows: []
 `;
 
 describe('parseUserGroupsConfig', () => {
@@ -106,6 +104,11 @@ describe('parseUserGroupsConfig', () => {
 			'a share target to an unknown group',
 			['features: [story_creation]', 'share_targets: {group_ids: [missing]}'],
 			'unknown group "missing"',
+		],
+		[
+			'a protected tables section',
+			['groups:', 'protected_tables:\n    rows: []\ngroups:'],
+			'Protected tables are not managed by groups.yaml yet',
 		],
 		[
 			'a column policy',

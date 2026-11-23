@@ -180,6 +180,7 @@ function UserGroupsContent({
 						objects={contextObjects}
 						catalogState={databaseCatalogState}
 						onRetryCatalog={() => void contextCatalog.refetch()}
+						groupPoliciesManagedAsCode={isCodeManaged}
 					/>
 				)}
 			</TabPanel>

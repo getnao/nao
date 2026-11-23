@@ -174,13 +174,9 @@ groups:
           databases:
               mode: all
               strict: true
-
-# Planned for a later release; these settings stay editable in the UI for now.
-protected_tables: {}
-
-# Planned for a later release; these settings stay editable in the UI for now.
-budget: {}
 ```
+
+Protected tables and budgets stay editable in the UI for now. Do not add a `protected_tables` section: nao rejects it until protected tables are supported as code.
 
 Each group has:
 

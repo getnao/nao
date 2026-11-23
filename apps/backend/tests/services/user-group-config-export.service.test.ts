@@ -10,6 +10,7 @@ import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { parseUserGroupsConfig } from '../../src/services/user-group-config.service';
 import { exportUserGroupsConfig } from '../../src/services/user-group-config-export.service';
+import { formatUserGroupsConfig } from '../../src/services/user-group-config-format.service';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const createTemporaryFolder = useTemporaryFolders();
@@ -31,7 +32,7 @@ describe('exportUserGroupsConfig', () => {
 			{
 				id: 'export-sales',
 				projectId: 'export-project',
-				name: 'Sales Team',
+				name: 'Les Nobles',
 				featureGrants: storedFeatureGrants(false),
 			},
 			{
@@ -49,6 +50,9 @@ describe('exportUserGroupsConfig', () => {
 		const source = await exportUserGroupsConfig('export-project', projectPath);
 		const exported = parseUserGroupsConfig(source);
 
+		expect(formatUserGroupsConfig(source)).toBe(source);
+		expect(source).toContain('groups:\n    - id: all_users');
+		expect(source).toContain('\n    - id: les_nobles');
 		expect(source).not.toContain('show_all_settings');
 		expect(exported.allUsers.advancedContextExplorer).toBe(false);
 		expect(exported.groups).toEqual([
@@ -59,11 +63,40 @@ describe('exportUserGroupsConfig', () => {
 				advancedContextExplorer: true,
 			}),
 			expect.objectContaining({
-				key: 'sales_team',
-				name: 'Sales Team',
+				key: 'les_nobles',
+				name: 'Les Nobles',
 				members: [],
 				advancedContextExplorer: false,
 			}),
+		]);
+	});
+
+	it('normalizes a persisted legacy config key before export', async () => {
+		const projectPath = createTemporaryFolder('nao-groups-invalid-export-');
+		await db
+			.insert(s.project)
+			.values({ id: 'invalid-export-project', name: 'Invalid export project', type: 'local', path: projectPath });
+		await db.insert(s.userGroup).values([
+			{
+				id: 'invalid-export-all-users',
+				projectId: 'invalid-export-project',
+				name: 'All Users',
+				isDefault: true,
+				featureGrants: storedFeatureGrants(false),
+			},
+			{
+				id: 'invalid-export-group',
+				projectId: 'invalid-export-project',
+				name: 'Les Nobles',
+				configKey: 'les-nobles',
+				featureGrants: storedFeatureGrants(false),
+			},
+		]);
+
+		const source = await exportUserGroupsConfig('invalid-export-project', projectPath);
+
+		expect(parseUserGroupsConfig(source).groups).toEqual([
+			expect.objectContaining({ key: 'les_nobles', name: 'Les Nobles' }),
 		]);
 	});
 });

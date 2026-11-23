@@ -530,6 +530,10 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText(/pending@example.com/)).toBeTruthy();
 		expect(screen.getByRole('row', { name: /Project User/ }).textContent).toContain('Analysts');
 		expect(screen.queryByRole('button', { name: /Manage groups for/ })).toBeNull();
+
+		rerender(<UserGroupsTable tab='security' onTabChange={vi.fn()} />);
+		expect(screen.getByText(/Protected tables remain managed here/)).toBeTruthy();
+		expect(screen.getByText(/Group row policies are read-only and managed in groups.yaml/)).toBeTruthy();
 	});
 
 	it('configures project constraint columns when RLS is licensed', () => {

@@ -30,15 +30,13 @@ groups: # list of groups, each identified by an id
       capabilities: {} # features, UI settings, sharing, MCP, skills
       access: {} # context tree: databases and files
       policies: {} # rows and columns
-protected_tables: {} # reserved, moves to its own file later
-budget: {} # reserved, moves to its own file later
 ```
 
 The complete annotated example is in the [appendix](#appendix-complete-example).
 
 Key rules:
 
-- `groups` is the first top-level key. `protected_tables` and `budget` sit beside it because each will move to its own file later.
+- `groups` is the only active top-level section. Protected tables remain UI-managed; a non-null `protected_tables` section is rejected until it is implemented as code.
 - There is no `version` key. The file has no older shape to tell apart, and `nao group format` removes the key from files written before this change.
 - `id` replaces `key`. It is the stable identifier and the value used in `share_targets.group_ids`. It must be unique and snake_case. Changing an id archives the old group and creates a new one.
 - `name` is the label shown in the UI. It is optional and defaults to the id, must be unique, and can change freely without affecting the group's identity. `All Users` is reserved, and `default` and `all_users` cannot declare a name.
@@ -274,36 +272,6 @@ groups:
           databases:
               mode: all
               strict: true
-
-# Reserved. Parsed and applied in a follow-up PR; still edited in the UI until then.
-protected_tables:
-    rows: # tables that need a row policy before a group can query them
-        - database_type: postgres
-          database: warehouse
-          schema: finance
-          table: invoices
-          constraint_columns: [region, deleted_at]
-    columns: # columns hidden unless a group's policies.columns grants them
-        - database_type: postgres
-          database: warehouse
-          schema: finance
-          table: employees
-          restricted_columns: [salary, bank_account]
-
-# Reserved. Parsed and applied in a follow-up PR; still edited in the UI until then.
-budget:
-    providers:
-        - provider: anthropic
-          limit_usd: 5000
-          per_user_limit_usd: 200
-          period: month # day | week | month
-    members:
-        period: month # week | month | year
-        default_limit_usd: 50
-        overrides:
-            - email: alice@example.com
-              limit_usd: 150
-    groups:
-        - id: finance
-          limit_usd: 250
 ```
+
+The protected-table registry and budgets remain UI-managed until their code-managed sections are implemented in follow-up work.

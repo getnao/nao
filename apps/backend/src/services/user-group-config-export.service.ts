@@ -7,9 +7,13 @@ import {
 	ALL_USERS_GROUP_ID,
 	DEFAULT_GROUP_ID,
 	DOCS_ROOT,
+	groupIdFromName,
 	HIDDEN_DEFAULTS,
+	parseUserGroupsConfig,
 	toSnakeCase,
 } from './user-group-config.service';
+import { formatUserGroupsConfig } from './user-group-config-format.service';
+import { lintUserGroupsConfig } from './user-group-config-validation.service';
 import { listPendingUserGroupConfigAssignments } from './user-group-management.service';
 
 type ExportedSection = Record<string, unknown>;
@@ -50,17 +54,21 @@ export async function exportUserGroupsConfig(projectId: string, projectPath: str
 		...settingsSections(group, keysByGroupId, topLevelFileGrants),
 	});
 
-	return yaml.dump(
-		{
-			groups: [
-				exportGroup(defaultGroup, ALL_USERS_GROUP_ID),
-				...customGroups
-					.map((group) => exportGroup(group, keysByGroupId.get(group.id)!))
-					.sort((left, right) => left.id.localeCompare(right.id)),
-			],
-		},
-		{ noRefs: true, lineWidth: -1, noCompatMode: true, indent: 4 },
+	const source = formatUserGroupsConfig(
+		yaml.dump(
+			{
+				groups: [
+					exportGroup(defaultGroup, ALL_USERS_GROUP_ID),
+					...customGroups
+						.map((group) => exportGroup(group, keysByGroupId.get(group.id)!))
+						.sort((left, right) => left.id.localeCompare(right.id)),
+				],
+			},
+			{ noRefs: true, lineWidth: -1, noCompatMode: true },
+		),
 	);
+	lintUserGroupsConfig(projectPath, parseUserGroupsConfig(source));
+	return source;
 }
 
 /** The id each custom group gets in `groups.yaml`. The first apply adopts UI groups through these same ids. */
@@ -68,15 +76,23 @@ export function assignUserGroupConfigKeys(
 	groups: ReadonlyArray<{ id: string; name: string; configKey: string | null }>,
 ): Map<string, string> {
 	const result = new Map<string, string>();
-	const used = new Set([DEFAULT_GROUP_ID, ALL_USERS_GROUP_ID, ...groups.flatMap((group) => group.configKey ?? [])]);
+	const reserved = new Set([DEFAULT_GROUP_ID, ALL_USERS_GROUP_ID]);
+	const used = new Set([
+		...reserved,
+		...groups.flatMap((group) =>
+			group.configKey && isValidGroupId(group.configKey) && !reserved.has(group.configKey)
+				? [group.configKey]
+				: [],
+		),
+	]);
 	for (const group of [...groups].sort(
 		(left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
 	)) {
-		if (group.configKey) {
+		if (group.configKey && isValidGroupId(group.configKey) && !reserved.has(group.configKey)) {
 			result.set(group.id, group.configKey);
 			continue;
 		}
-		const base = groupIdFromName(group.name);
+		const base = groupIdFromName(group.configKey ?? group.name);
 		let candidate = base;
 		for (let suffix = 2; used.has(candidate); suffix += 1) {
 			candidate = `${base}_${suffix}`;
@@ -87,18 +103,8 @@ export function assignUserGroupConfigKeys(
 	return result;
 }
 
-export function groupIdFromName(name: string): string {
-	const slug = name
-		.normalize('NFKD')
-		.replaceAll(/[\u0300-\u036f]/g, '')
-		.toLowerCase()
-		.replaceAll(/[^a-z0-9]+/g, '_')
-		.replaceAll(/^_+|_+$/g, '')
-		.slice(0, 70);
-	if (!slug) {
-		return 'group';
-	}
-	return /^[a-z]/.test(slug) ? slug : `group_${slug}`;
+function isValidGroupId(value: string): boolean {
+	return value.length <= 80 && /^[a-z][a-z0-9_]*$/.test(value);
 }
 
 function membershipSection(

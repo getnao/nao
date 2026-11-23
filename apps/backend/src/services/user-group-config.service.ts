@@ -259,12 +259,19 @@ const groupEntrySchema = z
 	})
 	.strict();
 
+const unsupportedProtectedTablesSchema = z
+	.unknown()
+	.refine(
+		(value) => value === null || value === undefined,
+		'Protected tables are not managed by groups.yaml yet. Configure them in the Row-level security settings.',
+	)
+	.optional();
 const reservedSectionSchema = z.record(z.string(), z.unknown()).nullable().optional();
 
 const fileSchema = z
 	.object({
 		groups: z.array(groupEntrySchema).max(MAX_GROUPS),
-		protected_tables: reservedSectionSchema,
+		protected_tables: unsupportedProtectedTablesSchema,
 		budget: reservedSectionSchema,
 	})
 	.strict();
@@ -575,6 +582,20 @@ function toSsoMappings(ssoGroups: GroupEntry['sso_groups']): UserGroupSsoMapping
 
 export function toSnakeCase(value: string): string {
 	return value.replaceAll('-', '_').replaceAll(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+export function groupIdFromName(name: string): string {
+	const slug = name
+		.normalize('NFKD')
+		.replaceAll(/[\u0300-\u036f]/g, '')
+		.toLowerCase()
+		.replaceAll(/[^a-z0-9]+/g, '_')
+		.replaceAll(/^_+|_+$/g, '')
+		.slice(0, 70);
+	if (!slug) {
+		return 'group';
+	}
+	return /^[a-z]/.test(slug) ? slug : `group_${slug}`;
 }
 
 function snakeCaseAll<T extends string>(values: readonly T[]): [string, ...string[]] {
