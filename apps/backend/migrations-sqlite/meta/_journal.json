@@ -806,6 +806,13 @@
       "when": 1795189524638,
       "tag": "0114_automation_share",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "6",
+      "when": 1795281990614,
+      "tag": "0115_user_group_impersonation",
+      "breakpoints": true
     }
   ]
 }

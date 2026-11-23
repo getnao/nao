@@ -421,6 +421,7 @@ describe('user group feature route enforcement', () => {
 			'# Latest version',
 			true,
 			'* * * * *',
+			{ viewerUserId: 'user-id' },
 		);
 		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
 			'html',

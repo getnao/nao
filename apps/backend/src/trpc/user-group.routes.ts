@@ -46,10 +46,13 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
-import { env } from '../env';
+import type { ActivityType } from '../db/abstractSchema';
+import { env, isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import * as impersonationQueries from '../queries/user-group-impersonation.queries';
+import { logActivity } from '../services/activity';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
@@ -64,8 +67,10 @@ import {
 } from '../services/sso-user-group-mapping.service';
 import {
 	assertUserGroupManageable,
+	getActiveGroupImpersonation,
 	getAvailableUserGroupOverview,
 	listActiveUserGroups,
+	validateAssignableUserGroupIds,
 } from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,
@@ -306,6 +311,40 @@ export const userGroupRoutes = {
 			}
 			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId, role);
 		}),
+
+	impersonation: projectProtectedProcedure.query(async ({ ctx }) => {
+		const groupIds = await getActiveGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (!groupIds) {
+			return null;
+		}
+		return { groupNames: await listGroupNames(ctx.project.id, groupIds) };
+	}),
+
+	startImpersonation: projectProtectedProcedure
+		.input(z.object({ groupIds: z.array(z.string().min(1)).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			if (isCloud) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'Group impersonation is not available on nao Cloud yet.',
+				});
+			}
+			if ((await projectQueries.getActualUserRoleInProject(ctx.project.id, ctx.user.id)) !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can impersonate user groups.' });
+			}
+			const groupIds = await handleQuery(() => validateAssignableUserGroupIds(ctx.project.id, input.groupIds));
+			await impersonationQueries.startGroupImpersonation(ctx.project.id, ctx.user.id, groupIds);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await logImpersonationActivity(ctx.project.id, ctx.user.id, 'user_group.impersonation_started', groupIds);
+		}),
+
+	stopImpersonation: projectProtectedProcedure.mutation(async ({ ctx }) => {
+		const groupIds = await impersonationQueries.stopGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (groupIds) {
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await logImpersonationActivity(ctx.project.id, ctx.user.id, 'user_group.impersonation_stopped', groupIds);
+		}
+	}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
@@ -626,6 +665,25 @@ export const userGroupRoutes = {
 interface GroupBudgetsInput {
 	budgetLimitUsd?: number | null;
 	sharedBudgetLimitUsd?: number | null;
+}
+
+async function listGroupNames(projectId: string, groupIds: string[]): Promise<string[]> {
+	const groups = await listActiveUserGroups(projectId);
+	return groups.filter((group) => groupIds.includes(group.id)).map((group) => group.name);
+}
+
+async function logImpersonationActivity(
+	projectId: string,
+	userId: string,
+	type: Extract<ActivityType, `user_group.impersonation_${string}`>,
+	groupIds: string[],
+): Promise<void> {
+	await logActivity({
+		projectId,
+		userId,
+		type,
+		payload: { groupIds, groupNames: await listGroupNames(projectId, groupIds) },
+	});
 }
 
 async function assertGroupBudgetEditable(projectId: string, input: GroupBudgetsInput): Promise<void> {
