@@ -1,6 +1,10 @@
 import {
+	ALL_DATABASE_CONTEXT_ACCESS,
 	ALL_MCP_ACCESS,
+	type DatabaseContextAccess,
+	EMPTY_DATABASE_CONTEXT_ACCESS,
 	type FileTreeAccess,
+	isDatabaseContextTableGranted,
 	isSkillGranted,
 	type McpAccess,
 	type ProjectColumnSecurity,
@@ -8,6 +12,7 @@ import {
 	resolveWarehouseColumnSecurity,
 	resolveWarehouseRowSecurity,
 	type SkillsAccess,
+	unionDatabaseContextAccess,
 	type UserGroupFeature,
 	type UserGroupRowPolicies,
 	type UserRole,
@@ -17,16 +22,22 @@ import {
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
-import { getUserRoleInProject } from '../queries/project.queries';
+import { getProjectById, getUserRoleInProject } from '../queries/project.queries';
 import { getProjectColumnSecurity, getProjectRowSecurity } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { skillService } from './skill';
-import { resolveAvailableUserGroupAccess } from './user-group-availability.service';
+import {
+	type AvailableUserGroupOverview,
+	getAvailableUserGroupOverview,
+	resolveAvailableUserGroupAccess,
+} from './user-group-availability.service';
 
 export * from './context-access';
+
+export const MISSING_TABLE_ACCESS_MESSAGE = 'The new owner needs access to every table the current owner can access.';
 
 export type ResolvedFileTreeAccess = { enforced: false } | { enforced: true; access: FileTreeAccess };
 export type ResolvedDocsContextAccess = ResolvedFileTreeAccess;
@@ -130,8 +141,64 @@ export async function hasEffectiveWarehouseRestrictions(projectId: string, userI
 	);
 }
 
+export async function hasTableAccessOf(
+	projectId: string,
+	previousOwnerId: string,
+	recipientId: string,
+): Promise<boolean> {
+	const [recipient] = await flagRecipientsWithTableAccess(projectId, previousOwnerId, [{ id: recipientId }]);
+	return recipient.hasTableAccess;
+}
+
+/**
+ * Live stories and automations run with their owner's access, so a new owner must be able to query every table the
+ * previous one could.
+ */
+export async function flagRecipientsWithTableAccess<T extends { id: string }>(
+	projectId: string,
+	previousOwnerId: string,
+	recipients: T[],
+): Promise<Array<T & { hasTableAccess: boolean }>> {
+	const [project, overview] = await Promise.all([
+		getProjectById(projectId),
+		getAvailableUserGroupOverview(projectId),
+	]);
+	const tables = project?.path ? getDatabaseContextCatalog(project.path).objects : [];
+	const databaseAccessByMember = resolveDatabaseAccessByMember(overview);
+	const queryableAccessOf = (userId: string) =>
+		toQueryableAccess(databaseAccessByMember.get(userId) ?? EMPTY_DATABASE_CONTEXT_ACCESS);
+	const previousOwnerAccess = queryableAccessOf(previousOwnerId);
+	const previousOwnerTables = tables.filter((table) => isDatabaseContextTableGranted(previousOwnerAccess, table));
+	return recipients.map((recipient) => {
+		const access = queryableAccessOf(recipient.id);
+		const hasTableAccess = previousOwnerTables.every((table) => isDatabaseContextTableGranted(access, table));
+		return { ...recipient, hasTableAccess };
+	});
+}
+
 function hasRestrictedTable(security: WarehouseColumnSecurity | WarehouseRowSecurity): boolean {
 	return security.enforced && security.tables.some(({ access }) => access !== 'full');
+}
+
+function resolveDatabaseAccessByMember(overview: AvailableUserGroupOverview): Map<string, DatabaseContextAccess> {
+	const accessByGroupId = new Map(
+		overview.groups.flatMap((group) => (group.isLocked ? [] : [[group.id, group.databaseAccess] as const])),
+	);
+	const accessesByMember = new Map<string, DatabaseContextAccess[]>();
+	for (const { groupId, userId } of overview.memberships) {
+		const access = accessByGroupId.get(groupId);
+		if (access) {
+			accessesByMember.set(userId, [...(accessesByMember.get(userId) ?? []), access]);
+		}
+	}
+	return new Map(
+		[...accessesByMember].map(([userId, accesses]) => [userId, unionDatabaseContextAccess(accesses)] as const),
+	);
+}
+
+/** Without strict mode, grants only narrow the agent's context: SQL still reads every table. */
+function toQueryableAccess(access: DatabaseContextAccess): DatabaseContextAccess {
+	return access.strict ? access : ALL_DATABASE_CONTEXT_ACCESS;
 }
 
 async function resolveMemberWarehouseAccess(projectId: string, userId: string) {
