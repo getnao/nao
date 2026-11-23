@@ -15,6 +15,7 @@ import type { DocumentAttachment } from '@/lib/attachments';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { MentionOption, SelectedMention } from 'prompt-mentions';
 
+import type { Chat } from '@/queries/use-chat-query';
 import { getProjectRequestHeaders } from '@/lib/active-project';
 import {
 	checkIsAgentRunning,
@@ -130,7 +131,7 @@ export const useAgent = ({
 		setPreviousContextChatId(contextChatId);
 		setChatId(contextChatId);
 	}
-	const chat = useChatQuery({ chatId });
+	const chat = useChatQuery({ chatId, select: selectChatMessages });
 	const { data: session } = useSession();
 
 	// A null pick means "nao default": no model is sent and the server resolves the admin default.
@@ -341,7 +342,7 @@ export const useAgent = ({
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,
-		experimental_throttle: 8,
+		experimental_throttle: 50,
 	});
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
@@ -362,7 +363,7 @@ export const useAgent = ({
 	const isCatchingUp = useResumeRunningAnswer({
 		agent: agentInstance,
 		chatId,
-		loadedMessages: chat.data?.messages,
+		loadedMessages: chat.data,
 		status,
 		refetchSavedMessages,
 	});
@@ -663,17 +664,6 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 	const chatDataRef = useRef(chat.data);
 	chatDataRef.current = chat.data;
 
-	useEffect(() => {
-		if (!agent.isRunning) {
-			return;
-		}
-		const base = chatDataRef.current;
-		setChat({ chatId }, (prev) => {
-			const src = prev ?? base;
-			return src ? { ...src, messages: agent.messages } : prev;
-		});
-	}, [setChat, agent.messages, chatId, agent.isRunning]);
-
 	const wasRunningRef = useRef(false);
 	useEffect(() => {
 		if (wasRunningRef.current && !agent.isRunning) {
@@ -685,6 +675,21 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		}
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
+
+	const committedRunRef = useRef({ chatId, messages: agent.messages, isRunning: agent.isRunning });
+	useEffect(() => {
+		committedRunRef.current = { chatId, messages: agent.messages, isRunning: agent.isRunning };
+	});
+
+	/** Saves a run's messages when its chat stops showing mid-run, so showing it again does not start from stale messages. */
+	useEffect(() => {
+		return () => {
+			const { chatId: runChatId, messages, isRunning } = committedRunRef.current;
+			if (runChatId && isRunning) {
+				setChat({ chatId: runChatId }, (prev) => (prev ? { ...prev, messages } : prev));
+			}
+		};
+	}, [chatId, setChat]);
 };
 
 /** How many mounted screens show each shared agent. */
@@ -867,3 +872,7 @@ export const useDisposeInactiveAgents = () => {
 		}
 	}, [chatId, prevChatIdRef]);
 };
+
+function selectChatMessages(chat: Chat): UIMessage[] {
+	return chat.messages;
+}

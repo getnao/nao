@@ -166,6 +166,13 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				: undefined,
 		[chartConfig],
 	);
+	const editableChartConfig = useMemo(
+		() =>
+			chartConfig && isBuiltinChartType(chartConfig.chart_type)
+				? { ...chartConfig, chart_type: chartConfig.chart_type }
+				: undefined,
+		[chartConfig],
+	);
 
 	if (isTableVariant) {
 		return <DisplayChartTable config={tableConfig} outputError={output?.error} toolCallId={toolCallId} />;
@@ -415,12 +422,12 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				</div>
 			)}
 
-			{isEditable && isBuiltinChartType(chartConfig.chart_type) && (
+			{isEditable && isEditOpen && editableChartConfig && (
 				<DisplayChartEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
 					toolCallId={toolCallId}
-					config={{ ...chartConfig, chart_type: chartConfig.chart_type }}
+					config={editableChartConfig}
 					availableColumns={sourceData.columns ?? []}
 					data={sourceData.data ?? []}
 					sourceQuery={sourceQuery ?? undefined}
