@@ -7,29 +7,30 @@ import { join } from 'path';
 import { renderRootRulesForAgent } from '../services/agent-visible-project-file.service';
 import { renderSafeTableColumns } from '../services/column-security-context.service';
 import { isDatabaseObjectAllowed, type WarehouseTableAccess } from '../services/context-access';
+import { extractRulesFile } from '../utils/nao-config';
 import { readProjectFile } from '../utils/project-file';
 
 /**
- * Reads user-defined rules from RULES.md in the project folder if it exists
+ * Reads user-defined rules from the project's rules file, RULES.md unless nao_config.yaml sets `rules_file`
  */
 export function getUserRules(
 	projectFolder: string,
 	groupAccess: UserRulesGroupAccess = { enforced: false },
 ): string | undefined {
-	const rulesPath = join(projectFolder, 'RULES.md');
+	const rulesFile = extractRulesFile(projectFolder);
 
-	if (!existsSync(rulesPath)) {
+	if (!existsSync(join(projectFolder, rulesFile))) {
 		return undefined;
 	}
 
 	try {
-		const renderedRules = renderRootRulesForAgent(readProjectFile(projectFolder, 'RULES.md'), groupAccess);
+		const renderedRules = renderRootRulesForAgent(readProjectFile(projectFolder, rulesFile), groupAccess);
 		if (!renderedRules) {
-			throw new Error('RULES.md could not be rendered safely');
+			throw new Error(`${rulesFile} could not be rendered safely`);
 		}
 		return renderedRules.content;
 	} catch (error) {
-		console.error('Error reading RULES.md:', error);
+		console.error(`Error reading ${rulesFile}:`, error);
 		return undefined;
 	}
 }

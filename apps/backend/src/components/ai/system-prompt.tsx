@@ -346,7 +346,7 @@ export function SystemPrompt({
 				</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
-				{userRules && <UserRulesSection rules={userRules} />}
+				{userRules && <UserRulesSection rules={userRules} rulesFile={contextPresence?.rulesFile} />}
 
 				{connections.length > 0 && (
 					<Block>
