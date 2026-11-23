@@ -46,9 +46,9 @@ export async function decide<Q extends DecisionQuestions>(
 		throw new Error(`${label} is not connected. Add its credentials in ${SETTINGS_PATH}.`);
 	}
 	const { provider, modelId } = selected.model;
-	const result = await callDecisionModel(provider, selected.access.settings, modelId, request);
-	recordUsage(caller, selected.model, result.usage);
-	return result;
+	return callDecisionModel(provider, selected.access.settings, modelId, request, (usage) =>
+		recordUsage(caller, selected.model, usage),
+	);
 }
 
 function recordUsage(caller: DecisionCaller, model: DecisionModel, usage: DecisionResult['usage']): void {
@@ -91,13 +91,16 @@ export async function getDecisionSettings(projectId: string) {
 	return { providers, model: (await selectModel(context))?.model ?? null };
 }
 
-/** The keys saved for decision providers, by the LLM provider of the same vendor, which can start from them. */
+/**
+ * The keys saved for decision providers, by the LLM provider of the same vendor, which can start from them.
+ * A key saved with a base URL belongs to that endpoint, so it is not offered to the vendor's own API.
+ */
 export async function getDecisionKeysByLlmProvider(projectId: string): Promise<Map<LlmProvider, string>> {
 	const saved = await decisionConfigQueries.getProjectDecisionConfigs(projectId);
 	return new Map(
 		saved.flatMap((row) => {
 			const { llmProvider } = DECISION_PROVIDER_META[row.provider];
-			return llmProvider && row.apiKey ? [[llmProvider, row.apiKey] as const] : [];
+			return llmProvider && row.apiKey && !row.baseUrl ? [[llmProvider, row.apiKey] as const] : [];
 		}),
 	);
 }
@@ -203,5 +206,6 @@ function isUsable(provider: DecisionProvider, settings: ProviderSettings): boole
 	const meta = DECISION_PROVIDER_META[provider];
 	const hasKey = meta.apiKey !== 'required' || !!settings.apiKey;
 	const hasEndpoint = !!(settings.baseURL ?? meta.defaultBaseUrl);
-	return hasKey && hasEndpoint;
+	const hasExtraFields = (meta.extraFields ?? []).every((field) => !!settings.credentials?.[field.name]);
+	return hasKey && hasEndpoint && hasExtraFields;
 }

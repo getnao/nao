@@ -86,12 +86,16 @@ export function parseDecisionProvider(name: string): DecisionProvider | null {
 	return DECISION_PROVIDERS.find((provider) => provider.toLowerCase() === key) ?? PROVIDER_ALIASES[key] ?? null;
 }
 
-/** Ask a decision model every question about one state, in a single request. */
+/**
+ * Ask a decision model every question about one state, in a single request. `onUsage` hears the tokens
+ * as soon as the provider reports them, so a response whose answers cannot be read is still accounted for.
+ */
 export async function callDecisionModel<Q extends DecisionQuestions>(
 	provider: DecisionProvider,
 	settings: ProviderSettings,
 	modelId: string,
 	request: DecisionRequest<Q>,
+	onUsage?: (usage: DecisionResult['usage']) => void,
 ): Promise<DecisionResult<Q>> {
 	const meta = DECISION_PROVIDER_META[provider];
 	const wire = WIRES[meta.protocol];
@@ -115,13 +119,17 @@ export async function callDecisionModel<Q extends DecisionQuestions>(
 	if (!response.ok) {
 		throw new Error(`${meta.label} answered ${response.status}: ${readErrorMessage(payload)}`);
 	}
-	return wire.parse(payload, request) as DecisionResult<Q>;
+	const { model, usage, readAnswers } = wire.parse(payload, request);
+	onUsage?.(usage);
+	return { model, usage, answers: readAnswers() } as DecisionResult<Q>;
 }
+
+type ParsedResponse = Pick<DecisionResult, 'model' | 'usage'> & { readAnswers: () => DecisionResult['answers'] };
 
 type DecisionWire = {
 	url(baseUrl: string, modelId: string, settings: ProviderSettings): string;
 	body(modelId: string, request: DecisionRequest): unknown;
-	parse(payload: unknown, request: DecisionRequest): DecisionResult;
+	parse(payload: unknown, request: DecisionRequest): ParsedResponse;
 };
 
 const systemOneWire: DecisionWire = {
@@ -232,37 +240,38 @@ const systemOneResponseSchema = z.object({
 	),
 });
 
-function parseSystemOneResponse(payload: unknown, request: DecisionRequest): DecisionResult {
+function parseSystemOneResponse(payload: unknown, request: DecisionRequest): ParsedResponse {
 	const { model, usage, answers } = systemOneResponseSchema.parse(payload);
 
 	return {
 		model: model ?? '',
 		usage,
-		answers: mapQuestions(request, (question, name) => {
-			const answer = answers[name];
-			switch (answer?.type) {
-				case 'noul':
-					return expectAnswer(question, name, toBooleanAnswer(answer.noul));
-				case 'choice':
-					return expectAnswer(question, name, {
-						type: 'choice',
-						value: answer.choice,
-						probabilities: answer.probabilities,
-						confidence: answer.confidence,
-					});
-				case 'score': {
-					const levels = question.type === 'score' ? question.levels : [];
-					return expectAnswer(question, name, {
-						type: 'score',
-						value: answer.score,
-						probabilities: levels.map((_level, index) => answer.probabilities[index] ?? 0),
-						confidence: answer.confidence,
-					});
+		readAnswers: () =>
+			mapQuestions(request, (question, name) => {
+				const answer = answers[name];
+				switch (answer?.type) {
+					case 'noul':
+						return expectAnswer(question, name, toBooleanAnswer(answer.noul));
+					case 'choice':
+						return expectAnswer(question, name, {
+							type: 'choice',
+							value: answer.choice,
+							probabilities: answer.probabilities,
+							confidence: answer.confidence,
+						});
+					case 'score': {
+						const levels = question.type === 'score' ? question.levels : [];
+						return expectAnswer(question, name, {
+							type: 'score',
+							value: answer.score,
+							probabilities: levels.map((_level, index) => answer.probabilities[index] ?? 0),
+							confidence: answer.confidence,
+						});
+					}
+					default:
+						throw new Error(`The decision model left "${name}" unanswered.`);
 				}
-				default:
-					throw new Error(`The decision model left "${name}" unanswered.`);
-			}
-		}),
+			}),
 	};
 }
 
@@ -290,40 +299,43 @@ const openAiResponseSchema = z.object({
 });
 
 /** OpenAI answers in the order the questions were sent. */
-function parseOpenAiResponse(payload: unknown, request: DecisionRequest): DecisionResult {
+function parseOpenAiResponse(payload: unknown, request: DecisionRequest): ParsedResponse {
 	const { model, usage, answers } = openAiResponseSchema.parse(payload);
 	const names = Object.keys(request.questions);
 
 	return {
 		model: model ?? '',
 		usage,
-		answers: mapQuestions(request, (question, name) => {
-			const answer = answers[names.indexOf(name)];
-			switch (answer?.type) {
-				case 'predicate':
-					return expectAnswer(question, name, toBooleanAnswer(answer.probability));
-				case 'choice':
-					return expectAnswer(question, name, {
-						type: 'choice',
-						value: answer.choice,
-						probabilities: Object.fromEntries(answer.probabilities.map((p) => [p.value, p.probability])),
-						confidence: answer.confidence,
-					});
-				case 'score':
-					return expectAnswer(question, name, {
-						type: 'score',
-						value: answer.score,
-						probabilities: [...answer.probabilities]
-							.sort((a, b) => a.value - b.value)
-							.map((level) => level.probability),
-						confidence: answer.confidence,
-					});
-				case 'refusal':
-					throw new Error(`The decision model refused to answer "${name}".`);
-				default:
-					throw new Error(`The decision model left "${name}" unanswered.`);
-			}
-		}),
+		readAnswers: () =>
+			mapQuestions(request, (question, name) => {
+				const answer = answers[names.indexOf(name)];
+				switch (answer?.type) {
+					case 'predicate':
+						return expectAnswer(question, name, toBooleanAnswer(answer.probability));
+					case 'choice':
+						return expectAnswer(question, name, {
+							type: 'choice',
+							value: answer.choice,
+							probabilities: Object.fromEntries(
+								answer.probabilities.map((p) => [p.value, p.probability]),
+							),
+							confidence: answer.confidence,
+						});
+					case 'score':
+						return expectAnswer(question, name, {
+							type: 'score',
+							value: answer.score,
+							probabilities: [...answer.probabilities]
+								.sort((a, b) => a.value - b.value)
+								.map((level) => level.probability),
+							confidence: answer.confidence,
+						});
+					case 'refusal':
+						throw new Error(`The decision model refused to answer "${name}".`);
+					default:
+						throw new Error(`The decision model left "${name}" unanswered.`);
+				}
+			}),
 	};
 }
 

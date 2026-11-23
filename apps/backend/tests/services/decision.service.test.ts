@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { decide, getDecisionSettings } from '../../src/services/decision.service';
+import { decide, getDecisionKeysByLlmProvider, getDecisionSettings } from '../../src/services/decision.service';
 import { useNaoConfigProjects } from '../helpers/nao-config-project';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 
@@ -26,7 +26,14 @@ vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 const writeConfig = useNaoConfigProjects('nao-decision-');
 
 restoreProcessEnvAfterEach({
-	unset: ['TYPESAFE_API_KEY', 'OPENAI_API_KEY', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_AUTH_TOKEN', 'OLLAMA_BASE_URL'],
+	unset: [
+		'TYPESAFE_API_KEY',
+		'OPENAI_API_KEY',
+		'CLOUDFLARE_API_TOKEN',
+		'CLOUDFLARE_AUTH_TOKEN',
+		'CLOUDFLARE_ACCOUNT_ID',
+		'OLLAMA_BASE_URL',
+	],
 });
 
 const CALLER = { projectId: 'project', userId: 'user' };
@@ -218,6 +225,16 @@ describe('decide', () => {
 		).rejects.toThrow('TypeSafe Jev answered 401: invalid api key');
 	});
 
+	it('records the tokens of a response whose answer was refused', async () => {
+		saveProvider('openai', { apiKey: 'sk-own' });
+		answerWith({ answers: [{ type: 'refusal' }], usage: { input_tokens: 40, output_tokens: 0 } });
+
+		await expect(
+			decide(CALLER, { state: 'hello', questions: { ok: { type: 'boolean', instructions: 'Greeting?' } } }),
+		).rejects.toThrow('refused to answer "ok"');
+		expect(mocks.saveInference).toHaveBeenCalledWith(expect.objectContaining({ inputTotalTokens: 40 }));
+	});
+
 	it('fails with where to connect a provider when none is available', async () => {
 		await expect(
 			decide(CALLER, { state: 'hello', questions: { ok: { type: 'boolean', instructions: 'Greeting?' } } }),
@@ -270,6 +287,16 @@ describe('getDecisionSettings', () => {
 		});
 	});
 
+	it('skips a source missing a required field for one that is complete', async () => {
+		const path = writeConfig(['decision:', '  providers:', '  - provider: cloudflare', '    api_key: cf-yaml']);
+		mocks.getProjectById.mockResolvedValue({ path, envVars: {}, agentSettings: null });
+		expect(await sourceOf('cloudflare')).toBeNull();
+
+		process.env.CLOUDFLARE_API_TOKEN = 'cf-env';
+		process.env.CLOUDFLARE_ACCOUNT_ID = 'acc-env';
+		expect(await sourceOf('cloudflare')).toBe('env');
+	});
+
 	it('reads providers and the pinned model from nao_config.yaml', async () => {
 		const path = writeConfig([
 			'decision:',
@@ -308,5 +335,15 @@ describe('getDecisionSettings', () => {
 
 		delete process.env.OLLAMA_BASE_URL;
 		expect((await getDecisionSettings('project')).model).toEqual({ provider: 'typesafe', modelId: 'jev-latest' });
+	});
+});
+
+describe('getDecisionKeysByLlmProvider', () => {
+	it('shares a saved key with the LLM provider of the same vendor, unless it belongs to a custom endpoint', async () => {
+		saveProvider('openai', { apiKey: 'sk-own' });
+		expect(await getDecisionKeysByLlmProvider('project')).toEqual(new Map([['openai', 'sk-own']]));
+
+		saveProvider('openai', { apiKey: 'sk-gateway', baseUrl: 'https://gateway.example.com/v1' });
+		expect(await getDecisionKeysByLlmProvider('project')).toEqual(new Map());
 	});
 });
