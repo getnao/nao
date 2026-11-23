@@ -870,6 +870,26 @@ code.dollar:before {
 	direction: ltr;
 }
 
+/* Skills menu: one compact line per skill, "/name description…" */
+.prompt-container .mention-menu:has(.skill-mention-icon) {
+	min-width: min(560px, calc(100vw - 32px));
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) {
+	grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
+	grid-template-areas: 'icon label label-right';
+	column-gap: 0;
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) .mention-menu-item-icon {
+	width: auto;
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) .mention-menu-item-label-right {
+	margin-left: calc(var(--spacing) * 2.5);
+	font-size: var(--text-sm);
+}
+
 .replay-nav-highlight:not([data-replay-bordered='true']) {
 	@apply rounded-xl;
 	outline: 2px solid var(--primary);
