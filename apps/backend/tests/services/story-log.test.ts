@@ -9,6 +9,7 @@ import { listObjectLogs } from '../../src/queries/log.queries';
 import { CustomStorySqlError } from '../../src/services/custom-story-sql';
 import { logStoryRuntimeErrors, renderStoryLogs } from '../../src/services/story-log';
 import { sqlFailure, toLoggedCustomStoryQueryError } from '../../src/utils/custom-story-trpc';
+import { BudgetExceededError } from '../../src/utils/error';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -70,11 +71,16 @@ describe('story logs', () => {
 		});
 	});
 
-	it('leaves access refusals out: they concern the viewer, not the story', async () => {
+	it('leaves access and budget refusals out: they concern the viewer, not the story', async () => {
 		await toLoggedCustomStoryQueryError(
 			{ storyId: STORY_ID },
 			sqlFailure({ sql: 'SELECT 1' }),
 			new TRPCError({ code: 'FORBIDDEN', message: 'No access.' }),
+		);
+		await toLoggedCustomStoryQueryError(
+			{ storyId: STORY_ID },
+			sqlFailure({ sql: 'SELECT 1' }),
+			new BudgetExceededError('Your budget is spent.'),
 		);
 
 		expect(await listObjectLogs(STORY_OBJECT, 10)).toEqual([]);

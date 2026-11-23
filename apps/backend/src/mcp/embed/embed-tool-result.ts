@@ -46,7 +46,7 @@ const CUSTOM_STORY_FIELDS = {
 		.string()
 		.optional()
 		.describe(
-			'Custom stories only: the query, SQL, model and runtime failures logged while people viewed it, to fix with `update_story`.',
+			'Custom stories only: the query, SQL, model and runtime failures logged while its editors viewed it, to fix with `update_story`.',
 		),
 };
 

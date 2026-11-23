@@ -34,7 +34,7 @@ interface CustomStoryBodyProps {
 }
 
 const MAX_RUNTIME_ERRORS = 5;
-const MAX_LOGGED_ERRORS_PER_FLUSH = 10;
+const MAX_ERRORS_PER_REPORT = 10;
 const RUNTIME_ERROR_FLUSH_MS = 500;
 const BUILDING_MESSAGE_INTERVAL_MS = 2500;
 const BUILDING_MESSAGES = [
@@ -185,7 +185,10 @@ function useRuntimeErrorLogger(dataSource: CustomStoryDataSource, versionNumber:
 			return;
 		}
 		distinct.forEach((error) => loggedRef.current.add(error.message));
-		void reportStoryRuntimeErrors(target, number, distinct.slice(0, MAX_LOGGED_ERRORS_PER_FLUSH)).catch(() => {});
+		for (let start = 0; start < distinct.length; start += MAX_ERRORS_PER_REPORT) {
+			const batch = distinct.slice(start, start + MAX_ERRORS_PER_REPORT);
+			void reportStoryRuntimeErrors(target, number, batch).catch(() => {});
+		}
 	}, []);
 }
 

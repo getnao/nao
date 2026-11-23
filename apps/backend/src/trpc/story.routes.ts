@@ -655,7 +655,14 @@ export const storyRoutes = {
 		}),
 
 	runCustomStorySql: cloudBillingStoryEditorProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storySqlRequest }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+				request: storySqlRequest,
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
 			try {
 				await assertCustomStoryExists(input.chatId, input.storySlug);
@@ -669,7 +676,7 @@ export const storyRoutes = {
 					input.request,
 				);
 			} catch (error) {
-				throw await toLoggedCustomStoryQueryError(input, sqlFailure(input.request), error);
+				throw await toLoggedCustomStoryQueryError(input, sqlFailure(input.request, input.versionNumber), error);
 			}
 		}),
 
@@ -678,7 +685,14 @@ export const storyRoutes = {
 		.query(({ ctx }) => listCustomStoryModels(ctx.projectId, ctx.user.id)),
 
 	runCustomStoryModel: cloudBillingStoryEditorProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storyModelRequest }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+				request: storyModelRequest,
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
 			try {
 				const storyId = await getCustomStoryId(input.chatId, input.storySlug);
@@ -692,7 +706,11 @@ export const storyRoutes = {
 					input.request,
 				);
 			} catch (error) {
-				throw await toLoggedCustomStoryQueryError(input, modelFailure(input.request), error);
+				throw await toLoggedCustomStoryQueryError(
+					input,
+					modelFailure(input.request, input.versionNumber),
+					error,
+				);
 			}
 		}),
 

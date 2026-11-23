@@ -127,7 +127,7 @@ function StoryLogsHint({ story }: { story: StoryArtifact }) {
 	const failures = story.logCount === 1 ? '1 failure' : `${story.logCount} failures`;
 	return (
 		<Span>
-			{failures} logged while people viewed it (queries, SQL, model calls, runtime errors): read /stories/
+			{failures} logged while its editors viewed it (queries, SQL, model calls, runtime errors): read /stories/
 			{story.id}/{STORY_LOGS_FILE} before fixing it.
 		</Span>
 	);

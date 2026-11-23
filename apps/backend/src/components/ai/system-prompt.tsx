@@ -666,7 +666,7 @@ function CustomStoriesBlock({ canReplace, canLoadSkill }: { canReplace: boolean;
 						nothing was published: fix and publish again. "update"/"replace" do not apply; "delete_files"
 						removes draft files and "revert" resets the draft to a published version. Published versions are
 						readable, not writable, at /stories/&lt;id&gt;/@v&lt;N&gt;/&lt;path&gt;. The failures its
-						queries, SQL, model calls and code hit while people viewed it are logged at
+						queries, SQL, model calls and code hit while its editors viewed it are logged at
 						/stories/&lt;id&gt;/@logs: read it first when asked to fix a story that errors.
 					</ListItem>,
 					...(canLoadSkill

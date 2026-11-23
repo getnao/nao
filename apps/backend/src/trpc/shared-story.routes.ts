@@ -75,17 +75,14 @@ import { hasUserGroupFeature } from '../services/user-group-feature-access.servi
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
-	modelFailure,
-	queryFailure,
-	sqlFailure,
 	STANDALONE_SQL_UNAVAILABLE,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
 	storySqlRequest,
 	storyStateChange,
+	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
-	toLoggedCustomStoryQueryError,
 } from '../utils/custom-story-trpc';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -260,11 +257,7 @@ export const sharedStoryRoutes = {
 					rerun: { inputs: input.inputs, viewerId: ctx.user.id },
 				});
 			} catch (error) {
-				throw await toLoggedCustomStoryQueryError(
-					{ storyId: shared.storyId },
-					queryFailure(input.queryId, input.versionNumber),
-					error,
-				);
+				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
 
@@ -287,11 +280,7 @@ export const sharedStoryRoutes = {
 					input.request,
 				);
 			} catch (error) {
-				throw await toLoggedCustomStoryQueryError(
-					{ storyId: shared.storyId },
-					modelFailure(input.request),
-					error,
-				);
+				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
 
@@ -314,11 +303,7 @@ export const sharedStoryRoutes = {
 					input.request,
 				);
 			} catch (error) {
-				throw await toLoggedCustomStoryQueryError(
-					{ storyId: shared.storyId },
-					sqlFailure(input.request),
-					error,
-				);
+				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
 

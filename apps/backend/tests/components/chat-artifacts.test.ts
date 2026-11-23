@@ -178,7 +178,7 @@ describe('getChatArtifacts', () => {
 		expect(
 			renderToMarkdown(ChatArtifactsPrompt({ artifacts: { queries: [], stories: artifacts.stories } })),
 		).toContain(
-			'3 failures logged while people viewed it (queries, SQL, model calls, runtime errors): read /stories/story-2/@logs',
+			'3 failures logged while its editors viewed it (queries, SQL, model calls, runtime errors): read /stories/story-2/@logs',
 		);
 		expect(mocks.getStoryTemplateWarnings).not.toHaveBeenCalled();
 		expect(artifacts.stories).toEqual([

@@ -27,16 +27,13 @@ import { describeTransferredStory } from '../services/story-transfer.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
-	modelFailure,
-	queryFailure,
-	sqlFailure,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
 	storySqlRequest,
 	storyStateChange,
+	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
-	toLoggedCustomStoryQueryError,
 } from '../utils/custom-story-trpc';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
@@ -102,11 +99,7 @@ export const customStoryViewerRoutes = {
 					input.inputs,
 				);
 			} catch (error) {
-				throw await toLoggedCustomStoryQueryError(
-					{ chatId: ctx.viewer.chatId, storySlug: input.storySlug },
-					queryFailure(input.queryId, input.versionNumber),
-					error,
-				);
+				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
 
@@ -120,11 +113,7 @@ export const customStoryViewerRoutes = {
 				input.request,
 			);
 		} catch (error) {
-			throw await toLoggedCustomStoryQueryError(
-				{ chatId: ctx.viewer.chatId, storySlug: input.storySlug },
-				modelFailure(input.request),
-				error,
-			);
+			throw toCustomStoryQueryTrpcError(error);
 		}
 	}),
 
@@ -136,11 +125,7 @@ export const customStoryViewerRoutes = {
 				input.request,
 			);
 		} catch (error) {
-			throw await toLoggedCustomStoryQueryError(
-				{ chatId: ctx.viewer.chatId, storySlug: input.storySlug },
-				sqlFailure(input.request),
-				error,
-			);
+			throw toCustomStoryQueryTrpcError(error);
 		}
 	}),
 

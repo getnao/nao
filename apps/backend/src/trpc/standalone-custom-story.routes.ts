@@ -112,7 +112,7 @@ export const standaloneCustomStoryRoutes = {
 	listModels: standaloneOwnerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.story.projectId, ctx.user.id)),
 
 	runModel: standaloneOwnerProcedure
-		.input(z.object({ request: storyModelRequest }))
+		.input(z.object({ versionNumber, request: storyModelRequest }))
 		.mutation(async ({ ctx, input }) => {
 			try {
 				return await runCustomStoryModel(
@@ -122,7 +122,7 @@ export const standaloneCustomStoryRoutes = {
 			} catch (error) {
 				throw await toLoggedCustomStoryQueryError(
 					{ storyId: ctx.story.id },
-					modelFailure(input.request),
+					modelFailure(input.request, input.versionNumber),
 					error,
 				);
 			}

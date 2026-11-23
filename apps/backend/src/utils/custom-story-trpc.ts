@@ -16,6 +16,7 @@ import { CustomStoryQueryNotAllowedError } from '../services/custom-story-query-
 import { CustomStorySqlError, MAX_CUSTOM_STORY_SQL_LENGTH } from '../services/custom-story-sql';
 import { InvalidStoryStateError } from '../services/custom-story-state';
 import { logStoryFailure, type StoryFailure, type StoryLogTarget } from '../services/story-log';
+import { HandlerError } from './error';
 import { describeError } from './logger';
 import { InvalidStoryFilePathError } from './story-file-path';
 import { MAX_STORY_SNAPSHOT_BYTES } from './story-snapshot';
@@ -129,7 +130,10 @@ export function toCustomStoryQueryTrpcError(error: unknown): unknown {
 
 type StoryFailureContext = Omit<StoryFailure, 'message'>;
 
-/** Like `toCustomStoryQueryTrpcError`, after logging a failure the story itself causes for the agent that fixes it. */
+/**
+ * Like `toCustomStoryQueryTrpcError`, after logging a failure the story itself causes for the agent that fixes it.
+ * Only call it from routes of the story's editors: any other viewer could send SQL or query ids the agent would read.
+ */
 export async function toLoggedCustomStoryQueryError(
 	target: StoryLogTarget,
 	failure: StoryFailureContext,
@@ -145,15 +149,19 @@ export function queryFailure(queryId: string, versionNumber?: number): StoryFail
 	return { kind: 'query', versionNumber, detail: { queryId } };
 }
 
-export function sqlFailure({ sql, databaseId }: StorySqlRequest): StoryFailureContext {
-	return { kind: 'sql', detail: { sql, databaseId } };
+export function sqlFailure({ sql, databaseId }: StorySqlRequest, versionNumber?: number): StoryFailureContext {
+	return { kind: 'sql', versionNumber, detail: { sql, databaseId } };
 }
 
-export function modelFailure(request: StoryModelRequest): StoryFailureContext {
-	return { kind: 'model', detail: { model: request.model } };
+export function modelFailure(request: StoryModelRequest, versionNumber?: number): StoryFailureContext {
+	return { kind: 'model', versionNumber, detail: { model: request.model } };
 }
 
-/** Access, billing and missing-story refusals concern the viewer, not the story's code. */
+/** Access, budget, billing and missing-story refusals concern the viewer, not the story's code. */
 function isStoryFault(error: unknown): boolean {
-	return !(error instanceof TRPCError) && !(error instanceof CustomStoryNotFoundError);
+	return (
+		!(error instanceof TRPCError) &&
+		!(error instanceof HandlerError) &&
+		!(error instanceof CustomStoryNotFoundError)
+	);
 }
