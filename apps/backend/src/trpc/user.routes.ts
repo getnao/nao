@@ -16,8 +16,9 @@ import { canUseDiscordInProject } from '../services/discord-helpers';
 import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
 import { addProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { addTeamMember } from '../services/team-member';
+import { addTeamMembers } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
+import { teamMembersInputSchema } from '../types/team-member';
 import type { StoredUserPreferences } from '../types/usage';
 import { type DiscordLinkTokenPayload, verifyDiscordLinkToken } from '../utils/discord-link-token';
 import { buildUserAddedEmail } from '../utils/email-builders';
@@ -97,8 +98,7 @@ export const userRoutes = {
 	addUserToProject: adminProtectedProcedure
 		.input(
 			z.object({
-				email: z.string().min(1),
-				name: z.string().min(1).optional(),
+				members: teamMembersInputSchema,
 				groupIds: z.array(z.string().min(1)).max(100).default([]),
 			}),
 		)
@@ -109,9 +109,8 @@ export const userRoutes = {
 				await handleUserGroupQuery(() => validateAssignableUserGroupIds(projectId, groupIds));
 			}
 
-			return addTeamMember({
-				email: input.email,
-				name: input.name,
+			return addTeamMembers({
+				members: input.members,
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
 					await addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);

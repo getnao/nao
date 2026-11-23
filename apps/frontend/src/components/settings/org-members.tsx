@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
-import type { TeamMember } from '@/components/settings/team';
+import type { AddMembersRequest, TeamMember } from '@/components/settings/team';
 import { AddMemberDialog, NewCredentialsDialog, RemoveMemberDialog, TeamMembersList } from '@/components/settings/team';
 import { EditMemberDialog } from '@/components/settings/team/edit-member-dialog';
 import { Button } from '@/components/ui/button';
@@ -62,23 +62,10 @@ export function OrgMembers() {
 			hasPassword: member.hasPassword,
 		})) ?? [];
 
-	const handleAdd = async (data: { email: string; name?: string }) => {
-		try {
-			const result = await addMember.mutateAsync({
-				email: data.email,
-				name: data.name,
-			});
-			invalidateMembers();
-			if (result.password) {
-				setCredentials({ email: data.email, password: result.password });
-			}
-			return {};
-		} catch (err: any) {
-			if (err.message === 'USER_DOES_NOT_EXIST') {
-				return { needsName: true };
-			}
-			throw err;
-		}
+	const handleAdd = async (request: AddMembersRequest) => {
+		const outcomes = await addMember.mutateAsync({ members: request.members });
+		invalidateMembers();
+		return outcomes;
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
@@ -198,7 +185,7 @@ export function OrgMembers() {
 			<AddMemberDialog
 				open={isAddOpen}
 				onOpenChange={setIsAddOpen}
-				title='Add Member to Organization'
+				title='Add Members to Organization'
 				onSubmit={handleAdd}
 			/>
 
