@@ -24,24 +24,32 @@ Before writing the first file, explain what applying it will do and wait for the
 - **Custom groups that exist in the UI but are missing from the file are archived** and lose their access. Records are kept, but the members lose what the group granted them.
 - **A missing or invalid file then blocks.** The server refuses to start (nao Cloud skips the project and keeps its last state), and `nao deploy` rejects the upload. Recovery is restoring the file from Git.
 
-Without a clear yes, stop. Once confirmed, and if the project already has groups in the UI, ask the user for the export from **Settings → Project → User groups → Download YAML** and edit it instead of writing from scratch. The export already contains every existing group, so nothing is archived by accident.
+Without a clear yes, stop.
+
+## Start from the UI export, never from scratch
+
+The agent cannot read the groups defined in the UI: they live on the nao server, not in the project folder. So once the move is confirmed, ask the user to click **Download YAML** in **Settings → Project → User groups** and save the file as `groups.yaml` at the project root. Then edit that file.
+
+- The export holds every existing group with its members, SSO mapping, access and policies, so nothing is archived or narrowed by accident.
+- Do not ask the user to list their groups and emails instead, and do not rebuild them from another source such as a directory or an email tool. A hand-made list misses settings, and any group it misses is archived.
+- If the user says the project has no groups yet, the export still gives the correct `all_users` starting point.
 
 When `groups.yaml` already exists, the project is already code-managed, and editing the file at the user's request needs no extra approval.
 
 ## Workflow
 
 ```
-- [ ] 0. No groups.yaml yet? Get explicit approval to move to code management
-- [ ] 1. Collect the access matrix from the user
+- [ ] 0. No groups.yaml yet? Get explicit approval, then have the user save the UI export as groups.yaml
+- [ ] 1. Collect the changes the user wants
 - [ ] 2. Inventory what exists in the project
-- [ ] 3. Write or edit groups.yaml
+- [ ] 3. Edit groups.yaml
 - [ ] 4. nao group format, then nao group lint, until clean
 - [ ] 5. Hand over to the user, who ships it
 ```
 
-### 1. Collect the access matrix
+### 1. Collect the changes
 
-Ask in one round, and never invent emails, SSO group names, or Entra group IDs:
+Start from what `groups.yaml` already says and ask only for what should change. Ask in one round, and never invent emails, SSO group names, or Entra group IDs:
 
 1. Which groups, and who belongs to each: emails, SSO groups, or both.
 2. What every project user should get by default (`all_users`).
@@ -191,7 +199,8 @@ nao group lint   # schema, ids, inheritance, and every reference against the loc
 Stop here and give the user:
 
 - A summary of each group: members, access, and policies.
-- The custom groups that will be archived, when editing an export or an existing file.
+- The output of `nao group diff`, run before the file is committed, when the project's Git history already has a `groups.yaml`. It lists what changed per group, including groups that will be archived.
+- The custom groups that will be archived, when editing a fresh export.
 - The server-only checks from step 4 that apply.
 - How it goes live, for them to run: `nao deploy` applies it without a restart; projects mounted or synced without `nao deploy` pick it up on the next restart. Afterwards, **Settings → Project → User groups** shows the groups as read-only.
 - A reminder to commit `groups.yaml` to Git. It is the only way back from a bad change.
