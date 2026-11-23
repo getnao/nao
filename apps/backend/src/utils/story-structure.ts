@@ -60,49 +60,12 @@ export interface ProseBlock {
 
 /** The tags, headings and kinds of prose blocks of a story, in the order they appear. */
 export function extractStoryLayout(code: string): string[] {
-	const lineOffsets = findLineOffsets(code);
-	const tags = [...code.matchAll(storyStructureTokenRegex())].map((match) => ({
-		offset: match.index,
-		value: match[0],
-	}));
-	const headings = code
-		.split('\n')
-		.map((line, lineIndex) => ({ offset: lineOffsets[lineIndex], value: line.trim() }))
-		.filter((heading) => isHeadingLine(heading.value));
-	const blocks = extractProseBlocks(code).map((block) => ({
-		offset: lineOffsets[block.firstLine],
-		value: block.kind,
-	}));
-	return [...tags, ...headings, ...blocks]
-		.sort((left, right) => left.offset - right.offset)
-		.map((entry) => entry.value);
+	return walkStory(code).layout;
 }
 
 /** The paragraphs and list items of a story, including text written beside its tags, with the lines they span. */
 export function extractProseBlocks(code: string): ProseBlock[] {
-	const blocks: ProseBlock[] = [];
-	let currentBlock: ProseBlock | null = null;
-	for (const [lineIndex, line] of blankStructureTokens(code).split('\n').entries()) {
-		const text = line.trim();
-		if (!text || isHeadingLine(text) || isThematicBreak(text)) {
-			currentBlock = null;
-		} else if (isListItemLine(text)) {
-			currentBlock = {
-				kind: 'list-item',
-				text: text.replace(LIST_ITEM_MARKER, ''),
-				firstLine: lineIndex,
-				lastLine: lineIndex,
-			};
-			blocks.push(currentBlock);
-		} else if (currentBlock) {
-			currentBlock.text += ` ${text}`;
-			currentBlock.lastLine = lineIndex;
-		} else {
-			currentBlock = { kind: 'paragraph', text, firstLine: lineIndex, lastLine: lineIndex };
-			blocks.push(currentBlock);
-		}
-	}
-	return blocks;
+	return walkStory(code).blocks;
 }
 
 /** The candidate story with some of its blocks put back as the original story wrote them. */
@@ -145,17 +108,51 @@ function storyStructureTokenRegex(): RegExp {
 	);
 }
 
-/** Tags are replaced by spaces, so the text beside them stays on its line and every line keeps its index. */
-function blankStructureTokens(code: string): string {
-	return code.replace(storyStructureTokenRegex(), (tag) => tag.replace(/[^\n]/g, ' '));
-}
+const TAG_BOUNDARY = '\u0000';
 
-function findLineOffsets(code: string): number[] {
-	const offsets = [0];
-	for (const match of code.matchAll(/\n/g)) {
-		offsets.push(match.index + 1);
+/** A tag ends the current block, as the page splits its text there, and keeps its line breaks so line indexes stay. */
+function walkStory(code: string): { blocks: ProseBlock[]; layout: string[] } {
+	const tags = extractStructureTokens(code);
+	const blocks: ProseBlock[] = [];
+	const layout: string[] = [];
+	let currentBlock: ProseBlock | null = null;
+
+	const startBlock = (kind: ProseBlock['kind'], text: string, lineIndex: number) => {
+		currentBlock = { kind, text, firstLine: lineIndex, lastLine: lineIndex };
+		blocks.push(currentBlock);
+		layout.push(kind);
+	};
+
+	const readText = (part: string, lineIndex: number) => {
+		const text = part.trim();
+		if (!text || isThematicBreak(text)) {
+			currentBlock = null;
+		} else if (isHeadingLine(text)) {
+			layout.push(text);
+			currentBlock = null;
+		} else if (isListItemLine(text)) {
+			startBlock('list-item', text.replace(LIST_ITEM_MARKER, ''), lineIndex);
+		} else if (currentBlock) {
+			currentBlock.text += ` ${text}`;
+			currentBlock.lastLine = lineIndex;
+		} else {
+			startBlock('paragraph', text, lineIndex);
+		}
+	};
+
+	let tagIndex = 0;
+	const markedCode = code.replace(storyStructureTokenRegex(), (tag) => TAG_BOUNDARY + tag.replace(/[^\n]/g, ''));
+	for (const [lineIndex, line] of markedCode.split('\n').entries()) {
+		for (const [partIndex, part] of line.split(TAG_BOUNDARY).entries()) {
+			if (partIndex > 0) {
+				layout.push(tags[tagIndex]);
+				tagIndex += 1;
+				currentBlock = null;
+			}
+			readText(part, lineIndex);
+		}
 	}
-	return offsets;
+	return { blocks, layout };
 }
 
 function isHeadingLine(line: string): boolean {

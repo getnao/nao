@@ -170,7 +170,7 @@ const WAREHOUSE_STORY_CODE = '<table query_id="query_warehouse" />';
 const AUTHORED_STORY_CODE = [
 	'## Usage',
 	'Usage stays flat this month.',
-	'<table query_id="query_admin" />',
+	'<table query_id="query_admin" />Sessions total 300 this month.',
 	'- Orders reached 120 last week.',
 	'- Most orders come from repeat customers.',
 	'## Channels',
