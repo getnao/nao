@@ -1313,6 +1313,8 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveMicrosoftEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.project.getDatabaseObjects.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.project.getLlmAccessReadiness.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.project.listTransferRecipients.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.story.listTransferRecipients.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: [['memberBudget']] }),
 	]);
 }
