@@ -14,7 +14,7 @@ import { CHART_FONT_STACK } from '../src/chart-fonts';
 import { ChartConfigProvider, ChartLegendContent } from '../src/chart-tooltip';
 import { BUILTIN_CHART_TYPES } from '../src/chart-types';
 import { formatChartValue } from '../src/chart-values';
-import { type ChartElement, findChartElement } from './helpers/chart-elements';
+import { type ChartElement, findChartElement, findChartElements } from './helpers/chart-elements';
 
 const LONG_CATEGORY = 'A very long category';
 
@@ -109,16 +109,24 @@ describe('buildChart', () => {
 	it.each(['stacked_area', 'stacked_area_100'] as const)(
 		'fills %s layers with solid series colors separated by the background',
 		(chartType) => {
-			const chart = buildCategoryChart({ chartType, colorFor: () => '#5b21b6' });
-			const area = findChartElement(chart, 'Area');
+			const colors: Record<string, string> = { older: '#ddd6fe', newer: '#5b21b6' };
+			const chart = buildCategoryChart({
+				chartType,
+				data: [{ name: 'A', older: 6, newer: 4 }],
+				series: [{ data_key: 'older' }, { data_key: 'newer' }],
+				colorFor: (key) => colors[key],
+			});
+			const areas = findChartElements(chart, 'Area');
 
 			expect(getGradient(chart)).toBeUndefined();
-			expect(area?.props).toMatchObject({
-				type: 'linear',
-				fill: '#5b21b6',
-				fillOpacity: 1,
-				stroke: 'var(--background, #ffffff)',
-			});
+			expect(areas.map((area) => area.props.fill)).toEqual(['#ddd6fe', '#5b21b6']);
+			for (const area of areas) {
+				expect(area.props).toMatchObject({
+					type: 'linear',
+					fillOpacity: 1,
+					stroke: 'var(--background, #ffffff)',
+				});
+			}
 		},
 	);
 
