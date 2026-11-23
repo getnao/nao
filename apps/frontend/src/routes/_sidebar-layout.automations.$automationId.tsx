@@ -26,6 +26,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePermissions } from '@/hooks/use-permissions';
+import { getRunStatusBadgeVariant } from '@/lib/automation-runs';
 import { isMac } from '@/lib/platform';
 import { requireAutomationsEnabled } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
@@ -257,10 +258,11 @@ function AutomationDetailPage() {
 					isPending={updateAutomation.isPending}
 					aside={
 						<PreviousRuns
+							automationId={automationId}
 							runs={runs}
 							onCancelRun={canEdit ? handleCancelRun : undefined}
 							cancellingRunId={cancellingRunId}
-							canOpenChats={isOwner}
+							isOwner={isOwner}
 						/>
 					}
 					showSubmitButton={false}
@@ -335,17 +337,19 @@ type IntegrationResultGroup = {
 	destinations: IntegrationResult[];
 };
 
-/** Run chats belong to the automation's owner, so only they can open them. */
+/** Run chats belong to the automation's owner: they open them, everyone else gets a read-only view. */
 function PreviousRuns({
+	automationId,
 	runs,
 	onCancelRun,
 	cancellingRunId,
-	canOpenChats,
+	isOwner,
 }: {
+	automationId: string;
 	runs: AutomationRun[];
 	onCancelRun?: (runId: string) => void;
 	cancellingRunId: string | null;
-	canOpenChats: boolean;
+	isOwner: boolean;
 }) {
 	return (
 		<section className='grid gap-2 rounded-xl border bg-background/60 p-4'>
@@ -358,10 +362,11 @@ function PreviousRuns({
 				{runs.map((run) => (
 					<PreviousRunRow
 						key={run.id}
+						automationId={automationId}
 						run={run}
 						onCancelRun={onCancelRun}
 						isCancelling={cancellingRunId === run.id}
-						canOpenChat={canOpenChats && Boolean(run.chatId)}
+						isOwner={isOwner}
 					/>
 				))}
 			</div>
@@ -370,22 +375,30 @@ function PreviousRuns({
 }
 
 function PreviousRunRow({
+	automationId,
 	run,
 	onCancelRun,
 	isCancelling,
-	canOpenChat,
+	isOwner,
 }: {
+	automationId: string;
 	run: AutomationRun;
 	onCancelRun?: (runId: string) => void;
 	isCancelling: boolean;
-	canOpenChat: boolean;
+	isOwner: boolean;
 }) {
 	const navigate = useNavigate();
 	const isRunning = run.status === 'running';
+	const canOpenChat = Boolean(run.chatId);
 
 	function openChat() {
-		if (run.chatId) {
+		if (!run.chatId) {
+			return;
+		}
+		if (isOwner) {
 			navigate({ to: '/$chatId', params: { chatId: run.chatId } });
+		} else {
+			navigate({ to: '/automations/$automationId/runs/$runId', params: { automationId, runId: run.id } });
 		}
 	}
 
@@ -447,16 +460,6 @@ function PreviousRunRow({
 			{content}
 		</div>
 	);
-}
-
-function getRunStatusBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-	if (status === 'failed') {
-		return 'destructive';
-	}
-	if (status === 'cancelled') {
-		return 'outline';
-	}
-	return 'secondary';
 }
 
 function IntegrationResultIcons({ runId, results }: { runId: string; results: IntegrationResult[] }) {
