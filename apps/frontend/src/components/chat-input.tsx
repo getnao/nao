@@ -845,7 +845,15 @@ function ChatInputBase({
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
 							{allowQueueing && isRunning && !isInputEmpty ? (
-								<SteerOrQueueButton disabled={isSendBlocked} onSend={sendWithClickModifier} />
+								<SteerOrQueueButton
+									disabled={isSendBlocked}
+									isDraftSteerable={
+										!attachmentUpload.hasAttachments &&
+										pendingCitations.length === 0 &&
+										!promptRef.current?.getMentions().length
+									}
+									onSend={sendWithClickModifier}
+								/>
 							) : allowQueueing && isRunning ? (
 								<ChatButton showStop onClick={cancelAgent} type='button' />
 							) : (

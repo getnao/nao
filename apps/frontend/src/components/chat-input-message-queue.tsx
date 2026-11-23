@@ -234,14 +234,17 @@ function QueuedMessageActions({
 /** The send button while the agent runs: its icon shows whether sending steers or queues, and holding ⌘ swaps them. */
 export function SteerOrQueueButton({
 	disabled,
+	isDraftSteerable,
 	onSend,
 }: {
 	disabled: boolean;
+	/** Only plain text can steer: a draft with attachments, citations or mentions is always queued. */
+	isDraftSteerable: boolean;
 	onSend: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
 	const [steerOnEnter] = useLocalStorage(steerOnEnterStorage);
 	const isModifierHeld = useIsModifierHeld();
-	const steers = steerOnEnter !== isModifierHeld;
+	const steers = isDraftSteerable && steerOnEnter !== isModifierHeld;
 	const swapShortcut = getShortcutLabel('swap-steer-queue');
 	return (
 		<Tooltip>
@@ -256,9 +259,11 @@ export function SteerOrQueueButton({
 				/>
 			</TooltipTrigger>
 			<TooltipContent side='top' className='max-w-60'>
-				{steerOnEnter
-					? `Steer: read after the running tools. ${swapShortcut} to queue it for after the answer.`
-					: `Queue: sent after the answer. ${swapShortcut} to steer, read after the running tools.`}
+				{!isDraftSteerable
+					? 'Queue: sent after the answer. Only text messages can steer the running agent.'
+					: steerOnEnter
+						? `Steer: read after the running tools. ${swapShortcut} to queue it for after the answer.`
+						: `Queue: sent after the answer. ${swapShortcut} to steer, read after the running tools.`}
 			</TooltipContent>
 		</Tooltip>
 	);
