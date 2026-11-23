@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, FileText, Plus, Search, Trash2, User, Users } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { ReactNode } from 'react';
@@ -168,7 +168,16 @@ export function SkillsLibrary({
 	);
 }
 
-export function PersonalSkillEditor({ skill, onDeleted }: { skill: PersonalSkill; onDeleted: () => void }) {
+export function PersonalSkillEditor({
+	skill,
+	onDeleted,
+	onDirtyChange,
+}: {
+	skill: PersonalSkill;
+	onDeleted: () => void;
+	/** Told whether there are unsaved edits, so the page around it can ask before leaving them. */
+	onDirtyChange?: (isDirty: boolean) => void;
+}) {
 	const [description, setDescription] = useState(skill.description);
 	const [body, setBody] = useState(skill.body);
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -183,6 +192,11 @@ export function PersonalSkillEditor({ skill, onDeleted }: { skill: PersonalSkill
 		}),
 	);
 	const isDirty = description !== skill.description || body !== skill.body;
+
+	useEffect(() => {
+		onDirtyChange?.(isDirty);
+		return () => onDirtyChange?.(false);
+	}, [isDirty, onDirtyChange]);
 
 	return (
 		<div className='flex flex-col gap-6'>
@@ -489,7 +503,7 @@ export function ShareRequestReview({
 	const accept = useMutation(
 		trpc.skill.acceptShareRequest.mutationOptions({
 			onSuccess: async ({ path }) => {
-				await invalidateRequests();
+				await Promise.all([invalidateRequests(), invalidateExplorerQueries(queryClient)]);
 				onAccepted(path);
 			},
 		}),
@@ -568,19 +582,25 @@ export function ShareRequestReview({
 	);
 }
 
+/** An accepted skill only joined a reviewer's changes: if they never publish them, the author may ask again. */
+const SHARE_CARD_TEXT: Record<Exclude<PersonalSkill['shareStatus'], 'requested'>, string> = {
+	private: 'Only you can use this skill. Ask the context admins to add it to the project so the whole team gets it.',
+	declined: 'A context admin declined to share it. You can keep using it, or ask again after changing it.',
+	accepted:
+		'A context admin added it to their changes: it reaches everyone once they publish them. If it never does, you can ask again.',
+};
+
 function ShareSkillCard({ skill }: { skill: PersonalSkill }) {
 	const [note, setNote] = useState('');
 	const invalidateSkills = useInvalidateSkills();
 	const requestShare = useMutation(trpc.skill.requestShare.mutationOptions({ onSuccess: invalidateSkills }));
 
-	if (skill.shareStatus === 'requested' || skill.shareStatus === 'accepted') {
+	if (skill.shareStatus === 'requested') {
 		return (
 			<section className='flex flex-col gap-2 rounded-xl border p-4'>
 				<h2 className='text-sm font-semibold'>Share with everyone</h2>
 				<p className='text-sm text-muted-foreground'>
-					{skill.shareStatus === 'requested'
-						? 'Waiting for a context admin to review it. You can keep using and editing it meanwhile.'
-						: 'A context admin added it to the project. It is shared with everyone once their changes are published.'}
+					Waiting for a context admin to review it. You can keep using and editing it meanwhile.
 				</p>
 			</section>
 		);
@@ -589,11 +609,7 @@ function ShareSkillCard({ skill }: { skill: PersonalSkill }) {
 	return (
 		<section className='flex flex-col gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4'>
 			<h2 className='text-sm font-semibold'>Share with everyone</h2>
-			<p className='text-sm text-muted-foreground'>
-				{skill.shareStatus === 'declined'
-					? 'A context admin declined to share it. You can keep using it, or ask again after changing it.'
-					: 'Only you can use this skill. Ask the context admins to add it to the project so the whole team gets it.'}
-			</p>
+			<p className='text-sm text-muted-foreground'>{SHARE_CARD_TEXT[skill.shareStatus]}</p>
 			<Input
 				placeholder='Note for the reviewer (optional)'
 				className='bg-background'

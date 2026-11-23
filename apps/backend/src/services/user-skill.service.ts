@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 
 import type { DBUserSkill } from '../db/abstractSchema';
 import * as userSkillQueries from '../queries/user-skill.queries';
-import type { PersonalSkill } from '../types/user-skill';
+import type { PersonalSkill, UserSkillShareStatus } from '../types/user-skill';
 import { logger } from '../utils/logger';
 import type { ContextExplorerFileAccess } from './context-explorer.service';
 import { createDraftFile } from './context-explorer.service';
@@ -70,15 +70,25 @@ export async function acceptShareRequest(
 	access: ContextExplorerFileAccess,
 ): Promise<{ path: string }> {
 	const request = await getOpenShareRequest(projectId, requestId);
+	await claimShareRequest(projectId, requestId, 'accepted');
 	const path = `/agent/skills/${request.name}.md`;
-	await createDraftFile(path, buildSkillFile(request), access);
-	await userSkillQueries.setUserSkillShareStatus(projectId, requestId, 'accepted');
+	try {
+		await createDraftFile(path, buildSkillFile(request), access);
+	} catch (error) {
+		await userSkillQueries.moveUserSkillShareStatus(projectId, requestId, 'accepted', 'requested');
+		throw error;
+	}
 	return { path };
 }
 
 export async function declineShareRequest(projectId: string, requestId: string): Promise<void> {
-	await getOpenShareRequest(projectId, requestId);
-	await userSkillQueries.setUserSkillShareStatus(projectId, requestId, 'declined');
+	await claimShareRequest(projectId, requestId, 'declined');
+}
+
+async function claimShareRequest(projectId: string, requestId: string, decision: UserSkillShareStatus): Promise<void> {
+	if (!(await userSkillQueries.moveUserSkillShareStatus(projectId, requestId, 'requested', decision))) {
+		throwShareRequestGone();
+	}
 }
 
 async function getOpenShareRequest(
@@ -86,10 +96,11 @@ async function getOpenShareRequest(
 	requestId: string,
 ): Promise<userSkillQueries.UserSkillWithAuthor> {
 	const request = await userSkillQueries.getUserSkillById(projectId, requestId);
-	if (!request || request.shareStatus !== 'requested') {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'This share request no longer exists.' });
-	}
-	return request;
+	return request?.shareStatus === 'requested' ? request : throwShareRequestGone();
+}
+
+function throwShareRequestGone(): never {
+	throw new TRPCError({ code: 'NOT_FOUND', message: 'This share request no longer exists.' });
 }
 
 async function getProjectSkillNames(projectId: string): Promise<Set<string>> {

@@ -75,14 +75,18 @@ export const getUserSkillById = async (projectId: string, id: string): Promise<U
 	return row ? { ...row.skill, authorName: row.authorName, authorEmail: row.authorEmail } : null;
 };
 
-export const setUserSkillShareStatus = async (
+/** Moves the share status only while it still is `from`, so two reviewers cannot both decide on one request. */
+export const moveUserSkillShareStatus = async (
 	projectId: string,
 	id: string,
-	shareStatus: UserSkillShareStatus,
-): Promise<void> => {
-	await db
+	from: UserSkillShareStatus,
+	to: UserSkillShareStatus,
+): Promise<boolean> => {
+	const moved = await db
 		.update(s.userSkill)
-		.set({ shareStatus })
-		.where(and(eq(s.userSkill.projectId, projectId), eq(s.userSkill.id, id)))
+		.set({ shareStatus: to })
+		.where(and(eq(s.userSkill.projectId, projectId), eq(s.userSkill.id, id), eq(s.userSkill.shareStatus, from)))
+		.returning({ id: s.userSkill.id })
 		.execute();
+	return moved.length > 0;
 };

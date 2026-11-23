@@ -12,6 +12,7 @@ import {
 	SkillsLibrary,
 } from '@/components/personal-skills';
 import { ContextHubSkillsNavigator } from '@/components/context-hub/context-hub-navigator';
+import { DiscardChangesDialog } from '@/components/context-hub/discard-changes-dialog';
 import { EditorTab, TabBar } from '@/components/settings/sortable-tabs';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -26,9 +27,16 @@ interface ContextHubSkillPageProps {
 	onOpenFile?: (path: string) => void;
 	/** The button creating a skill, shown at the top of the skills library. */
 	newSkillAction: ReactNode;
+	onDirtyChange?: (isDirty: boolean) => void;
 }
 
-export function ContextHubSkillPage({ page, onOpenPage, onOpenFile, newSkillAction }: ContextHubSkillPageProps) {
+export function ContextHubSkillPage({
+	page,
+	onOpenPage,
+	onOpenFile,
+	newSkillAction,
+	onDirtyChange,
+}: ContextHubSkillPageProps) {
 	const label = useSkillPageLabel(page);
 
 	return (
@@ -52,6 +60,7 @@ export function ContextHubSkillPage({ page, onOpenPage, onOpenFile, newSkillActi
 					onOpenPage={onOpenPage}
 					onOpenFile={onOpenFile}
 					newSkillAction={newSkillAction}
+					onDirtyChange={onDirtyChange}
 				/>
 			</div>
 		</div>
@@ -62,18 +71,22 @@ export function ContextHubSkillPage({ page, onOpenPage, onOpenFile, newSkillActi
 export function ContextHubSkillsView({ isNewSkillOpenAtFirst }: { isNewSkillOpenAtFirst: boolean }) {
 	const [page, setPage] = useState<SkillPage>({ type: 'all' });
 	const [isNewSkillOpen, setIsNewSkillOpen] = useState(isNewSkillOpenAtFirst);
+	const [isDirty, setIsDirty] = useState(false);
+	const [pendingPage, setPendingPage] = useState<SkillPage | null>(null);
 	const openNewSkill = () => setIsNewSkillOpen(true);
+	const openPage = (nextPage: SkillPage) => (isDirty ? setPendingPage(nextPage) : setPage(nextPage));
 
 	return (
 		<div className='flex h-full min-h-0'>
 			<aside className='flex w-64 shrink-0 flex-col border-r bg-panel'>
 				<p className='flex h-10 shrink-0 items-center border-b px-4 text-sm font-medium'>Context Hub</p>
-				<ContextHubSkillsNavigator skillPage={page} onOpenSkillPage={setPage} onNewSkill={openNewSkill} />
+				<ContextHubSkillsNavigator skillPage={page} onOpenSkillPage={openPage} onNewSkill={openNewSkill} />
 			</aside>
 			<div className='min-w-0 flex-1 bg-background'>
 				<ContextHubSkillPage
 					page={page}
-					onOpenPage={setPage}
+					onOpenPage={openPage}
+					onDirtyChange={setIsDirty}
 					newSkillAction={
 						<NewSkillButton
 							scope='personal'
@@ -90,7 +103,16 @@ export function ContextHubSkillsView({ isNewSkillOpenAtFirst }: { isNewSkillOpen
 				canCreateTeamSkill={false}
 				onScopeChange={() => undefined}
 				onClose={() => setIsNewSkillOpen(false)}
-				onCreated={(skill) => skill.scope === 'personal' && setPage({ type: 'personal', name: skill.name })}
+				onCreated={(skill) => skill.scope === 'personal' && openPage({ type: 'personal', name: skill.name })}
+			/>
+			<DiscardChangesDialog
+				open={pendingPage !== null}
+				onKeepEditing={() => setPendingPage(null)}
+				onDiscard={() => {
+					setIsDirty(false);
+					setPage(pendingPage ?? page);
+					setPendingPage(null);
+				}}
 			/>
 		</div>
 	);
@@ -100,7 +122,7 @@ export function isSameSkillPage(selected: SkillPage | null, page: SkillPage): bo
 	return selected !== null && getSkillPageKey(selected) === getSkillPageKey(page);
 }
 
-function SkillPageContent({ page, onOpenPage, onOpenFile, newSkillAction }: ContextHubSkillPageProps) {
+function SkillPageContent({ page, onOpenPage, onOpenFile, newSkillAction, onDirtyChange }: ContextHubSkillPageProps) {
 	const canReviewShares = onOpenFile !== undefined;
 	const personalSkills = useQuery(trpc.skill.listPersonal.queryOptions());
 	const shareRequests = useQuery({ ...trpc.skill.listShareRequests.queryOptions(), enabled: canReviewShares });
@@ -115,6 +137,7 @@ function SkillPageContent({ page, onOpenPage, onOpenFile, newSkillAction }: Cont
 						key={`${skill.name}:${String(skill.updatedAt)}`}
 						skill={skill}
 						onDeleted={openAll}
+						onDirtyChange={onDirtyChange}
 					/>
 				)}
 			</div>

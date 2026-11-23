@@ -120,4 +120,30 @@ describe('personal skills', () => {
 		await expect(acceptShareRequest(PROJECT_ID, skill.id, ACCESS)).rejects.toThrow(/no longer exists/);
 		expect(createDraftFile).not.toHaveBeenCalled();
 	});
+
+	it('lets only one reviewer decide on a request, even when both open it at once', async () => {
+		const skill = await createPersonalSkill(PROJECT_ID, AUTHOR_ID, ORDERS);
+		await requestPersonalSkillShare(PROJECT_ID, AUTHOR_ID, ORDERS.name, null);
+
+		await expect(acceptShareRequest(PROJECT_ID, skill.id, ACCESS)).resolves.toBeDefined();
+		await expect(declineShareRequest(PROJECT_ID, skill.id)).rejects.toThrow(/no longer exists/);
+
+		await expect(userSkillQueries.getUserSkill(PROJECT_ID, AUTHOR_ID, ORDERS.name)).resolves.toMatchObject({
+			shareStatus: 'accepted',
+		});
+	});
+
+	it('puts the request back for review when the skill file cannot be created', async () => {
+		const skill = await createPersonalSkill(PROJECT_ID, AUTHOR_ID, ORDERS);
+		await requestPersonalSkillShare(PROJECT_ID, AUTHOR_ID, ORDERS.name, null);
+		vi.mocked(createDraftFile).mockRejectedValueOnce(
+			new Error('A file already exists at /agent/skills/my-orders.md.'),
+		);
+
+		await expect(acceptShareRequest(PROJECT_ID, skill.id, ACCESS)).rejects.toThrow(/already exists/);
+
+		await expect(userSkillQueries.getUserSkill(PROJECT_ID, AUTHOR_ID, ORDERS.name)).resolves.toMatchObject({
+			shareStatus: 'requested',
+		});
+	});
 });

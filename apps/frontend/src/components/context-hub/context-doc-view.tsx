@@ -12,6 +12,7 @@ import type { ContextHubContent } from '@/lib/context-hub';
 import { ContextHubChatPanel, useContextHubChatPanelOpen } from '@/components/context-hub/context-hub-chat-panel';
 import { ContextHubNavigator } from '@/components/context-hub/context-hub-navigator';
 import { ContextHubOverview } from '@/components/context-hub/context-hub-overview';
+import { DiscardChangesDialog } from '@/components/context-hub/discard-changes-dialog';
 import { ContextHubSkillPage } from '@/components/context-hub/context-hub-skill-page';
 import { ContextHubTestPage, ContextHubTestSuite } from '@/components/context-hub/context-hub-tests';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
@@ -20,16 +21,6 @@ import { OpenEditorChatButton } from '@/components/editor-chat-panel';
 import { NewSkillButton, NewSkillDialog, useNewSkillScope } from '@/components/personal-skills';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
@@ -51,6 +42,7 @@ import { trpc } from '@/main';
 
 /** What the right column shows: a table or doc page, nothing, a change picked in the Changes tab, or the tests. */
 type ViewerTarget =
+	| { type: 'skill'; page: SkillPage }
 	| { type: 'file'; path: string | null }
 	| { type: 'diff'; path: string }
 	| { type: 'tests'; runId?: string }
@@ -114,6 +106,11 @@ export function ContextDocView({
 
 	const showTarget = (target: ViewerTarget) => {
 		setIsDirty(false);
+		if (target.type === 'skill') {
+			setSkillPage(target.page);
+			return;
+		}
+		setSkillPage(null);
 		if (target.type === 'diff') {
 			setShownDiff({ path: target.path, requestedPath });
 			return;
@@ -126,7 +123,6 @@ export function ContextDocView({
 	};
 
 	const requestTarget = (target: ViewerTarget) => {
-		setSkillPage(null);
 		if (isDirty) {
 			setPendingTarget(target);
 			return;
@@ -135,6 +131,7 @@ export function ContextDocView({
 	};
 
 	const openFile = (path: string) => requestTarget({ type: 'file', path });
+	const openSkillPage = (page: SkillPage) => requestTarget({ type: 'skill', page });
 	const openTests = (runId?: string) => requestTarget({ type: 'tests', runId });
 	const openTest = (path: string, runId?: string) => requestTarget({ type: 'test', path, runId });
 
@@ -223,7 +220,7 @@ export function ContextDocView({
 										onOpenTest={openTest}
 										onNewSkill={() => setIsNewSkillOpen(true)}
 										skillPage={skillPage}
-										onOpenSkillPage={setSkillPage}
+										onOpenSkillPage={openSkillPage}
 									/>
 								)
 							}
@@ -250,7 +247,8 @@ export function ContextDocView({
 							{skillPage ? (
 								<ContextHubSkillPage
 									page={skillPage}
-									onOpenPage={setSkillPage}
+									onOpenPage={openSkillPage}
+									onDirtyChange={setIsDirty}
 									onOpenFile={openFile}
 									newSkillAction={
 										<NewSkillButton
@@ -311,7 +309,7 @@ export function ContextDocView({
 					onClose={() => setIsNewSkillOpen(false)}
 					onCreated={(skill) =>
 						skill.scope === 'personal'
-							? setSkillPage({ type: 'personal', name: skill.name })
+							? openSkillPage({ type: 'personal', name: skill.name })
 							: openFile(skill.path)
 					}
 				/>
@@ -340,42 +338,7 @@ export function ContextDocView({
 	);
 }
 
-function DiscardChangesDialog({
-	open,
-	onKeepEditing,
-	onDiscard,
-}: {
-	open: boolean;
-	onKeepEditing: () => void;
-	onDiscard: () => void;
-}) {
-	return (
-		<AlertDialog open={open} onOpenChange={(nextOpen) => !nextOpen && onKeepEditing()}>
-			<AlertDialogContent>
-				<AlertDialogHeader>
-					<AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
-					<AlertDialogDescription>
-						You have edits that are not saved yet. Continuing will discard them.
-					</AlertDialogDescription>
-				</AlertDialogHeader>
-				<AlertDialogFooter>
-					<AlertDialogCancel>Keep editing</AlertDialogCancel>
-					<AlertDialogAction
-						variant='destructive'
-						onClick={(event) => {
-							event.preventDefault();
-							onDiscard();
-						}}
-					>
-						Discard changes
-					</AlertDialogAction>
-				</AlertDialogFooter>
-			</AlertDialogContent>
-		</AlertDialog>
-	);
-}
-
-function toTargetSearch(target: Exclude<ViewerTarget, { type: 'diff' }>): ContextExplorerSearch {
+function toTargetSearch(target: Exclude<ViewerTarget, { type: 'diff' | 'skill' }>): ContextExplorerSearch {
 	switch (target.type) {
 		case 'file':
 			return { path: target.path ?? undefined };
