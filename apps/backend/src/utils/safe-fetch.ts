@@ -174,7 +174,7 @@ export async function safeFetchWithUrl(url: string, options: SafeFetchOptions = 
  */
 export async function fetchPublicUrl(input: string | URL, init: RequestInit = {}): Promise<Response> {
 	let url = new URL(input);
-	let hopInit = init;
+	let hopInit = await withEncodedBody(init);
 	for (let redirectCount = 0; ; redirectCount++) {
 		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
 			throw new Error('Only http and https URLs are allowed.');
@@ -208,6 +208,20 @@ function redirectedInit(init: RequestInit, status: number, crossesOrigin: boolea
 	}
 	const keepsMethod = status === 307 || status === 308;
 	return keepsMethod ? { ...init, headers } : { ...init, headers, method: 'GET', body: undefined };
+}
+
+/** Multipart and blob bodies are encoded once up front, so every hop sends the same bytes. */
+async function withEncodedBody(init: RequestInit): Promise<RequestInit> {
+	if (!(init.body instanceof FormData) && !(init.body instanceof Blob)) {
+		return init;
+	}
+	const encoded = new Response(init.body);
+	const headers = new Headers(init.headers);
+	const contentType = encoded.headers.get('content-type');
+	if (contentType && !headers.has('content-type')) {
+		headers.set('content-type', contentType);
+	}
+	return { ...init, headers, body: Buffer.from(await encoded.arrayBuffer()) };
 }
 
 function pinnedRequestOf(init: RequestInit): PinnedRequest {

@@ -8,6 +8,7 @@ import { useTemporaryFolders } from '../helpers/temporary-folders';
 import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
+	isCloud: false,
 	projectPath: '',
 	listProjectMembersWithRoles: vi.fn(),
 	regenerateMessagingProviderCode: vi.fn(),
@@ -19,6 +20,12 @@ const mocks = vi.hoisted(() => ({
 	listShareableMembers: vi.fn(),
 }));
 
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return mocks.isCloud;
+	},
+}));
 vi.mock('../../src/queries/project.queries', () => ({
 	getProjectById: vi.fn(async () => project()),
 	getProjectByUserId: vi.fn(async () => project()),
@@ -105,6 +112,7 @@ describe('project LLM config overrides', () => {
 	});
 
 	beforeEach(() => {
+		mocks.isCloud = false;
 		mocks.upsertProjectLlmConfig.mockReset();
 		mocks.upsertProjectLlmConfig.mockImplementation((config) => ({
 			id: 'config-id',
@@ -114,6 +122,30 @@ describe('project LLM config overrides', () => {
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		}));
+	});
+
+	it.each(['http://169.254.169.254/v1', 'http://localhost:11434/v1'])(
+		'refuses to save the private base URL %s on cloud',
+		async (baseUrl) => {
+			mocks.isCloud = true;
+
+			await expect(
+				caller.upsertLlmConfig({ provider: 'openaiCompatible', apiKey: 'key', baseUrl }),
+			).rejects.toThrow('private address');
+			expect(mocks.upsertProjectLlmConfig).not.toHaveBeenCalled();
+		},
+	);
+
+	it('saves a private base URL on a self-hosted instance', async () => {
+		await caller.upsertLlmConfig({
+			provider: 'openaiCompatible',
+			apiKey: 'key',
+			baseUrl: 'http://localhost:11434/v1',
+		});
+
+		expect(mocks.upsertProjectLlmConfig).toHaveBeenCalledWith(
+			expect.objectContaining({ baseUrl: 'http://localhost:11434/v1' }),
+		);
 	});
 
 	it('preserves a required API key inherited from nao_config.yaml', async () => {
