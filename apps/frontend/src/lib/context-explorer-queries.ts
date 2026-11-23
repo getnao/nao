@@ -20,3 +20,11 @@ export async function invalidateExplorerQueries(queryClient: QueryClient): Promi
 export async function invalidateRecommendationQueries(queryClient: QueryClient): Promise<void> {
 	await queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.pathKey() });
 }
+
+/** Personal skills and share requests, with the context files an accepted request adds. */
+export async function invalidateSkillQueries(queryClient: QueryClient): Promise<void> {
+	await Promise.all([
+		queryClient.invalidateQueries({ queryKey: trpc.skill.pathKey() }),
+		invalidateExplorerQueries(queryClient),
+	]);
+}

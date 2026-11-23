@@ -303,6 +303,23 @@ describe('context explorer file access', () => {
 		);
 	});
 
+	it('writes the instructions given in the dialog as the body of the skill', async () => {
+		mocks.resolveContextExplorerGit.mockResolvedValue({ status: 'available', repo: {}, context: {} });
+		mocks.createDraftFile.mockResolvedValue({ hash: 'hash' });
+
+		await caller.createSkill({
+			name: 'weekly-sales',
+			description: 'Weekly sales.',
+			body: 'Sum net sales by week.',
+		});
+
+		expect(mocks.createDraftFile).toHaveBeenCalledWith(
+			'/agent/skills/weekly-sales.md',
+			expect.stringMatching(/---\n\nSum net sales by week\.\n$/),
+			expect.anything(),
+		);
+	});
+
 	it.each(['../RULES', 'Weekly Sales', 'skills/nested', '-leading'])('rejects the skill name %s', async (name) => {
 		await expect(caller.createSkill({ name, description: '' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		expect(mocks.createDraftFile).not.toHaveBeenCalled();

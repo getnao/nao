@@ -17,6 +17,8 @@ export interface ContextExplorerSearch extends TestDrawerSearch {
 	tests?: 'open';
 	/** The recommendation whose proposed change to the file is shown when the file opens. */
 	recommendation?: string;
+	/** Opens the doc view on every skill, the project's and the personal ones. */
+	skills?: 'open';
 }
 
 export type DocViewTestsPage = { type: 'suite' } | { type: 'test'; path: string };
@@ -32,6 +34,7 @@ export function validateContextExplorerSearch(search: Record<string, unknown>): 
 		...validateFileSearch(search),
 		...validateTestDrawerSearch(search),
 		...(search.tests === 'open' && { tests: 'open' as const }),
+		...(search.skills === 'open' && { skills: 'open' as const }),
 		...validateRecommendationSearch(search),
 	};
 }

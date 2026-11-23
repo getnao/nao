@@ -135,6 +135,7 @@ import {
 	TestRunResultDetails,
 } from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
+import { USER_SKILL_SHARE_STATUSES } from '../types/user-skill';
 import type { WarehouseProvider } from '../types/warehouse';
 import { pgEncryptedText } from './encrypted-text';
 
@@ -1833,6 +1834,36 @@ export const memories = pgTable(
 		index('memories_userId_idx').on(t.userId),
 		index('memories_chatId_idx').on(t.chatId),
 		index('memories_supersededBy_idx').on(t.supersededBy),
+	],
+);
+
+export const userSkill = pgTable(
+	'user_skill',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		description: text('description').notNull().default(''),
+		body: text('body').notNull(),
+		shareStatus: text('share_status', { enum: USER_SKILL_SHARE_STATUSES }).notNull().default('private'),
+		shareNote: text('share_note'),
+		shareRequestedAt: timestamp('share_requested_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		uniqueIndex('user_skill_project_user_name_unique').on(t.projectId, t.userId, t.name),
+		index('user_skill_project_share_status_idx').on(t.projectId, t.shareStatus),
 	],
 );
 

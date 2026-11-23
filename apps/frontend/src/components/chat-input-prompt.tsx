@@ -1,23 +1,29 @@
 import 'prompt-mentions/style.css';
 
-import { useId, useMemo, useState } from 'react';
-import { flushSync } from 'react-dom';
-import { useQuery } from '@tanstack/react-query';
 import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER, STORY_REFERENCE_MENTION_TRIGGER } from '@nao/shared';
 import { story } from '@nao/shared/tools';
+import { useQuery } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
 import { Prompt } from 'prompt-mentions';
-import { MentionOriginPreview, withOriginMarker } from './mention-origin-preview';
+import { useId, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import AppWindow from './icons/app-window.svg';
 import Slash from './icons/slash.svg';
 import SquarePlay from './icons/square-play.svg';
+import { MentionOriginPreview, withOriginMarker } from './mention-origin-preview';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
+
+import type { CreatedSkill, ListedSkill } from '@/components/personal-skills';
+import { NewSkillDialog, useNewSkillScope } from '@/components/personal-skills';
+import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { isMenuItemMarkedWith } from '@/hooks/use-highlighted-mention';
 import { useReferenceableStories, useReferenceMentionMenu } from '@/hooks/use-reference-mention-menu';
 import { useActiveProjectId } from '@/lib/active-project';
-import { CITATION_MENTION_TRIGGER } from '@/lib/citation-mention';
+import { CITATION_MENTION_TRIGGER, writeCitedText } from '@/lib/citation-mention';
 import { toStoryReferenceOption } from '@/lib/reference-mention-menu';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -129,6 +135,10 @@ export function ChatPrompt({
 		enabled: hasProject,
 	});
 	const skills = hasProject && !skillsQuery.isFetching ? skillsQuery.data : undefined;
+	const canCreateSkill = useCanManagePersonalSkills();
+	const { canExploreContext } = usePermissions();
+	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
+	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const referenceOptions = useReferenceOptions();
 	const promptTheme = compact
@@ -144,7 +154,30 @@ export function ChatPrompt({
 
 	const handleChange = (value: string, mentions: SelectedMention[]) => {
 		referenceOptions.setIsSearching(isTypingMentionQuery(DATABASE_MENTION_TRIGGER));
-		onChange(value, mentions);
+		onChange(
+			value.replaceAll(CREATE_SKILL_TOKEN, ''),
+			mentions.filter((mention) => mention.id !== CREATE_SKILL_MENTION_ID),
+		);
+	};
+
+	/** "Create a skill" is an action, not a mention: it opens the new skill dialog and leaves the message as it was. */
+	/** "Create a skill" is an action, not a mention: it opens the new skill dialog over the message being written. */
+	const handleMentionAdded = (mention: SelectedMention) => {
+		if (mention.id !== CREATE_SKILL_MENTION_ID) {
+			return;
+		}
+		setTimeout(() => promptRef.current && removeCreateSkillPill(promptRef.current));
+		setIsNewSkillOpen(true);
+	};
+
+	/** A new personal skill is mentioned in the message, ready to use; a team skill only exists once published. */
+	const handleSkillCreated = (skill: CreatedSkill) => {
+		if (skill.scope === 'personal') {
+			promptRef.current?.appendMention(
+				{ id: skill.name, label: skill.name, icon: <Slash className='skill-mention-icon' /> },
+				SKILL_MENTION_TRIGGER,
+			);
+		}
 	};
 
 	return (
@@ -158,12 +191,8 @@ export function ChatPrompt({
 						trigger: SKILL_MENTION_TRIGGER,
 						menuPosition: 'above',
 						options: [
-							...(skills?.map((skill) => ({
-								id: skill.name,
-								label: skill.name,
-								labelRight: skill.description ?? undefined,
-								icon: <Slash className='skill-mention-icon' />,
-							})) ?? []),
+							...toSkillMentionOptions(skills ?? []),
+							...(canCreateSkill ? [CREATE_SKILL_OPTION] : []),
 						],
 					},
 					...(storyMentionOptions.length > 0
@@ -192,6 +221,7 @@ export function ChatPrompt({
 				]}
 				onChange={handleChange}
 				onEnter={onEnter}
+				onMentionAdded={handleMentionAdded}
 				onMentionDeleted={onMentionDeleted}
 				submitOnEnter={submitOnEnter}
 				className={cn('w-full nao-input', growWithContent && 'nao-input-grow')}
@@ -204,8 +234,31 @@ export function ChatPrompt({
 				theme={promptTheme}
 			/>
 			<MentionOriginPreview owner={referenceOptions.originOwner} origins={referenceOptions.origins} />
+			<NewSkillDialog
+				open={isNewSkillOpen}
+				scope={newSkillScope}
+				canCreateTeamSkill={canExploreContext}
+				onScopeChange={setNewSkillScope}
+				onClose={() => setIsNewSkillOpen(false)}
+				onCreated={handleSkillCreated}
+			/>
 		</>
 	);
+}
+
+/**
+ * The prompt cannot drop one mention, so it is rewritten without the "Create a skill" pill. Citation pills cannot be
+ * rebuilt from the text alone, so a prompt holding one keeps the pill, which the change handler leaves out anyway.
+ */
+function removeCreateSkillPill(prompt: PromptHandle): void {
+	const mentions = prompt.getMentions().filter((mention) => mention.id !== CREATE_SKILL_MENTION_ID);
+	if (mentions.some((mention) => mention.trigger === CITATION_MENTION_TRIGGER)) {
+		return;
+	}
+	const text = prompt.getValue().replaceAll(CREATE_SKILL_TOKEN, '');
+	prompt.clear();
+	writeCitedText(prompt, text, [], mentions);
+	prompt.focus();
 }
 
 /**
@@ -298,4 +351,37 @@ function placeCaretAtEnd(editor: HTMLElement) {
 	const selection = window.getSelection();
 	selection?.removeAllRanges();
 	selection?.addRange(range);
+}
+
+/** Skill names are lowercase letters, digits and dashes, so this id never collides with a skill. */
+const CREATE_SKILL_MENTION_ID = ':create-skill';
+const CREATE_SKILL_TOKEN = `${SKILL_MENTION_TRIGGER}[${CREATE_SKILL_MENTION_ID}]`;
+const CREATE_SKILL_OPTION: MentionOption = {
+	id: CREATE_SKILL_MENTION_ID,
+	label: 'Create a skill',
+	icon: (
+		<span className='skill-mention-icon text-muted-foreground'>
+			<Plus className='mr-1 size-3.5' />
+		</span>
+	),
+};
+
+/** Personal skills come after the project ones, their teal trigger telling them apart. */
+function toSkillMentionOptions(skills: ListedSkill[]): MentionOption[] {
+	const projectSkills = skills.filter((skill) => skill.scope === 'project');
+	const personalSkills = skills.filter((skill) => skill.scope === 'personal');
+	return [...projectSkills, ...personalSkills].map(toSkillMentionOption);
+}
+
+function toSkillMentionOption(skill: ListedSkill): MentionOption {
+	return {
+		id: skill.name,
+		label: skill.name,
+		labelRight: skill.description || undefined,
+		icon: (
+			<Slash
+				className={cn('skill-mention-icon', skill.scope === 'personal' && 'text-teal-700 dark:text-teal-400')}
+			/>
+		),
+	};
 }

@@ -193,7 +193,7 @@ function SidebarMenuPreview({ entries }: { entries: SidebarMenuEntry[] }) {
 				<SidebarMenuList entries={entries} access={access} isCollapsed={false} />
 			</div>
 			<p className='text-xs text-muted-foreground'>
-				Automations and Context Hub only show to people allowed to use them.
+				Automations, Skills and Context Hub only show to people allowed to use them.
 			</p>
 		</div>
 	);

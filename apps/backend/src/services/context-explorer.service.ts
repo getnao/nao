@@ -374,7 +374,7 @@ function getNaoDraftEditability(filePath: string, livePath: string, projectFolde
 		return sourceEditability;
 	}
 	if (isProductionOnly(normalizeProjectPath(filePath))) {
-		return readOnly('production-only', guidanceForReason('production-only'));
+		return readOnly('production-only', null);
 	}
 	return EDITABLE;
 }
@@ -841,12 +841,15 @@ function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidan
 	return { isEditable: false, reason, guidance };
 }
 
+/** Files only production may change are read-only without a note: there is nothing for the user to do about them. */
+type GuidedEditabilityReason = Exclude<FileEditabilityReason, 'production-only'>;
+
 function guidanceForReason(
-	reason: FileEditabilityReason,
+	reason: GuidedEditabilityReason,
 	provider?: ContextRepoState['provider'],
 ): FileEditabilityGuidance {
 	const providerName = getRepoProviderDisplayName(provider);
-	const guidance: Record<FileEditabilityReason, FileEditabilityGuidance> = {
+	const guidance: Record<GuidedEditabilityReason, FileEditabilityGuidance> = {
 		'github-unavailable': {
 			message: `${providerName} is not configured for this instance.`,
 			actionKind: 'route',
@@ -922,13 +925,6 @@ function guidanceForReason(
 		},
 		'branch-of-others': {
 			message: 'This branch belongs to another user, so it is read-only here. Switch to one of yours to edit.',
-			actionKind: null,
-			actionPath: null,
-			actionLabel: null,
-		},
-		'production-only': {
-			message:
-				'This file holds connections or credentials, so tests always run with the production version. Change it where the project is deployed.',
 			actionKind: null,
 			actionPath: null,
 			actionLabel: null,

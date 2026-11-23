@@ -1222,6 +1222,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'stories',
 			'custom stories',
 			'automations',
+			'personal skills',
 			'budget',
 			'group budget',
 			'advanced settings',

@@ -2032,7 +2032,12 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: true, customStoryCreation: false, automationCreation: true },
+				features: {
+					storyCreation: true,
+					customStoryCreation: false,
+					automationCreation: true,
+					personalSkills: false,
+				},
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
@@ -2075,7 +2080,12 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
+				features: {
+					storyCreation: true,
+					customStoryCreation: false,
+					automationCreation: false,
+					personalSkills: false,
+				},
 				toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 				databaseAccess: {
 					mode: 'restricted',
@@ -2129,7 +2139,12 @@ describe('UserGroupUserDetail', () => {
 			contextObjects,
 			docsEntries,
 			effectiveAccess: {
-				features: { storyCreation: false, customStoryCreation: false, automationCreation: false },
+				features: {
+					storyCreation: false,
+					customStoryCreation: false,
+					automationCreation: false,
+					personalSkills: false,
+				},
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
@@ -2525,7 +2540,7 @@ function createEffectiveAccess(
 	rowPolicies: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess']['rowPolicies'],
 ): ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] {
 	return {
-		features: { storyCreation: true, customStoryCreation: false, automationCreation: false },
+		features: { storyCreation: true, customStoryCreation: false, automationCreation: false, personalSkills: false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'restricted', grants: [] },

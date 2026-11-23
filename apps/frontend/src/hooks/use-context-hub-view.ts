@@ -21,12 +21,15 @@ export function useContextHubView(search: ContextExplorerSearch) {
 	const canUseFileTree = useCanUseAdvancedContextExplorer();
 	const [pickedView, setPickedView] = useLocalStorage(pickedViewStorage);
 	const isFileTreeRequired = canUseFileTree && requiresFileTree(search);
+	const isDocViewRequired = search.skills === 'open';
 
 	useEffect(() => {
 		if (isFileTreeRequired) {
 			setPickedView('files');
+		} else if (isDocViewRequired) {
+			setPickedView('docs');
 		}
-	}, [isFileTreeRequired, setPickedView]);
+	}, [isFileTreeRequired, isDocViewRequired, setPickedView]);
 
 	const switchView = useCallback(
 		(view: ContextHubView, openPath: string | null) => {
@@ -39,5 +42,6 @@ export function useContextHubView(search: ContextExplorerSearch) {
 	if (!canUseFileTree) {
 		return { view: 'docs' as const, switchView: undefined };
 	}
-	return { view: isFileTreeRequired ? ('files' as const) : pickedView, switchView };
+	const view: ContextHubView = isFileTreeRequired ? 'files' : isDocViewRequired ? 'docs' : pickedView;
+	return { view, switchView };
 }

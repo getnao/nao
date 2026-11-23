@@ -3,6 +3,7 @@ import {
 	getChangedContextPaths,
 	isContextEditorFileToolName,
 	isContextEditorRecommendationToolName,
+	isContextEditorSkillToolName,
 } from '@nao/shared/context-editor';
 import type { ContextEditorFileChange, ContextRecommendationApplyResult } from '@nao/shared/context-editor';
 import type { UIMessage } from '@nao/backend/chat';
@@ -15,12 +16,15 @@ export interface ContextEditorChanges {
 	paths: string[];
 	/** Whether the agent applied, dismissed or reopened a recommendation. */
 	hasChangedRecommendations: boolean;
+	/** Whether the agent changed a personal skill or handled a request to share one. */
+	hasChangedSkills: boolean;
 }
 
 interface SettledChange {
 	toolCallId: string;
 	paths: string[];
 	hasChangedRecommendations: boolean;
+	hasChangedSkills: boolean;
 }
 
 /**
@@ -44,6 +48,7 @@ export function useContextEditorChanges(onChange: (changes: ContextEditorChanges
 		onChangeRef.current({
 			paths: newChanges.flatMap((change) => change.paths),
 			hasChangedRecommendations: newChanges.some((change) => change.hasChangedRecommendations),
+			hasChangedSkills: newChanges.some((change) => change.hasChangedSkills),
 		});
 	}, [settledChanges]);
 }
@@ -56,7 +61,8 @@ function listSettledChanges(messages: UIMessage[]): SettledChange[] {
 			}
 			const toolName = getToolName(part);
 			const hasChangedRecommendations = isContextEditorRecommendationToolName(toolName);
-			if (!isContextEditorFileToolName(toolName) && !hasChangedRecommendations) {
+			const hasChangedSkills = isContextEditorSkillToolName(toolName);
+			if (!isContextEditorFileToolName(toolName) && !hasChangedRecommendations && !hasChangedSkills) {
 				return [];
 			}
 			const paths = isContextEditorFileToolName(toolName)
@@ -65,7 +71,7 @@ function listSettledChanges(messages: UIMessage[]): SettledChange[] {
 						part.output as ContextEditorFileChange | ContextRecommendationApplyResult,
 					)
 				: [];
-			return [{ toolCallId: part.toolCallId, paths, hasChangedRecommendations }];
+			return [{ toolCallId: part.toolCallId, paths, hasChangedRecommendations, hasChangedSkills }];
 		}),
 	);
 }

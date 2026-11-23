@@ -19,6 +19,11 @@ export default createTool<loadSkill.Input, loadSkill.Output>({
 			return projectSkill;
 		}
 
+		const personalSkill = context?.personalSkills?.find((skill) => skill.name === name.trim());
+		if (personalSkill) {
+			return { _version: '1' as const, name: personalSkill.name, body: personalSkill.body };
+		}
+
 		const internalSkill = findInternalSkill(name);
 		if (internalSkill) {
 			return {
@@ -72,5 +77,6 @@ const availableSkillNames = (context: ToolContext | undefined): string[] => {
 				.filter((skill) => isProjectSkillAllowed(skill, context))
 				.map((skill) => skill.name)
 		: [];
-	return [...new Set([...internalSkillNames(), ...projectSkillNames])];
+	const personalSkillNames = context?.personalSkills?.map((skill) => skill.name) ?? [];
+	return [...new Set([...internalSkillNames(), ...projectSkillNames, ...personalSkillNames])];
 };

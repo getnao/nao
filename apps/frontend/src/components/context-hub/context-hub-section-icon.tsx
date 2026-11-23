@@ -1,4 +1,4 @@
-import { FileText, FlaskConical, ScrollText, Sigma, Sparkles, Table2 } from 'lucide-react';
+import { FileText, FlaskConical, Hammer, ScrollText, Sigma, Table2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import type { ContextHubSection } from '@/lib/context-hub';
@@ -33,7 +33,7 @@ export const CONTEXT_HUB_SECTION_STYLES: Record<ContextHubSection, ContextHubSec
 		tileClassName: 'bg-emerald-500/12 dark:bg-emerald-400/15',
 	},
 	skills: {
-		icon: Sparkles,
+		icon: Hammer,
 		iconClassName: 'text-violet-600 dark:text-violet-400',
 		tileClassName: 'bg-violet-500/12 dark:bg-violet-400/15',
 	},

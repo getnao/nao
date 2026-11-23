@@ -63,8 +63,8 @@ export function ContextHubOverview({
 	const rules = content.docs.find((doc) => doc.section === 'rules');
 
 	return (
-		<div className='h-full overflow-y-auto'>
-			<div className='mx-auto flex w-full max-w-5xl flex-col gap-10 px-8 py-8'>
+		<div className='@container h-full overflow-y-auto'>
+			<div className='mx-auto flex w-full max-w-5xl flex-col gap-10 px-5 py-8 @xl:px-8'>
 				<OverviewHeader content={content} />
 				{rules && (
 					<RulesCard
@@ -73,7 +73,7 @@ export function ContextHubOverview({
 						onOpen={() => onOpenFile(rules.path)}
 					/>
 				)}
-				<div className='grid gap-x-10 gap-y-8 lg:grid-cols-2'>
+				<div className='grid gap-x-10 gap-y-8 @2xl:grid-cols-2'>
 					<FileList
 						title='Most read by the agent'
 						meta='Last 30 days'
@@ -137,7 +137,7 @@ function RulesCard({
 			onClick={onOpen}
 			className='group flex cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-colors hover:border-foreground/20'
 		>
-			<div className='hidden w-64 shrink-0 border-r bg-muted/40 p-4 sm:block'>
+			<div className='hidden w-64 shrink-0 border-r bg-muted/40 p-4 @xl:block'>
 				<FileThumbnail excerpt={summary?.excerpt} className='h-36' />
 			</div>
 			<div className='flex min-w-0 flex-1 flex-col gap-2 p-5'>
@@ -289,9 +289,9 @@ function FileList({
 								className='flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-muted/60'
 							>
 								<ContextHubSectionIcon section={file.item.section} className='size-4.5' />
-								<span className='truncate'>{file.item.title}</span>
+								<span className='min-w-0 truncate'>{file.item.title}</span>
 								{file.item.subtitle && (
-									<span className='min-w-0 truncate text-xs text-muted-foreground'>
+									<span className='min-w-0 shrink-[3] truncate text-xs text-muted-foreground'>
 										{file.item.subtitle}
 									</span>
 								)}

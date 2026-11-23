@@ -145,6 +145,7 @@ import {
 	appendAgentUserGroupRestrictions,
 	resolveAgentUserGroupAccess,
 } from './user-group-feature-access.service';
+import { safeListPersonalSkillsForAgent } from './user-skill.service';
 import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
 export interface AgentRunResult {
@@ -281,10 +282,11 @@ async function _buildContextBase(opts: {
 	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
-	const [envVars, warehouseAccessToken, contextAccess] = await Promise.all([
+	const [envVars, warehouseAccessToken, contextAccess, personalSkills] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		getWarehouseAccessTokenForUser(opts.userId, opts.projectId),
 		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
+		safeListPersonalSkillsForAgent(opts.projectId, opts.userId),
 	]);
 	const sqlQueryTag = await buildRunSqlQueryTag({
 		projectFolder,
@@ -314,6 +316,7 @@ async function _buildContextBase(opts: {
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		preloadedSkillNames: contextAccess.preloadedSkillNames,
+		personalSkills,
 		warehouseAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -916,6 +919,7 @@ export class AgentManager {
 				configuredDatabases,
 				skills,
 				preloadedSkills,
+				personalSkills: this._toolContext.personalSkills,
 				customCharts,
 				mapBoundaries,
 				mcpServers,
@@ -1231,11 +1235,11 @@ export class AgentManager {
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
 		const skillMention = mentions?.find(
-			(m) => m.trigger === '/' && isSkillGranted(this._toolContext.skillsAccess, m.id),
+			(m) =>
+				m.trigger === '/' &&
+				(isSkillGranted(this._toolContext.skillsAccess, m.id) || this._findPersonalSkill(m.id) !== undefined),
 		);
-		const skillContent = skillMention
-			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
-			: undefined;
+		const skillContent = skillMention ? this._getMentionedSkillContent(skillMention.id) : undefined;
 		if (!skillMention || !skillContent) {
 			return messages;
 		}
@@ -1243,6 +1247,21 @@ export class AgentManager {
 		return this._transformLastUserMessageText(messages, (text) =>
 			this._expandSkillMention(text, skillMention, skill),
 		);
+	}
+
+	/** A project skill wins over a personal skill of the same name, as the skills listing does. */
+	private _getMentionedSkillContent(name: string): string | undefined {
+		if (isSkillGranted(this._toolContext.skillsAccess, name)) {
+			const projectContent = skillService.getSkillContent(this.chat.projectId, name);
+			if (projectContent) {
+				return projectContent;
+			}
+		}
+		return this._findPersonalSkill(name)?.body;
+	}
+
+	private _findPersonalSkill(name: string) {
+		return this._toolContext.personalSkills?.find((skill) => skill.name === name);
 	}
 
 	private _expandSkillMention(text: string, mention: Mention, skill: string): string {
