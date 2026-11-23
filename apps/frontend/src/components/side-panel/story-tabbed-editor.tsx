@@ -56,7 +56,6 @@ export function StoryTabbedEditor({
 	const editorDragControlsRef = useRef<StoryEditorDragControls | null>(null);
 	const onChangeRef = useRef(onChange);
 
-	bufferRef.current = bufferCode;
 	activeRef.current = active;
 	onChangeRef.current = onChange;
 
