@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { DEFAULT_RULES_FILE } from '@nao/shared/rules-template';
 import {
 	DEFAULT_SQL_QUERY_TAG_POSITION,
 	isSqlQueryTagPosition,
@@ -27,7 +28,7 @@ import { getTestScheduleCronError } from './cron';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
-import { resolveFileReferences } from './nao-config-references';
+import { resolveFileReferences, resolveProjectFile } from './nao-config-references';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -35,6 +36,8 @@ const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
+	/** Project-relative path of the rules file, `RULES.md` unless nao_config.yaml sets `rules_file`. */
+	rulesFile?: string;
 	semantics: boolean;
 	docs: boolean;
 	notionDocs: boolean;
@@ -126,13 +129,35 @@ export function readProjectContext(projectFolder: string): {
 
 /** Returns which filesystem-backed project context is available to read. */
 export function extractContextPresence(projectFolder: string): ContextPresence {
+	const rulesFile = extractRulesFile(projectFolder);
 	return {
-		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		rules: fs.existsSync(path.join(projectFolder, rulesFile)),
+		rulesFile,
 		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
 		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
 		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
 		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
 	};
+}
+
+/**
+ * The rules file `rules_file` names, such as one of a synced repository: `repos/business_context/nao/RULES.md`.
+ * It falls back to RULES.md while that file is missing, before its repository is synced, or when it is refused.
+ */
+export function extractRulesFile(projectFolder: string): string {
+	const config = loadProjectConfig(projectFolder);
+	const rulesFile = isRecord(config) ? config.rules_file : undefined;
+	if (typeof rulesFile !== 'string') {
+		return DEFAULT_RULES_FILE;
+	}
+	try {
+		const filePath = resolveProjectFile(rulesFile, projectFolder);
+		return path.relative(fs.realpathSync(projectFolder), filePath).split(path.sep).join('/');
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : String(err);
+		logger.warn(`Ignoring rules_file '${rulesFile}' of nao_config.yaml: ${reason}`, { source: 'system' });
+		return DEFAULT_RULES_FILE;
+	}
 }
 
 function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
