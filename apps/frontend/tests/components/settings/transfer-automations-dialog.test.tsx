@@ -11,11 +11,20 @@ import { TransferAutomationsDialog } from '@/components/settings/transfer-automa
 
 const mocks = vi.hoisted(() => ({
 	countOwnedByUser: vi.fn(),
+	listTransferRecipients: vi.fn(),
 	transferAllFromUser: vi.fn(),
 }));
 
 vi.mock('@/main', () => ({
 	trpc: {
+		project: {
+			listTransferRecipients: {
+				queryOptions: (input: { fromUserId: string }) => ({
+					queryKey: ['project', 'listTransferRecipients', input.fromUserId],
+					queryFn: () => mocks.listTransferRecipients(input),
+				}),
+			},
+		},
 		automation: {
 			pathKey: () => ['automation'],
 			countOwnedByUser: {
@@ -32,7 +41,8 @@ vi.mock('@/main', () => ({
 }));
 
 const member = { id: 'leaving-user', name: 'Alice', email: 'alice@example.com' };
-const recipient = { id: 'new-owner', name: 'Bob', email: 'bob@example.com' };
+const recipient = { id: 'new-owner', name: 'Bob', email: 'bob@example.com', hasTableAccess: true };
+const recipientMissingTables = { id: 'narrow-owner', name: 'Carol', email: 'carol@example.com', hasTableAccess: false };
 
 describe('TransferAutomationsDialog', () => {
 	beforeEach(() => {
@@ -40,6 +50,7 @@ describe('TransferAutomationsDialog', () => {
 		stubResizeObserver();
 		stubScrollIntoView();
 		mocks.countOwnedByUser.mockResolvedValue({ count: 2 });
+		mocks.listTransferRecipients.mockResolvedValue([recipient, recipientMissingTables]);
 		mocks.transferAllFromUser.mockResolvedValue({ transferredCount: 2 });
 	});
 
@@ -53,6 +64,7 @@ describe('TransferAutomationsDialog', () => {
 		renderDialog();
 
 		expect(await screen.findByText('Counting their automations…')).toBeTruthy();
+		await waitFor(() => expect(newOwnerSelect().hasAttribute('disabled')).toBe(false));
 		chooseRecipient();
 		expect(transferButton().hasAttribute('disabled')).toBe(true);
 	});
@@ -64,6 +76,27 @@ describe('TransferAutomationsDialog', () => {
 		expect(await screen.findByText('Alice owns no automations in this project.')).toBeTruthy();
 		expect(screen.queryByRole('combobox', { name: 'New owner' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Transfer' })).toBeNull();
+	});
+
+	it("shows members missing some of the previous owner's tables as unavailable", async () => {
+		renderDialog();
+		expect(await screen.findByText(/Alice owns 2 automations/)).toBeTruthy();
+		await waitFor(() => expect(newOwnerSelect().hasAttribute('disabled')).toBe(false));
+
+		fireEvent.keyDown(newOwnerSelect(), { key: 'Enter' });
+
+		const unavailable = screen.getByRole('option', { name: /Carol/ });
+		expect(unavailable.getAttribute('aria-disabled')).toBe('true');
+		expect(unavailable.textContent).toContain('Missing access to some tables');
+		expect(screen.getByRole('option', { name: /Bob/ }).getAttribute('aria-disabled')).toBeNull();
+	});
+
+	it('explains why nobody can be chosen when no member has access to every table', async () => {
+		mocks.listTransferRecipients.mockResolvedValue([recipientMissingTables]);
+		renderDialog();
+
+		expect(await screen.findByText(/No other member can access all the tables/)).toBeTruthy();
+		expect(newOwnerSelect().hasAttribute('disabled')).toBe(true);
 	});
 
 	it('shows the error and stays open when the transfer fails', async () => {
@@ -96,7 +129,7 @@ function renderDialog() {
 	const onOpenChange = vi.fn();
 	render(
 		<QueryClientProvider client={queryClient}>
-			<TransferAutomationsDialog member={member} recipients={[recipient]} onOpenChange={onOpenChange} />
+			<TransferAutomationsDialog member={member} onOpenChange={onOpenChange} />
 		</QueryClientProvider>,
 	);
 	return { onOpenChange, invalidateQueries };
@@ -104,13 +137,18 @@ function renderDialog() {
 
 async function transferToRecipient() {
 	expect(await screen.findByText(/Alice owns 2 automations/)).toBeTruthy();
+	await waitFor(() => expect(newOwnerSelect().hasAttribute('disabled')).toBe(false));
 	chooseRecipient();
 	fireEvent.click(transferButton());
 }
 
 function chooseRecipient() {
-	fireEvent.keyDown(screen.getByRole('combobox', { name: 'New owner' }), { key: 'Enter' });
+	fireEvent.keyDown(newOwnerSelect(), { key: 'Enter' });
 	fireEvent.click(screen.getByRole('option', { name: /Bob/ }));
+}
+
+function newOwnerSelect() {
+	return screen.getByRole('combobox', { name: 'New owner' });
 }
 
 function transferButton() {
