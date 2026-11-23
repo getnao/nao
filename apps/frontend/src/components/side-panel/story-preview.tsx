@@ -10,7 +10,7 @@ import {
 	StoryMapEmbed as LiveMapEmbed,
 	StoryTableEmbed as LiveTableEmbed,
 } from '@/components/story-embeds';
-import { StoryFilterBar } from '@/components/story-filter-bar';
+import { StoryFilterBar, StoryFilterBarPlaceholder } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import {
 	chartBlockReference,
@@ -22,7 +22,7 @@ import {
 } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
-import { useStoryFilters } from '@/hooks/use-story-filters';
+import { useStoryFilters, useStreamingStoryFilterLabels } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
 import { useShowStoryFilters } from '@/stores/shown-story-filters';
@@ -67,6 +67,7 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	const streamingFilterLabels = useStreamingStoryFilterLabels(fullCode ?? code, isStreaming);
 	useShowStoryFilters(storyId, storyFilters.activeSelections);
 	const segments = useMemo(() => {
 		const nextSegments = stabilizeStorySegments(
@@ -191,15 +192,19 @@ export const StoryPreview = memo(function StoryPreview({
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
 				<div data-story-content data-story-chat-id={chatId} className='p-6 flex flex-col gap-4'>
-					<StoryFilterBar
-						filters={storyFilters.filters}
-						parameters={storyFilters.parameters}
-						skippedFilters={storyFilters.skippedFilters}
-						selections={storyFilters.selections}
-						onSelectionChange={storyFilters.setSelection}
-						onClear={storyFilters.clearSelections}
-						api={filterApi}
-					/>
+					{isStreaming ? (
+						<StoryFilterBarPlaceholder labels={streamingFilterLabels} />
+					) : (
+						<StoryFilterBar
+							filters={storyFilters.filters}
+							parameters={storyFilters.parameters}
+							skippedFilters={storyFilters.skippedFilters}
+							selections={storyFilters.selections}
+							onSelectionChange={storyFilters.setSelection}
+							onClear={storyFilters.clearSelections}
+							api={filterApi}
+						/>
+					)}
 					<SegmentList
 						segments={segments}
 						versionKey={versionKey}

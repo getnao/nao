@@ -24,6 +24,7 @@ const NO_SELECTIONS: StoryFilterSelections = {};
 const NO_PARAMETERS: ParsedParameterBlock[] = [];
 const NO_FILTERS: ParsedFilterBlock[] = [];
 const NO_SKIPPED_FILTERS: SkippedStoryFilter[] = [];
+const NO_LABELS: string[] = [];
 
 export interface SkippedStoryFilter {
 	id: string;
@@ -234,6 +235,23 @@ export function useStoryFilters({
 		isFiltering,
 		queryData,
 	};
+}
+
+/** The labels of the parameters and filters written so far, shown as placeholders until the story is saved. */
+export function useStreamingStoryFilterLabels(code: string, isStreaming: boolean): string[] {
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const isShown = isStreaming && config.data?.betaStoryFiltersEnabled === true;
+	return useStructurallyShared(
+		useMemo(
+			() =>
+				isShown
+					? [...getStoryParametersFromCode(code), ...dedupeFilters(getStoryFiltersFromCode(code))].map(
+							(block) => block.label,
+						)
+					: NO_LABELS,
+			[code, isShown],
+		),
+	);
 }
 
 /** Sets one selection and clears the filters that cascade from it, so their stale values are never queried. */

@@ -14,6 +14,7 @@ import { StoryParameterControl } from '@/components/story-parameter-control';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useStoryFilterHover } from '@/contexts/story-query-sql';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
 const PARENT_SELECTION_DEBOUNCE_MS = 300;
@@ -104,6 +105,22 @@ export function StoryFilterBar({
 			</div>
 			<SkippedFiltersNotice skippedFilters={skippedFilters} />
 			<FilterOptionsErrorBanner filters={filters} errors={optionErrors} />
+		</div>
+	);
+}
+
+export function StoryFilterBarPlaceholder({ labels }: { labels: string[] }) {
+	if (labels.length === 0) {
+		return null;
+	}
+	return (
+		<div className='nao-filter-bar flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
+			{labels.map((label, index) => (
+				<div key={index} className='nao-filter flex min-w-36 flex-col gap-1'>
+					<span className='nao-label text-xs font-medium text-muted-foreground'>{label}</span>
+					<Skeleton className='h-8 w-full' />
+				</div>
+			))}
 		</div>
 	);
 }
