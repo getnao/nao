@@ -468,6 +468,27 @@ describe('usage query results', () => {
 		expect(records.at(-1)?.users[0]?.totalCost).toBeCloseTo(twinPrice ?? 0);
 	});
 
+	it('prices a decision call and leaves a decision-only vendor out of the provider filter', async () => {
+		await db.insert(s.llmInference).values({
+			id: 'decision-inference',
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+			type: 'decision',
+			llmProvider: 'typesafe',
+			llmModelId: 'jev-latest',
+			inputNoCacheTokens: 1_000_000,
+			outputTotalTokens: 1_000_000,
+			totalTokens: 2_000_000,
+		});
+
+		const records = await getMessagesUsageByUser(PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		const users = records.flatMap((record) => record.users);
+		expect(users).toHaveLength(1);
+		expect(users[0].totalCost).toBeCloseTo(0.042);
+		await expect(getUsedProviders(PROJECT_ID)).resolves.toEqual([]);
+	});
+
 	it('computes usage of a project that has used no model yet', async () => {
 		const records = await getMessagesUsageByUser(OTHER_PROJECT_ID, { period: { value: 1, unit: 'day' } });
 

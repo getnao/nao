@@ -13,11 +13,12 @@ import { Input } from '@/components/ui/input';
 import { PasswordField, TextField, TextareaField, FormError } from '@/components/ui/form-fields';
 
 /** Where credentials already come from when the UI is only layering settings on top. */
-export type InheritedKeySource = 'env' | 'config';
+export type InheritedKeySource = 'env' | 'config' | 'decision';
 
 const INHERITED_KEY_LABELS: Record<InheritedKeySource, string> = {
 	env: 'env',
 	config: 'nao_config.yaml',
+	decision: 'Decision models',
 };
 
 export interface LlmProviderFormProps {

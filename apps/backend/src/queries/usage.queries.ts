@@ -1,7 +1,8 @@
-import type { LlmProvider } from '@nao/shared/types';
+import { isLlmProvider, type LlmProvider } from '@nao/shared/types';
 import { and, eq, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
-import { resolveModelPrices } from '../agents/model-prices';
+import { DECISION_PROVIDER_META } from '../agents/decision.providers';
+import { type PricedProvider, resolveModelPrices } from '../agents/model-prices';
 import { PROVIDER_META } from '../agents/provider-meta';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -32,7 +33,7 @@ const COST_COLS = [
 
 type UsageByUserRow = UserUsageBreakdown & { date: string };
 
-type ProjectModel = { provider: LlmProvider; modelId: string };
+type ProjectModel = { provider: PricedProvider; modelId: string };
 
 const USED_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -430,6 +431,7 @@ export const getOrgActiveUserCount = async (orgId: string, period: UsagePeriodRa
 	return Number(rows[0]?.activeUsers ?? 0);
 };
 
+/** The providers usage can be filtered by: a decision-only vendor shows in the totals but is not one of them. */
 export const getUsedProviders = async (projectId: string, userId?: string): Promise<LlmProvider[]> => {
 	const [messageRows, inferenceRows] = await Promise.all([
 		db
@@ -455,7 +457,7 @@ export const getUsedProviders = async (projectId: string, userId?: string): Prom
 		...new Set(
 			[...messageRows, ...inferenceRows]
 				.map((row) => row.provider)
-				.filter((provider): provider is LlmProvider => provider !== null),
+				.filter((provider): provider is LlmProvider => !!provider && isLlmProvider(provider)),
 		),
 	];
 };
@@ -659,7 +661,7 @@ async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]
 	}
 
 	const tuples = [...declaredPrices].flatMap(([key, declared]) => {
-		const [provider, modelId] = key.split('\u0000') as [LlmProvider, string];
+		const [provider, modelId] = key.split('\u0000') as [PricedProvider, string];
 		const prices = resolveModelPrices(provider, modelId, declared);
 		return prices ? [toCostLookupTuple(provider, modelId, prices)] : [];
 	});
@@ -667,8 +669,12 @@ async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]
 }
 
 function getCatalogueModels(): ProjectModel[] {
-	return Object.entries(PROVIDER_META).flatMap(([provider, meta]) =>
-		meta.models.map((model) => ({ provider: provider as LlmProvider, modelId: model.id })),
+	return [...listModels(PROVIDER_META), ...listModels(DECISION_PROVIDER_META)];
+}
+
+function listModels(catalogue: Record<string, { models: readonly { id: string }[] }>): ProjectModel[] {
+	return Object.entries(catalogue).flatMap(([provider, meta]) =>
+		meta.models.map((model) => ({ provider: provider as PricedProvider, modelId: model.id })),
 	);
 }
 

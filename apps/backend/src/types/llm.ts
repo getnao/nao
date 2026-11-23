@@ -347,5 +347,6 @@ export const LLM_INFERENCE_TYPES = [
 	'live_story_refresh',
 	'subagent',
 	'story_theme_generation',
+	'decision',
 ] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

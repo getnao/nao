@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	regenerateMessagingProviderCode: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
 	upsertProjectLlmConfig: vi.fn(),
+	getProjectDecisionConfigs: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	renameProject: vi.fn(),
 	canUserAccessStory: vi.fn(),
@@ -40,6 +41,9 @@ vi.mock('../../src/queries/user.queries', () => ({
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigByProvider: vi.fn(() => null),
 	upsertProjectLlmConfig: mocks.upsertProjectLlmConfig,
+}));
+vi.mock('../../src/queries/project-decision-config.queries', () => ({
+	getProjectDecisionConfigs: mocks.getProjectDecisionConfigs,
 }));
 vi.mock('../../src/queries/chat.queries', () => ({}));
 vi.mock('../../src/queries/story.queries', () => ({
@@ -114,6 +118,7 @@ describe('project LLM config overrides', () => {
 	beforeEach(() => {
 		mocks.isCloud = false;
 		mocks.upsertProjectLlmConfig.mockReset();
+		mocks.getProjectDecisionConfigs.mockResolvedValue([]);
 		mocks.upsertProjectLlmConfig.mockImplementation((config) => ({
 			id: 'config-id',
 			...config,
@@ -158,6 +163,16 @@ describe('project LLM config overrides', () => {
 				provider: 'openai',
 				apiKey: 'sk-from-config',
 			}),
+		);
+	});
+
+	it('starts from the API key saved for the decision provider of the same vendor', async () => {
+		mocks.getProjectDecisionConfigs.mockResolvedValue([{ provider: 'openai', apiKey: 'sk-from-decision' }]);
+
+		await upsertLlmConfig('openai');
+
+		expect(mocks.upsertProjectLlmConfig).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'openai', apiKey: 'sk-from-decision' }),
 		);
 	});
 

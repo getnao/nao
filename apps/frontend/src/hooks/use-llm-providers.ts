@@ -46,6 +46,7 @@ export function useLlmProviders() {
 	const configProviders = llmConfigs.data?.configProviders ?? [];
 	const envProviders = llmConfigs.data?.envProviders ?? [];
 	const envBaseUrls = llmConfigs.data?.envBaseUrls ?? {};
+	const decisionKeyProviders = llmConfigs.data?.decisionKeyProviders ?? [];
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
 	// Kinds that accept several instances stay on offer: each new one is added under its own name.
@@ -77,7 +78,7 @@ export function useLlmProviders() {
 		if (envProviders.includes(provider)) {
 			return 'env';
 		}
-		return null;
+		return decisionKeyProviders.includes(provider) ? 'decision' : null;
 	};
 
 	// Handlers

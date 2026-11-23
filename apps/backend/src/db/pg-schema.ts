@@ -89,6 +89,7 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
+import type { DecisionProvider } from '../types/decision';
 import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
@@ -775,6 +776,29 @@ export const projectLlmConfig = pgTable(
 		index('project_llm_config_projectId_idx').on(t.projectId),
 		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
 	],
+);
+
+/** Credentials a project saved for a decision (System 1) model provider. */
+export const projectDecisionConfig = pgTable(
+	'project_decision_config',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<DecisionProvider>().notNull(),
+		apiKey: pgEncryptedText('api_key'),
+		credentials: jsonb('credentials').$type<Record<string, string>>(),
+		baseUrl: text('base_url'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [unique('project_decision_config_project_provider').on(t.projectId, t.provider)],
 );
 
 export const projectProviderBudget = pgTable(
@@ -1881,7 +1905,7 @@ export const llmInference = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		type: text('type', { enum: LLM_INFERENCE_TYPES }).notNull(),
-		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmProvider: text('llm_provider').$type<LlmProvider | DecisionProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
 
 		// Token usage
