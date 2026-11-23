@@ -97,11 +97,12 @@ Some customers never run `nao deploy`, so validation must also work without it:
 
 - `nao group lint` works offline. It checks the schema and the references inside the local project: that files exist, tables exist in the synced databases, and `group_ids` and skills resolve.
 - `nao group format` rewrites the file with a standard key order and indentation. It also fixes mechanical issues such as camelCase values, old key names (`key`, `members`, `docs_access`), a leftover `version`, or a group with a `name` but no `id`.
+- `nao group diff` shows what changed in the file since a Git commit (`--ref`, default `HEAD`), group by group and setting by setting. Both versions are resolved first, so only real changes show. `--exit-code` exits with 1 when there are changes, for CI.
 - `nao groups` is an alias of `nao group`.
 
 Both commands and server startup use the same rules, so a file that passes `lint` also passes at startup. Checks that need the database, such as licenses, email matching, and row policies against the protected tables, only run on the server.
 
-The commands are implemented once in TypeScript, as `nao-chat-server groups lint|format`. The Python CLI calls the server binary already bundled in the `nao-core` package, with an in-memory database, so the rules cannot drift between the CLI and the server.
+The commands are implemented once in TypeScript, as `nao-chat-server groups lint|format|diff`. The Python CLI calls the server binary already bundled in the `nao-core` package, with an in-memory database, so the rules cannot drift between the CLI and the server.
 
 ## Impact on the branch
 

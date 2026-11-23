@@ -322,12 +322,46 @@ export interface NormalizedUserGroupsConfig {
 	hash: string;
 }
 
+export type ResolvedUserGroupEntry = ResolvedSettings & {
+	id: string;
+	name?: string;
+	list_of_emails?: string[];
+	sso_groups?: GroupEntry['sso_groups'];
+};
+
 export class UserGroupConfigError extends Error {}
 
 export function parseUserGroupsConfig(
 	source: string,
 	filename = USER_GROUPS_CONFIG_FILENAME,
 ): NormalizedUserGroupsConfig {
+	return normalizeUserGroupsConfig(parseGroupEntries(source, filename));
+}
+
+/** Every group except `default`, in the file's own shape, with inheritance resolved. */
+export function resolveUserGroupsConfig(
+	source: string,
+	filename = USER_GROUPS_CONFIG_FILENAME,
+): ResolvedUserGroupEntry[] {
+	const entries = parseGroupEntries(source, filename);
+	normalizeUserGroupsConfig(entries);
+	const defaults = entries.find((entry) => entry.id === DEFAULT_GROUP_ID);
+	return entries
+		.filter((entry) => entry !== defaults)
+		.map((entry) => ({
+			id: entry.id,
+			...(entry.id === ALL_USERS_GROUP_ID
+				? {}
+				: {
+						name: entry.name ?? entry.id,
+						list_of_emails: entry.list_of_emails ?? [],
+						sso_groups: entry.sso_groups ?? { oidc: [], microsoft: [] },
+					}),
+			...resolveSettings(entry, defaults),
+		}));
+}
+
+function parseGroupEntries(source: string, filename: string): GroupEntry[] {
 	let document: unknown;
 	try {
 		document = yaml.load(source, { filename, schema: yaml.JSON_SCHEMA, json: false });
@@ -338,7 +372,7 @@ export function parseUserGroupsConfig(
 	if (!result.success) {
 		throw new UserGroupConfigError(formatSchemaIssues(result.error, document));
 	}
-	return normalizeUserGroupsConfig(result.data.groups);
+	return result.data.groups;
 }
 
 /** Names groups by id rather than by their position in the list. */

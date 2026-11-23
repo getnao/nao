@@ -9,7 +9,7 @@ from cyclopts import App, Parameter
 from nao_core.commands.chat import get_server_binary_path
 from nao_core.tracking import track_command
 
-group = App(name="group", help="Check and format groups.yaml.")
+group = App(name="group", help="Check, format and diff groups.yaml.")
 
 PathOption = Annotated[
     Path | None,
@@ -32,6 +32,17 @@ def format_groups(
 ) -> None:
     """Rewrite groups.yaml with the standard key order and indentation."""
     _run_groups_command("format", path, ["--check"] if check else [])
+
+
+@group.command
+@track_command("group diff")
+def diff(
+    path: PathOption = None,
+    ref: Annotated[str, Parameter(help="Git commit, branch or tag to compare against")] = "HEAD",
+    exit_code: Annotated[bool, Parameter(help="Exit with 1 when groups.yaml has changes")] = False,
+) -> None:
+    """Show what changed in groups.yaml since a Git commit, after resolving inheritance."""
+    _run_groups_command("diff", path, ["--ref", ref, *(["--exit-code"] if exit_code else [])])
 
 
 def _run_groups_command(subcommand: str, path: Path | None, extra_args: list[str] | None = None) -> None:

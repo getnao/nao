@@ -11,8 +11,10 @@
 import './env';
 
 import { hashPassword } from 'better-auth/crypto';
+import { spawnSync } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
+import yaml from 'js-yaml';
 import path from 'path';
 
 import { startServer } from './app';
@@ -25,6 +27,11 @@ import {
 	USER_GROUPS_CONFIG_FILENAME,
 	UserGroupConfigError,
 } from './services/user-group-config.service';
+import {
+	diffUserGroupsConfigFiles,
+	type UserGroupFileChange,
+	type UserGroupSettingChange,
+} from './services/user-group-config-diff.service';
 import { formatUserGroupsConfig } from './services/user-group-config-format.service';
 import { lintUserGroupsConfig } from './services/user-group-config-validation.service';
 
@@ -130,6 +137,7 @@ COMMANDS:
     reset-password  Reset a user's password directly in the local database
     groups lint     Validate groups.yaml against the local project
     groups format   Rewrite groups.yaml with the standard key order and indentation
+    groups diff     Show what changed in groups.yaml since a Git commit
 
 OPTIONS:
     -h, --help  Show this help message
@@ -144,6 +152,8 @@ RESET-PASSWORD OPTIONS:
 GROUPS OPTIONS:
     --path <path>     Project folder (default: current directory)
     --check           With format: fail instead of rewriting an unformatted file
+    --ref <ref>       With diff: Git commit, branch or tag to compare against (default: HEAD)
+    --exit-code       With diff: exit with 1 when groups.yaml has changes
 
 ENVIRONMENT VARIABLES:
     DB_URI              Database connection URI
@@ -297,7 +307,13 @@ function runGroups(subcommand: string | undefined, options: Record<string, strin
 			console.log(`✓ Formatted ${USER_GROUPS_CONFIG_FILENAME}`);
 			process.exit(0);
 		}
-		console.error('Usage: nao-chat-server groups <lint|format> [--path <project>] [--check]');
+		if (subcommand === 'diff') {
+			parseUserGroupsConfig(source, configPath);
+			runGroupsDiff(projectPath, source, options);
+		}
+		console.error(
+			'Usage: nao-chat-server groups <lint|format|diff> [--path <project>] [--check] [--ref <ref>] [--exit-code]',
+		);
 		process.exit(2);
 	} catch (error) {
 		if (!(error instanceof UserGroupConfigError)) {
@@ -306,6 +322,76 @@ function runGroups(subcommand: string | undefined, options: Record<string, strin
 		console.error(`✗ ${USER_GROUPS_CONFIG_FILENAME} is invalid:\n${error.message}`);
 		process.exit(1);
 	}
+}
+
+function runGroupsDiff(projectPath: string, source: string, options: Record<string, string>): never {
+	const ref = options['ref'] || 'HEAD';
+	const previousSource = readUserGroupsConfigAtRef(projectPath, ref);
+	let changes: UserGroupFileChange[];
+	try {
+		changes = diffUserGroupsConfigFiles(previousSource, source);
+	} catch (error) {
+		if (!(error instanceof UserGroupConfigError)) {
+			throw error;
+		}
+		console.error(`✗ ${USER_GROUPS_CONFIG_FILENAME} at ${ref} is invalid:\n${error.message}`);
+		process.exit(1);
+	}
+	if (changes.length === 0) {
+		console.log(`✓ No changes to ${USER_GROUPS_CONFIG_FILENAME} since ${ref}`);
+		process.exit(0);
+	}
+	const missing = previousSource === null ? ', where the file did not exist' : '';
+	console.log(`${USER_GROUPS_CONFIG_FILENAME} changes since ${ref}${missing}:\n`);
+	for (const change of changes) {
+		console.log(formatGroupChange(change));
+	}
+	process.exit(options['exit-code'] ? 1 : 0);
+}
+
+/** Returns null when the file does not exist at that ref, so every group shows as added. */
+function readUserGroupsConfigAtRef(projectPath: string, ref: string): string | null {
+	if (ref.startsWith('-')) {
+		console.error(`✗ Invalid Git ref "${ref}".`);
+		process.exit(1);
+	}
+	const git = (...args: string[]) => spawnSync('git', ['-C', projectPath, ...args], { encoding: 'utf8' });
+	const commit = git('rev-parse', '--verify', '--quiet', `${ref}^{commit}`);
+	if (commit.error || commit.status !== 0) {
+		const reason = commit.error ? 'Git is not installed.' : commit.stderr.trim() || `Unknown Git ref "${ref}".`;
+		console.error(`✗ Cannot read ${USER_GROUPS_CONFIG_FILENAME} at ${ref}: ${reason}`);
+		process.exit(1);
+	}
+	const file = git('show', `${ref}:./${USER_GROUPS_CONFIG_FILENAME}`);
+	return file.status === 0 ? file.stdout : null;
+}
+
+function formatGroupChange(change: UserGroupFileChange): string {
+	if (change.action === 'added') {
+		return `+ ${change.id}`;
+	}
+	if (change.action === 'removed') {
+		return `- ${change.id} (will be archived)`;
+	}
+	return [`~ ${change.id}`, ...change.settings.map((setting) => `    ${formatSettingChange(setting)}`)].join('\n');
+}
+
+function formatSettingChange(setting: UserGroupSettingChange): string {
+	if ('added' in setting) {
+		const items = [
+			...setting.added.map((item) => `+ ${formatValue(item)}`),
+			...setting.removed.map((item) => `- ${formatValue(item)}`),
+		];
+		return `${setting.path}: ${items.join(', ')}`;
+	}
+	return `${setting.path}: ${formatValue(setting.before)} -> ${formatValue(setting.after)}`;
+}
+
+function formatValue(value: unknown): string {
+	if (value === undefined) {
+		return '(unset)';
+	}
+	return yaml.dump(value, { flowLevel: 0, lineWidth: -1 }).trim();
 }
 
 async function runMigrateCommand(): Promise<void> {
