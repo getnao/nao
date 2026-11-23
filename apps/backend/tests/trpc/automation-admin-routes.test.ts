@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	deleteProjectAutomation: vi.fn(),
 	deleteJob: vi.fn(),
+	getAutomation: vi.fn(),
 	getProjectAutomation: vi.fn(),
 	getAutomationById: vi.fn(),
 	linkAutomationJob: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../../src/handlers/automation.handler', () => ({
 vi.mock('../../src/queries/automation.queries', () => ({
 	automationJobUniqueKey: (id: string) => `automation:${id}`,
 	deleteProjectAutomation: mocks.deleteProjectAutomation,
+	getAutomation: mocks.getAutomation,
 	getAutomationById: mocks.getAutomationById,
 	getProjectAutomation: mocks.getProjectAutomation,
 	linkAutomationJob: mocks.linkAutomationJob,
@@ -298,6 +300,7 @@ describe('automation Slack channel validation', () => {
 		mocks.roles = { 'owner-id': 'user' };
 		mocks.upsertRecurringJob.mockResolvedValue({ id: 'job-id' });
 		mocks.updateAutomation.mockResolvedValue(scheduledAutomation);
+		mocks.getAutomation.mockResolvedValue({ ...scheduledAutomation, accessRole: 'owner' });
 		mocks.getAutomationById.mockResolvedValue(scheduledAutomation);
 	});
 
@@ -309,7 +312,6 @@ describe('automation Slack channel validation', () => {
 
 		expect(mocks.updateAutomation).toHaveBeenCalledWith(
 			'project-id',
-			'owner-id',
 			'scheduled-id',
 			expect.objectContaining({
 				integrations: { slack: { enabled: true, channelId: 'C0123456789, #data-alerts' } },

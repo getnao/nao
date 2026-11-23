@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
+import { Prompt } from 'prompt-mentions';
+import { createElement, createRef } from 'react';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { stubResizeObserver } from '../helpers/browser-stubs';
 import type { PromptHandle } from 'prompt-mentions';
 import type { StoryBlockPart } from '@nao/shared/story-parts';
 import {
+	CITATION_MENTION_TRIGGER,
+	CITATION_PILL_SELECTOR,
 	describeCitationSource,
 	isSameCitation,
 	numberCitationTokens,
@@ -14,6 +20,11 @@ import {
 	writeCitedText,
 } from '@/lib/citation-mention';
 import { readBlockAsk, readStoryElementAsk } from '@/lib/story-element-ask';
+
+afterEach(() => {
+	cleanup();
+	vi.unstubAllGlobals();
+});
 
 describe('citation mentions', () => {
 	it('names where a citation comes from', () => {
@@ -197,6 +208,33 @@ describe('citation mentions', () => {
 		);
 
 		expect(written).toEqual(['</weekly report>', 'on ', '<@orders>', 'and @[unknown], like ', '<❝Revenue>']);
+	});
+
+	it('draws the icon of a pill added to the prompt outside of a render', () => {
+		stubResizeObserver();
+		Object.defineProperty(HTMLElement.prototype, 'innerText', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return this.textContent ?? '';
+			},
+		});
+		onTestFinished(() => {
+			Reflect.deleteProperty(HTMLElement.prototype, 'innerText');
+		});
+		const promptRef = createRef<PromptHandle>();
+		const option = toCitationMentionOption({ start: 0, end: 0, text: 'Sales dropped' }, 'c1');
+		const { container } = render(
+			createElement(Prompt, {
+				ref: promptRef,
+				mentionConfigs: [{ trigger: CITATION_MENTION_TRIGGER, options: [option] }],
+			}),
+		);
+
+		act(() => promptRef.current?.appendMention(option, CITATION_MENTION_TRIGGER));
+
+		expect(
+			container.querySelector(`${CITATION_PILL_SELECTOR} .mention-pill-icon-original svg path`),
+		).not.toBeNull();
 	});
 });
 

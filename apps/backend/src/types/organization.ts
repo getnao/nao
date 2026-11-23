@@ -13,6 +13,8 @@ export const organizationSsoConfigInputSchema = z.object({
 	discoveryUrl: z.url({ protocol: /^https$/ }).optional(),
 	clientId: z.string().trim().min(1),
 	clientSecret: z.string().trim().min(1).optional(),
+	/** Requested on top of openid, profile and email, e.g. offline_access and session:role-any for Snowflake External OAuth. */
+	additionalScopes: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
 });
 
 export type OrganizationSsoConfigInput = z.infer<typeof organizationSsoConfigInputSchema>;
@@ -24,6 +26,7 @@ export interface OrganizationSso {
 	issuer: string | null;
 	clientId: string | null;
 	hasClientSecret: boolean;
+	additionalScopes: string[];
 	/** The sign-in redirect URI to register in the customer's IdP application. */
 	redirectUri: string;
 	ssoLicensed: boolean;

@@ -50,6 +50,7 @@ import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
@@ -399,11 +400,13 @@ export const userGroupRoutes = {
 				requireProjectPath(ctx.project.path),
 				columnSecurity,
 			);
-			return handleQuery(() =>
+			const saved = await handleQuery(() =>
 				expectedCurrent === undefined
 					? userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity)
 					: userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity, expectedCurrent),
 			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			return saved;
 		}),
 
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -414,7 +417,9 @@ export const userGroupRoutes = {
 		const rowSecurity = normalizeProjectRowSecurity(input);
 		await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
 		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
-		return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+		const updated = await handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		return updated;
 	}),
 
 	docsContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -624,6 +629,12 @@ export const userGroupRoutes = {
 					...(llmAccess === undefined ? {} : llmAccess),
 				}),
 			);
+			const changesWarehouseAccess = [rowPolicies, columnPolicies, databaseAccess, input.ssoMappings].some(
+				(change) => change !== undefined,
+			);
+			if (changesWarehouseAccess) {
+				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			}
 			await saveGroupBudget(ctx.project.id, input.groupId, input);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
@@ -653,6 +664,7 @@ export const userGroupRoutes = {
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 		await revokeUnauthorizedProjectWideShares(ctx.project.id);
 	}),
 
@@ -669,6 +681,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
 			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 
@@ -685,6 +698,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
 			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };

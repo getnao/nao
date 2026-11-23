@@ -27,7 +27,7 @@ export interface StoryQueryTarget {
 
 export interface StoryEditPresence {
 	otherEditorName: string | null;
-	ownEditElsewhere: 'chat' | 'tab' | null;
+	ownEdit: 'thisChat' | 'otherChat' | 'otherTab' | null;
 	isLockedByOthers: boolean;
 	/** False while someone else holds the lock, or once the server refuses this person the right to edit. */
 	canEdit: boolean;
@@ -42,9 +42,11 @@ export interface StoryEditPresence {
 export function useStoryEditSession({
 	target,
 	isEditing,
+	conversationChatId = null,
 }: {
 	target: StoryQueryTarget | null;
 	isEditing: boolean;
+	conversationChatId?: string | null;
 }): StoryEditPresence {
 	const storyId = target?.storyId ?? null;
 	const editState = useQuery({
@@ -64,11 +66,21 @@ export function useStoryEditSession({
 	const isLockedByOthers = lock !== null && !lock.isMine;
 	return {
 		otherEditorName: isLockedByOthers && !lock.isYou ? lock.holderName : null,
-		ownEditElsewhere: isLockedByOthers && lock.isYou ? (lock.byAgent ? 'chat' : 'tab') : null,
+		ownEdit: isLockedByOthers && lock.isYou ? describeOwnEdit(lock, conversationChatId) : null,
 		isLockedByOthers,
 		canEdit: !isLockedByOthers && !heldLock.isRefused && !heldLock.isForbidden,
 		updatedByName,
 	};
+}
+
+function describeOwnEdit(
+	lock: { byAgent: boolean; agentChatId: string | null },
+	conversationChatId: string | null,
+): StoryEditPresence['ownEdit'] {
+	if (!lock.byAgent) {
+		return 'otherTab';
+	}
+	return conversationChatId !== null && lock.agentChatId === conversationChatId ? 'thisChat' : 'otherChat';
 }
 
 /**

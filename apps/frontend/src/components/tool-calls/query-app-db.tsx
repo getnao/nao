@@ -1,3 +1,4 @@
+import { formatCount } from '@nao/shared';
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Code, Copy, Table as TableIcon } from 'lucide-react';
@@ -62,7 +63,7 @@ export const QueryAppDbToolCall = ({ toolPart }: ToolCallComponentProps) => {
 					SQL <span className='text-xs font-normal truncate'>{input?.sql}</span>
 				</span>
 			}
-			badge={output ? `${output.rowCount} rows` : undefined}
+			badge={output && formatCount(output.rowCount, 'row')}
 			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'query' && input?.sql ? (

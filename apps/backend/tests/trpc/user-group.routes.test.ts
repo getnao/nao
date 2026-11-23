@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 	getShareAudience: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	invalidateProjectViewerCaches: vi.fn(),
 	listUserGroups: vi.fn(),
 	listActiveUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
@@ -64,6 +65,9 @@ vi.mock('../../src/queries/project.queries', () => ({
 }));
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
+}));
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
+	invalidateProjectViewerCaches: mocks.invalidateProjectViewerCaches,
 }));
 vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
@@ -184,6 +188,7 @@ describe('user group routes', () => {
 			version: 1,
 			tables: [ORDERS_TABLE],
 		});
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 	});
 
 	it('rejects unlicensed row-security table additions', async () => {
@@ -290,6 +295,7 @@ describe('user group routes', () => {
 		});
 
 		await caller.updateColumnSecurity({ ...next, expectedCurrent });
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 
 		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', next, expectedCurrent);
 	});
@@ -579,6 +585,7 @@ describe('user group routes', () => {
 		});
 
 		await caller.updateRowSecurity({ version: 1, tables: [ORDERS_TABLE] });
+		mocks.invalidateProjectViewerCaches.mockClear();
 		await caller.update({
 			groupId: 'group-id',
 			featureGrants: ['storyCreation'],
@@ -597,6 +604,7 @@ describe('user group routes', () => {
 				rowPoliciesRegistry: { version: 1, tables: [ORDERS_TABLE] },
 			}),
 		);
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 	});
 
 	it('rejects group row policies for tables outside the project registry', async () => {
@@ -1241,11 +1249,13 @@ describe('user group routes', () => {
 	it('unshares project-wide content no longer allowed after membership changes and group deletion', async () => {
 		await caller.setMembership({ groupId: 'group-id', userId: 'target-user-id', isMember: false });
 		expect(mocks.setUserGroupMembership).toHaveBeenCalled();
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 
 		mocks.revokeUnauthorizedProjectWideShares.mockClear();
 		await caller.delete({ groupId: 'group-id' });
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
@@ -1393,6 +1403,7 @@ describe('user group routes', () => {
 			['first-user-id', 'second-user-id'],
 			true,
 		);
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 

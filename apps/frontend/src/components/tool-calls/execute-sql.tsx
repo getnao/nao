@@ -1,3 +1,4 @@
+import { formatCount } from '@nao/shared';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
@@ -118,7 +119,7 @@ export const ExecuteSqlToolCall = ({
 					<span className='text-xs text-muted-foreground truncate'>{input?.name ?? input?.sql_query}</span>
 				</span>
 			}
-			badge={output?.row_count && `${output.row_count} rows`}
+			badge={output && formatCount(output.row_count, 'row')}
 			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'query' && input?.sql_query ? (

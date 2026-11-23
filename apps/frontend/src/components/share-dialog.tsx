@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Link as LinkIcon, Loader2, SearchIcon, Users, X } from 'lucide-react';
+import type { ShareRole } from '@nao/shared/types';
 
 import type { ShareModel, ShareTarget, ShareTargetState } from '@/hooks/use-share-target';
 import type { ShareOwner } from '@/lib/share-access';
@@ -38,6 +39,18 @@ type ShareAttempt = 'save' | 'stopSharing';
 
 const UNSAVED_SHARING_ERROR = 'Save or cancel your sharing changes first, so the new owner gets the sharing you see.';
 
+const SHARE_DIALOG_TITLES: Record<ShareTarget['kind'], string> = {
+	chat: 'Share chat',
+	story: 'Share story',
+	'standalone-story': 'Share story',
+	automation: 'Share automation',
+};
+
+const AUTOMATION_ROLE_DESCRIPTIONS: Record<ShareRole, string> = {
+	viewer: 'See it and the status of its runs',
+	editor: 'Change it, run it and pause it',
+};
+
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -48,7 +61,7 @@ interface ShareDialogProps {
 export function ShareDialog({ open, onOpenChange, target, onStoryTransferred }: ShareDialogProps) {
 	const share = useShareTarget(target, open);
 	const audience = useShareAudience();
-	const title = target.kind === 'chat' ? 'Share chat' : 'Share story';
+	const title = SHARE_DIALOG_TITLES[target.kind];
 
 	if (share.isLoading || audience.isLoading) {
 		return <ShareLoadingDialog open={open} onOpenChange={onOpenChange} title={title} className='sm:max-w-lg' />;
@@ -99,7 +112,7 @@ function ShareDialogBody({
 	const [editedDraft, setEditedDraft] = useState<ShareDraft | null>(null);
 	const draft = editedDraft ?? createShareDraft(saved, audience.canShareToProject);
 	const [notify, setNotify] = useState(false);
-	const canNotify = smtpQuery.data === true;
+	const canNotify = smtpQuery.data === true && model.itemLabel !== 'automation';
 	const hasChanges = model.canManage && isShareDraftChanged(draft, saved);
 	const hasEditedSharing = editedDraft !== null && hasChanges;
 	const sharesWithNobody = isShareDraftEmpty(draft);
@@ -167,6 +180,7 @@ function ShareDialogBody({
 				onNotifyChange={setNotify}
 				ownerCandidates={ownerCandidates}
 				onChangeOwner={chooseNewOwner}
+				roleDescriptions={model.itemLabel === 'automation' ? AUTOMATION_ROLE_DESCRIPTIONS : undefined}
 			/>
 			{storyId && (
 				<TransferOwnerConfirmation
@@ -264,6 +278,9 @@ function copyShareLinkOnceSaved(saving: Promise<string | null>): void {
 function describeAudience(model: ShareModel): string {
 	if (model.itemLabel === 'chat') {
 		return 'People you share it with can read this conversation.';
+	}
+	if (model.itemLabel === 'automation') {
+		return 'It keeps running as its owner. Editors can change its prompt, triggers and tools.';
 	}
 	return 'People you share it with always see the latest version. Editors can change it from their own chats.';
 }

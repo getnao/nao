@@ -398,6 +398,7 @@ const overview = {
 			role: 'user',
 			status: 'active',
 			source: 'project',
+			hasPassword: true,
 		},
 		{
 			id: 'organization-user',
@@ -406,6 +407,7 @@ const overview = {
 			role: 'viewer',
 			status: 'active',
 			source: 'organization',
+			hasPassword: true,
 		},
 	],
 	memberships: [
@@ -1079,7 +1081,7 @@ describe('UserGroupEditor', () => {
 	});
 
 	it('confirms before unsharing project-wide content when project sharing is turned off', async () => {
-		mocks.fetchQuery.mockResolvedValue({ chatCount: 1, storyCount: 2 });
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 1, storyCount: 2, automationCount: 0 });
 		mocks.mutateAsync.mockResolvedValue({});
 		renderEditor();
 
@@ -1106,7 +1108,7 @@ describe('UserGroupEditor', () => {
 	});
 
 	it('saves the project sharing permission directly when nothing would be unshared', async () => {
-		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0 });
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0, automationCount: 0 });
 		mocks.mutateAsync.mockResolvedValue({});
 		renderEditor();
 
@@ -1159,7 +1161,7 @@ describe('UserGroupEditor', () => {
 	});
 
 	it('turns project sharing back on for All Users with a switch', async () => {
-		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0 });
+		mocks.fetchQuery.mockResolvedValue({ chatCount: 0, storyCount: 0, automationCount: 0 });
 		mocks.mutateAsync.mockResolvedValue({});
 		renderEditor('features', vi.fn(), { ...allUsers, projectSharing: 'blocked' });
 

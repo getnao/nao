@@ -15,6 +15,7 @@ export type StoryEditLockState = {
 	isMine: boolean;
 	isYou: boolean;
 	byAgent: boolean;
+	agentChatId: string | null;
 	byMcp: boolean;
 } | null;
 
@@ -51,14 +52,13 @@ export async function getStoryEditLockState(storyId: string, viewer: StoryEditHo
 	if (!lock) {
 		return null;
 	}
+	const isYou = lock.userId === viewer.userId;
 	return {
 		holderName: lock.userName,
-		isMine:
-			lock.userId === viewer.userId &&
-			lock.chatId === viewer.chatId &&
-			(lock.sessionId ?? null) === (viewer.sessionId ?? null),
-		isYou: lock.userId === viewer.userId,
+		isMine: isYou && lock.chatId === viewer.chatId && (lock.sessionId ?? null) === (viewer.sessionId ?? null),
+		isYou,
 		byAgent: lock.chatId !== null,
+		agentChatId: isYou ? lock.chatId : null,
 		byMcp: lock.sessionId?.startsWith(MCP_SESSION_PREFIX) ?? false,
 	};
 }

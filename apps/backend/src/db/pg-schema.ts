@@ -358,6 +358,7 @@ export const project = pgTable(
 			.default('project'),
 		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
+		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -1109,6 +1110,27 @@ export const automation = pgTable(
 	],
 );
 
+/** Who an automation is shared with: a person, a group, or the whole project when both are null. */
+export const automationShare = pgTable(
+	'automation_share',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		automationId: text('automation_id')
+			.notNull()
+			.references(() => automation.id, { onDelete: 'cascade' }),
+		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+		groupId: text('group_id').references(() => userGroup.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
+	},
+	(t) => [
+		index('automation_share_automationId_idx').on(t.automationId),
+		index('automation_share_userId_idx').on(t.userId),
+		index('automation_share_groupId_idx').on(t.groupId),
+	],
+);
+
 export const automationRun = pgTable(
 	'automation_run',
 	{
@@ -1609,6 +1631,31 @@ export const storyQuery = pgTable(
 			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.storyId, t.queryId] })],
+);
+
+export const storyViewerDataCache = pgTable(
+	'story_viewer_data_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
+		queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+		code: text('code').notNull(),
+		analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
+		cachedAt: timestamp('cached_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
 );
 
 export const storyFilterOptionsCache = pgTable(

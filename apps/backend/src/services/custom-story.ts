@@ -1,6 +1,7 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import {
 	extractStoryMapBoundaryKeys,
+	STORY_QUERY_ACCESS_DENIED_MESSAGE,
 	type StoryApp,
 	type StoryNarratives,
 	type StoryQueryResult,
@@ -19,13 +20,16 @@ import { isViewableStoryFile } from '../utils/story-file-path';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
-import type { RefreshResult } from './live-story';
+import type { RefreshResult, ViewerStoryRequest } from './live-story';
 import {
+	blankViewerNarratives,
 	executeLiveQuery,
 	executeStoryLiveQuery,
 	isCacheExpired,
+	loadViewerStorySnapshot,
 	refreshStoryById,
 	refreshStoryData,
+	resolveRestrictedViewerId,
 } from './live-story';
 import { assertStoryFiltersEnabled } from './story-filters';
 import { executeSavedStoryQueryWithInputs, executeStoryQueryWithInputs } from './story-query-inputs';
@@ -56,6 +60,8 @@ interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
 	rerun?: StoryQueryRerun;
+	storyVersionId?: string;
+	viewerUserId?: string;
 }
 
 /** Filters and parameters a viewer chose: the query re-runs with them, as that viewer, instead of reading stored rows. */
@@ -210,7 +216,7 @@ async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersi
 	};
 }
 
-/** Live stories read from the story's data cache (refreshed on schedule); others from the chat's own results. */
+/** Viewer-scoped stories read their RLS cache; owner views keep the existing live-cache or chat-result behavior. */
 export async function getCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
@@ -221,6 +227,15 @@ export async function getCustomStoryQueryData(
 	if (options.rerun && hasStoryQueryInputs(options.rerun.inputs)) {
 		assertStoryFiltersEnabled();
 		return runStoryQueryWithInputs(chatId, queryId, options.rerun.inputs, options.rerun.viewerId);
+	}
+	const viewerUserId = await resolveRestrictedViewerId(chatId, options.viewerUserId);
+	if (viewerUserId) {
+		return getViewerCustomStoryQueryData(story, queryId, {
+			chatId,
+			slug: storySlug,
+			storyVersionId: options.storyVersionId,
+			viewerUserId,
+		});
 	}
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
@@ -265,14 +280,34 @@ async function getLiveCustomStoryQueryData(
 	return queryData?.[queryId] ?? source.runQuery();
 }
 
+async function getViewerCustomStoryQueryData(
+	story: DBStory,
+	queryId: string,
+	request: ViewerStoryRequest,
+): Promise<StoryQueryResult> {
+	const snapshot =
+		story.cacheSchedule === NO_CACHE_SCHEDULE
+			? null
+			: await loadViewerStorySnapshot(request, (cache) => isCacheFresh(story, cache)).catch(() => null);
+	const result = snapshot?.queryData[queryId];
+	return result ? requireAccessibleStoryQuery(result) : runStoryQuery(request.chatId, queryId, request.viewerUserId);
+}
+
+function requireAccessibleStoryQuery(result: StoryQueryResult & { accessDenied?: true }): StoryQueryResult {
+	if (result.accessDenied) {
+		throw new CustomStoryQueryExecutionError(STORY_QUERY_ACCESS_DENIED_MESSAGE);
+	}
+	return result;
+}
+
 async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQueryResult | undefined> {
 	const stored = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, new Set([queryId]));
 	return stored[queryId];
 }
 
-async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQueryResult> {
+async function runStoryQuery(chatId: string, queryId: string, viewerUserId?: string): Promise<StoryQueryResult> {
 	try {
-		return await executeLiveQuery(chatId, queryId);
+		return await executeLiveQuery(chatId, queryId, viewerUserId ? { viewerUserId } : {});
 	} catch (error) {
 		throw toQueryExecutionError(error);
 	}
@@ -343,6 +378,15 @@ export async function getCustomStoryNarratives(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
+	const viewerUserId = await resolveRestrictedViewerId(chatId, options.viewerUserId);
+	if (viewerUserId) {
+		return getViewerCustomStoryNarratives(story, {
+			chatId,
+			slug: storySlug,
+			storyVersionId: options.storyVersionId,
+			viewerUserId,
+		});
+	}
 	if (!story.isLive) {
 		return getFrozenNarratives(story.id);
 	}
@@ -375,6 +419,21 @@ async function getLiveCustomStoryNarratives(
 		(result) => result.narratives,
 		() => cachedNarratives,
 	);
+}
+
+/** The owner's narratives may quote rows the viewer cannot read: static ones are blanked, dynamic ones rewritten. */
+async function getViewerCustomStoryNarratives(story: DBStory, request: ViewerStoryRequest): Promise<StoryNarratives> {
+	const storyVersionId = request.storyVersionId ?? (await storyQueries.getLatestVersionByStoryId(story.id))?.id;
+	if (!storyVersionId) {
+		throw new CustomStoryNotFoundError();
+	}
+	if (!story.isLiveTextDynamic) {
+		return blankViewerNarratives(storyVersionId);
+	}
+	const isUsable = (cache: { cachedAt: Date }) =>
+		story.cacheSchedule === NO_CACHE_SCHEDULE || isCacheFresh(story, cache);
+	const snapshot = await loadViewerStorySnapshot({ ...request, storyVersionId }, isUsable).catch(() => null);
+	return snapshot?.narratives ?? blankViewerNarratives(storyVersionId);
 }
 
 /** The results already saved for the story (its data cache, else the chat's own), without running any query. */
@@ -420,12 +479,25 @@ export async function getSharedCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	queryId: string,
-	versionNumber?: number,
-	rerun?: StoryQueryRerun,
+	versionNumber: number | undefined,
+	viewerUserId: string,
+	inputs?: StoryQueryInputs,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
-	return getCustomStoryQueryData(chatId, storySlug, queryId, { rerun });
+	return getCustomStoryQueryData(chatId, storySlug, queryId, {
+		rerun: { inputs, viewerId: viewerUserId },
+		storyVersionId: version.id,
+		viewerUserId,
+	});
+}
+
+export function getSharedCustomStoryNarratives(
+	chatId: string,
+	storySlug: string,
+	viewerUserId: string,
+): Promise<StoryNarratives> {
+	return getCustomStoryNarratives(chatId, storySlug, { viewerUserId });
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {
@@ -533,7 +605,7 @@ function usesStoryCache(story: DBStory): boolean {
 	return story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
 }
 
-function isCacheFresh(story: DBStory, cache: DBStoryDataCache | null): boolean {
+function isCacheFresh(story: DBStory, cache: { cachedAt: Date } | null): boolean {
 	return cache !== null && !isCacheExpired(cache.cachedAt, story.cacheSchedule);
 }
 

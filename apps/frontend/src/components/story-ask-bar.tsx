@@ -16,10 +16,12 @@ export function StoryAskBar({
 	storyId,
 	canEdit,
 	isInputHidden = false,
+	onChatChange,
 }: {
 	storyId: string;
 	canEdit: boolean;
 	isInputHidden?: boolean;
+	onChatChange?: (chatId: string | null) => void;
 }) {
 	const [handedOverQuestion] = useState(() => getHandedOverQuestion(storyId));
 	const queryClient = useQueryClient();
@@ -64,6 +66,7 @@ export function StoryAskBar({
 			getRequestBody={getShownStoryFiltersRequestBody}
 			onAsk={askStory}
 			onEnd={endQuestion}
+			onChatChange={onChatChange}
 		>
 			<StoryRefreshAfterEdit />
 			{hasAttachedStoryChat && <StoryPageRefreshAfterAnswer onAnswered={refreshStoryPage} />}

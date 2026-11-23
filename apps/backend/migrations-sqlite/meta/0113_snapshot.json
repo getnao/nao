@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2970c500-aabd-44ca-8e15-3e8917d81e8f",
+  "id": "c8e86f15-dc2b-48c2-a554-37572cef6b32",
   "prevId": "59fbac82-37b1-460f-9b17-e08c6a2971a2",
   "tables": {
     "account": {
@@ -899,13 +899,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "mcp_enabled": {
           "name": "mcp_enabled",
           "type": "integer",
@@ -1086,13 +1079,6 @@
         },
         "error_message": {
           "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1585,13 +1571,6 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2557,13 +2536,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "input_total_tokens": {
           "name": "input_total_tokens",
           "type": "integer",
@@ -3523,13 +3495,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "input_total_tokens": {
@@ -6747,14 +6712,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_access_mode": {
-          "name": "llm_access_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'project'"
-        },
         "column_security": {
           "name": "column_security",
           "type": "text",
@@ -6768,6 +6725,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "viewer_cache_revision": {
+          "name": "viewer_cache_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -7097,27 +7062,12 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "provider": {
           "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "credential_source": {
-          "name": "credential_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'database'"
         },
         "api_key": {
           "name": "api_key",
@@ -7164,13 +7114,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -7196,14 +7139,13 @@
           ],
           "isUnique": false
         },
-        "project_llm_config_project_name": {
-          "name": "project_llm_config_project_name",
+        "project_llm_config_project_provider": {
+          "name": "project_llm_config_project_provider",
           "columns": [
             "project_id",
-            "name"
+            "provider"
           ],
-          "isUnique": true,
-          "where": "\"project_llm_config\".\"disabled_at\" IS NULL"
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -10480,6 +10422,136 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "story_viewer_data_cache": {
+      "name": "story_viewer_data_cache",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_version_id": {
+          "name": "story_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "permission_revision": {
+          "name": "permission_revision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "query_data": {
+          "name": "query_data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "analysis_results": {
+          "name": "analysis_results",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cached_at": {
+          "name": "cached_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "story_viewer_data_cache_story_id_idx": {
+          "name": "story_viewer_data_cache_story_id_idx",
+          "columns": [
+            "story_id"
+          ],
+          "isUnique": false
+        },
+        "story_viewer_data_cache_user_id_idx": {
+          "name": "story_viewer_data_cache_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_viewer_data_cache_story_id_story_id_fk": {
+          "name": "story_viewer_data_cache_story_id_story_id_fk",
+          "tableFrom": "story_viewer_data_cache",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_viewer_data_cache_story_version_id_story_version_id_fk": {
+          "name": "story_viewer_data_cache_story_version_id_story_version_id_fk",
+          "tableFrom": "story_viewer_data_cache",
+          "tableTo": "story_version",
+          "columnsFrom": [
+            "story_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_viewer_data_cache_user_id_user_id_fk": {
+          "name": "story_viewer_data_cache_user_id_user_id_fk",
+          "tableFrom": "story_viewer_data_cache",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "story_viewer_data_cache_story_version_id_user_id_pk": {
+          "columns": [
+            "story_version_id",
+            "user_id"
+          ],
+          "name": "story_viewer_data_cache_story_version_id_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "stripe_webhook_event": {
       "name": "stripe_webhook_event",
       "columns": {
@@ -10814,13 +10886,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "reasoning_effort": {
@@ -11251,22 +11316,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "llm_config_ids": {
-          "name": "llm_config_ids",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "llm_model_ids_by_config": {
-          "name": "llm_model_ids_by_config",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",
