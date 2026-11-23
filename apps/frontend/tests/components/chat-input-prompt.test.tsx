@@ -53,6 +53,13 @@ vi.mock('@/hooks/use-can-manage-personal-skills', () => ({
 	useCanManagePersonalSkills: () => mocks.canCreateSkill,
 }));
 
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: () => ({ canExploreContext: false }) }));
+
+vi.mock('@/components/personal-skills', async (importOriginal) => ({
+	...((await importOriginal()) as object),
+	NewSkillDialog: () => null,
+}));
+
 vi.mock('prompt-mentions', () => ({
 	Prompt: ({ mentionConfigs }: { mentionConfigs: { options: { id: string; label: string }[] }[] }) => (
 		<div>

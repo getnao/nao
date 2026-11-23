@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { TRPCError } from '@trpc/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { McpUserRole } from '../../src/types/mcp-endpoint';
+import type { McpUserRole } from '../../../src/types/mcp-endpoint';
 
 const mocks = vi.hoisted(() => ({
 	hasUserGroupFeature: vi.fn(),
@@ -12,19 +12,19 @@ const mocks = vi.hoisted(() => ({
 	listPersonalSkills: vi.fn(),
 }));
 
-vi.mock('../../src/db/db', () => ({ db: {} }));
-vi.mock('../../src/queries/mcp-endpoint.queries', () => ({
+vi.mock('../../../src/db/db', () => ({ db: {} }));
+vi.mock('../../../src/queries/mcp-endpoint.queries', () => ({
 	insertMcpCallLog: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../../src/services/user-group-feature-access.service', () => ({
+vi.mock('../../../src/services/user-group-feature-access.service', () => ({
 	hasUserGroupFeature: mocks.hasUserGroupFeature,
 }));
-vi.mock('../../src/services/user-skill.service', () => ({
+vi.mock('../../../src/services/user-skill.service', () => ({
 	createPersonalSkill: mocks.createPersonalSkill,
 	listPersonalSkills: mocks.listPersonalSkills,
 }));
 
-import { registerPersonalSkillTools } from '../../src/mcp/tools/personal-skills';
+import { registerPersonalSkillTools } from '../../../src/mcp/tools/personal-skills';
 
 const connections: Array<{ client: Client; server: McpServer }> = [];
 const SKILL = { name: 'weekly-orders', description: 'My Monday numbers.', shareStatus: 'private' };

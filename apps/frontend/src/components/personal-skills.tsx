@@ -65,11 +65,14 @@ export function SkillsLibrary({
 	actions,
 	shareRequests = [],
 	onOpenSkill,
+	onOpenSharedSkill,
 	onOpenShareRequest,
 }: {
 	actions?: ReactNode;
 	shareRequests?: ShareRequest[];
 	onOpenSkill: (skill: ListedSkill) => void;
+	/** Opens a team skill's file; absent for members, who only see the skills, not the files. */
+	onOpenSharedSkill?: (skill: ListedSkill) => void;
 	onOpenShareRequest?: (request: ShareRequest) => void;
 }) {
 	const [tab, setTab] = useState<SkillsTab>('all');
@@ -159,7 +162,7 @@ export function SkillsLibrary({
 							name={skill.name}
 							description={skill.description}
 							scope='project'
-							onOpen={() => onOpenSkill(skill)}
+							onOpen={onOpenSharedSkill && (() => onOpenSharedSkill(skill))}
 						/>
 					))}
 				</SkillSection>
@@ -180,6 +183,7 @@ export function PersonalSkillEditor({
 }) {
 	const [description, setDescription] = useState(skill.description);
 	const [body, setBody] = useState(skill.body);
+	const [loaded, setLoaded] = useState({ description: skill.description, body: skill.body });
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 	const invalidateSkills = useInvalidateSkills();
 	const update = useMutation(trpc.skill.updatePersonal.mutationOptions({ onSuccess: invalidateSkills }));
@@ -191,7 +195,16 @@ export function PersonalSkillEditor({
 			},
 		}),
 	);
-	const isDirty = description !== skill.description || body !== skill.body;
+	const isDirty = description !== loaded.description || body !== loaded.body;
+
+	/** The skill changes under the editor when the chat beside it edits it: unsaved edits are kept over its version. */
+	if (skill.description !== loaded.description || skill.body !== loaded.body) {
+		setLoaded({ description: skill.description, body: skill.body });
+		if (!isDirty) {
+			setDescription(skill.description);
+			setBody(skill.body);
+		}
+	}
 
 	useEffect(() => {
 		onDirtyChange?.(isDirty);
@@ -692,21 +705,31 @@ function SkillCard({
 	description: string;
 	scope: SkillScope;
 	badge?: ReactNode;
-	onOpen: () => void;
+	/** Absent when the user cannot open the skill, such as a team skill for someone who does not see the files. */
+	onOpen?: () => void;
 }) {
-	return (
-		<button
-			type='button'
-			className='flex cursor-pointer flex-col gap-3 rounded-xl border bg-background p-4 text-left transition-colors hover:border-foreground/20'
-			onClick={onOpen}
-		>
+	const content = (
+		<>
 			<span className='flex min-w-0 items-center gap-2.5'>
 				<SkillIcon scope={scope} className='size-6' />
 				<span className='truncate font-mono text-[13px] font-medium'>{name}</span>
 			</span>
 			<span className='line-clamp-2 text-sm text-muted-foreground'>{description || 'No description.'}</span>
 			{badge && <span className='mt-auto'>{badge}</span>}
+		</>
+	);
+	const className = 'flex flex-col gap-3 rounded-xl border bg-background p-4 text-left';
+
+	return onOpen ? (
+		<button
+			type='button'
+			className={cn(className, 'cursor-pointer transition-colors hover:border-foreground/20')}
+			onClick={onOpen}
+		>
+			{content}
 		</button>
+	) : (
+		<div className={className}>{content}</div>
 	);
 }
 

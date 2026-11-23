@@ -21,7 +21,7 @@ export function useContextHubView(search: ContextExplorerSearch) {
 	const canUseFileTree = useCanUseAdvancedContextExplorer();
 	const [pickedView, setPickedView] = useLocalStorage(pickedViewStorage);
 	const isFileTreeRequired = canUseFileTree && requiresFileTree(search);
-	const isDocViewRequired = search.skills !== undefined;
+	const isDocViewRequired = search.skills === 'open';
 
 	useEffect(() => {
 		if (isFileTreeRequired) {

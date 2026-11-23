@@ -77,8 +77,7 @@ export function ContextDocView({
 	const [pendingTarget, setPendingTarget] = useState<ViewerTarget | null>(null);
 	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
-	const isSkillsLinkOpen = contextSearch.skills !== undefined;
-	const isNewSkillLinkOpen = contextSearch.skills === 'new';
+	const isSkillsLinkOpen = contextSearch.skills === 'open';
 	const [skillPage, setSkillPage] = useState<SkillPage | null>(isSkillsLinkOpen ? { type: 'all' } : null);
 	const [isChatOpen, setIsChatOpen] = useContextHubChatPanelOpen();
 	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
@@ -142,13 +141,6 @@ export function ContextDocView({
 			setSkillPage({ type: 'all' });
 		}
 	}, [isSkillsLinkOpen]);
-
-	useEffect(() => {
-		if (isNewSkillLinkOpen) {
-			setIsNewSkillOpen(true);
-			void navigate({ to: '.', search: { skills: 'open' }, replace: true });
-		}
-	}, [isNewSkillLinkOpen, navigate]);
 
 	useEffect(() => {
 		if (unlistedRequestedPath && onSwitchView) {

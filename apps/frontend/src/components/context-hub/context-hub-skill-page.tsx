@@ -68,9 +68,9 @@ export function ContextHubSkillPage({
 }
 
 /** The Context Hub of members whose groups grant personal skills: their skills and the team's, without the files. */
-export function ContextHubSkillsView({ isNewSkillOpenAtFirst }: { isNewSkillOpenAtFirst: boolean }) {
+export function ContextHubSkillsView() {
 	const [page, setPage] = useState<SkillPage>({ type: 'all' });
-	const [isNewSkillOpen, setIsNewSkillOpen] = useState(isNewSkillOpenAtFirst);
+	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const [isDirty, setIsDirty] = useState(false);
 	const [pendingPage, setPendingPage] = useState<SkillPage | null>(null);
 	const openNewSkill = () => setIsNewSkillOpen(true);
@@ -134,7 +134,7 @@ function SkillPageContent({ page, onOpenPage, onOpenFile, newSkillAction, onDirt
 			<div className='mx-auto w-full max-w-5xl px-8 py-8'>
 				{skill && (
 					<PersonalSkillEditor
-						key={`${skill.name}:${String(skill.updatedAt)}`}
+						key={skill.name}
 						skill={skill}
 						onDeleted={openAll}
 						onDirtyChange={onDirtyChange}
@@ -162,11 +162,8 @@ function SkillPageContent({ page, onOpenPage, onOpenFile, newSkillAction, onDirt
 				shareRequests={shareRequests.data}
 				actions={newSkillAction}
 				onOpenShareRequest={(request) => onOpenPage({ type: 'request', id: request.id })}
-				onOpenSkill={(skill) =>
-					skill.scope === 'personal'
-						? onOpenPage({ type: 'personal', name: skill.name })
-						: skill.location && onOpenFile?.(skill.location)
-				}
+				onOpenSkill={(skill) => onOpenPage({ type: 'personal', name: skill.name })}
+				onOpenSharedSkill={onOpenFile && ((skill) => skill.location && onOpenFile(skill.location))}
 			/>
 		</div>
 	);

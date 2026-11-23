@@ -13,7 +13,7 @@ export function ContextHub({ search }: { search: ContextExplorerSearch }) {
 	const { canExploreContext } = usePermissions();
 
 	if (!canExploreContext) {
-		return <ContextHubSkillsView isNewSkillOpenAtFirst={search.skills === 'new'} />;
+		return <ContextHubSkillsView />;
 	}
 	return <ContextEditorHub search={search} />;
 }
