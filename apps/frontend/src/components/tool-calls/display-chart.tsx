@@ -535,7 +535,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const [width, setWidth] = useState(0);
 	const [plotWidth, setPlotWidth] = useState(0);
 	useResizeObserver(containerRef, (element) => {
-		setWidth(element.getBoundingClientRect().width);
+		setWidth(Math.round(element.getBoundingClientRect().width));
 	});
 	const gradientIdPrefix = `${useId().replace(/[^a-zA-Z0-9]/g, '')}-`;
 	const handlePlotWidthChange = useCallback((nextPlotWidth: number) => {
