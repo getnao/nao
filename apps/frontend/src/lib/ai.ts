@@ -171,6 +171,33 @@ export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], rig
 };
 
 /**
+ * Keys grouped parts by their first tool call, so regrouping a later part does not remount the ones before it.
+ * Parts without a tool call are keyed by their rank among parts of the same type.
+ */
+export const getGroupedPartKeys = (parts: GroupedMessagePart[]): string[] => {
+	const countByType = new Map<string, number>();
+	return parts.map((part) => {
+		const toolCallId = findFirstToolCallId(part);
+		if (toolCallId) {
+			return toolCallId;
+		}
+		const rank = countByType.get(part.type) ?? 0;
+		countByType.set(part.type, rank + 1);
+		return `${part.type}-${rank}`;
+	});
+};
+
+const findFirstToolCallId = (part: GroupedMessagePart): string | undefined => {
+	if (isStoryStatusPart(part)) {
+		return part.part.toolCallId;
+	}
+	if (isGroupPart(part)) {
+		return part.parts.map(findFirstToolCallId).find(Boolean);
+	}
+	return isToolUIPart(part) ? part.toolCallId : undefined;
+};
+
+/**
  * Groups consecutive collapsible parts (tools and reasoning) into 'tool-group' parts.
  * Non-collapsible tools (depending on the density setting) and other message parts are returned as-is.
  */
@@ -401,7 +428,11 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 	return false;
 };
 
-const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
+export const haveSameToolCallIds = <T extends { toolCallId: string }>(left: T[], right: T[]): boolean => {
+	return left.length === right.length && left.every((item, index) => item.toolCallId === right[index].toolCallId);
+};
+
+export const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
 	const leftOutput = 'output' in left ? left.output : undefined;
 	const rightOutput = 'output' in right ? right.output : undefined;
 	const leftErrorText = 'errorText' in left ? left.errorText : undefined;

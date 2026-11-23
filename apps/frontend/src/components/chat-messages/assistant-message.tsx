@@ -5,6 +5,7 @@ import {
 	areGroupedMessagePartArraysEqual,
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
+	getGroupedPartKeys,
 	groupToolCalls,
 	isQueryGroupPart,
 	isStoryQueryGroupPart,
@@ -75,19 +76,13 @@ export const AssistantMessage = memo(
 
 					{isCompacting ? <AssistantCompaction /> : !isSettled && <TextShimmer showLogo />}
 
-					{chatId && showActions && (
+					{chatId && showActions && !(isLastMessage && isRunning) && (
 						<AssistantMessageActions
 							message={message}
 							chatId={chatId}
 							className={cn(
 								'transition-opacity duration-200',
-								isLastMessage
-									? isRunning
-										? 'hidden'
-										: 'opacity-100'
-									: hasFeedback
-										? 'opacity-100'
-										: 'opacity-0 group-hover:opacity-100',
+								isLastMessage || hasFeedback ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
 							)}
 						/>
 					)}
@@ -100,8 +95,9 @@ export const AssistantMessage = memo(
 export const MessageParts = memo(
 	({ parts }: { parts: GroupedMessagePart[] }) => {
 		const { isSettled } = useAssistantMessage();
+		const keys = getGroupedPartKeys(parts);
 		return parts.map((part, i) => {
-			return <MessagePart key={i} part={part} isPartSettled={isSettled || !isLast(part, parts)} />;
+			return <MessagePart key={keys[i]} part={part} isPartSettled={isSettled || !isLast(part, parts)} />;
 		});
 	},
 	(previous, next) => areGroupedMessagePartArraysEqual(previous.parts, next.parts),

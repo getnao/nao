@@ -49,7 +49,7 @@ export const McpToolCallsSubGroup = ({ group, isSettled }: { group: McpSubGroupP
 							<AssistantReasoning key={index} text={part.text} isStreaming={part.state === 'streaming'} />
 						);
 					}
-					return <ToolCall key={index} toolPart={part} />;
+					return <ToolCall key={part.toolCallId} toolPart={part} />;
 				})}
 			</div>
 		</Expandable>

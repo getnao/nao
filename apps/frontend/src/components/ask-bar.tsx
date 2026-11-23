@@ -19,7 +19,7 @@ import { HighlightBubble } from '@/components/highlight-bubble';
 import { Button } from '@/components/ui/button';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { TextShimmer } from '@/components/ui/text-shimmer';
-import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { AgentProvider, useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { FollowUpFiller, SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
@@ -234,9 +234,8 @@ export function PendingMessageSender({ message, onSent }: { message?: SubmittedM
 
 /** The folded panel: the agent at work, then the answers ready to read, as a pill above the input. */
 function AskStatus({ onOpen, onClose }: { onOpen: () => void; onClose: () => void }) {
-	const messages = useAgentMessages();
 	const { isRunning } = useAgentContext();
-	const questionCount = countQuestions(messages);
+	const questionCount = useAgentMessagesSelector(countQuestions);
 	if (questionCount === 0) {
 		return null;
 	}

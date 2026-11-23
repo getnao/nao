@@ -1,42 +1,20 @@
 import { HelpCircle } from 'lucide-react';
-import { useMemo } from 'react';
 
 import type { ToolCallComponentProps } from '..';
+import type { UIMessage } from '@nao/backend/chat';
 import { CommandBlock } from '@/components/command-block';
 import { Button } from '@/components/ui/button';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useAssistantMessage } from '@/contexts/assistant-message';
 import { isOnboardingContextRequestMessage } from '@/lib/ai';
 
 export function OnboardingCommandToolCall({ toolPart }: ToolCallComponentProps<'onboarding_command'>) {
 	const command = toolPart.input?.command;
-	const messages = useAgentMessages();
 	const { isRunning, queueOrSendMessage } = useAgentContext();
 	const { isSettled } = useAssistantMessage();
-	const needsConfirmation = useMemo(() => {
-		const messageIndex = messages.findIndex((message) =>
-			message.parts.some(
-				(part) => part.type === 'tool-onboarding_command' && part.toolCallId === toolPart.toolCallId,
-			),
-		);
-		if (messageIndex === -1) {
-			return false;
-		}
-
-		const message = messages[messageIndex];
-		const partIndex = message.parts.findIndex(
-			(part) => part.type === 'tool-onboarding_command' && part.toolCallId === toolPart.toolCallId,
-		);
-		const hasLaterCommand = message.parts
-			.slice(partIndex + 1)
-			.some((part) => part.type === 'tool-onboarding_command');
-		const hasClarification = message.parts.some((part) => part.type === 'tool-clarification');
-		const hasAnswer = messages
-			.slice(messageIndex + 1)
-			.some((nextMessage) => nextMessage.role === 'user' && !isOnboardingContextRequestMessage(nextMessage));
-
-		return !hasLaterCommand && !hasClarification && !hasAnswer;
-	}, [messages, toolPart.toolCallId]);
+	const needsConfirmation = useAgentMessagesSelector((messages) =>
+		checkNeedsConfirmation(messages, toolPart.toolCallId),
+	);
 
 	if (!command) {
 		return null;
@@ -88,4 +66,25 @@ export function OnboardingCommandToolCall({ toolPart }: ToolCallComponentProps<'
 			)}
 		</div>
 	);
+}
+
+function checkNeedsConfirmation(messages: UIMessage[], toolCallId: string): boolean {
+	const messageIndex = messages.findIndex((message) =>
+		message.parts.some((part) => part.type === 'tool-onboarding_command' && part.toolCallId === toolCallId),
+	);
+	if (messageIndex === -1) {
+		return false;
+	}
+
+	const message = messages[messageIndex];
+	const partIndex = message.parts.findIndex(
+		(part) => part.type === 'tool-onboarding_command' && part.toolCallId === toolCallId,
+	);
+	const hasLaterCommand = message.parts.slice(partIndex + 1).some((part) => part.type === 'tool-onboarding_command');
+	const hasClarification = message.parts.some((part) => part.type === 'tool-clarification');
+	const hasAnswer = messages
+		.slice(messageIndex + 1)
+		.some((nextMessage) => nextMessage.role === 'user' && !isOnboardingContextRequestMessage(nextMessage));
+
+	return !hasLaterCommand && !hasClarification && !hasAnswer;
 }

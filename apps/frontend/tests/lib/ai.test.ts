@@ -5,6 +5,7 @@ import type { GroupedMessagePart } from '@/types/ai';
 import {
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
+	getGroupedPartKeys,
 	groupToolCalls,
 	hasManagedCreditsForRequest,
 	isOnboardingContextRequestMessage,
@@ -377,6 +378,25 @@ describe('query runs', () => {
 		expect(groupToolCalls([firstQuery, firstNote, secondNote, secondQuery])).toEqual([
 			{ type: 'query-group', parts: [firstQuery, firstNote, secondNote, secondQuery] },
 		]);
+	});
+});
+
+describe('getGroupedPartKeys', () => {
+	const text = { type: 'text', text: 'Here is what I found' } as UIMessagePart;
+	const keysOf = (parts: UIMessagePart[]) => getGroupedPartKeys(groupToolCalls(parts));
+
+	it('keeps the key of a query card when the next query folds it into a group', () => {
+		expect(keysOf([text, createQueryPart('query-1')])).toEqual(['text-0', 'query-1']);
+		expect(keysOf([text, createQueryPart('query-1'), createQueryPart('query-2')])).toEqual(['text-0', 'query-1']);
+	});
+
+	it('keeps the key of later parts when earlier ones are regrouped', () => {
+		const query = createQueryPart('query-1');
+		const created = createStoryPart('call-1');
+		const updated = createStoryPart('call-2', { input: { action: 'update', id: 'revenue' } });
+
+		expect(keysOf([query, created, text])).toEqual(['query-1', 'call-1', 'text-0']);
+		expect(keysOf([query, created, text, updated])).toEqual(['query-1', 'text-0', 'call-2']);
 	});
 });
 
