@@ -409,12 +409,16 @@ code.dollar:before {
 	padding: 0.625rem 0.75rem;
 }
 
-/* Gutter sized to its digits so one- and two-digit line numbers keep the same edge and gap */
+/* Gutter as wide as the block's longest line number so every line keeps the same edge and gap */
 [data-streamdown='code-block-body'] code > span::before {
 	width: auto;
 	min-width: 2ch;
 	margin-right: 1rem;
 	padding-right: 0;
+}
+
+[data-streamdown='code-block-body'] code:has(> span:nth-child(100)) > span::before {
+	min-width: 3ch;
 }
 
 [data-streamdown='code-block'] > div:has(> [data-streamdown='code-block-actions']) {
