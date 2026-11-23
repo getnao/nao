@@ -60,7 +60,7 @@ function useLiveQueryData(queryId: string, liveQuery?: LiveQueryConfig) {
 		queryFn: () => null,
 		enabled: false,
 		...(liveQuery ? liveQuery.queryOptions(queryId) : {}),
-		...(liveQuery ? { staleTime: 0, enabled: true } : {}),
+		...(liveQuery ? { staleTime: 0, refetchOnWindowFocus: false, enabled: true } : {}),
 	});
 }
 

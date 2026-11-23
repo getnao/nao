@@ -11,6 +11,7 @@ import type { ParsedFilterBlock, ParsedParameterBlock } from '@nao/shared/story-
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useStructurallyShared } from '@/hooks/use-structurally-shared';
 import { trpc } from '@/main';
 
 export type StoryFilterApi =
@@ -21,6 +22,8 @@ export type StoryFilterApi =
 const FILTER_PARAM_PREFIX = 'story_filter_';
 const NO_SELECTIONS: StoryFilterSelections = {};
 const NO_PARAMETERS: ParsedParameterBlock[] = [];
+const NO_FILTERS: ParsedFilterBlock[] = [];
+const NO_SKIPPED_FILTERS: SkippedStoryFilter[] = [];
 
 export interface SkippedStoryFilter {
 	id: string;
@@ -42,11 +45,13 @@ export function useStoryFilters({
 	const betaEnabled = config.data?.betaStoryFiltersEnabled === true;
 	const filtersEnabled = enabled && betaEnabled;
 
-	const filters = useMemo(
-		() => (filtersEnabled ? dedupeFilters(getStoryFiltersFromCode(code)) : []),
-		[code, filtersEnabled],
+	const filters = useStructurallyShared(
+		useMemo(
+			() => (filtersEnabled ? dedupeFilters(getStoryFiltersFromCode(code)) : NO_FILTERS),
+			[code, filtersEnabled],
+		),
 	);
-	const parametersInCode = useMemo(() => getStoryParametersFromCode(code), [code]);
+	const parametersInCode = useStructurallyShared(useMemo(() => getStoryParametersFromCode(code), [code]));
 	const parameters = useMemo(
 		() => (filtersEnabled ? parametersInCode : NO_PARAMETERS),
 		[parametersInCode, filtersEnabled],
@@ -54,6 +59,7 @@ export function useStoryFilters({
 	const [selections, setSelections] = useState<StoryFilterSelections>(() =>
 		readSelectionsFromUrl(filters, parameters),
 	);
+	const urlSelections = useDebouncedValue(selections, 300);
 	const skipNextUrlWrite = useRef(true);
 
 	useEffect(() => {
@@ -72,20 +78,15 @@ export function useStoryFilters({
 			skipNextUrlWrite.current = false;
 			return;
 		}
-		writeSelectionsToUrl(selections, filters, parameters);
-	}, [selections, filters, parameters, filtersEnabled]);
+		writeSelectionsToUrl(urlSelections, filters, parameters);
+	}, [urlSelections, filters, parameters, filtersEnabled]);
 
-	const setSelection = useCallback((filterId: string, selection: StoryFilterSelection) => {
-		setSelections((current) => {
-			const next = { ...current };
-			if (isEmptySelection(selection)) {
-				delete next[filterId];
-			} else {
-				next[filterId] = selection;
-			}
-			return next;
-		});
-	}, []);
+	const setSelection = useCallback(
+		(filterId: string, selection: StoryFilterSelection) => {
+			setSelections((current) => applyStoryFilterSelection(current, filterId, selection, filters));
+		},
+		[filters],
+	);
 
 	const clearSelections = useCallback(() => setSelections({}), []);
 
@@ -151,11 +152,20 @@ export function useStoryFilters({
 		[parametersInCode, displayedSelections],
 	);
 	const skippedFilters = useMemo(
-		() => (debouncedHasActive ? listSkippedFilters(filters, filteredQueryData) : []),
+		() => (debouncedHasActive ? listSkippedFilters(filters, filteredQueryData) : NO_SKIPPED_FILTERS),
 		[debouncedHasActive, filters, filteredQueryData],
 	);
 	const isSelectionsPending = !areSelectionsEqual(activeSelections, debouncedSelections);
 	const isFiltering = isSelectionsPending || isFetching;
+	const queryData = useStructurallyShared(
+		useMemo(
+			() =>
+				debouncedHasActive
+					? withFilteredRows(baselineQueryData, filteredQueryData)
+					: (baselineQueryData ?? null),
+			[debouncedHasActive, baselineQueryData, filteredQueryData],
+		),
+	);
 
 	return {
 		filtersEnabled,
@@ -170,10 +180,44 @@ export function useStoryFilters({
 		clearSelections,
 		hasActiveFilters,
 		isFiltering,
-		queryData: debouncedHasActive
-			? withFilteredRows(baselineQueryData, filteredQueryData)
-			: (baselineQueryData ?? null),
+		queryData,
 	};
+}
+
+/** Sets one selection and clears the filters that cascade from it, so their stale values are never queried. */
+export function applyStoryFilterSelection(
+	selections: StoryFilterSelections,
+	filterId: string,
+	selection: StoryFilterSelection,
+	filters: ParsedFilterBlock[],
+): StoryFilterSelections {
+	const next = { ...selections };
+	if (isEmptySelection(selection)) {
+		delete next[filterId];
+	} else {
+		next[filterId] = selection;
+	}
+	if (!isSameSelection(selections[filterId], next[filterId])) {
+		for (const dependentId of listDependentFilterIds(filters, filterId)) {
+			delete next[dependentId];
+		}
+	}
+	return next;
+}
+
+function listDependentFilterIds(filters: ParsedFilterBlock[], parentId: string): Set<string> {
+	const dependentIds = new Set<string>();
+	const pending = [parentId];
+	while (pending.length > 0) {
+		const currentId = pending.pop();
+		for (const filter of filters) {
+			if (filter.dependsOn === currentId && filter.id !== parentId && !dependentIds.has(filter.id)) {
+				dependentIds.add(filter.id);
+				pending.push(filter.id);
+			}
+		}
+	}
+	return dependentIds;
 }
 
 type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[] }>;
@@ -237,23 +281,14 @@ function areSelectionsEqual(a: StoryFilterSelections, b: StoryFilterSelections):
 	if (aKeys.length !== bKeys.length) {
 		return false;
 	}
-	for (const key of aKeys) {
-		if (!(key in b)) {
-			return false;
-		}
-		const left = a[key];
-		const right = b[key];
-		if (Array.isArray(left) && Array.isArray(right)) {
-			if (left.length !== right.length || left.some((value, index) => value !== right[index])) {
-				return false;
-			}
-			continue;
-		}
-		if (left !== right) {
-			return false;
-		}
+	return aKeys.every((key) => key in b && isSameSelection(a[key], b[key]));
+}
+
+function isSameSelection(left: StoryFilterSelection | undefined, right: StoryFilterSelection | undefined): boolean {
+	if (Array.isArray(left) && Array.isArray(right)) {
+		return left.length === right.length && left.every((value, index) => value === right[index]);
 	}
-	return true;
+	return left === right;
 }
 
 function dedupeFilters(filters: ParsedFilterBlock[]): ParsedFilterBlock[] {

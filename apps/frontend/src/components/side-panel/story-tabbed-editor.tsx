@@ -7,6 +7,7 @@ import {
 	replaceStoryTabInner,
 	stripStoryTabsMarkup,
 } from '@nao/shared/story-tabs';
+import { parameterTagRegex } from '@nao/shared/story-segments';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEditorMarkdown, preprocessForEditor, StoryEditor } from './story-editor';
 import { serializeStoryEditorNodes } from './story-editor-utils';
@@ -45,6 +46,7 @@ export function StoryTabbedEditor({
 	contentClassName,
 }: StoryTabbedEditorProps) {
 	const [bufferCode, setBufferCode] = useState(code);
+	const [parameterCode, setParameterCode] = useState(() => getParameterTags(code));
 	const [activeIndex, setActiveIndex] = useState(0);
 	const tabs = useMemo(() => parseStoryTabs(bufferCode) ?? [], [bufferCode]);
 	const active = tabs.length ? Math.min(activeIndex, tabs.length - 1) : 0;
@@ -62,6 +64,7 @@ export function StoryTabbedEditor({
 		pendingMovedSelectionRef.current = null;
 		bufferRef.current = code;
 		setBufferCode(code);
+		setParameterCode(getParameterTags(code));
 	}, [code]);
 
 	useEffect(() => {
@@ -71,11 +74,22 @@ export function StoryTabbedEditor({
 		};
 	}, [getCodeRef]);
 
-	const updateBuffer = useCallback((nextCode: string) => {
+	const writeBuffer = useCallback((nextCode: string) => {
+		const hasChanged = nextCode !== bufferRef.current;
 		bufferRef.current = nextCode;
-		setBufferCode(nextCode);
-		onChangeRef.current?.(nextCode);
+		setParameterCode(getParameterTags(nextCode));
+		if (hasChanged) {
+			onChangeRef.current?.(nextCode);
+		}
 	}, []);
+
+	const updateBuffer = useCallback(
+		(nextCode: string) => {
+			writeBuffer(nextCode);
+			setBufferCode(nextCode);
+		},
+		[writeBuffer],
+	);
 
 	const getCurrentBuffer = useCallback(() => {
 		const currentCode = bufferRef.current;
@@ -97,10 +111,7 @@ export function StoryTabbedEditor({
 			if (editor) {
 				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 			}
-			const currentCode = getCurrentBuffer();
-			if (currentCode !== bufferRef.current) {
-				updateBuffer(currentCode);
-			}
+			updateBuffer(getCurrentBuffer());
 			setActiveIndex(nextIndex);
 		},
 		[editorRef, getCurrentBuffer, updateBuffer],
@@ -113,9 +124,9 @@ export function StoryTabbedEditor({
 			const nextCode = parsed?.length
 				? replaceStoryTabInner(currentCode, activeRef.current, innerCode)
 				: innerCode;
-			updateBuffer(nextCode);
+			writeBuffer(nextCode);
 		},
-		[updateBuffer],
+		[writeBuffer],
 	);
 
 	const handleMoveSelection = useCallback(
@@ -217,6 +228,7 @@ export function StoryTabbedEditor({
 			<StoryEditorSelectionActionsProvider value={selectionActions}>
 				<StoryEditor
 					code={plainCode}
+					parameterCode={parameterCode}
 					editorRef={editorRef}
 					onSave={onSave}
 					onDragControlsChange={handleDragControlsChange}
@@ -271,7 +283,7 @@ export function StoryTabbedEditor({
 				<div className={contentClassName}>
 					<StoryEditor
 						code={tabs[active]?.innerCode ?? ''}
-						parameterCode={bufferCode}
+						parameterCode={parameterCode}
 						editorRef={editorRef}
 						onSave={onSave}
 						onDragControlsChange={handleDragControlsChange}
@@ -281,6 +293,10 @@ export function StoryTabbedEditor({
 			</div>
 		</StoryEditorSelectionActionsProvider>
 	);
+}
+
+function getParameterTags(code: string): string {
+	return code.match(parameterTagRegex('g'))?.join('\n') ?? '';
 }
 
 function serializeMovedNodes(editor: TiptapEditor, nodes: readonly PMNode[]): string {
