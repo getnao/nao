@@ -8,8 +8,8 @@ import { db } from '../db/db';
 import { env, isCloud } from '../env';
 import { getSsoProviderByProjectId } from '../queries/sso-provider.queries';
 import { logger, serializeError } from '../utils/logger';
-import { assertSafeHost } from '../utils/safe-fetch';
 import { memoizeUntilRejected } from '../utils/memoize-until-rejected';
+import { assertSafeHost } from '../utils/safe-fetch';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
 import { readOidcConfig } from './organization-sso.service';
 
