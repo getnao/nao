@@ -9,6 +9,7 @@ import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
 import { CustomStoryFrame } from '@/components/custom-story/custom-story-frame';
+import { reportStoryRuntimeErrors } from '@/components/custom-story/story-data-options';
 import NaoLogoAnimated from '@/components/icons/nao-logo-animated';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useIsDarkMode } from '@/contexts/theme.provider';
@@ -33,6 +34,7 @@ interface CustomStoryBodyProps {
 }
 
 const MAX_RUNTIME_ERRORS = 5;
+const MAX_LOGGED_ERRORS_PER_FLUSH = 10;
 const RUNTIME_ERROR_FLUSH_MS = 500;
 const BUILDING_MESSAGE_INTERVAL_MS = 2500;
 const BUILDING_MESSAGES = [
@@ -62,7 +64,7 @@ export function CustomStoryBody({
 	onRememberState,
 	bottomInset,
 }: CustomStoryBodyProps) {
-	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(content?.version.id);
+	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(dataSource, content?.version);
 	const styles = useMemo(
 		() => [
 			...(content?.styles.map((style) => style.content) ?? []),
@@ -121,11 +123,13 @@ export function ActionErrorBanner({ message }: { message: string }) {
 }
 
 /** A story stuck in a throwing render loop reports errors non-stop: they are batched so the host re-renders at most twice a second. */
-function useRuntimeErrors(versionId: string | undefined) {
+function useRuntimeErrors(dataSource: CustomStoryDataSource, version: CustomStoryContent['version'] | undefined) {
+	const versionId = version?.id;
 	const [runtimeErrors, setRuntimeErrors] = useState<CustomStoryRuntimeError[]>([]);
 	const [runtimeErrorCount, setRuntimeErrorCount] = useState(0);
 	const queuedRef = useRef<CustomStoryRuntimeError[]>([]);
 	const flushTimerRef = useRef<number | null>(null);
+	const logRuntimeErrors = useRuntimeErrorLogger(dataSource, version?.number);
 
 	useEffect(() => {
 		queuedRef.current = [];
@@ -142,21 +146,47 @@ function useRuntimeErrors(versionId: string | undefined) {
 		[],
 	);
 
-	const handleRuntimeError = useCallback((error: CustomStoryRuntimeError) => {
-		queuedRef.current.push(error);
-		if (flushTimerRef.current !== null) {
-			return;
-		}
-		flushTimerRef.current = window.setTimeout(() => {
-			const queued = queuedRef.current;
-			queuedRef.current = [];
-			flushTimerRef.current = null;
-			setRuntimeErrors((current) => [...current, ...queued].slice(-MAX_RUNTIME_ERRORS));
-			setRuntimeErrorCount((current) => current + queued.length);
-		}, RUNTIME_ERROR_FLUSH_MS);
-	}, []);
+	const handleRuntimeError = useCallback(
+		(error: CustomStoryRuntimeError) => {
+			queuedRef.current.push(error);
+			if (flushTimerRef.current !== null) {
+				return;
+			}
+			flushTimerRef.current = window.setTimeout(() => {
+				const queued = queuedRef.current;
+				queuedRef.current = [];
+				flushTimerRef.current = null;
+				setRuntimeErrors((current) => [...current, ...queued].slice(-MAX_RUNTIME_ERRORS));
+				setRuntimeErrorCount((current) => current + queued.length);
+				logRuntimeErrors(queued);
+			}, RUNTIME_ERROR_FLUSH_MS);
+		},
+		[logRuntimeErrors],
+	);
 
 	return { runtimeErrors, runtimeErrorCount, handleRuntimeError };
+}
+
+/** Each distinct error of a version is logged once per visit, so a render loop does not flood the story's logs. */
+function useRuntimeErrorLogger(dataSource: CustomStoryDataSource, versionNumber: number | undefined) {
+	const loggedRef = useRef(new Set<string>());
+	const targetRef = useRef({ dataSource, versionNumber });
+
+	useEffect(() => {
+		targetRef.current = { dataSource, versionNumber };
+		loggedRef.current = new Set();
+	}, [dataSource, versionNumber]);
+
+	return useCallback((errors: CustomStoryRuntimeError[]) => {
+		const { dataSource: target, versionNumber: number } = targetRef.current;
+		const unlogged = errors.filter((error) => !loggedRef.current.has(error.message));
+		const distinct = [...new Map(unlogged.map((error) => [error.message, error])).values()];
+		if (number === undefined || distinct.length === 0) {
+			return;
+		}
+		distinct.forEach((error) => loggedRef.current.add(error.message));
+		void reportStoryRuntimeErrors(target, number, distinct.slice(0, MAX_LOGGED_ERRORS_PER_FLUSH)).catch(() => {});
+	}, []);
 }
 
 function RuntimeErrorBanner({ errors, count }: { errors: CustomStoryRuntimeError[]; count: number }) {

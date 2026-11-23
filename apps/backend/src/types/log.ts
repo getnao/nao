@@ -3,8 +3,17 @@ import { z } from 'zod/v4';
 export const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-export const LOG_SOURCES = ['http', 'agent', 'tool', 'system'] as const;
+export const LOG_SOURCES = ['http', 'agent', 'tool', 'system', 'story'] as const;
 export type LogSource = (typeof LOG_SOURCES)[number];
+
+/** The kind of record a log is about, so the logs of one story (or any other object) can be read back. */
+export const LOG_OBJECT_TYPES = ['story'] as const;
+export type LogObjectType = (typeof LOG_OBJECT_TYPES)[number];
+
+export interface LogObject {
+	type: LogObjectType;
+	id: string;
+}
 
 declare module 'fastify' {
 	interface FastifyRequest {

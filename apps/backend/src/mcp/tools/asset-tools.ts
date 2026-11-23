@@ -52,7 +52,8 @@ const GET_STORY_DESCRIPTION =
 	'and a rendered HTML embed.\n\n' +
 	"Useful when you need the actual markdown of a story to get it's latest content and metadata.\n\n" +
 	'A custom story (`format: "custom"`) is an interactive app that only renders in nao: it returns its `url` ' +
-	'(share that link with the user, there is no embed) and its source files in `sourceFiles`.\n\n' +
+	'(share that link with the user, there is no embed), its source files in `sourceFiles`, and in `logs` the ' +
+	'failures its queries, SQL, model calls and code hit while people viewed it.\n\n' +
 	'`story_id` must be the UUID (returned by `list_stories.id` or `ask_nao.stories[].id`), not the kebab-case slug.';
 
 const ARCHIVE_STORY_DESCRIPTION =

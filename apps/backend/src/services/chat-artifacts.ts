@@ -8,6 +8,7 @@ import * as storyFileQueries from '../queries/story-file.queries';
 import type { ChatArtifacts, QueryArtifact, StoryArtifact } from '../types/artifacts';
 import type { UIMessage, UIMessagePart } from '../types/chat';
 import { logger } from '../utils/logger';
+import { countStoryLogs } from './story-log';
 import { getStoryTemplateWarnings } from './story-template-validation';
 
 type StoryToolPart = Extract<UIMessagePart, { type: 'tool-story'; state: 'output-available' }>;
@@ -125,6 +126,7 @@ function toStoredStoryArtifacts(
 			format: story.format,
 			code: story.code ?? '',
 			files: story.format === 'custom' ? await listDraftFilePaths(story.storyId) : [],
+			logCount: story.format === 'custom' ? await countStoryLogs(story.storyId) : 0,
 			editedByUser: story.source === 'user',
 			templateWarnings:
 				story.format === 'classic' && story.code ? await getStoryTemplateWarnings(chatId, story.code) : [],
@@ -149,6 +151,7 @@ function collectPinnedStoryArtifacts(messages: UIMessage[]): StoryArtifact[] {
 				format: part.output.format ?? 'classic',
 				code: part.output.code,
 				files: [],
+				logCount: 0,
 				editedByUser: false,
 				templateWarnings: [],
 			});

@@ -1,5 +1,5 @@
 import * as logQueries from '../queries/log.queries';
-import type { LogLevel, LogSource } from '../types/log';
+import type { LogLevel, LogObject, LogSource } from '../types/log';
 import { redactCredentialedUrls } from './credential-redaction';
 import { scheduleTask } from './schedule-task';
 
@@ -7,6 +7,8 @@ interface LogOptions {
 	source: LogSource;
 	projectId?: string;
 	userId?: string;
+	/** The record the log is about, to read its logs back with `listObjectLogs`. */
+	object?: LogObject;
 	context?: Record<string, unknown>;
 }
 
@@ -79,6 +81,8 @@ function writeLog(level: LogLevel, message: string, opts: LogOptions): void {
 			source: opts.source,
 			projectId: opts.projectId,
 			userId: opts.userId,
+			objectType: opts.object?.type,
+			objectId: opts.object?.id,
 			context,
 		}),
 	);

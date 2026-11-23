@@ -124,6 +124,34 @@ export function runStorySql(dataSource: CustomStoryDataSource, request: StorySql
 	return trpcClient.story.runCustomStorySql.mutate({ chatId, storySlug, request });
 }
 
+const MAX_REPORTED_MESSAGE_LENGTH = 10_000;
+const MAX_REPORTED_STACK_LENGTH = 20_000;
+
+/**
+ * Runtime errors reach the story's logs, read by the agent that fixes it, only from the people who can edit it:
+ * any other viewer could forge them.
+ */
+export async function reportStoryRuntimeErrors(
+	dataSource: CustomStoryDataSource,
+	versionNumber: number,
+	errors: { message: string; stack?: string }[],
+): Promise<void> {
+	const reported = errors.map(({ message, stack }) => ({
+		message: message.slice(0, MAX_REPORTED_MESSAGE_LENGTH),
+		stack: stack?.slice(0, MAX_REPORTED_STACK_LENGTH),
+	}));
+	if (dataSource.kind === 'owner') {
+		const { chatId, storySlug } = dataSource;
+		await trpcClient.story.reportCustomStoryErrors.mutate({ chatId, storySlug, versionNumber, errors: reported });
+	} else if (dataSource.kind === 'standalone') {
+		await trpcClient.standaloneCustomStory.reportErrors.mutate({
+			storyId: dataSource.storyId,
+			versionNumber,
+			errors: reported,
+		});
+	}
+}
+
 export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: string) {
 	if (dataSource.kind === 'viewer') {
 		const { access, storySlug, versionNumber } = dataSource;

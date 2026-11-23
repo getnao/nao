@@ -76,6 +76,9 @@ const trimSlashes = (value: string): string => {
 	return value.trim().replace(/^\/+|\/+$/g, '');
 };
 
+/** Read-only file of a story folder holding the failures logged while it was viewed. */
+export const STORY_LOGS_FILE = '@logs';
+
 const PUBLISHED_VERSION_SEGMENT = /^@v(\d+)(?:\/(.*))?$/;
 
 export const parsePublishedVersionPath = (filePath: string): { versionNumber: number; filePath: string } | null => {

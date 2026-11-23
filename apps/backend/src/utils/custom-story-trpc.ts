@@ -1,4 +1,5 @@
 import { STORY_FILTER_ID_REGEX } from '@nao/shared/sql-template';
+import type { StorySqlRequest } from '@nao/shared/story-app';
 import { STORY_LLM_MAX_OUTPUT_TOKENS, type StoryModelRequest } from '@nao/shared/story-models';
 import { STORY_QUERY_PARAM_VALUE_REGEX, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import { TRPCError } from '@trpc/server';
@@ -14,6 +15,8 @@ import { CustomStoryModelError } from '../services/custom-story-model';
 import { CustomStoryQueryNotAllowedError } from '../services/custom-story-query-access';
 import { CustomStorySqlError, MAX_CUSTOM_STORY_SQL_LENGTH } from '../services/custom-story-sql';
 import { InvalidStoryStateError } from '../services/custom-story-state';
+import { logStoryFailure, type StoryFailure, type StoryLogTarget } from '../services/story-log';
+import { describeError } from './logger';
 import { InvalidStoryFilePathError } from './story-file-path';
 import { MAX_STORY_SNAPSHOT_BYTES } from './story-snapshot';
 
@@ -67,6 +70,14 @@ export const storySqlRequest = z.object({
 	filters: storyQueryFilters.optional(),
 });
 
+const MAX_REPORTED_RUNTIME_ERRORS = 10;
+
+/** Errors the story code threw in its frame, reported by the people who can edit it. */
+export const storyRuntimeErrors = z
+	.array(z.object({ message: z.string().min(1).max(10_000), stack: z.string().max(20_000).optional() }))
+	.min(1)
+	.max(MAX_REPORTED_RUNTIME_ERRORS);
+
 const MAX_MODEL_PROMPT_LENGTH = 200_000;
 const MAX_MODEL_SYSTEM_LENGTH = 20_000;
 const MAX_MODEL_SCHEMA_LENGTH = 20_000;
@@ -114,4 +125,35 @@ export function toCustomStoryQueryTrpcError(error: unknown): unknown {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
 	}
 	return toCustomStoryTrpcError(error);
+}
+
+type StoryFailureContext = Omit<StoryFailure, 'message'>;
+
+/** Like `toCustomStoryQueryTrpcError`, after logging a failure the story itself causes for the agent that fixes it. */
+export async function toLoggedCustomStoryQueryError(
+	target: StoryLogTarget,
+	failure: StoryFailureContext,
+	error: unknown,
+): Promise<unknown> {
+	if (isStoryFault(error)) {
+		await logStoryFailure(target, { ...failure, message: describeError(error) });
+	}
+	return toCustomStoryQueryTrpcError(error);
+}
+
+export function queryFailure(queryId: string, versionNumber?: number): StoryFailureContext {
+	return { kind: 'query', versionNumber, detail: { queryId } };
+}
+
+export function sqlFailure({ sql, databaseId }: StorySqlRequest): StoryFailureContext {
+	return { kind: 'sql', detail: { sql, databaseId } };
+}
+
+export function modelFailure(request: StoryModelRequest): StoryFailureContext {
+	return { kind: 'model', detail: { model: request.model } };
+}
+
+/** Access, billing and missing-story refusals concern the viewer, not the story's code. */
+function isStoryFault(error: unknown): boolean {
+	return !(error instanceof TRPCError) && !(error instanceof CustomStoryNotFoundError);
 }

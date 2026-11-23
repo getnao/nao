@@ -15,17 +15,21 @@ import {
 } from '../services/custom-story';
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
+import { logStoryRuntimeErrors } from '../services/story-log';
 import { readStoryMapBoundary } from '../services/story-map-boundary';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
+	modelFailure,
+	queryFailure,
 	storyModelRequest,
 	storyQueryInputs,
+	storyRuntimeErrors,
 	storySnapshotHtml,
 	storyStateChange,
-	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
+	toLoggedCustomStoryQueryError,
 } from '../utils/custom-story-trpc';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
@@ -97,7 +101,11 @@ export const standaloneCustomStoryRoutes = {
 					rerun: { inputs: input.inputs, viewerId: ctx.user.id },
 				});
 			} catch (error) {
-				throw toCustomStoryQueryTrpcError(error);
+				throw await toLoggedCustomStoryQueryError(
+					{ storyId: ctx.story.id },
+					queryFailure(input.queryId, input.versionNumber),
+					error,
+				);
 			}
 		}),
 
@@ -112,9 +120,19 @@ export const standaloneCustomStoryRoutes = {
 					input.request,
 				);
 			} catch (error) {
-				throw toCustomStoryQueryTrpcError(error);
+				throw await toLoggedCustomStoryQueryError(
+					{ storyId: ctx.story.id },
+					modelFailure(input.request),
+					error,
+				);
 			}
 		}),
+
+	reportErrors: standaloneOwnerProcedure
+		.input(z.object({ versionNumber, errors: storyRuntimeErrors }))
+		.mutation(({ ctx, input }) =>
+			logStoryRuntimeErrors({ storyId: ctx.story.id }, input.versionNumber, input.errors),
+		),
 
 	getQuerySql: standaloneOwnerProcedure
 		.input(z.object({ queryId: z.string(), versionNumber }))
