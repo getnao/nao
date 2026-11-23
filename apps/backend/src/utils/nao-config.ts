@@ -49,6 +49,11 @@ const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
 const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+const RULES_FILE_CACHE_MAX_ENTRIES = 100;
+const rulesFileCache = new Map<
+	string,
+	{ configSignature: string; configured: unknown; fileSignature: string; rulesFile: string }
+>();
 /** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
 const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
 
@@ -143,20 +148,53 @@ export function extractContextPresence(projectFolder: string): ContextPresence {
 /**
  * The rules file `rules_file` names, such as one of a synced repository: `repos/business_context/nao/RULES.md`.
  * It falls back to RULES.md while that file is missing, before its repository is synced, or when it is refused.
+ * Every agent read checks it, so the result is kept until nao_config.yaml or the file it names changes.
  */
 export function extractRulesFile(projectFolder: string): string {
-	const config = loadProjectConfig(projectFolder);
-	const rulesFile = isRecord(config) ? config.rules_file : undefined;
-	if (typeof rulesFile !== 'string') {
-		return DEFAULT_RULES_FILE;
+	const configSignature = getStatSignature(path.join(projectFolder, 'nao_config.yaml'));
+	const cached = rulesFileCache.get(projectFolder);
+	const configured =
+		cached?.configSignature === configSignature ? cached.configured : readRulesFileSetting(projectFolder);
+	const fileSignature =
+		typeof configured === 'string' ? getStatSignature(path.resolve(projectFolder, configured)) : '';
+	if (cached?.configSignature === configSignature && cached.fileSignature === fileSignature) {
+		return cached.rulesFile;
 	}
+
+	const rulesFile = typeof configured === 'string' ? resolveRulesFile(configured, projectFolder) : DEFAULT_RULES_FILE;
+	rulesFileCache.delete(projectFolder);
+	if (rulesFileCache.size >= RULES_FILE_CACHE_MAX_ENTRIES) {
+		rulesFileCache.delete(rulesFileCache.keys().next().value ?? projectFolder);
+	}
+	rulesFileCache.set(projectFolder, { configSignature, configured, fileSignature, rulesFile });
+	return rulesFile;
+}
+
+function readRulesFileSetting(projectFolder: string): unknown {
+	const config = loadProjectConfig(projectFolder);
+	return isRecord(config) ? config.rules_file : undefined;
+}
+
+function resolveRulesFile(rulesFile: string, projectFolder: string): string {
 	try {
 		const filePath = resolveProjectFile(rulesFile, projectFolder);
+		if (!fs.statSync(filePath).isFile()) {
+			throw new Error('it is not a file');
+		}
 		return path.relative(fs.realpathSync(projectFolder), filePath).split(path.sep).join('/');
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err);
 		logger.warn(`Ignoring rules_file '${rulesFile}' of nao_config.yaml: ${reason}`, { source: 'system' });
 		return DEFAULT_RULES_FILE;
+	}
+}
+
+function getStatSignature(filePath: string): string {
+	try {
+		const stats = fs.statSync(filePath);
+		return `${stats.ino}:${stats.mtimeMs}:${stats.ctimeMs}:${stats.size}`;
+	} catch {
+		return 'missing';
 	}
 }
 

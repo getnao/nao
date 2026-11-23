@@ -3,7 +3,13 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos, extractRequiredEnvVars, resolveEnvReferences } from '../../src/utils/nao-config';
+import {
+	extractConfiguredRepos,
+	extractContextPresence,
+	extractRequiredEnvVars,
+	extractRulesFile,
+	resolveEnvReferences,
+} from '../../src/utils/nao-config';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -238,6 +244,45 @@ describe('extractConfiguredRepos', () => {
 		]);
 	});
 });
+
+describe('extractRulesFile', () => {
+	const syncedRulesFile = 'repos/business_context/nao/RULES.md';
+
+	it('returns the file rules_file names, such as one of a synced repository', () => {
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: ${syncedRulesFile}`] });
+		writeProjectFile(dir, syncedRulesFile);
+
+		expect(extractRulesFile(dir)).toBe(syncedRulesFile);
+		expect(extractContextPresence(dir)).toMatchObject({ rules: true, rulesFile: syncedRulesFile });
+	});
+
+	it.each([
+		{ reason: 'is not synced yet', rulesFile: syncedRulesFile },
+		{ reason: 'leads outside the project', rulesFile: '../RULES.md' },
+		{ reason: 'is a dotfile', rulesFile: '.env' },
+		{ reason: 'is a folder', rulesFile: 'docs' },
+	])('falls back to RULES.md when the configured file $reason', ({ rulesFile }) => {
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: ${rulesFile}`] });
+		writeProjectFile(dir, '.env');
+		writeProjectFile(dir, 'docs/glossary.md');
+
+		expect(extractRulesFile(dir)).toBe('RULES.md');
+	});
+
+	it('picks up the configured file once its repository is synced', () => {
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: ${syncedRulesFile}`] });
+		expect(extractRulesFile(dir)).toBe('RULES.md');
+
+		writeProjectFile(dir, syncedRulesFile);
+
+		expect(extractRulesFile(dir)).toBe(syncedRulesFile);
+	});
+});
+
+function writeProjectFile(dir: string, file: string) {
+	fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+	fs.writeFileSync(path.join(dir, file), 'content\n');
+}
 
 function createProject({ naoConfig, mcpServers }: { naoConfig?: string[]; mcpServers?: Record<string, unknown> }) {
 	const dir = createTemporaryFolder('nao-config-');
