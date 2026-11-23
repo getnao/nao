@@ -13,7 +13,7 @@ import { ContextHubChatPanel, useContextHubChatPanelOpen } from '@/components/co
 import { ContextHubNavigator } from '@/components/context-hub/context-hub-navigator';
 import { ContextHubOverview } from '@/components/context-hub/context-hub-overview';
 import { DiscardChangesDialog } from '@/components/context-hub/discard-changes-dialog';
-import { ContextHubSkillPage } from '@/components/context-hub/context-hub-skill-page';
+import { ContextHubSkillPage, isSameSkillPage } from '@/components/context-hub/context-hub-skill-page';
 import { ContextHubTestPage, ContextHubTestSuite } from '@/components/context-hub/context-hub-tests';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
 import { ContextHubViewer } from '@/components/context-hub/context-hub-viewer';
@@ -78,7 +78,10 @@ export function ContextDocView({
 	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
 	const isSkillsLinkOpen = contextSearch.skills === 'open';
-	const [skillPage, setSkillPage] = useState<SkillPage | null>(isSkillsLinkOpen ? { type: 'all' } : null);
+	const linkedSkillName = contextSearch.skill;
+	const [skillPage, setSkillPage] = useState<SkillPage | null>(
+		linkedSkillName ? { type: 'personal', name: linkedSkillName } : isSkillsLinkOpen ? { type: 'all' } : null,
+	);
 	const [isChatOpen, setIsChatOpen] = useContextHubChatPanelOpen();
 	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
 	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
@@ -141,6 +144,20 @@ export function ContextDocView({
 			setSkillPage({ type: 'all' });
 		}
 	}, [isSkillsLinkOpen]);
+
+	/** Back and Forward follow the link: leaving the skill it named closes that skill, unless another page replaced it. */
+	const previousLinkedSkillNameRef = useRef(linkedSkillName);
+	useEffect(() => {
+		const previousName = previousLinkedSkillNameRef.current;
+		previousLinkedSkillNameRef.current = linkedSkillName;
+		if (linkedSkillName) {
+			setSkillPage({ type: 'personal', name: linkedSkillName });
+		} else if (previousName) {
+			setSkillPage((current) =>
+				isSameSkillPage(current, { type: 'personal', name: previousName }) ? null : current,
+			);
+		}
+	}, [linkedSkillName]);
 
 	useEffect(() => {
 		if (unlistedRequestedPath && onSwitchView) {

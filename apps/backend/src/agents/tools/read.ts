@@ -10,6 +10,7 @@ import { promisify } from 'util';
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { renderProjectTextForAgent } from '../../services/agent-visible-project-file.service';
 import { toReadableText } from '../../services/file-text';
+import { isNaoInternalMcpPath, readNaoInternalMcpFile } from '../../services/nao-internal-mcp';
 import { assertProjectContextPathRenderAllowed } from '../../services/project-context-path-access.service';
 import { toProjectPathError } from '../../services/project-path-error.service';
 import { readUserFile } from '../../services/storage/user-files';
@@ -52,6 +53,9 @@ const readAnywhere = (filePath: string, context: ToolContext): Promise<string> =
 	}
 	if (isStoragePath(filePath)) {
 		return readUserFile(toStorageScope(context), toStorageRelativePath(filePath));
+	}
+	if (isNaoInternalMcpPath(filePath)) {
+		return readNaoInternalMcpFile(context, filePath);
 	}
 	return readProjectFile(filePath, context);
 };

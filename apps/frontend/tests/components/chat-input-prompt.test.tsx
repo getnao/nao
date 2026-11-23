@@ -47,6 +47,8 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('@tanstack/react-router', () => ({
 	useParams: () => undefined,
 	useNavigate: () => vi.fn(),
+	useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => unknown }) =>
+		select({ location: { pathname: '/' } }),
 }));
 
 vi.mock('@/hooks/use-can-manage-personal-skills', () => ({

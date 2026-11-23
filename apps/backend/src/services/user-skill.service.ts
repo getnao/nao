@@ -1,3 +1,4 @@
+import { canRoleManagePersonalSkills, type UserRole } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 
 import type { DBUserSkill } from '../db/abstractSchema';
@@ -7,11 +8,23 @@ import { logger } from '../utils/logger';
 import type { ContextExplorerFileAccess } from './context-explorer.service';
 import { createDraftFile } from './context-explorer.service';
 import { skillService } from './skill';
+import { hasUserGroupFeature } from './user-group-feature-access.service';
 
 export interface PersonalSkillInput {
 	name: string;
 	description: string;
 	body: string;
+}
+
+/** Admins and context admins always write personal skills, members when one of their groups grants them. */
+export async function canManagePersonalSkills(
+	projectId: string,
+	userId: string,
+	role: UserRole | null,
+): Promise<boolean> {
+	const groupsGrantPersonalSkills =
+		role === 'user' && (await hasUserGroupFeature(projectId, userId, 'personalSkills'));
+	return canRoleManagePersonalSkills(role, groupsGrantPersonalSkills);
 }
 
 /** A project skill takes the name for everyone, so a personal skill that shares it is no longer offered. */

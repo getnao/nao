@@ -40,10 +40,10 @@ const CONTEXT_HUB_CHAT_COPY_WITH_RECOMMENDATIONS: EditorChatCopy = {
 	]),
 };
 
-const panelOpenStorage = createLocalStorage('nao-context-hub-chat-panel-open', true);
+export const contextHubChatPanelOpenStorage = createLocalStorage('nao-context-hub-chat-panel-open', true);
 
 export function useContextHubChatPanelOpen() {
-	return useLocalStorage(panelOpenStorage);
+	return useLocalStorage(contextHubChatPanelOpenStorage);
 }
 
 /** A chat beside the Context Hub whose agent edits context files in the user's changes, told what the hub shows. */

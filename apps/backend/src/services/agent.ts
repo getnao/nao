@@ -1,4 +1,5 @@
 import {
+	canRoleManagePersonalSkills,
 	CITATION_MENTION_TRIGGER,
 	type CustomBoundarySet,
 	getSchemaKeyFromMentionId,
@@ -6,6 +7,7 @@ import {
 	isSkillGranted,
 	isStoryFolderMentionId,
 	isStoryReferenceMentionId,
+	NAO_INTERNAL_MCP_SERVER,
 	normalizeCitationMarkers,
 	quoteCitationTokens,
 } from '@nao/shared';
@@ -117,6 +119,7 @@ import { compactionService, RunCompaction } from './compaction';
 import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
+import { hasNaoInternalMcpTools } from './nao-internal-mcp';
 import { posthog, PostHogEvent } from './posthog';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { sandboxSecretService } from './sandbox-secret.service';
@@ -282,11 +285,12 @@ async function _buildContextBase(opts: {
 	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
-	const [envVars, warehouseAccessToken, contextAccess, personalSkills] = await Promise.all([
+	const [envVars, warehouseAccessToken, contextAccess, personalSkills, role] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		getWarehouseAccessTokenForUser(opts.userId, opts.projectId),
 		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
 		safeListPersonalSkillsForAgent(opts.projectId, opts.userId),
+		projectQueries.getUserRoleInProject(opts.projectId, opts.userId),
 	]);
 	const sqlQueryTag = await buildRunSqlQueryTag({
 		projectFolder,
@@ -317,6 +321,10 @@ async function _buildContextBase(opts: {
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		preloadedSkillNames: contextAccess.preloadedSkillNames,
 		personalSkills,
+		canManagePersonalSkills: canRoleManagePersonalSkills(
+			role,
+			contextAccess.userGroupFeatures.includes('personalSkills'),
+		),
 		warehouseAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -901,7 +909,7 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
+		const [projectMcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
@@ -911,6 +919,13 @@ export class AgentManager {
 				: Promise.resolve([]),
 			projectQueries.getCustomBoundaries(this.chat.projectId),
 		]);
+		const allowedMcpServers = this._profile.mcpServers;
+		const mcpServers = [
+			...projectMcpServers,
+			...(toolNames.includes('mcp_call') && hasNaoInternalMcpTools(this._toolContext)
+				? [NAO_INTERNAL_MCP_SERVER]
+				: []),
+		].filter((server) => !allowedMcpServers || allowedMcpServers.includes(server));
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
 				memories,
