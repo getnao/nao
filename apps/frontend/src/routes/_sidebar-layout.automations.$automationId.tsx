@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Check, Loader2, Mail, Play, Trash, X } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, Mail, MoreHorizontal, Play, Share2, Trash, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import type { AutomationFormHandle, AutomationFormValue } from '@/components/automations-form';
@@ -13,10 +13,19 @@ import {
 import { AutomationEditorLayout } from '@/components/automation-editor-layout';
 import { AutomationForm } from '@/components/automations-form';
 import SlackIcon from '@/components/icons/slack.svg';
+import { ShareDialog } from '@/components/share-dialog';
+import { SHARE_ROLE_LABELS } from '@/components/share-role-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePermissions } from '@/hooks/use-permissions';
 import { isMac } from '@/lib/platform';
 import { requireAutomationsEnabled } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
@@ -33,7 +42,9 @@ function AutomationDetailPage() {
 	const { automationId } = Route.useParams();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const { isAdmin } = usePermissions();
 	const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+	const [isShareOpen, setIsShareOpen] = useState(false);
 	const [isChatOpen, setIsChatOpen] = useAutomationChatPanelOpen();
 	const formHandleRef = useRef<AutomationFormHandle>(null);
 	const detail = useQuery(
@@ -92,6 +103,9 @@ function AutomationDetailPage() {
 
 	const automation = detail.data?.automation;
 	const runs = detail.data?.runs ?? [];
+	const isOwner = automation?.accessRole === 'owner';
+	const canEdit = isOwner || automation?.accessRole === 'editor';
+	const canShare = canEdit || isAdmin;
 	const cancellingRunId = cancelRun.isPending ? (cancelRun.variables?.runId ?? null) : null;
 	const automationFormId = `automation-form-${automationId}`;
 	const saveShortcutLabel = getSaveShortcutLabel();
@@ -99,7 +113,8 @@ function AutomationDetailPage() {
 	return (
 		<AutomationEditorLayout
 			chatPanel={
-				automation && (
+				automation &&
+				canEdit && (
 					<AutomationChatPanel
 						key={automationId}
 						automationId={automationId}
@@ -110,7 +125,7 @@ function AutomationDetailPage() {
 				)
 			}
 		>
-			<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
+			<div className='@container mb-6 flex items-center justify-between gap-3 flex-wrap'>
 				<Button variant='ghost' size='sm' asChild>
 					<Link to='/automations'>
 						<ArrowLeft className='size-4' />
@@ -118,6 +133,11 @@ function AutomationDetailPage() {
 					</Link>
 				</Button>
 				<div className='flex items-center gap-2'>
+					{automation && automation.accessRole !== 'owner' && (
+						<Badge variant='secondary' className='rounded-full'>
+							Shared with you · {SHARE_ROLE_LABELS[automation.accessRole]}
+						</Badge>
+					)}
 					{automation && hasUnsavedChanges && (
 						<Button
 							type='submit'
@@ -135,7 +155,7 @@ function AutomationDetailPage() {
 							)}
 						</Button>
 					)}
-					{automation && automation.cron && (
+					{automation && canEdit && automation.cron && (
 						<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
 							<Switch
 								checked={automation.enabled}
@@ -152,17 +172,55 @@ function AutomationDetailPage() {
 							</button>
 						</div>
 					)}
-					{automation && <OpenAutomationChatButton isOpen={isChatOpen} onOpen={() => setIsChatOpen(true)} />}
-					<Button variant='secondary' onClick={handleRunNow} disabled={!automation || runNow.isPending}>
-						<Play className='size-4' />
-						{runNow.isPending ? 'Starting...' : 'Run now'}
-					</Button>
-					<Button variant='destructive' onClick={handleDelete} disabled={deleteAutomation.isPending}>
-						<Trash className='size-4' />
-						Delete
-					</Button>
+					{automation && canEdit && (
+						<OpenAutomationChatButton isOpen={isChatOpen} onOpen={() => setIsChatOpen(true)} />
+					)}
+					{canShare && (
+						<Button variant='outline' onClick={() => setIsShareOpen(true)} className='@max-2xl:hidden'>
+							<Share2 className='size-4' />
+							Share
+						</Button>
+					)}
+					{canEdit && (
+						<Button
+							variant='secondary'
+							onClick={handleRunNow}
+							disabled={runNow.isPending}
+							title='Run now'
+							className='@max-2xl:px-2.5'
+						>
+							<Play className='size-4' />
+							<span className='@max-2xl:sr-only'>{runNow.isPending ? 'Starting...' : 'Run now'}</span>
+						</Button>
+					)}
+					{isOwner && (
+						<Button
+							variant='destructive'
+							onClick={handleDelete}
+							disabled={deleteAutomation.isPending}
+							className='@max-2xl:hidden'
+						>
+							<Trash className='size-4' />
+							Delete
+						</Button>
+					)}
+					{canShare && (
+						<AutomationActionsMenu
+							onShare={() => setIsShareOpen(true)}
+							onDelete={isOwner ? handleDelete : undefined}
+							isDeleting={deleteAutomation.isPending}
+						/>
+					)}
 				</div>
 			</div>
+
+			{automation && (
+				<ShareDialog
+					open={isShareOpen}
+					onOpenChange={setIsShareOpen}
+					target={{ kind: 'automation', automationId }}
+				/>
+			)}
 
 			{!detail.isLoading && !automation && <p className='text-sm text-muted-foreground'>Automation not found.</p>}
 
@@ -197,15 +255,56 @@ function AutomationDetailPage() {
 					}}
 					submitLabel='Save changes'
 					isPending={updateAutomation.isPending}
-					aside={<PreviousRuns runs={runs} onCancelRun={handleCancelRun} cancellingRunId={cancellingRunId} />}
+					aside={
+						<PreviousRuns
+							runs={runs}
+							onCancelRun={canEdit ? handleCancelRun : undefined}
+							cancellingRunId={cancellingRunId}
+							canOpenChats={isOwner}
+						/>
+					}
 					showSubmitButton={false}
 					autoSaveControls
-					saveShortcut
+					saveShortcut={canEdit}
+					readOnly={!canEdit}
 					onDirtyChange={setHasUnsavedChanges}
 					onSubmit={handleUpdate}
 				/>
 			)}
 		</AutomationEditorLayout>
+	);
+}
+
+/** Share and Delete fold into this menu when the header is too narrow for their buttons. */
+function AutomationActionsMenu({
+	onShare,
+	onDelete,
+	isDeleting,
+}: {
+	onShare: () => void;
+	onDelete?: () => void;
+	isDeleting: boolean;
+}) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button variant='outline' size='icon' aria-label='More actions' className='hidden @max-2xl:inline-flex'>
+					<MoreHorizontal className='size-4' />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='end'>
+				<DropdownMenuItem onSelect={onShare}>
+					<Share2 />
+					Share
+				</DropdownMenuItem>
+				{onDelete && (
+					<DropdownMenuItem variant='destructive' disabled={isDeleting} onSelect={onDelete}>
+						<Trash />
+						Delete
+					</DropdownMenuItem>
+				)}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -236,14 +335,17 @@ type IntegrationResultGroup = {
 	destinations: IntegrationResult[];
 };
 
+/** Run chats belong to the automation's owner, so only they can open them. */
 function PreviousRuns({
 	runs,
 	onCancelRun,
 	cancellingRunId,
+	canOpenChats,
 }: {
 	runs: AutomationRun[];
-	onCancelRun: (runId: string) => void;
+	onCancelRun?: (runId: string) => void;
 	cancellingRunId: string | null;
+	canOpenChats: boolean;
 }) {
 	return (
 		<section className='grid gap-2 rounded-xl border bg-background/60 p-4'>
@@ -259,6 +361,7 @@ function PreviousRuns({
 						run={run}
 						onCancelRun={onCancelRun}
 						isCancelling={cancellingRunId === run.id}
+						canOpenChat={canOpenChats && Boolean(run.chatId)}
 					/>
 				))}
 			</div>
@@ -270,13 +373,14 @@ function PreviousRunRow({
 	run,
 	onCancelRun,
 	isCancelling,
+	canOpenChat,
 }: {
 	run: AutomationRun;
-	onCancelRun: (runId: string) => void;
+	onCancelRun?: (runId: string) => void;
 	isCancelling: boolean;
+	canOpenChat: boolean;
 }) {
 	const navigate = useNavigate();
-	const canOpenChat = Boolean(run.chatId);
 	const isRunning = run.status === 'running';
 
 	function openChat() {
@@ -290,7 +394,7 @@ function PreviousRunRow({
 			<div className='flex items-center justify-between gap-2 text-xs'>
 				<div className='min-w-0 truncate text-muted-foreground'>{new Date(run.startedAt).toLocaleString()}</div>
 				<div className='flex items-center gap-1.5'>
-					{isRunning && (
+					{isRunning && onCancelRun && (
 						<Button
 							type='button'
 							variant='ghost'

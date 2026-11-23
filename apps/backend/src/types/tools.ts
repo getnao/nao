@@ -1,4 +1,4 @@
-import type { McpAccess, UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
+import type { McpAccess, UserGroupFeature, WarehouseColumnSecurity, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap, executeSemanticQuery } from '@nao/shared/tools';
 import type { LlmSelectedModel, SemanticLayerMode, StoryFormat } from '@nao/shared/types';
@@ -15,6 +15,7 @@ import { AgentSettings } from './agent-settings';
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
+	accessDenied?: true;
 	/** Set when the semantic layer compiled the SQL from this metric query. */
 	semanticQuery?: executeSemanticQuery.SemanticQuery;
 	/** The SQL as the model wrote it (filter templates included), set for results produced in the current run. */
@@ -46,6 +47,7 @@ export interface ToolContext {
 	semanticLayerMode?: SemanticLayerMode | null;
 	envVars: Record<string, string>;
 	warehouseTableAccess: WarehouseTableAccess;
+	warehouseColumnSecurity: WarehouseColumnSecurity;
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;

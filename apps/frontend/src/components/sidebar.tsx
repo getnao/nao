@@ -23,7 +23,7 @@ import type {
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
+import { TrialOnboardingBanner } from '@/components/onboarding/trial-onboarding-banner';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';

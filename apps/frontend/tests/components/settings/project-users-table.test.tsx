@@ -123,6 +123,7 @@ const admin = {
 	role: 'admin' as const,
 	status: 'active' as const,
 	source: 'project' as const,
+	hasPassword: true,
 };
 const projectUser = {
 	id: 'project-user',
@@ -131,6 +132,7 @@ const projectUser = {
 	role: 'user' as const,
 	status: 'active' as const,
 	source: 'project' as const,
+	hasPassword: true,
 };
 const organizationUser = {
 	id: 'organization-user',
@@ -139,6 +141,7 @@ const organizationUser = {
 	role: 'viewer' as const,
 	status: 'active' as const,
 	source: 'organization' as const,
+	hasPassword: true,
 };
 
 beforeEach(() => {
@@ -261,6 +264,15 @@ describe('ProjectUsersTable member management', () => {
 
 		expect(await screen.findByText('Account does not use password authentication')).toBeTruthy();
 		expect(screen.queryByText(/^Password:/)).toBeNull();
+	});
+
+	it('hides the reset password action for users without a password', () => {
+		renderTable(vi.fn(), new Set(), [admin, { ...projectUser, hasPassword: false }]);
+
+		openProjectUserActions();
+
+		expect(screen.getByRole('menuitem', { name: 'Edit user' })).toBeTruthy();
+		expect(screen.queryByRole('menuitem', { name: 'Reset password' })).toBeNull();
 	});
 
 	it('hides the reset password action in cloud mode', () => {
@@ -519,11 +531,11 @@ function selectGroupFilter(optionName: string) {
 	fireEvent.click(screen.getByRole('option', { name: optionName }));
 }
 
-function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>()) {
+function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>(), projectUsers = [admin, projectUser]) {
 	return render(
 		<ProjectUsersTable
 			canManage
-			projectUsers={[admin, projectUser]}
+			projectUsers={projectUsers}
 			organizationUsers={[organizationUser]}
 			groups={groups}
 			membershipKeys={

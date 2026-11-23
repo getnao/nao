@@ -9,6 +9,7 @@ import * as ssoProviderQueries from '../queries/sso-provider.queries';
 import type { OrganizationSso, OrganizationSsoConfigInput } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
+import { assertSafeHost, isPrivateHostname } from '../utils/safe-fetch';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 
@@ -41,9 +42,11 @@ export async function activateOrganizationSso(orgId: string, requestedDomains: s
 
 export async function deactivateOrganizationSso(orgId: string): Promise<void> {
 	await requireOrganization(orgId);
-	if (!(await ssoProviderQueries.deleteSsoProviderByOrganizationId(orgId))) {
+	const existing = await ssoProviderQueries.getSsoProviderByOrganizationId(orgId);
+	if (!existing || !(await ssoProviderQueries.deleteSsoProviderByOrganizationId(orgId))) {
 		throw new HandlerError('NOT_FOUND', 'SSO is not activated for this organization.');
 	}
+	await ssoProviderQueries.clearProviderAccountTokens(existing.providerId);
 	logger.info('Backoffice deactivated organization SSO', { source: 'system', context: { orgId } });
 }
 
@@ -56,11 +59,22 @@ export async function configureOrganizationSso(
 	if (!existing) {
 		throw new HandlerError('FORBIDDEN', NOT_ACTIVATED_MESSAGE);
 	}
-	const clientSecret = input.clientSecret ?? readOidcConfig(existing)?.clientSecret;
+	const existingConfig = readOidcConfig(existing);
+	const discovered = await discoverIssuer(input.issuer, input.discoveryUrl);
+	const isSameIdp = !!existingConfig && isSameIdpApplication(existingConfig, discovered, input.clientId);
+	const clientSecret = input.clientSecret ?? (isSameIdp ? existingConfig.clientSecret : undefined);
 	if (!clientSecret) {
-		throw new HandlerError('BAD_REQUEST', 'A client secret is required.');
+		throw new HandlerError(
+			'BAD_REQUEST',
+			existingConfig
+				? 'Enter the client secret again when the IdP application changes.'
+				: 'A client secret is required.',
+		);
 	}
-	const oidcConfig = await buildOidcConfig(input, clientSecret);
+	if (!isSameIdp) {
+		await ssoProviderQueries.clearProviderAccountTokens(existing.providerId);
+	}
+	const oidcConfig = buildOidcConfig(discovered, input, clientSecret);
 	const saved = await ssoProviderQueries.updateSsoProviderConnection(orgId, {
 		issuer: oidcConfig.issuer,
 		oidcConfig: JSON.stringify(oidcConfig),
@@ -101,8 +115,11 @@ async function assertDomainsClaimable(orgId: string, domains: string[]): Promise
  * Stores the IdP endpoints at save time: the plugin only discovers them at sign-in
  * for issuers listed in `trustedOrigins`, which would have to grow with every customer.
  */
-async function buildOidcConfig(input: OrganizationSsoConfigInput, clientSecret: string): Promise<OIDCConfig> {
-	const discovered = await discoverIssuer(input.issuer, input.discoveryUrl);
+function buildOidcConfig(
+	discovered: Awaited<ReturnType<typeof discoverIssuer>>,
+	input: OrganizationSsoConfigInput,
+	clientSecret: string,
+): OIDCConfig {
 	return {
 		issuer: discovered.issuer,
 		discoveryEndpoint: discovered.discoveryEndpoint,
@@ -114,13 +131,30 @@ async function buildOidcConfig(input: OrganizationSsoConfigInput, clientSecret: 
 		clientId: input.clientId,
 		clientSecret,
 		pkce: true,
-		scopes: SCOPES,
+		scopes: [...new Set([...SCOPES, ...input.additionalScopes])],
 	};
 }
 
+/**
+ * Members' stored refresh tokens and the kept client secret are sent to the token endpoint,
+ * so they only carry over while the issuer, token endpoint and client stay the same.
+ */
+function isSameIdpApplication(
+	existing: OIDCConfig,
+	discovered: Awaited<ReturnType<typeof discoverIssuer>>,
+	clientId: string,
+): boolean {
+	return (
+		existing.issuer === discovered.issuer &&
+		existing.tokenEndpoint === discovered.tokenEndpoint &&
+		existing.clientId === clientId
+	);
+}
+
 async function discoverIssuer(issuer: string, discoveryUrl: string | undefined) {
+	await assertPublicHost(discoveryUrl ?? issuer);
 	try {
-		return await discoverOIDCConfig({ issuer, discoveryEndpoint: discoveryUrl, isTrustedOrigin: isHttpsUrl });
+		return await discoverOIDCConfig({ issuer, discoveryEndpoint: discoveryUrl, isTrustedOrigin: isPublicHttpsUrl });
 	} catch (error) {
 		if (error instanceof DiscoveryError) {
 			throw new HandlerError('BAD_REQUEST', `OIDC discovery failed: ${error.message}`);
@@ -129,8 +163,22 @@ async function discoverIssuer(issuer: string, discoveryUrl: string | undefined) 
 	}
 }
 
-function isHttpsUrl(url: string): boolean {
-	return URL.parse(url)?.protocol === 'https:';
+/** The server fetches this URL for an organization admin, so it must not lead inside the server's own network. */
+async function assertPublicHost(url: string): Promise<void> {
+	const hostname = URL.parse(url)?.hostname;
+	if (!hostname) {
+		return;
+	}
+	try {
+		await assertSafeHost(hostname);
+	} catch (error) {
+		throw new HandlerError('BAD_REQUEST', `OIDC discovery failed: ${(error as Error).message}`);
+	}
+}
+
+function isPublicHttpsUrl(url: string): boolean {
+	const parsed = URL.parse(url);
+	return parsed?.protocol === 'https:' && !isPrivateHostname(parsed.hostname);
 }
 
 function buildProviderId(organization: DBOrganization): string {
@@ -146,6 +194,7 @@ async function toOrganizationSso(provider: DBSsoProvider): Promise<OrganizationS
 		issuer: provider.issuer || null,
 		clientId: oidcConfig?.clientId ?? null,
 		hasClientSecret: !!oidcConfig?.clientSecret,
+		additionalScopes: (oidcConfig?.scopes ?? []).filter((scope) => !SCOPES.includes(scope)),
 		redirectUri: new URL(`api/auth/sso/callback/${provider.providerId}`, withTrailingSlash(env.BETTER_AUTH_URL))
 			.href,
 		ssoLicensed: await hasFeature(LICENSE_FEATURES.sso, { orgId: provider.organizationId }),
@@ -153,7 +202,7 @@ async function toOrganizationSso(provider: DBSsoProvider): Promise<OrganizationS
 	};
 }
 
-function readOidcConfig(provider: DBSsoProvider | null): OIDCConfig | null {
+export function readOidcConfig(provider: DBSsoProvider | null): OIDCConfig | null {
 	return provider?.oidcConfig ? (JSON.parse(provider.oidcConfig) as OIDCConfig) : null;
 }
 

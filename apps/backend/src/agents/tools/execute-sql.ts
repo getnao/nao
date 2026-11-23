@@ -87,6 +87,7 @@ export async function executeQuery(
 		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 		queryTag: context.sqlQueryTag,
 	});
@@ -238,12 +239,8 @@ function buildExecuteSqlToolDescription() {
 		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
 		...(env.BETA_STORY_FILTERS_ENABLED
 			? [
-					'Story filters may be embedded as SQL template blocks that are stripped when this tool runs in chat.',
-					'Correct syntax: WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
-					"For date_range filters, {{ filters.<id>.sql }} already expands to 'start' AND 'end', so write: {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}.",
-					"text filters render the exact value (use =, e.g. AND user_id = {{ filters.user.sql }}); search filters render '%value%' (use LIKE/ILIKE, never =).",
-					'Never use filters.<id>.start, .end, .value, or placeholders outside {% filter %} blocks — placeholders outside blocks are rejected; other invalid templates return template_warnings.',
-					'Prefer query_id when adding story filter templates so existing <chart>/<table> tags keep working.',
+					'Story filters may be embedded as {% filter <id> %} ... {% endfilter %} SQL template blocks, which are stripped when this tool runs in chat; the story tool describes their syntax.',
+					'Placeholders outside a block are rejected; other invalid templates return template_warnings.',
 				]
 			: []),
 		'To edit a previous query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',

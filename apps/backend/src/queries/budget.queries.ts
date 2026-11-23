@@ -130,6 +130,8 @@ export const setProjectProviderBudgets = async (
 
 type ProviderPeriodCostRow = { provider: LlmProvider | null; userId: string | null; totalCost: number };
 
+type CostSenderFilter = { userId?: string; userIds?: string[] };
+
 export const roundCost = (value: number): number => Math.round(value * 100) / 100;
 
 export const queryProviderPeriodCosts = async (
@@ -166,7 +168,7 @@ export const queryProviderPeriodCosts = async (
 export const queryAllProvidersCostsSince = async (
 	projectId: string,
 	periodStart: Date,
-	options: { userId?: string } = {},
+	options: CostSenderFilter = {},
 ): Promise<ProviderPeriodCostRow[]> => {
 	return queryCostsByProviderAndUser(projectId, gte(s.chatMessage.createdAt, periodStart), options);
 };
@@ -244,7 +246,7 @@ export const releaseBudgetNotification = async (key: BudgetNotificationKey): Pro
 async function queryCostsByProviderAndUser(
 	projectId: string,
 	messageCondition: SQL | undefined,
-	options: { userId?: string },
+	options: CostSenderFilter,
 ): Promise<ProviderPeriodCostRow[]> {
 	const costLookup = await createCostLookup(projectId);
 
@@ -262,6 +264,7 @@ async function queryCostsByProviderAndUser(
 				eq(s.chat.projectId, projectId),
 				messageCondition,
 				options.userId ? eq(MESSAGE_SENDER_EXPR, options.userId) : undefined,
+				options.userIds ? inArray(MESSAGE_SENDER_EXPR, options.userIds) : undefined,
 			),
 		)
 		.groupBy(s.chatMessage.llmProvider, MESSAGE_SENDER_EXPR);

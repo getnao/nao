@@ -22,7 +22,9 @@ export function OrgApiKeys({
 	description = 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
-	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
+	const organizationId = useQuery(trpc.organization.get.queryOptions()).data?.id ?? null;
+	const [createdKey, setCreatedKey] = useState<{ organizationId: string | null; plaintext: string } | null>(null);
+	const latestPlaintextKey = createdKey?.organizationId === organizationId ? createdKey.plaintext : null;
 
 	const apiKeys = useQuery({
 		...trpc.apiKey.list.queryOptions(),
@@ -46,7 +48,9 @@ export function OrgApiKeys({
 			<DeployKeyGenerator
 				deployUrl={deployUrl}
 				latestPlaintextKey={latestPlaintextKey}
-				onPlaintextKeyCreated={setLatestPlaintextKey}
+				onPlaintextKeyCreated={(plaintext) => {
+					setCreatedKey({ organizationId, plaintext });
+				}}
 			/>
 
 			<div className='space-y-3'>

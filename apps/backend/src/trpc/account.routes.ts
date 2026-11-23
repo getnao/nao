@@ -37,11 +37,12 @@ const managedAiUsagePaginationInput = z
 	})
 	.default({ limit: 25 });
 
+/** Resolves the organization as the billing routes do, so the wallet and the plan of one page never differ. */
 const walletProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
 		ctx.user.id,
 		ctx.selectedProjectId,
-		ctx.selectedProjectId ? null : ctx.selectedOrganizationId,
+		ctx.selectedOrganizationId,
 	);
 	return next({ ctx: { membership } });
 });
@@ -64,7 +65,7 @@ export const accountRoutes = {
 	getManagedCreditStatus: projectProtectedProcedure.query(({ ctx }) => getManagedCreditStatus(ctx.project)),
 	getCreditSummary: walletAdminProcedure.query(async ({ ctx }) => {
 		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
-		return { ...summary, enabled: isManagedAiEnabled() };
+		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled() };
 	}),
 	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>
 		creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId),

@@ -2,15 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getSharedStoryByStoryId: vi.fn(),
+	listUserSharedStories: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
+	getProjectRowSecurity: vi.fn(),
+	hasEffectiveWarehouseRestrictions: vi.fn(),
 	getCustomStoryVersion: vi.fn(),
 	getStandaloneCustomStoryVersion: vi.fn(),
 	getSharedCustomStoryQueryData: vi.fn(),
 	getSharedCustomStoryQuerySql: vi.fn(),
 	getStandaloneCustomStoryQuerySql: vi.fn(),
 	getStandaloneCustomStoryQueryData: vi.fn(),
-	getCustomStoryNarratives: vi.fn(),
+	getSharedCustomStoryNarratives: vi.fn(),
 	getStandaloneCustomStoryNarratives: vi.fn(),
 	getCustomStoryState: vi.fn(),
 	getCustomStoryStateByStoryId: vi.fn(),
@@ -24,14 +27,17 @@ vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('../../src/queries/activity.queries', () => ({}));
 vi.mock('../../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../../src/queries/user-group.queries', () => ({ getProjectRowSecurity: mocks.getProjectRowSecurity }));
 vi.mock('../../src/queries/shared-story.queries', () => ({
 	getSharedStory: vi.fn(),
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
+	listUserSharedStories: mocks.listUserSharedStories,
 	canUserAccessSharedStory: mocks.canUserAccessSharedStory,
 }));
 vi.mock('../../src/queries/story.queries', () => ({
 	getStoryDataCacheByStoryId: mocks.getStoryDataCacheByStoryId,
 	getVersionByStoryIdAndNumber: mocks.getVersionByStoryIdAndNumber,
+	getStoryQueryDataByStoryIds: vi.fn(async () => new Map()),
 }));
 vi.mock('../../src/queries/story-folder.queries', () => ({}));
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
@@ -42,7 +48,7 @@ vi.mock('../../src/services/custom-story', () => ({
 	getSharedCustomStoryQuerySql: mocks.getSharedCustomStoryQuerySql,
 	getStandaloneCustomStoryQuerySql: mocks.getStandaloneCustomStoryQuerySql,
 	getStandaloneCustomStoryQueryData: mocks.getStandaloneCustomStoryQueryData,
-	getCustomStoryNarratives: mocks.getCustomStoryNarratives,
+	getSharedCustomStoryNarratives: mocks.getSharedCustomStoryNarratives,
 	getStandaloneCustomStoryNarratives: mocks.getStandaloneCustomStoryNarratives,
 }));
 vi.mock('../../src/services/custom-story-state', () => ({
@@ -51,13 +57,17 @@ vi.mock('../../src/services/custom-story-state', () => ({
 	setCustomStoryState: mocks.setCustomStoryState,
 	setCustomStoryStateByStoryId: mocks.setCustomStoryStateByStoryId,
 }));
+vi.mock('../../src/services/user-group-context-access.service', () => ({
+	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
+}));
 vi.mock('../../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
 
 import { sharedStoryRoutes } from '../../src/trpc/shared-story.routes';
 import { router } from '../../src/trpc/trpc';
 import { createTestCaller } from '../helpers/trpc-caller';
 
-const caller = createTestCaller(router({ storyShare: sharedStoryRoutes }), {
+const testRouter = router({ storyShare: sharedStoryRoutes });
+const caller = createTestCaller(testRouter, {
 	userId: 'viewer-1',
 	selectedProjectId: 'project-1',
 });
@@ -69,6 +79,11 @@ describe('storyShare standalone classic story', () => {
 		mockShare({ chatId: null, format: 'classic' });
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
+		mocks.listUserSharedStories.mockResolvedValue([]);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
+			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
+		);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
 			queryData: { q_shown: rows('shown'), q_hidden: rows('hidden') },
 		});
@@ -90,6 +105,10 @@ describe('storyShare custom story readers', () => {
 		mockShare({ chatId: null });
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
+			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
+		);
 	});
 
 	it('reads the version of a standalone story by its id', async () => {
@@ -113,6 +132,60 @@ describe('storyShare custom story readers', () => {
 			rerun: { inputs: undefined, viewerId: 'viewer-1' },
 		});
 		expect(mocks.getStandaloneCustomStoryNarratives).toHaveBeenCalledWith('story-1');
+	});
+
+	it('denies standalone owner data to a shared viewer when row security exists', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ databaseType: 'duckdb', database: 'analytics', schema: 'main', table: 'customers' }],
+		});
+
+		await expect(createCaller().storyShare.getCustomVersion(STORY_INPUT)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();
+	});
+
+	it('hides standalone stories from restricted viewers but keeps chat-backed stories', async () => {
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.listUserSharedStories.mockResolvedValue([
+			sharedStoryListItem({ storyId: 'standalone-story', chatId: null }),
+			sharedStoryListItem({ storyId: 'chat-story', chatId: 'chat-1' }),
+		]);
+
+		const stories = await createCaller().storyShare.list({ projectId: 'project-1' });
+
+		expect(stories.map((story) => story.storyId)).toEqual(['chat-story']);
+	});
+
+	it('keeps the owner’s standalone stories visible when restrictions exist', async () => {
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.listUserSharedStories.mockResolvedValue([
+			sharedStoryListItem({ storyId: 'standalone-story', chatId: null }),
+		]);
+
+		const stories = await createCaller('owner-1').storyShare.list({ projectId: 'project-1' });
+
+		expect(stories.map((story) => story.storyId)).toEqual(['standalone-story']);
+	});
+
+	it('allows the standalone story owner when row security exists', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ databaseType: 'duckdb', database: 'analytics', schema: 'main', table: 'customers' }],
+		});
+		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
+
+		await expect(createCaller('owner-1').storyShare.getCustomVersion(STORY_INPUT)).resolves.toEqual({ version: 2 });
+		expect(mocks.getProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('allows stored standalone data to a viewer with full access to every RLS table', async () => {
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(false);
+		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
+
+		await expect(createCaller().storyShare.getCustomVersion(STORY_INPUT)).resolves.toEqual({ version: 2 });
+		expect(mocks.hasEffectiveWarehouseRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
 	});
 
 	it('keeps the state of a standalone story by its id', async () => {
@@ -142,11 +215,20 @@ describe('storyShare custom story readers', () => {
 	it('still reads a chat story through its chat', async () => {
 		mockShare({ chatId: 'chat-1' });
 
-		await caller.storyShare.getCustomVersion(STORY_INPUT);
-		await caller.storyShare.getCustomStoryNarratives(STORY_INPUT);
+		await createCaller().storyShare.getCustomVersion(STORY_INPUT);
+		await createCaller().storyShare.getCustomStoryQueryData({ ...STORY_INPUT, queryId: 'q_revenue' });
+		await createCaller().storyShare.getCustomStoryNarratives(STORY_INPUT);
 
 		expect(mocks.getCustomStoryVersion).toHaveBeenCalledWith('chat-1', 'revenue', undefined);
-		expect(mocks.getCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue');
+		expect(mocks.getSharedCustomStoryQueryData).toHaveBeenCalledWith(
+			'chat-1',
+			'revenue',
+			'q_revenue',
+			undefined,
+			'viewer-1',
+			undefined,
+		);
+		expect(mocks.getSharedCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue', 'viewer-1');
 		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();
 	});
 });
@@ -156,6 +238,7 @@ function mockShare({ chatId, format = 'custom' }: { chatId: string | null; forma
 		id: 'share-1',
 		projectId: 'project-1',
 		userId: 'owner-1',
+		ownerUserId: 'owner-1',
 		visibility: 'project',
 		storyId: 'story-1',
 		chatId,
@@ -167,4 +250,28 @@ function mockShare({ chatId, format = 'custom' }: { chatId: string | null; forma
 
 function rows(value: string) {
 	return { columns: ['value'], data: [{ value }] };
+}
+
+function sharedStoryListItem({ storyId, chatId }: { storyId: string; chatId: string | null }) {
+	return {
+		id: `share-${storyId}`,
+		storyId,
+		projectId: 'project-1',
+		userId: 'owner-1',
+		ownerUserId: 'owner-1',
+		chatId,
+		slug: storyId,
+		title: storyId,
+		code: '',
+		format: 'custom',
+		version: 1,
+		visibility: 'project',
+		sharedWithCount: 0,
+		sharedWithGroupCount: 0,
+		isPinned: false,
+	};
+}
+
+function createCaller(userId = 'viewer-1') {
+	return createTestCaller(testRouter, { userId, selectedProjectId: 'project-1' });
 }

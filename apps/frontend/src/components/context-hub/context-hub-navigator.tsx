@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { TESTS_FOLDER, toExplorerTestPath } from '@nao/shared/test-paths';
 import { ChevronRight, Folder, Plus, Search, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { ContextHubSectionStyle } from '@/components/context-hub/context-hub-section-icon';
+import type { TestDefinition } from '@/components/settings/test-run-types';
 import type { ContextHubDoc, ContextHubTable, ContextHubTableFolder } from '@/lib/context-hub';
-import { CONTEXT_HUB_SECTION_STYLES } from '@/components/context-hub/context-hub-section-icon';
+import { CONTEXT_HUB_SECTION_STYLES, TESTS_SECTION_STYLE } from '@/components/context-hub/context-hub-section-icon';
 import { Button } from '@/components/ui/button';
 import { CONTEXT_HUB_DOC_SECTIONS, formatTableLocation } from '@/lib/context-hub';
 import { getTreeNodePadding } from '@/lib/tree-expansion';
@@ -21,12 +23,19 @@ interface NavigatorItem {
 interface ContextHubNavigatorProps {
 	tableFolders: ContextHubTableFolder[];
 	docs: ContextHubDoc[];
+	/** The tests matching the search, once loaded. */
+	tests: TestDefinition[] | undefined;
 	search: string;
+	/** The open file, the explorer path of the open test, or the tests folder while all the tests are shown. */
 	selectedPath: string | null;
 	onSearchChange: (search: string) => void;
 	onOpenFile: (path: string) => void;
+	onOpenTests: () => void;
+	onOpenTest: (explorerPath: string) => void;
 	onNewSkill: () => void;
 }
+
+const ALL_TESTS_PATH = `/${TESTS_FOLDER}`;
 
 /** Indents an item under its section's label: past the section's chevron, icon tile and their gaps. */
 const ITEM_PADDING_LEFT = getTreeNodePadding(0) + 44;
@@ -38,10 +47,13 @@ const FOLDER_ITEM_PADDING_LEFT = ITEM_PADDING_LEFT + 20;
 export function ContextHubNavigator({
 	tableFolders,
 	docs,
+	tests,
 	search,
 	selectedPath,
 	onSearchChange,
 	onOpenFile,
+	onOpenTests,
+	onOpenTest,
 	onNewSkill,
 }: ContextHubNavigatorProps) {
 	const isSearching = search.trim().length > 0;
@@ -112,11 +124,67 @@ export function ContextHubNavigator({
 						</NavigatorSection>
 					);
 				})}
-				{isSearching && tableCount === 0 && docs.length === 0 && (
-					<p className='px-3 py-4 text-center text-xs text-muted-foreground'>No matching tables or docs.</p>
+				{tests && (
+					<TestsSection
+						tests={tests}
+						selectedPath={selectedPath}
+						isSearching={isSearching}
+						onOpenTests={onOpenTests}
+						onOpenTest={onOpenTest}
+					/>
+				)}
+				{isSearching && tableCount === 0 && docs.length === 0 && !tests?.length && (
+					<p className='px-3 py-4 text-center text-xs text-muted-foreground'>
+						No matching tables, docs or tests.
+					</p>
 				)}
 			</nav>
 		</div>
+	);
+}
+
+/** All the tests first, as the drawer of the file tree shows them, then one item per test. Opening it shows them all. */
+function TestsSection({
+	tests,
+	selectedPath,
+	isSearching,
+	onOpenTests,
+	onOpenTest,
+}: {
+	tests: TestDefinition[];
+	selectedPath: string | null;
+	isSearching: boolean;
+	onOpenTests: () => void;
+	onOpenTest: (explorerPath: string) => void;
+}) {
+	const items = tests.map((test) => toTestItem(test, selectedPath));
+	const allTestsItem = {
+		path: ALL_TESTS_PATH,
+		title: 'All tests',
+		subtitle: null,
+		tooltip: 'All the tests and their runs',
+		isSelected: selectedPath === ALL_TESTS_PATH,
+	};
+
+	return (
+		<NavigatorSection
+			label='Tests'
+			sectionStyle={TESTS_SECTION_STYLE}
+			count={items.length}
+			hasSelectedItem={allTestsItem.isSelected || items.some((item) => item.isSelected)}
+			isSearching={isSearching}
+			emptyMessage='No tests yet.'
+			onExpand={onOpenTests}
+		>
+			{items.length > 0 && (
+				<NavigatorItems
+					items={[allTestsItem, ...items]}
+					sectionStyle={TESTS_SECTION_STYLE}
+					paddingLeft={ITEM_PADDING_LEFT}
+					onOpenFile={(path) => (path === ALL_TESTS_PATH ? onOpenTests() : onOpenTest(path))}
+				/>
+			)}
+		</NavigatorSection>
 	);
 }
 
@@ -134,8 +202,8 @@ function NavigatorSearch({ search, onSearchChange }: { search: string; onSearchC
 						onSearchChange('');
 					}
 				}}
-				placeholder='Search tables and docs'
-				aria-label='Search tables and docs'
+				placeholder='Search tables, docs and tests'
+				aria-label='Search tables, docs and tests'
 				className='h-full min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground'
 			/>
 			{search && (
@@ -160,6 +228,7 @@ function NavigatorSection({
 	isSearching,
 	emptyMessage,
 	action,
+	onExpand,
 	children,
 }: {
 	label: string;
@@ -170,9 +239,18 @@ function NavigatorSection({
 	/** Shown when the section is empty outside a search; without it, an empty section is hidden. */
 	emptyMessage: string | null;
 	action?: ReactNode;
+	/** Called when the header opens the section, not when it closes it. */
+	onExpand?: () => void;
 	children: ReactNode;
 }) {
 	const [isOpen, toggle] = useCollapsible(hasSelectedItem, isSearching);
+
+	const toggleSection = () => {
+		toggle();
+		if (!isOpen) {
+			onExpand?.();
+		}
+	};
 
 	if (count === 0 && (isSearching || !emptyMessage)) {
 		return null;
@@ -186,7 +264,7 @@ function NavigatorSection({
 					aria-expanded={isOpen}
 					className='flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left'
 					style={{ paddingLeft: getTreeNodePadding(0) }}
-					onClick={toggle}
+					onClick={toggleSection}
 				>
 					<DisclosureChevron isOpen={isOpen} />
 					<SectionIcon sectionStyle={sectionStyle} />
@@ -348,5 +426,16 @@ function toDocItem(doc: ContextHubDoc, selectedPath: string | null): NavigatorIt
 		subtitle: doc.folder,
 		tooltip: doc.folder ? `${doc.title} · ${doc.folder}` : doc.title,
 		isSelected: doc.path === selectedPath,
+	};
+}
+
+function toTestItem(test: TestDefinition, selectedPath: string | null): NavigatorItem {
+	const explorerPath = toExplorerTestPath(test.path);
+	return {
+		path: explorerPath,
+		title: test.name,
+		subtitle: null,
+		tooltip: `${test.name} · ${TESTS_FOLDER}/${test.path}`,
+		isSelected: explorerPath === selectedPath,
 	};
 }

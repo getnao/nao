@@ -219,10 +219,10 @@ function describeRunResult(run: RunListSource, tone: Tone, mainBranch: string): 
 
 function describeComparisonResult(run: RunListSource, mainBranch: string): RunListItemView['result'] {
 	const after = findVariant(run, 'draft');
-	if (!after) {
-		return null;
-	}
 	const before = findVariant(run, 'production') ?? { testCount: 0, passedTests: 0 };
+	if (!after) {
+		return before.testCount === 1 ? { label: 'removed', tooltip: 'Test deleted by your changes' } : null;
+	}
 	if (after.testCount === 1) {
 		return before.testCount === 0
 			? { label: 'new', tooltip: `New test, not on ${mainBranch}` }
@@ -351,7 +351,7 @@ function describeTestPath(testPath: string): string {
 /** The user's changes for a comparison, the best model when several ran, else the tests over all their attempts. */
 function getJudgedTotals(run: RunListSource): TestTotals | null {
 	if (run.trigger === 'comparison') {
-		return findVariant(run, 'draft') ?? null;
+		return findVariant(run, 'draft') ?? findVariant(run, 'production') ?? null;
 	}
 	const totals = findVariant(run, getSingleRunVariant(run));
 	if (!totals) {

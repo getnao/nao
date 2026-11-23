@@ -2,10 +2,11 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import type { IntegrationId } from '@/components/settings/integrations';
+import type { McpEndpointSection } from '@/components/settings/mcp-endpoint';
 import { McpSettings } from '@/components/settings/display-mcp';
 import { isIntegrationId } from '@/components/settings/integrations';
 import { IntegrationsPage } from '@/components/settings/integrations-page';
-import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
+import { isMcpEndpointSection, McpEndpointSettings } from '@/components/settings/mcp-endpoint';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -24,9 +25,12 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/integrat
 		title: 'Integrations & MCP',
 		description: 'Connect nao to chat tools and AI clients',
 	},
-	validateSearch: (search: Record<string, unknown>): { tab: IntegrationsTab; integration?: IntegrationId } => ({
+	validateSearch: (
+		search: Record<string, unknown>,
+	): { tab: IntegrationsTab; integration?: IntegrationId; section?: McpEndpointSection } => ({
 		tab: isIntegrationsTab(search.tab) ? search.tab : 'integrations',
 		integration: isIntegrationId(search.integration) ? search.integration : undefined,
+		section: isMcpEndpointSection(search.section) ? search.section : undefined,
 	}),
 	beforeLoad: ({ search }) => {
 		if (search.integration) {
@@ -40,7 +44,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/integrat
 });
 
 function ProjectIntegrationsPage() {
-	const { tab } = Route.useSearch();
+	const { tab, section } = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
 	const { isAdmin } = usePermissions();
 
@@ -60,7 +64,15 @@ function ProjectIntegrationsPage() {
 			/>
 			<TabPanel idBase={tabIdBase} tabId={tab} className='flex flex-col gap-12'>
 				{tab === 'integrations' && <IntegrationsPage />}
-				{tab === 'nao-mcp' && <McpEndpointSettings isAdmin={isAdmin} />}
+				{tab === 'nao-mcp' && (
+					<McpEndpointSettings
+						isAdmin={isAdmin}
+						section={section ?? 'setup'}
+						onSectionChange={(nextSection) => {
+							navigate({ search: { tab, section: nextSection }, replace: true });
+						}}
+					/>
+				)}
 				{tab === 'mcp-servers' && <McpSettings isAdmin={isAdmin} />}
 			</TabPanel>
 		</>

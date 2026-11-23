@@ -85,6 +85,7 @@ export type StoryItem = {
 	storySlug?: string;
 	summary: StorySummary;
 	kpiPreviewData: QueryDataMap | null;
+	canShowThumbnail: boolean;
 	format: StoryFormat;
 	version: number;
 	isLive: boolean;
@@ -202,6 +203,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+			canShowThumbnail: true,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -231,6 +233,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+			canShowThumbnail: true,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -261,6 +264,7 @@ export function buildStoryItems({
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
 				kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+				canShowThumbnail: story.canShowThumbnail,
 				format: story.format,
 				version: story.version,
 				isLive: story.isLive,

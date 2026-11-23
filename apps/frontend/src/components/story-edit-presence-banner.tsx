@@ -25,7 +25,10 @@ function describeLockHolder(presence: StoryEditPresence): string {
 	if (presence.otherEditorName) {
 		return `${presence.otherEditorName} is editing this story. You can edit it once they are done.`;
 	}
-	if (presence.ownEditElsewhere === 'tab') {
+	if (presence.ownEdit === 'thisChat') {
+		return 'nao is updating this story…';
+	}
+	if (presence.ownEdit === 'otherTab') {
 		return 'You are editing this story in another tab. You can edit it here once that is done.';
 	}
 	return 'You are editing this story in another chat. You can edit it here once that is done.';

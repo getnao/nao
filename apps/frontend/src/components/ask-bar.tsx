@@ -10,7 +10,7 @@ import type { CitationData } from '@nao/shared/types';
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { AskQuestion, AskSelection } from '@/stores/ask-bar';
 import type { PendingCitation } from '@/stores/chat-pending-citation';
-import type { SubmittedMessage } from '@/hooks/use-agent';
+import type { AgentRequestBodyGetter, SubmittedMessage } from '@/hooks/use-agent';
 import { ChatInputAnimatedBorder } from '@/components/chat-input-animated-border';
 import { ChatPrompt } from '@/components/chat-input-prompt';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
@@ -58,8 +58,10 @@ export function AskBar({
 	isAsking,
 	hasAskFailed,
 	resumedQuestion,
+	getRequestBody,
 	onAsk,
 	onEnd,
+	onChatChange,
 	children,
 }: {
 	placeholder: string;
@@ -68,9 +70,13 @@ export function AskBar({
 	hasAskFailed: boolean;
 	/** A question to reopen with its panel open as the bar mounts. */
 	resumedQuestion?: AskQuestion;
+	/** What the page adds to each message, read as it is sent. */
+	getRequestBody?: AgentRequestBodyGetter;
 	/** Creates the chat of a new question and returns its id. */
 	onAsk: (citations: CitationData[]) => Promise<string>;
 	onEnd?: () => void;
+	/** Told the chat of the open question, or null once there is none. */
+	onChatChange?: (chatId: string | null) => void;
 	/** Rendered within the agent of the question, to react to its answers. */
 	children?: ReactNode;
 }) {
@@ -97,6 +103,11 @@ export function AskBar({
 		}
 		isFocusRequested.current = true;
 	}, [request]);
+
+	useEffect(() => {
+		onChatChange?.(session.chatId);
+		return () => onChatChange?.(null);
+	}, [onChatChange, session.chatId]);
 
 	useEffect(() => {
 		if (!isFocusRequested.current || isInputHidden) {
@@ -157,7 +168,7 @@ export function AskBar({
 	return (
 		<ChatIdContext.Provider value={session.chatId}>
 			<SetChatInputCallbackProvider>
-				<AgentProvider disableNavigation>
+				<AgentProvider disableNavigation getRequestBody={getRequestBody}>
 					<PendingMessageSender
 						message={session.pendingMessage}
 						onSent={() => setSession((current) => ({ ...current, pendingMessage: undefined }))}

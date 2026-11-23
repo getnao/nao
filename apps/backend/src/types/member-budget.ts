@@ -16,6 +16,7 @@ export const setMemberBudgetsInputSchema = z.object({
 	defaultLimitUsd: budgetLimitUsdSchema.unwrap(),
 	personalBudgets: z.array(z.object({ userId: z.string().min(1), limitUsd: budgetLimitUsdSchema })),
 	groupBudgets: z.array(z.object({ groupId: z.string().min(1), limitUsd: budgetLimitUsdSchema })),
+	groupSharedBudgets: z.array(z.object({ groupId: z.string().min(1), limitUsd: budgetLimitUsdSchema })),
 });
 export type SetMemberBudgetsInput = z.infer<typeof setMemberBudgetsInputSchema>;
 

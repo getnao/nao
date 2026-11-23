@@ -31,6 +31,7 @@ import { getAuth, updateAuth } from '../../src/auth';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import * as ssoProviderQueries from '../../src/queries/sso-provider.queries';
+import { getWarehouseAccessTokenForUser } from '../../src/services/warehouse-access-token.service';
 
 const BASE_URL = 'http://localhost:5005';
 const ORG_ID = 'org-acme';
@@ -38,6 +39,19 @@ const PROVIDER_ID = 'sso-acme';
 const OKTA = 'https://acme.okta.com';
 const TOKEN_ENDPOINT = `${OKTA}/oauth2/v1/token`;
 const USERINFO_ENDPOINT = `${OKTA}/oauth2/v1/userinfo`;
+
+const OIDC_CONFIG = {
+	issuer: OKTA,
+	discoveryEndpoint: `${OKTA}/.well-known/openid-configuration`,
+	authorizationEndpoint: `${OKTA}/oauth2/v1/authorize`,
+	tokenEndpoint: TOKEN_ENDPOINT,
+	jwksEndpoint: `${OKTA}/oauth2/v1/keys`,
+	userInfoEndpoint: USERINFO_ENDPOINT,
+	clientId: 'okta-client',
+	clientSecret: 'okta-client-secret',
+	pkce: true,
+	scopes: ['openid', 'profile', 'email'],
+};
 
 let requestCount = 0;
 
@@ -141,6 +155,24 @@ describe('cloud organization SSO sign-in', () => {
 		expect(await db.select().from(s.account).where(eq(s.account.userId, 'outsider'))).toEqual([]);
 	});
 
+	it('requests the additional scopes and forwards the saved token to the warehouse', async () => {
+		await db
+			.update(s.ssoProvider)
+			.set({ oidcConfig: JSON.stringify({ ...OIDC_CONFIG, scopes: [...OIDC_CONFIG.scopes, 'offline_access'] }) });
+		await db
+			.insert(s.project)
+			.values({ id: 'project-acme', name: 'Acme', type: 'local', path: '/tmp', orgId: ORG_ID });
+
+		const { url } = await startSignIn({ email: 'jane@acme.com' });
+		await completeSignIn();
+
+		expect(new URL(url).searchParams.get('scope')).toBe('openid profile email offline_access');
+		const user = await findUser('jane@acme.com');
+		const [account] = await db.select().from(s.account).where(eq(s.account.userId, user!.id));
+		expect(account.refreshToken).toBe('okta-refresh-token');
+		await expect(getWarehouseAccessTokenForUser(user!.id, 'project-acme')).resolves.toBe('okta-access-token');
+	});
+
 	it.each(['/sso/register', '/sso/update-provider', '/sso/delete-provider', '/sso/verify-domain'])(
 		'disables the plugin provider management endpoint %s',
 		async (path) => {
@@ -159,18 +191,7 @@ async function seedOrganizationWithProvider(): Promise<void> {
 		issuer: OKTA,
 		domain: 'acme.com',
 		domainVerified: true,
-		oidcConfig: JSON.stringify({
-			issuer: OKTA,
-			discoveryEndpoint: `${OKTA}/.well-known/openid-configuration`,
-			authorizationEndpoint: `${OKTA}/oauth2/v1/authorize`,
-			tokenEndpoint: TOKEN_ENDPOINT,
-			jwksEndpoint: `${OKTA}/oauth2/v1/keys`,
-			userInfoEndpoint: USERINFO_ENDPOINT,
-			clientId: 'okta-client',
-			clientSecret: 'okta-client-secret',
-			pkce: true,
-			scopes: ['openid', 'profile', 'email'],
-		}),
+		oidcConfig: JSON.stringify(OIDC_CONFIG),
 	});
 }
 
@@ -215,7 +236,12 @@ function stubOktaFetch(getProfile: () => Record<string, unknown>): typeof fetch 
 	return async (input) => {
 		const url = input instanceof Request ? input.url : String(input);
 		if (url.startsWith(TOKEN_ENDPOINT)) {
-			return Response.json({ access_token: 'okta-access-token', token_type: 'Bearer', expires_in: 3600 });
+			return Response.json({
+				access_token: 'okta-access-token',
+				refresh_token: 'okta-refresh-token',
+				token_type: 'Bearer',
+				expires_in: 3600,
+			});
 		}
 		if (url.startsWith(USERINFO_ENDPOINT)) {
 			return Response.json(getProfile());
@@ -239,6 +265,7 @@ async function clearData(): Promise<void> {
 	await db.delete(s.account);
 	await db.delete(s.verification);
 	await db.delete(s.ssoProvider);
+	await db.delete(s.project);
 	await db.delete(s.orgMember);
 	await db.delete(s.organization);
 	await db.delete(s.user);

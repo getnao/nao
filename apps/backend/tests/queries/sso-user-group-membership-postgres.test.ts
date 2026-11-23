@@ -20,8 +20,10 @@ const mocks = vi.hoisted(() => ({
 		orgMemberUserId: string | null;
 	}>,
 	existingProviderProjectRows: [] as Array<{ projectId: string }>,
-	existingGroupRows: [] as Array<{ groupId: string }>,
+	existingGroupRows: [] as Array<{ groupId: string; projectId: string }>,
 	lockedProjectIds: [] as string[],
+	projectRevisionUpdates: 0,
+	viewerCacheDeletes: 0,
 	beforeProjectLock: vi.fn<() => void | Promise<void>>(),
 }));
 
@@ -41,6 +43,7 @@ vi.mock('../../src/db/db', async () => {
 	};
 });
 
+import s from '../../src/db/abstractSchema';
 import {
 	hasSsoUserGroupSyncState,
 	reconcileSsoUserGroupMemberships,
@@ -74,6 +77,8 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 		mocks.existingProviderProjectRows = [{ projectId: 'project-b' }];
 		mocks.existingGroupRows = [];
 		mocks.lockedProjectIds = [];
+		mocks.projectRevisionUpdates = 0;
+		mocks.viewerCacheDeletes = 0;
 		mocks.beforeProjectLock.mockReset();
 	});
 
@@ -90,6 +95,19 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 			'read-memberships',
 			'insert-membership',
 		]);
+		expect(mocks.projectRevisionUpdates).toBe(1);
+		expect(mocks.viewerCacheDeletes).toBe(1);
+	});
+
+	it('preserves viewer caches when memberships do not change', async () => {
+		mocks.mappingRows = [mocks.mappingRows[0]!];
+		mocks.existingProviderProjectRows = [];
+		mocks.existingGroupRows = [{ groupId: 'group-a', projectId: 'project-a' }];
+
+		await reconcileSsoUserGroupMemberships('user-1', 'oidc', ['claim-a']);
+
+		expect(mocks.projectRevisionUpdates).toBe(0);
+		expect(mocks.viewerCacheDeletes).toBe(0);
 	});
 
 	it('locks a matched project even when the user lacks project access', async () => {
@@ -160,14 +178,14 @@ function transaction() {
 			if ('projectMemberUserId' in selection) {
 				return mockSelectQuery(mocks.mappingRows, recordEvent(mocks.events, 'read-mappings'));
 			}
+			if ('groupId' in selection) {
+				return mockSelectQuery(mocks.existingGroupRows, recordEvent(mocks.events, 'read-memberships'));
+			}
 			if ('projectId' in selection) {
 				return mockSelectQuery(
 					mocks.existingProviderProjectRows,
 					recordEvent(mocks.events, 'read-existing-projects'),
 				);
-			}
-			if ('groupId' in selection) {
-				return mockSelectQuery(mocks.existingGroupRows, recordEvent(mocks.events, 'read-memberships'));
 			}
 			lockSelectionCount += 1;
 			if (lockSelectionCount === 1) {
@@ -178,7 +196,22 @@ function transaction() {
 				mocks.events.push('lock-projects');
 			});
 		},
-		delete: () => mockMutationQuery(),
+		delete: (table: unknown) =>
+			mockMutationQuery({
+				beforeExecute: () => {
+					if (table === s.storyViewerDataCache) {
+						mocks.viewerCacheDeletes += 1;
+					}
+				},
+			}),
+		update: (table: unknown) =>
+			mockMutationQuery({
+				beforeExecute: () => {
+					if (table === s.project) {
+						mocks.projectRevisionUpdates += 1;
+					}
+				},
+			}),
 		insert: () => mockMutationQuery({ beforeExecute: recordEvent(mocks.events, 'insert-membership') }),
 	};
 }

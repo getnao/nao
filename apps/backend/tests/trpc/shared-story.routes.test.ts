@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getStoryById: vi.fn(),
 	getStoryOwnerId: vi.fn(),
+	deleteStoryViewerDataCache: vi.fn(),
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
@@ -52,6 +53,9 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: vi.fn(async () => null),
 }));
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
+	deleteStoryViewerDataCache: mocks.deleteStoryViewerDataCache,
+}));
 vi.mock('../../src/queries/story-folder.queries', () => ({}));
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
@@ -72,6 +76,9 @@ vi.mock('../../src/services/story-filters', () => ({
 	getFilteredStoryQueryData: vi.fn(),
 	getStoryFilterOptions: vi.fn(),
 	getStoryQuerySql: vi.fn(),
+}));
+vi.mock('../../src/services/user-group-context-access.service', () => ({
+	hasEffectiveWarehouseRestrictions: vi.fn(async () => false),
 }));
 vi.mock('../../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
@@ -150,7 +157,8 @@ describe('storyShare.getLiveQueryData', () => {
 	const SHARED_CUSTOMERS_STORY = {
 		id: 'share-1',
 		projectId: 'project-1',
-		userId: 'owner-1',
+		userId: 'sharer-1',
+		ownerUserId: 'owner-1',
 		visibility: 'specific',
 		storyId: 'story-1',
 		chatId: 'chat-1',
@@ -175,6 +183,7 @@ describe('storyShare.getLiveQueryData', () => {
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
 			storyCode: expect.any(String),
+			viewerUserId: 'recipient-1',
 		});
 	});
 
@@ -254,6 +263,7 @@ describe('shared Story manual refresh', () => {
 		const story = await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 		expect(story.canRefresh).toBe(expected);
+		expect(story).not.toHaveProperty('ownerUserId');
 		expect(mocks.getSharedStoryByStoryId).toHaveBeenCalledWith('story-1');
 		expect(mocks.getSharedStory).not.toHaveBeenCalled();
 	});
@@ -274,6 +284,7 @@ describe('shared Story manual refresh', () => {
 			expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 				deferRefresh: expected,
 				deferFirstRefresh: expected,
+				viewerUserId: userId,
 			});
 		},
 	);
@@ -287,6 +298,7 @@ describe('shared Story manual refresh', () => {
 		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 			deferRefresh: false,
 			deferFirstRefresh: expected,
+			viewerUserId: userId,
 		});
 	});
 
@@ -360,6 +372,7 @@ describe('shared Story manual refresh', () => {
 			trigger: 'manual',
 		});
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'owner-1' }));
 	});
 

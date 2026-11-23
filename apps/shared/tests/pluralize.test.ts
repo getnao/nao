@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pluralize } from '../src/pluralize';
+import { formatCount, pluralize } from '../src/pluralize';
 
 describe('pluralize', () => {
 	it('returns singular when count is 1', () => {
@@ -79,6 +79,14 @@ describe('pluralize', () => {
 			expect(pluralize('DIRECTORY', 3)).toBe('DIRECTORIES');
 			expect(pluralize('GLASS', 2)).toBe('GLASSES');
 			expect(pluralize('MATCH', 2)).toBe('MATCHES');
+		});
+	});
+
+	describe('formatCount', () => {
+		it('formats zero, singular and plural counts', () => {
+			expect(formatCount(0, 'row')).toBe('0 rows');
+			expect(formatCount(1, 'row')).toBe('1 row');
+			expect(formatCount(1200, 'row')).toBe(`${(1200).toLocaleString()} rows`);
 		});
 	});
 });

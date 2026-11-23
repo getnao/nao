@@ -27,6 +27,7 @@ import { useContextChanges } from '@/hooks/use-context-changes';
 import { useLatestChangesRun } from '@/hooks/use-latest-changes-run';
 import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
 import { getReviewRequestNumber } from '@/lib/review-request';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface ContextGitPanelProps {
@@ -130,6 +131,14 @@ export function ContextGitPanel({
 
 	const switchBranch = useMutation(
 		trpc.contextExplorer.switchBranch.mutationOptions({
+			onSuccess: async () => {
+				await refreshExplorer(true);
+			},
+		}),
+	);
+
+	const pullBranch = useMutation(
+		trpc.contextExplorer.pullBranch.mutationOptions({
 			onSuccess: async () => {
 				await refreshExplorer(true);
 			},
@@ -305,6 +314,7 @@ export function ContextGitPanel({
 		hasUncommittedChanges ||
 		hasUnsavedFileChanges ||
 		switchBranch.isPending ||
+		pullBranch.isPending ||
 		createBranch.isPending ||
 		commitPending;
 	const branchChangeReason = getBranchChangeReason({
@@ -399,8 +409,19 @@ export function ContextGitPanel({
 								<TestStatusButton label='Test your changes' result={latestRun} onClick={onOpenTests} />
 							)}
 							{reviewRequestLink && <ReviewRequestLink link={reviewRequestLink} />}
-							{status?.fileExplorerUpdate?.updateNeeded === true && (
+							{status?.fileExplorerUpdate?.updateNeeded === true ? (
 								<UpdateButton branch={status.fileExplorerUpdate.branch} onUpdate={openUpdateDialog} />
+							) : (
+								<PullButton
+									branch={currentBranch}
+									isPulling={pullBranch.isPending}
+									disabledReason={
+										branchChangeDisabled && !pullBranch.isPending
+											? (branchChangeReason ?? 'Wait for the current change to finish.')
+											: null
+									}
+									onPull={() => pullBranch.mutate()}
+								/>
 							)}
 						</PanelBar>
 						<div className='flex flex-col gap-1.5 empty:hidden'>
@@ -446,6 +467,7 @@ export function ContextGitPanel({
 							<PanelMessages
 								errors={[
 									switchBranch.error?.message,
+									pullBranch.error?.message,
 									commitError,
 									pushBranch.error?.message,
 									undoLastCommit.error?.message,
@@ -488,6 +510,7 @@ export function ContextGitPanel({
 			{onViewUpstreamDiff && onOpenTests && (
 				<SyncedRepos
 					selectedPath={selectedUpstreamDiffPath}
+					hasUnsavedFileChanges={hasUnsavedFileChanges}
 					onViewDiff={onViewUpstreamDiff}
 					onOpenTests={onOpenTests}
 				/>
@@ -591,6 +614,32 @@ function UpdateButton({ branch, onUpdate }: { branch: string; onUpdate: () => vo
 		>
 			<RefreshCw />
 			<span aria-hidden='true' className='absolute top-1 right-1 size-1.5 rounded-full bg-primary' />
+		</Button>
+	);
+}
+
+/** Fetches the latest commit of the branch shown: the live context on the default branch, else its pushed head. */
+function PullButton({
+	branch,
+	isPulling,
+	disabledReason,
+	onPull,
+}: {
+	branch: string | null;
+	isPulling: boolean;
+	disabledReason: string | null;
+	onPull: () => void;
+}) {
+	return (
+		<Button
+			variant='ghost-muted'
+			size='icon-xs'
+			aria-label='Pull the latest commit'
+			title={disabledReason ?? `Pull the latest commit of ${branch ?? 'this branch'}`}
+			disabled={isPulling || disabledReason !== null}
+			onClick={onPull}
+		>
+			<RefreshCw className={cn(isPulling && 'animate-spin')} />
 		</Button>
 	);
 }

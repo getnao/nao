@@ -528,7 +528,9 @@ describe('startComparisonRun', () => {
 		);
 	});
 
-	it('runs a test the changes add against the draft only, as production does not have it', async () => {
+	it('runs a test the changes add against the draft only, and one they delete against production only', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeTestFile('orders.yml', 'prompt: How many orders?');
 		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
 		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
 		mocks.createDraftContextSnapshot.mockReturnValue({
@@ -536,7 +538,10 @@ describe('startComparisonRun', () => {
 			branch: 'add-margin-test',
 			productionBranch: 'main',
 			productionCommit: 'abc123',
-			changes: [{ path: 'tests/margin.yml', kind: 'added' }],
+			changes: [
+				{ path: 'tests/margin.yml', kind: 'added' },
+				{ path: 'tests/orders.yml', kind: 'deleted' },
+			],
 			excludedChanges: [],
 			outdatedPaths: [],
 		});
@@ -544,13 +549,14 @@ describe('startComparisonRun', () => {
 		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() });
 		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
 
-		expect(run.totalAttempts).toBe(3);
+		expect(run.totalAttempts).toBe(4);
 		const variantsOf = (testPath: string) =>
 			mocks.recordResultWhileRunning.mock.calls
 				.map(([result]) => result)
 				.filter((result) => result.testPath === testPath)
 				.map((result) => result.contextVariant);
 		expect(variantsOf('margin.yml')).toEqual(['draft']);
+		expect(variantsOf('orders.yml')).toEqual(['production']);
 		expect(variantsOf('revenue.yml').sort()).toEqual(['draft', 'production']);
 	});
 
@@ -693,7 +699,7 @@ describe('cancelTestRun', () => {
 	});
 
 	it('aborts the attempts in flight once the heartbeat finds the run cancelled by another replica', async () => {
-		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.recordHeartbeat.mockResolvedValue(false);
 		let abortSignal: AbortSignal | undefined;

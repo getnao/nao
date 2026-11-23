@@ -66,6 +66,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const presence = useStoryEditSession({
 		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug } : null,
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
+		conversationChatId: citingChatId,
 	});
 	const canEditBlocks =
 		story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isReadonlyMode && presence.canEdit;

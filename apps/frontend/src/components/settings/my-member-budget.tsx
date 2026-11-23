@@ -20,13 +20,25 @@ export function MyMemberBudget() {
 			) : budget.isError || !budget.data ? (
 				<p className='text-sm text-destructive'>Failed to load your budget.</p>
 			) : (
-				<MemberBudgetUsage
-					spendUsd={budget.data.spendUsd}
-					limitUsd={budget.data.limitUsd}
-					period={budget.data.period}
-					nextPeriodStart={budget.data.nextPeriodStart}
-					sourceLabel={MEMBER_BUDGET_SOURCE_LABELS[budget.data.source]}
-				/>
+				<div className='flex flex-col gap-6'>
+					<MemberBudgetUsage
+						spendUsd={budget.data.spendUsd}
+						limitUsd={budget.data.limitUsd}
+						period={budget.data.period}
+						nextPeriodStart={budget.data.nextPeriodStart}
+						sourceLabel={MEMBER_BUDGET_SOURCE_LABELS[budget.data.source]}
+					/>
+					{budget.data.groupSharedBudgets.map((groupBudget) => (
+						<MemberBudgetUsage
+							key={groupBudget.groupId}
+							spendUsd={groupBudget.spendUsd}
+							limitUsd={groupBudget.limitUsd}
+							period={groupBudget.period}
+							nextPeriodStart={groupBudget.resetsAt}
+							sourceLabel={`Shared budget of ${groupBudget.groupName}`}
+						/>
+					))}
+				</div>
 			)}
 		</SettingsCard>
 	);

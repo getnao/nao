@@ -2,6 +2,7 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import { refreshStoryById } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
@@ -80,6 +81,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 		const { queryData, queriesRefreshed } = await refreshStoryById(storyId, {
 			billingAccessVerifiedProjectId: projectId,
 		});
+		await storyViewerDataCacheQueries.deleteStoryViewerDataCache(story.id);
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 		await warmFilterOptionsAfterRefresh(projectId, storyId);
 		if (queriesRefreshed > 0) {

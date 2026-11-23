@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { pluralize } from '@nao/shared';
+import { formatCount, pluralize } from '@nao/shared';
 import { ToolCall } from './index';
 import type { UIToolPart } from '@nao/backend/chat';
 import type { GroupablePart } from '@/types/ai';
@@ -102,5 +102,5 @@ const formatTotalRows = (queryParts: UIToolPart[]): string | undefined => {
 			hasOutput = true;
 		}
 	}
-	return hasOutput ? `${total.toLocaleString()} ${pluralize('row', total)}` : undefined;
+	return hasOutput ? formatCount(total, 'row') : undefined;
 };
