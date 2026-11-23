@@ -8,6 +8,7 @@ import { story } from '@nao/shared/tools';
 import { Prompt } from 'prompt-mentions';
 import { MentionOriginPreview, withOriginMarker } from './mention-origin-preview';
 import AppWindow from './icons/app-window.svg';
+import Slash from './icons/slash.svg';
 import SquarePlay from './icons/square-play.svg';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
@@ -98,12 +99,6 @@ const theme: PromptTheme = {
 			labelColor: 'var(--color-muted-foreground)',
 		},
 	},
-	pill: {
-		backgroundColor: 'var(--background)',
-		color: 'var(--foreground)',
-		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
-		borderRadius: '9999px',
-	},
 };
 
 const COMPACT_MIN_HEIGHT = '32px';
@@ -167,7 +162,7 @@ export function ChatPrompt({
 								id: skill.name,
 								label: skill.name,
 								labelRight: skill.description ?? undefined,
-								icon: <span className='skill-mention-icon'>{SKILL_MENTION_TRIGGER}</span>,
+								icon: <Slash className='skill-mention-icon' />,
 							})) ?? []),
 						],
 					},
