@@ -16,6 +16,7 @@ import {
 import { ALLOWED_IMAGE_MEDIA_TYPES, ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { toStoryReferenceMentionId } from '@nao/shared';
 import { story } from '@nao/shared/tools';
+import { isModifierPressed } from '@nao/shared/keyboard-shortcut';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import {
@@ -30,7 +31,7 @@ import {
 } from './chat-input-prompt';
 import { ChatInputAnimatedBorder } from './chat-input-animated-border';
 import { ChatInputModelSelect } from './chat-input-model-select';
-import { ChatInputMessageQueue, SteerShortcutHint, steerOnEnterStorage } from './chat-input-message-queue';
+import { ChatInputMessageQueue, SteerOrQueueButton, steerOnEnterStorage } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
 import { ManagedCreditsExhausted } from './managed-credits-exhausted';
 import { ContactSupportButton } from './contact-support-dialog';
@@ -691,6 +692,11 @@ function ChatInputBase({
 		[promptRef],
 	);
 
+	const sendWithClickModifier = (event: React.MouseEvent<HTMLButtonElement>) => {
+		isSwapShortcutRef.current = isModifierPressed(event);
+		void handleSubmitMessage(event);
+	};
+
 	const rememberSwapShortcut = (event: React.KeyboardEvent) => {
 		isSwapShortcutRef.current = matchesShortcut(event.nativeEvent, swapSteerQueueShortcut);
 	};
@@ -798,7 +804,6 @@ function ChatInputBase({
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
 						<div className='flex shrink-0 items-center gap-1.5 md:gap-2 ml-auto relative'>
-							{allowQueueing && isRunning && !isInputEmpty && <SteerShortcutHint />}
 							{mode !== 'onboarding' && (
 								<ChatInputPlusMenu
 									hasDatabases={hasDatabases}
@@ -839,13 +844,10 @@ function ChatInputBase({
 							)}
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
-							{allowQueueing && isRunning ? (
-								<ChatButton
-									showStop={isInputEmpty}
-									disabled={!isInputEmpty && isSendBlocked}
-									onClick={isInputEmpty ? cancelAgent : handleSubmitMessage}
-									type='button'
-								/>
+							{allowQueueing && isRunning && !isInputEmpty ? (
+								<SteerOrQueueButton disabled={isSendBlocked} onSend={sendWithClickModifier} />
+							) : allowQueueing && isRunning ? (
+								<ChatButton showStop onClick={cancelAgent} type='button' />
 							) : (
 								<ChatButton
 									showStop={isRunning}

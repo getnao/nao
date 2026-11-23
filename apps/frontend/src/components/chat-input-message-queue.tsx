@@ -8,15 +8,15 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronDown, CornerDownLeft, GripVertical, Navigation, Pencil, Trash2 } from 'lucide-react';
-import { Button } from './ui/button';
-import { Kbd } from './ui/kbd';
+import { Button, ChatButton } from './ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import type { DragEndEvent } from '@dnd-kit/core';
 import type { QueuedMessage } from '@/types/chat-message-queue';
 import { useMessageQueueStore } from '@/hooks/use-message-queue-store';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useIsModifierHeld } from '@/hooks/use-is-modifier-held';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { getShortcutTokens } from '@/lib/keyboard-shortcuts';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { createLocalStorage } from '@/lib/local-storage';
 import { cn } from '@/lib/utils';
 import { canSteer, messageQueueStore } from '@/stores/chat-message-queue';
@@ -231,17 +231,36 @@ function QueuedMessageActions({
 	);
 }
 
-/** Shown while the agent runs and the prompt has text, so the user knows Enter steers. */
-export function SteerShortcutHint() {
+/** The send button while the agent runs: its icon shows whether sending steers or queues, and holding ⌘ swaps them. */
+export function SteerOrQueueButton({
+	disabled,
+	onSend,
+}: {
+	disabled: boolean;
+	onSend: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
 	const [steerOnEnter] = useLocalStorage(steerOnEnterStorage);
+	const isModifierHeld = useIsModifierHeld();
+	const steers = steerOnEnter !== isModifierHeld;
+	const swapShortcut = getShortcutLabel('swap-steer-queue');
 	return (
-		<span className='hidden @lg:flex items-center gap-1 text-xs text-muted-foreground/70 select-none'>
-			<Kbd keys={['↵']} />
-			<span>{steerOnEnter ? 'steer' : 'queue'}</span>
-			<span className='text-muted-foreground/40'>·</span>
-			<Kbd keys={getShortcutTokens('swap-steer-queue')} />
-			<span>{steerOnEnter ? 'queue' : 'steer'}</span>
-		</span>
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<ChatButton
+					showStop={false}
+					disabled={disabled}
+					onClick={onSend}
+					type='button'
+					aria-label={steers ? 'Steer' : 'Queue'}
+					icon={steers ? <Navigation className='size-3.5' /> : undefined}
+				/>
+			</TooltipTrigger>
+			<TooltipContent side='top' className='max-w-60'>
+				{steerOnEnter
+					? `Steer: read after the running tools. ${swapShortcut} to queue it for after the answer.`
+					: `Queue: sent after the answer. ${swapShortcut} to steer, read after the running tools.`}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
