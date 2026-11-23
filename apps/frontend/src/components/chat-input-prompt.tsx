@@ -167,7 +167,7 @@ export function ChatPrompt({
 								id: skill.name,
 								label: skill.name,
 								labelRight: skill.description ?? undefined,
-								icon: <span>{SKILL_MENTION_TRIGGER}</span>,
+								icon: <span className='skill-mention-icon'>{SKILL_MENTION_TRIGGER}</span>,
 							})) ?? []),
 						],
 					},
