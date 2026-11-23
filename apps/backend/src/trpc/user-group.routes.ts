@@ -82,6 +82,7 @@ import {
 } from '../services/user-group-feature-access.service';
 import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
 import { budgetLimitUsdSchema } from '../types/member-budget';
+import { logger, serializeError } from '../utils/logger';
 import { assertMemberBudgetLicensed } from '../utils/member-budget';
 import { parseEntraGroupNaoGroupMapping, parseOidcGroupNaoGroupMapping } from '../utils/sso-group-mapping';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
@@ -781,7 +782,14 @@ async function saveNewGroupTeamFolders(
 	try {
 		await saveGroupTeamFolders(ctx, groupId, storyFolderIds);
 	} catch (error) {
-		await userGroupQueries.deleteUserGroup(ctx.project.id, groupId);
+		try {
+			await userGroupQueries.deleteUserGroup(ctx.project.id, groupId);
+		} catch (deleteError) {
+			logger.error('Failed to remove a new user group whose team folders could not be saved.', {
+				source: 'system',
+				context: { projectId: ctx.project.id, groupId, error: serializeError(deleteError) },
+			});
+		}
 		throw error;
 	}
 }

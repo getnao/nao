@@ -59,6 +59,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
+vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 vi.mock('../../src/env', () => ({ env: mocks.env }));
 vi.mock('../../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: mocks.getDatabaseContextCatalog,
@@ -142,6 +143,7 @@ vi.mock('../../src/services/warehouse-sql.service', () => ({
 import { TeamFolderError } from '../../src/queries/story-folder.queries';
 import { router } from '../../src/trpc/trpc';
 import { userGroupRoutes } from '../../src/trpc/user-group.routes';
+import { logger } from '../../src/utils/logger';
 
 const testRouter = router(userGroupRoutes);
 const caller = createTestCaller(testRouter);
@@ -586,16 +588,23 @@ describe('user group routes', () => {
 		expect(mocks.setGroupTeamFolders).toHaveBeenCalledWith('project-id', 'group-id', ['board'], expect.any(String));
 	});
 
-	it('removes a new group again when its team folders cannot be saved, without saving its budget', async () => {
+	it.each([
+		{ case: 'removes it again', removalFails: false },
+		{ case: 'still reports why its folders failed when it cannot be removed', removalFails: true },
+	])('a new group whose team folders cannot be saved $case', async ({ removalFails }) => {
 		mocks.setGroupTeamFolders.mockRejectedValueOnce(
 			new TeamFolderError('Only active public folders can be team folders.'),
 		);
+		if (removalFails) {
+			mocks.deleteUserGroup.mockRejectedValueOnce(new Error('Database unavailable.'));
+		}
 
 		await expect(
 			caller.create({ name: 'Analysts', storyFolderIds: ['archived'], budgetLimitUsd: 50 }),
-		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Only active public folders can be team folders.' });
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
 		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
+		expect(logger.error).toHaveBeenCalledTimes(removalFails ? 1 : 0);
 	});
 
 	it('refuses team folders for a group stories cannot be shared with, like All users', async () => {
