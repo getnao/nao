@@ -1,5 +1,6 @@
 import { Block, List, ListItem, Span, Title } from '../../lib/markdown';
 import type { ChatArtifacts, QueryArtifact, StoryArtifact } from '../../types/artifacts';
+import { STORY_LOGS_FILE } from '../../utils/story-mount';
 
 export const CHAT_ARTIFACTS_TAG = 'conversation-artifacts';
 
@@ -117,6 +118,17 @@ function CustomStoryFiles({ story }: { story: StoryArtifact }) {
 					<ListItem key={file}>{file}</ListItem>
 				))}
 			</List>
+			{story.logCount > 0 && <StoryLogsHint story={story} />}
 		</Block>
+	);
+}
+
+function StoryLogsHint({ story }: { story: StoryArtifact }) {
+	const failures = story.logCount === 1 ? '1 failure' : `${story.logCount} failures`;
+	return (
+		<Span>
+			{failures} logged while its editors viewed it (queries, SQL, model calls, runtime errors): read /stories/
+			{story.id}/{STORY_LOGS_FILE} before fixing it.
+		</Span>
 	);
 }

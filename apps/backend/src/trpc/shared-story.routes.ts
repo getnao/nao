@@ -253,7 +253,7 @@ export const sharedStoryRoutes = {
 						input.inputs,
 					);
 				}
-				return getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber, {
+				return await getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber, {
 					rerun: { inputs: input.inputs, viewerId: ctx.user.id },
 				});
 			} catch (error) {

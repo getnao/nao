@@ -16,6 +16,8 @@ export interface StoryArtifact {
 	code: string;
 	/** Draft files of a custom story, under `/stories/<id>/`. */
 	files: string[];
+	/** Failures logged while a custom story was viewed, read at `/stories/<id>/@logs`. */
+	logCount: number;
 	editedByUser: boolean;
 	templateWarnings: string[];
 }

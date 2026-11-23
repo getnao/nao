@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	listLatestVersionsInChat: vi.fn(),
 	listDraftFiles: vi.fn(),
 	getStoryTemplateWarnings: vi.fn(),
+	countStoryLogs: vi.fn(async () => 0),
 }));
 
 vi.mock('../../src/queries/story.queries', () => ({
@@ -27,6 +28,10 @@ vi.mock('../../src/queries/story.queries', () => ({
 
 vi.mock('../../src/queries/story-file.queries', () => ({
 	listDraftFiles: mocks.listDraftFiles,
+}));
+
+vi.mock('../../src/services/story-log', () => ({
+	countStoryLogs: mocks.countStoryLogs,
 }));
 
 vi.mock('../../src/services/story-template-validation', () => ({
@@ -144,6 +149,7 @@ describe('getChatArtifacts', () => {
 				format: 'classic',
 				code: STORY_CODE,
 				files: [],
+				logCount: 0,
 				editedByUser: true,
 				templateWarnings: ['Story references query_id "query_aaaa1111" ...'],
 			},
@@ -164,10 +170,16 @@ describe('getChatArtifacts', () => {
 			},
 		]);
 		mocks.listDraftFiles.mockResolvedValue([{ path: 'app.jsx' }, { path: 'nao.json' }]);
+		mocks.countStoryLogs.mockResolvedValueOnce(3);
 
 		const artifacts = await getChatArtifacts('chat-1', []);
 
 		expect(mocks.listDraftFiles).toHaveBeenCalledWith('story-2');
+		expect(
+			renderToMarkdown(ChatArtifactsPrompt({ artifacts: { queries: [], stories: artifacts.stories } })),
+		).toContain(
+			'3 failures logged while its editors viewed it (queries, SQL, model calls, runtime errors): read /stories/story-2/@logs',
+		);
 		expect(mocks.getStoryTemplateWarnings).not.toHaveBeenCalled();
 		expect(artifacts.stories).toEqual([
 			{
@@ -178,6 +190,7 @@ describe('getChatArtifacts', () => {
 				format: 'custom',
 				code: '',
 				files: ['app.jsx', 'nao.json'],
+				logCount: 3,
 				editedByUser: false,
 				templateWarnings: [],
 			},
@@ -260,6 +273,7 @@ describe('collapseStoryToolOutputs', () => {
 				format: 'classic',
 				code: STORY_CODE,
 				files: [],
+				logCount: 0,
 				editedByUser: false,
 				templateWarnings: [],
 			},
@@ -343,6 +357,7 @@ describe('ChatArtifactsPrompt', () => {
 				format: 'classic',
 				code: STORY_CODE,
 				files: [],
+				logCount: 0,
 				editedByUser: true,
 				templateWarnings: [],
 			},

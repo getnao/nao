@@ -1,9 +1,9 @@
-import { and, desc, eq, gte, isNull, lt, lte, or, SQL, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNull, lt, lte, or, SQL, sql } from 'drizzle-orm';
 
-import s, { NewLog } from '../db/abstractSchema';
+import s, { type DBLog, NewLog } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import type { LogFilter } from '../types/log';
+import type { LogFilter, LogObject } from '../types/log';
 
 export const insertLog = async (record: NewLog): Promise<void> => {
 	await db.insert(s.log).values(record).execute();
@@ -45,6 +45,15 @@ export const listLogs = async (
 		.execute();
 };
 
+export const listObjectLogs = (object: LogObject, limit: number): Promise<DBLog[]> => {
+	return db.select().from(s.log).where(matchesObject(object)).orderBy(desc(s.log.createdAt)).limit(limit).execute();
+};
+
+export const countObjectLogs = async (object: LogObject): Promise<number> => {
+	const [row] = await db.select({ total: count() }).from(s.log).where(matchesObject(object)).execute();
+	return row?.total ?? 0;
+};
+
 export const deleteOldLogs = async (retentionDays: number): Promise<void> => {
 	const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
 	const cutoff =
@@ -53,4 +62,8 @@ export const deleteOldLogs = async (retentionDays: number): Promise<void> => {
 			: sql`(cast(unixepoch('subsecond') * 1000 as integer)) - ${retentionMs}`;
 
 	await db.delete(s.log).where(lt(s.log.createdAt, cutoff)).execute();
+};
+
+const matchesObject = ({ type, id }: LogObject) => {
+	return and(eq(s.log.objectType, type), eq(s.log.objectId, id));
 };

@@ -102,10 +102,11 @@ export function runStoryModel(
 		return trpcClient.storyShare.runCustomStoryModel.mutate({ storyId: dataSource.storyId, request });
 	}
 	if (dataSource.kind === 'standalone') {
-		return trpcClient.standaloneCustomStory.runModel.mutate({ storyId: dataSource.storyId, request });
+		const { storyId, versionNumber } = dataSource;
+		return trpcClient.standaloneCustomStory.runModel.mutate({ storyId, versionNumber, request });
 	}
-	const { chatId, storySlug } = dataSource;
-	return trpcClient.story.runCustomStoryModel.mutate({ chatId, storySlug, request });
+	const { chatId, storySlug, versionNumber } = dataSource;
+	return trpcClient.story.runCustomStoryModel.mutate({ chatId, storySlug, versionNumber, request });
 }
 
 /** SQL the story writes itself runs as the person viewing it, wherever the story is opened from. */
@@ -120,8 +121,37 @@ export function runStorySql(dataSource: CustomStoryDataSource, request: StorySql
 	if (dataSource.kind === 'standalone') {
 		return Promise.reject(new Error('Only stories built in a chat can run their own SQL.'));
 	}
-	const { chatId, storySlug } = dataSource;
-	return trpcClient.story.runCustomStorySql.mutate({ chatId, storySlug, request });
+	const { chatId, storySlug, versionNumber } = dataSource;
+	return trpcClient.story.runCustomStorySql.mutate({ chatId, storySlug, versionNumber, request });
+}
+
+const MAX_REPORTED_MESSAGE_LENGTH = 10_000;
+const MAX_REPORTED_STACK_LENGTH = 20_000;
+const EMPTY_ERROR_MESSAGE = 'The story threw an error without a message.';
+
+/**
+ * Runtime errors reach the story's logs, read by the agent that fixes it, only from the people who can edit it:
+ * any other viewer could forge them.
+ */
+export async function reportStoryRuntimeErrors(
+	dataSource: CustomStoryDataSource,
+	versionNumber: number,
+	errors: { message: string; stack?: string }[],
+): Promise<void> {
+	const reported = errors.map(({ message, stack }) => ({
+		message: (message || EMPTY_ERROR_MESSAGE).slice(0, MAX_REPORTED_MESSAGE_LENGTH),
+		stack: stack?.slice(0, MAX_REPORTED_STACK_LENGTH),
+	}));
+	if (dataSource.kind === 'owner') {
+		const { chatId, storySlug } = dataSource;
+		await trpcClient.story.reportCustomStoryErrors.mutate({ chatId, storySlug, versionNumber, errors: reported });
+	} else if (dataSource.kind === 'standalone') {
+		await trpcClient.standaloneCustomStory.reportErrors.mutate({
+			storyId: dataSource.storyId,
+			versionNumber,
+			errors: reported,
+		});
+	}
 }
 
 export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: string) {

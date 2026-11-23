@@ -90,7 +90,7 @@ import {
 	RecommendationInsight,
 } from '../types/context-recommendation';
 import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
-import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
+import { LOG_LEVELS, LOG_OBJECT_TYPES, LOG_SOURCES } from '../types/log';
 import {
 	CREDIT_GRANT_TYPES,
 	CREDIT_LEDGER_ENTRY_TYPES,
@@ -2117,12 +2117,15 @@ export const log = pgTable(
 		source: text('source', { enum: LOG_SOURCES }).notNull(),
 		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
 		userId: text('user_id'),
+		objectType: text('object_type', { enum: LOG_OBJECT_TYPES }),
+		objectId: text('object_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
 		index('log_createdAt_idx').on(t.createdAt),
 		index('log_level_idx').on(t.level),
 		index('log_projectId_idx').on(t.projectId),
+		index('log_object_idx').on(t.objectType, t.objectId, t.createdAt),
 	],
 );
 

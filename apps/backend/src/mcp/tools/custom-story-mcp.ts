@@ -23,6 +23,7 @@ import {
 	releaseStoryEditLock,
 	StoryEditLockedError,
 } from '../../services/story-edit-lock.service';
+import { renderStoryLogs } from '../../services/story-log';
 import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import type { StoryQuerySources } from '../../types/story-cache';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
@@ -221,14 +222,16 @@ export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Pr
 	if (!story) {
 		return null;
 	}
-	const [draft, latest] = await Promise.all([
+	const [draft, latest, logs] = await Promise.all([
 		storyFileQueries.listDraftFiles(story.id),
 		fetchLatestStoryVersion(story),
+		renderStoryLogs(story.id),
 	]);
 	return buildCustomStoryToolResult({
 		...storyLinks(story),
 		version: latest?.version ?? 0,
 		sourceFiles: draft.map((file) => ({ path: file.path, content: file.content })),
+		logs,
 	});
 }
 

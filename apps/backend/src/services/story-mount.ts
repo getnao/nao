@@ -14,6 +14,7 @@ import {
 	parsePublishedVersionPath,
 	parseStoriesPath,
 	STORIES_MOUNT,
+	STORY_LOGS_FILE,
 	type StoryMountPath,
 	toStoriesMountRelativePath,
 	toStoriesVirtualPath,
@@ -22,6 +23,7 @@ import { entriesInVirtualDirectory } from '../utils/virtual-directory';
 import { assertWriterAddsNoChatQueries } from './custom-story-query-access';
 import { type EditableStoryScope, findEditableStory } from './editable-story';
 import { acquireStoryEditLock, getStoryEditLockState, releaseStoryEditLock } from './story-edit-lock.service';
+import { countStoryLogs, renderStoryLogs } from './story-log';
 
 /**
  * The chat whose custom stories are mounted, the story a quick question is about, if any, and the user whose
@@ -66,7 +68,7 @@ export async function listStoryMount(scope: StoryMountScope, virtualPath: string
 	if (entries.length === 0 && directory !== '') {
 		throw new Error(`No storyId '${virtualPath}' in story "${target.storyId}".`);
 	}
-	return entries;
+	return directory === '' ? [...entries, ...(await logsEntry(target.storyId))] : entries;
 }
 
 export async function readStoryMountFile(scope: StoryMountScope, virtualPath: string): Promise<string> {
@@ -75,6 +77,9 @@ export async function readStoryMountFile(scope: StoryMountScope, virtualPath: st
 		return readPublishedVersionFile(scope, target.storyId, target.filePath, virtualPath);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
+	if (target.filePath === STORY_LOGS_FILE) {
+		return renderStoryLogs(story.id);
+	}
 	const file = await storyFileQueries.getDraftFile(story.id, target.filePath);
 	if (!file) {
 		throw new Error(
@@ -95,6 +100,9 @@ export async function writeStoryMountFile(
 		throw new Error(
 			`Published versions are read-only. Edit the draft at ${toStoriesVirtualPath(target.storyId, published.filePath)} instead.`,
 		);
+	}
+	if (target.filePath === STORY_LOGS_FILE) {
+		throw new Error(`${virtualPath} is read-only: it lists the failures logged while the story was viewed.`);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
 	const file = await withKeyedLock(
@@ -157,6 +165,16 @@ async function listMountRoot(scope: StoryMountScope): Promise<list.Entry[]> {
 		type: 'directory' as const,
 		itemCount: files.length,
 	}));
+}
+
+/** The logs file shows in the story folder once something failed, so a listing tells the agent where to look. */
+async function logsEntry(storyId: string): Promise<list.Entry[]> {
+	const count = await countStoryLogs(storyId);
+	if (count === 0) {
+		return [];
+	}
+	const description = `${count} ${count === 1 ? 'failure' : 'failures'} logged while the story was viewed`;
+	return [{ path: toStoriesVirtualPath(storyId, STORY_LOGS_FILE), name: STORY_LOGS_FILE, type: 'file', description }];
 }
 
 function entriesInDirectory({ storyId, files }: MountedStory, directory: string): list.Entry[] {

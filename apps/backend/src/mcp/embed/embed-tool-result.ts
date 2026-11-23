@@ -29,6 +29,7 @@ export type CustomStoryMcpToolPayload = {
 	version?: number;
 	buildErrors?: string[];
 	sourceFiles?: CustomStorySourceFile[];
+	logs?: string;
 };
 
 const CUSTOM_STORY_FIELDS = {
@@ -41,6 +42,12 @@ const CUSTOM_STORY_FIELDS = {
 		.array(z.object({ path: z.string(), content: z.string() }))
 		.optional()
 		.describe('Custom stories only: the draft source files, to edit and send back to `update_story`.'),
+	logs: z
+		.string()
+		.optional()
+		.describe(
+			'Custom stories only: the query, SQL, model and runtime failures logged while its editors viewed it, to fix with `update_story`.',
+		),
 };
 
 export const STORY_OUTPUT_SCHEMA = {
