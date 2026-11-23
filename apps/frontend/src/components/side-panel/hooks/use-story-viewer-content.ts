@@ -127,6 +127,7 @@ export const useStoryViewerContent = ({
 	return {
 		storyTitle,
 		storyCode,
+		isStreaming: shouldUseDraftStory && isStoryStreaming,
 		queryData,
 		cachedAt,
 		lastRefreshFailure,
