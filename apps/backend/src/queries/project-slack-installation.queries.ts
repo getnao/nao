@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import s, { type DBProjectSlackInstallation, type NewProjectSlackInstallation } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -54,6 +54,22 @@ export async function deleteSlackInstallationByProjectId(projectId: string): Pro
 	await db.delete(s.projectSlackInstallation).where(eq(s.projectSlackInstallation.projectId, projectId)).execute();
 }
 
-export async function deleteSlackInstallationByTeamId(teamId: string): Promise<void> {
-	await db.delete(s.projectSlackInstallation).where(eq(s.projectSlackInstallation.teamId, teamId)).execute();
+export async function deleteSlackInstallationIfCurrent(
+	projectId: string,
+	teamId: string,
+	updatedAt: Date,
+): Promise<boolean> {
+	const deleted = await db
+		.delete(s.projectSlackInstallation)
+		.where(
+			and(
+				eq(s.projectSlackInstallation.projectId, projectId),
+				eq(s.projectSlackInstallation.teamId, teamId),
+				eq(s.projectSlackInstallation.updatedAt, updatedAt),
+			),
+		)
+		.returning({ projectId: s.projectSlackInstallation.projectId })
+		.execute();
+
+	return deleted.length > 0;
 }

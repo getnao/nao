@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import type { App } from '../app';
 import { env } from '../env';
-import { deleteProjectSlackConfig, getProjectSlackConfig } from '../queries/project-slack-config.queries';
+import { getProjectSlackConfig } from '../queries/project-slack-config.queries';
 import * as slackInstallationQueries from '../queries/project-slack-installation.queries';
 import { slackService } from '../services/slack';
 import { logger } from '../utils/logger';
@@ -55,11 +55,21 @@ export const slackRoutes = async (app: App) => {
 		const event = asRecord(slackBody.event);
 
 		if (event?.type === 'app_uninstalled') {
-			await slackService.stopProject(installation.projectId);
-			await Promise.all([
-				slackInstallationQueries.deleteSlackInstallationByTeamId(teamId),
-				deleteProjectSlackConfig(installation.projectId),
-			]);
+			const eventTime = slackBody.event_time;
+
+			if (typeof eventTime !== 'number' || eventTime * 1000 <= installation.updatedAt.getTime()) {
+				return reply.status(200).send('ok');
+			}
+
+			const deleted = await slackInstallationQueries.deleteSlackInstallationIfCurrent(
+				installation.projectId,
+				teamId,
+				installation.updatedAt,
+			);
+
+			if (deleted) {
+				await slackService.stopProject(installation.projectId);
+			}
 
 			return reply.status(200).send('ok');
 		}

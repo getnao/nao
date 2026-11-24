@@ -3,8 +3,7 @@ import { createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	deleteProjectSlackConfig: vi.fn(),
-	deleteSlackInstallationByTeamId: vi.fn(),
+	deleteSlackInstallationIfCurrent: vi.fn(),
 	error: vi.fn(),
 	getProjectSlackConfig: vi.fn(),
 	getSlackInstallationByTeamId: vi.fn(),
@@ -19,12 +18,11 @@ vi.mock('../../src/env', () => ({
 }));
 
 vi.mock('../../src/queries/project-slack-config.queries', () => ({
-	deleteProjectSlackConfig: mocks.deleteProjectSlackConfig,
 	getProjectSlackConfig: mocks.getProjectSlackConfig,
 }));
 
 vi.mock('../../src/queries/project-slack-installation.queries', () => ({
-	deleteSlackInstallationByTeamId: mocks.deleteSlackInstallationByTeamId,
+	deleteSlackInstallationIfCurrent: mocks.deleteSlackInstallationIfCurrent,
 	getSlackInstallationByTeamId: mocks.getSlackInstallationByTeamId,
 }));
 
@@ -130,20 +128,71 @@ describe('shared Slack webhook route', () => {
 	});
 
 	it('clears the local connection when Slack reports that the app was uninstalled', async () => {
+		const installedAt = new Date('2026-11-24T12:00:00.000Z');
 		const body = JSON.stringify({
 			type: 'event_callback',
 			team_id: 'T123',
 			event: { type: 'app_uninstalled' },
+			event_time: installedAt.getTime() / 1000 + 1,
 		});
-		mocks.getSlackInstallationByTeamId.mockResolvedValue({ projectId: 'project-1', teamId: 'T123' });
+		mocks.getSlackInstallationByTeamId.mockResolvedValue({
+			projectId: 'project-1',
+			teamId: 'T123',
+			updatedAt: installedAt,
+		});
+		mocks.deleteSlackInstallationIfCurrent.mockResolvedValue(true);
 
 		const response = await sharedHandler()(signedRequest(body, 'application/json'), reply());
 
 		expect(mocks.stopProject).toHaveBeenCalledWith('project-1');
-		expect(mocks.deleteSlackInstallationByTeamId).toHaveBeenCalledWith('T123');
-		expect(mocks.deleteProjectSlackConfig).toHaveBeenCalledWith('project-1');
+		expect(mocks.deleteSlackInstallationIfCurrent).toHaveBeenCalledWith('project-1', 'T123', installedAt);
 		expect(mocks.getProjectSlackConfig).not.toHaveBeenCalled();
 		expect(mocks.getWebhooks).not.toHaveBeenCalled();
+		expect(response.statusCode).toBe(200);
+		expect(response.body).toBe('ok');
+	});
+
+	it('ignores an uninstall event that predates the current installation', async () => {
+		const installedAt = new Date('2026-11-24T12:00:01.000Z');
+		const body = JSON.stringify({
+			type: 'event_callback',
+			team_id: 'T123',
+			event: { type: 'app_uninstalled' },
+			event_time: installedAt.getTime() / 1000 - 1,
+		});
+		mocks.getSlackInstallationByTeamId.mockResolvedValue({
+			projectId: 'project-1',
+			teamId: 'T123',
+			updatedAt: installedAt,
+		});
+
+		const response = await sharedHandler()(signedRequest(body, 'application/json'), reply());
+
+		expect(mocks.deleteSlackInstallationIfCurrent).not.toHaveBeenCalled();
+		expect(mocks.stopProject).not.toHaveBeenCalled();
+		expect(response.statusCode).toBe(200);
+		expect(response.body).toBe('ok');
+	});
+
+	it('does not stop a connection that changed while an uninstall event was handled', async () => {
+		const installedAt = new Date('2026-11-24T12:00:00.000Z');
+		const body = JSON.stringify({
+			type: 'event_callback',
+			team_id: 'T123',
+			event: { type: 'app_uninstalled' },
+			event_time: installedAt.getTime() / 1000 + 1,
+		});
+		mocks.getSlackInstallationByTeamId.mockResolvedValue({
+			projectId: 'project-1',
+			teamId: 'T123',
+			updatedAt: installedAt,
+		});
+		mocks.deleteSlackInstallationIfCurrent.mockResolvedValue(false);
+
+		const response = await sharedHandler()(signedRequest(body, 'application/json'), reply());
+
+		expect(mocks.deleteSlackInstallationIfCurrent).toHaveBeenCalledWith('project-1', 'T123', installedAt);
+		expect(mocks.stopProject).not.toHaveBeenCalled();
 		expect(response.statusCode).toBe(200);
 		expect(response.body).toBe('ok');
 	});

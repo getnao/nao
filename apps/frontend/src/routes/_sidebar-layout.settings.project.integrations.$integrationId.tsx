@@ -51,30 +51,37 @@ function IntegrationDetailPage() {
 			return;
 		}
 
+		const handleConnected = (event: StorageEvent) => {
+			if (event.key === SLACK_OAUTH_CONNECTED_STORAGE_KEY) {
+				setSlackOAuthError(null);
+			}
+		};
+
+		window.addEventListener('storage', handleConnected);
+
 		const callbackUrl = new URL(window.location.href);
 		const result = callbackUrl.searchParams.get('slack');
 
-		if (!result) {
-			return;
+		if (result) {
+			callbackUrl.searchParams.delete('slack');
+			window.history.replaceState(null, '', callbackUrl);
+
+			if (result === 'connected') {
+				localStorage.setItem(SLACK_OAUTH_CONNECTED_STORAGE_KEY, Date.now().toString());
+				window.close();
+			} else {
+				const messages: Record<string, string> = {
+					unauthorized: 'Please sign in to nao and try connecting Slack again.',
+					missing_project: 'No project was selected for this Slack connection.',
+					forbidden: 'Only project administrators can connect Slack.',
+					error: 'Slack could not be connected. Authorization may have expired, been denied, or the workspace may already be connected.',
+				};
+
+				setSlackOAuthError(messages[result] ?? 'Slack could not be connected. Please try again.');
+			}
 		}
 
-		callbackUrl.searchParams.delete('slack');
-		window.history.replaceState(null, '', callbackUrl);
-
-		if (result === 'connected') {
-			localStorage.setItem(SLACK_OAUTH_CONNECTED_STORAGE_KEY, Date.now().toString());
-			window.close();
-			return;
-		}
-
-		const messages: Record<string, string> = {
-			unauthorized: 'Please sign in to nao and try connecting Slack again.',
-			missing_project: 'No project was selected for this Slack connection.',
-			forbidden: 'Only project administrators can connect Slack.',
-			error: 'Slack could not be connected. Authorization may have expired, been denied, or the workspace may already be connected.',
-		};
-
-		setSlackOAuthError(messages[result] ?? 'Slack could not be connected. Please try again.');
+		return () => window.removeEventListener('storage', handleConnected);
 	}, [integrationId]);
 
 	const handleCancelSetup = () => {
