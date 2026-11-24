@@ -63,6 +63,15 @@ export const STORY_OUTPUT_SCHEMA = {
 		.string()
 		.optional()
 		.describe('Self-contained HTML for inline rendering when small enough; omitted for large stories.'),
+	live: z
+		.object({
+			enabled: z.boolean(),
+			refreshSchedule: z.string().nullable(),
+			refreshScheduleDescription: z.string().nullable(),
+			regenerateText: z.boolean(),
+		})
+		.optional()
+		.describe('Custom stories only: the live settings of the story.'),
 };
 
 export function buildStoryToolResult(
