@@ -60,7 +60,7 @@ describe('MCP live story settings', () => {
 		});
 		expect(await db.select().from(s.scheduledJob)).toHaveLength(1);
 		const read = await server.call('get_story', { story_id: storyId });
-		expect(JSON.parse(read.content[0].text as string).live).toEqual({
+		expect(read.structuredContent?.live).toEqual({
 			enabled: true,
 			refreshSchedule: '0 9 * * 1',
 			refreshScheduleDescription: 'every Monday at 9am',

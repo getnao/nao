@@ -71,7 +71,7 @@ export const STORY_OUTPUT_SCHEMA = {
 			regenerateText: z.boolean(),
 		})
 		.optional()
-		.describe('Custom stories only: the live settings of the story.'),
+		.describe('The live settings of the story.'),
 };
 
 export function buildStoryToolResult(
@@ -94,7 +94,7 @@ export function buildStoryToolResult(
 		embedUrl: output.embedUrl,
 		naoUrl,
 		jsonPayload: output,
-		structuredBase: slimPayload,
+		structuredBase: { ...slimPayload, ...(output.live !== undefined && { live: output.live }) },
 		sandboxHtml: options?.sandboxStoryHtml,
 	});
 }
