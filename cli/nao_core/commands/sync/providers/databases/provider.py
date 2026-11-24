@@ -50,6 +50,7 @@ from nao_core.config.databases.column_catalog import (
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.context import NaoContext, create_nao_context
 from nao_core.templates.engine import TemplateEngine, get_template_engine
+from nao_core.text_files import read_text
 from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
@@ -149,7 +150,7 @@ def _failed_render_notice(template_name: str) -> str:
 
 def _is_failed_render_placeholder(output_file: Path) -> bool:
     try:
-        return _failed_render_notice(output_file.stem) in output_file.read_text(encoding="utf-8")
+        return _failed_render_notice(output_file.stem) in read_text(output_file)
     except (OSError, UnicodeError):
         return False
 
@@ -230,7 +231,7 @@ def _should_refresh(
         return False
     if policy == ProfilingRefreshPolicy.INTERVAL:
         try:
-            content = output_file.read_text(encoding="utf-8")
+            content = read_text(output_file)
             match = re.search(r"\*\*Computed at:\*\*\s*`([^`]+)`", content, re.IGNORECASE)
             if match:
                 computed_at_str = match.group(1)

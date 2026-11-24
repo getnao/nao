@@ -15,6 +15,7 @@ from pydantic import SecretStr
 from nao_core.commands.migrate.metabase_client import MetabaseClient
 from nao_core.commands.migrate.metabase_client import MetabaseError as MetabaseCliError
 from nao_core.config import MetabaseConfig, NaoConfig, NaoConfigError
+from nao_core.text_files import read_text
 from nao_core.tracking import track_command
 from nao_core.ui import UI, ask_text
 
@@ -264,7 +265,7 @@ def _load_nao_config() -> NaoConfig:
 
 def _save_metabase_config(metabase_config: MetabaseConfig) -> None:
     config_path = Path.cwd() / "nao_config.yaml"
-    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    data = yaml.safe_load(read_text(config_path))
     if not isinstance(data, dict):
         raise MetabaseCliError("nao_config.yaml must contain a YAML object.")
     serialized_config = metabase_config.model_dump(mode="json")

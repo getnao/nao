@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from nao_core.text_files import read_text
+
 from .repos.base import normalize_relative_path
 from .secrets import contains_secret_reference
 
@@ -176,7 +178,7 @@ def _read_referenced_file(project_path: Path, file: str) -> Any:
         return _MISSING
 
     try:
-        value = yaml.safe_load(file_path.read_text(encoding="utf-8"))
+        value = yaml.safe_load(read_text(file_path))
     except yaml.YAMLError as error:
         raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' is not valid YAML: {error}") from error
 

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 from nao_core.config.obsidian import OBSIDIAN_OUTPUT_DIR
+from nao_core.text_files import read_text
 
 if TYPE_CHECKING:
     from jinja2 import Environment
@@ -86,7 +87,7 @@ class FileProvider:
             raise ValueError(f"File exceeds 10MB limit: '{path}' ({size / 1024 / 1024:.1f}MB)")
 
         try:
-            content = resolved.read_text(encoding="utf-8")
+            content = read_text(resolved)
         except PermissionError:
             raise PermissionError(f"Permission denied: '{path}'") from None
         except UnicodeDecodeError:
@@ -338,7 +339,7 @@ class ObsidianNote:
             if not note_path.is_file():
                 raise ValueError(f"Obsidian note path is not a file: '{self.relative_path}'")
 
-            content = note_path.read_text(encoding="utf-8")
+            content = read_text(note_path)
             frontmatter = FileProvider(self.snapshot_root).frontmatter(self.relative_path)
             self._data = {
                 "path": self.relative_path,

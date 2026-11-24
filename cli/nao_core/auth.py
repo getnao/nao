@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
+from nao_core.text_files import read_text
 from nao_core.ui import UI, ask_text
 
 # Store credentials in user's home directory
@@ -48,7 +49,7 @@ def _read_auth_file() -> dict:
         return {}
 
     try:
-        return json.loads(AUTH_FILE.read_text(encoding="utf-8"))
+        return json.loads(read_text(AUTH_FILE))
     except json.JSONDecodeError:
         return {}
 

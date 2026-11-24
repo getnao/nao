@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from nao_core import __version__
+from nao_core.text_files import read_text
 from nao_core.ui import UI
 
 CACHE_FILE = Path.home() / ".nao" / "version_check.json"
@@ -81,7 +82,7 @@ def _read_cache() -> str | None:
     """Return cached latest version if cache exists and is fresh, else None."""
     if not CACHE_FILE.exists():
         return None
-    data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    data = json.loads(read_text(CACHE_FILE))
     if time.time() - data.get("checked_at", 0) < CHECK_INTERVAL:
         return data.get("latest")
     return None

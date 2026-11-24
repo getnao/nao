@@ -9,6 +9,7 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from nao_core.config import NaoConfig, resolve_project_path
+from nao_core.text_files import read_text
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER
@@ -588,7 +589,7 @@ class TestResultsHandler(http.server.BaseHTTPRequestHandler):
             return
 
         try:
-            data = json.loads(filepath.read_text(encoding="utf-8"))
+            data = json.loads(read_text(filepath))
             self.send_json_response(with_model_summaries(data))
         except Exception as e:
             self.send_error(500, str(e))

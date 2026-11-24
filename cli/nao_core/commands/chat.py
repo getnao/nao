@@ -15,6 +15,7 @@ from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderConfig
 from nao_core.mode import MODE
+from nao_core.text_files import read_text
 from nao_core.tracking import track_command
 from nao_core.ui import UI, console
 
@@ -108,7 +109,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
     # Try to load existing secret from file
     if secret_path.exists():
         try:
-            secret = secret_path.read_text(encoding="utf-8").strip()
+            secret = read_text(secret_path).strip()
             if secret:
                 console.print(f"[bold green]✓[/bold green] Loaded auth secret from {secret_path}")
                 return secret
