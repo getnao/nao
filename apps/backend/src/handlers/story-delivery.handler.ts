@@ -12,6 +12,7 @@ import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
+import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as userQueries from '../queries/user.queries';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
 import { omitAccessDeniedQueries, refreshStoryById, refreshStoryForViewer } from '../services/live-story';
@@ -261,7 +262,10 @@ async function deliver(
 
 	const ownerId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id)) ?? null;
 	const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
-	await ensureRecipientsCanOpenStory(story.id, projectId, ownerId, recipientUserIds);
+	const openingRecipientUserIds = await ensureRecipientsCanOpenStory(story.id, projectId, ownerId, recipientUserIds);
+	if (openingRecipientUserIds.length === 0) {
+		return;
+	}
 	const linkUrl = storyPath(story.id);
 	const isCustom = story.format === 'custom';
 	const renderedCode = content.code ?? version.code;
@@ -280,7 +284,7 @@ async function deliver(
 		storyTitle: version.title,
 	};
 
-	const currentRecipientUserIds = await filterCurrentProjectMembers(projectId, recipientUserIds);
+	const currentRecipientUserIds = await filterCurrentProjectMembers(projectId, openingRecipientUserIds);
 	if (currentRecipientUserIds.length === 0) {
 		return;
 	}
@@ -334,24 +338,50 @@ async function buildCustomStoryPdfAttachment(
 	}
 }
 
+/**
+ * A delivery shares the story with its recipients, except in a team folder: there the folder decides who sees the
+ * story, so the delivery reaches only the people who can already open it, checked right before sending.
+ */
 async function ensureRecipientsCanOpenStory(
 	storyId: string,
 	projectId: string,
 	ownerId: string | null,
 	recipientUserIds: string[],
-): Promise<void> {
+): Promise<string[]> {
+	if (await isFiledInTeamFolder(storyId)) {
+		return listRecipientsWhoCanOpenStory(storyId, ownerId, recipientUserIds);
+	}
 	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
 	if (access) {
 		await grantShareAccessToRecipients(access, recipientUserIds);
-		return;
+		return recipientUserIds;
 	}
-	if (!ownerId) {
-		return;
+	if (ownerId) {
+		await sharedStoryQueries.createSharedStory(
+			{ storyId, projectId, userId: ownerId, visibility: 'specific' },
+			{ userIds: recipientUserIds },
+		);
 	}
-	await sharedStoryQueries.createSharedStory(
-		{ storyId, projectId, userId: ownerId, visibility: 'specific' },
-		{ userIds: recipientUserIds },
+	return recipientUserIds;
+}
+
+async function isFiledInTeamFolder(storyId: string): Promise<boolean> {
+	const folderItem = await storyFolderQueries.getStoryFolderItem(storyId);
+	return folderItem !== null && (await storyFolderQueries.findTeamFolderOf(folderItem.folderId)) !== null;
+}
+
+async function listRecipientsWhoCanOpenStory(
+	storyId: string,
+	ownerId: string | null,
+	recipientUserIds: string[],
+): Promise<string[]> {
+	const canOpen = await Promise.all(
+		recipientUserIds.map(
+			async (userId) =>
+				userId === ownerId || (await sharedStoryQueries.getStoryShareRole(storyId, userId)) !== null,
+		),
 	);
+	return recipientUserIds.filter((_userId, index) => canOpen[index]);
 }
 
 async function grantShareAccessToRecipients(
