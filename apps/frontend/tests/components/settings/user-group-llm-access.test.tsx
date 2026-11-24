@@ -7,11 +7,16 @@ import type { ReactNode } from 'react';
 import { UserGroupLlmAccess } from '@/components/settings/user-group-llm-access';
 
 const mocks = vi.hoisted(() => ({
-	useQuery: vi.fn(),
+	llmConfigs: {} as Record<string, unknown>,
+	mode: 'user_group' as 'project' | 'user_group',
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: mocks.useQuery,
+	useQuery: ({ queryKey }: { queryKey: string[] }) =>
+		queryKey[0] === 'llm-access-readiness' ? { data: { mode: mocks.mode } } : mocks.llmConfigs,
+}));
+vi.mock('@/components/settings/llm-access-mode-control', () => ({
+	LlmAccessModeControl: () => null,
 }));
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
@@ -32,6 +37,7 @@ vi.mock('@/main', () => ({
 	trpc: {
 		project: {
 			getLlmConfigs: { queryOptions: vi.fn(() => ({ queryKey: ['llm-configs'] })) },
+			getLlmAccessReadiness: { queryOptions: vi.fn(() => ({ queryKey: ['llm-access-readiness'] })) },
 		},
 	},
 }));
@@ -39,7 +45,8 @@ vi.mock('@/main', () => ({
 describe('UserGroupLlmAccess', () => {
 	beforeEach(() => {
 		Element.prototype.scrollIntoView = vi.fn();
-		mocks.useQuery.mockReturnValue({
+		mocks.mode = 'user_group';
+		mocks.llmConfigs = {
 			data: {
 				projectConfigs: [
 					{
@@ -50,7 +57,10 @@ describe('UserGroupLlmAccess', () => {
 						apiKeyPreview: null,
 						credentialPreviews: null,
 						enabledModels: [],
-						availableModels: [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }],
+						availableModels: [
+							{ id: 'gpt-5-mini', name: 'GPT-5 mini' },
+							{ id: 'gpt-5', name: 'GPT-5' },
+						],
 						customModels: [],
 						modelSettings: {},
 						baseUrl: null,
@@ -62,7 +72,7 @@ describe('UserGroupLlmAccess', () => {
 			},
 			isLoading: false,
 			isError: false,
-		});
+		};
 	});
 
 	afterEach(() => {
@@ -80,7 +90,7 @@ describe('UserGroupLlmAccess', () => {
 			llmConfigIds: ['env-openai'],
 			llmModelIdsByConfig: {},
 		});
-		expect(screen.getByText('OpenAI · ENV')).toBeTruthy();
+		expect(screen.getByText('OpenAI')).toBeTruthy();
 	});
 
 	it('keeps access controls interactive while autosaving', () => {
@@ -153,7 +163,7 @@ describe('UserGroupLlmAccess', () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it('freezes the current catalog when switching from all to selected models', () => {
+	it('keeps the remaining models when a model is unticked', () => {
 		const onChange = vi.fn();
 		render(
 			<UserGroupLlmAccess
@@ -164,12 +174,37 @@ describe('UserGroupLlmAccess', () => {
 			/>,
 		);
 
-		fireEvent.keyDown(screen.getByRole('combobox', { name: 'OpenAI (ENV) model access' }), { key: 'Enter' });
-		fireEvent.click(screen.getByRole('option', { name: 'Selected models' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'GPT-5 mini' }));
 
 		expect(onChange).toHaveBeenCalledWith({
 			llmConfigIds: ['env-openai'],
-			llmModelIdsByConfig: { 'env-openai': ['gpt-5-mini'] },
+			llmModelIdsByConfig: { 'env-openai': ['gpt-5'] },
 		});
+	});
+
+	it('grants the whole credential again once every model is ticked', () => {
+		const onChange = vi.fn();
+		render(
+			<UserGroupLlmAccess
+				llmConfigIds={['env-openai']}
+				llmModelIdsByConfig={{ 'env-openai': ['gpt-5'] }}
+				isLicensed
+				onChange={onChange}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'GPT-5 mini' }));
+
+		expect(onChange).toHaveBeenCalledWith({ llmConfigIds: ['env-openai'], llmModelIdsByConfig: {} });
+	});
+
+	it('shows every model as granted to all members while restrictions are off', () => {
+		mocks.mode = 'project';
+		render(<UserGroupLlmAccess llmConfigIds={[]} llmModelIdsByConfig={{}} isLicensed onChange={vi.fn()} />);
+
+		const credential = screen.getByRole('checkbox', { name: /OpenAI \(ENV\)/ }) as HTMLButtonElement;
+		expect(credential.getAttribute('aria-checked')).toBe('true');
+		expect(credential.disabled).toBe(true);
+		expect(screen.getByText('All members')).toBeTruthy();
 	});
 });

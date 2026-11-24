@@ -4,12 +4,12 @@ import { Link } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import type { LlmModelIdsByConfig, LlmProvider } from '@nao/shared/types';
 
+import { LlmAccessModeControl } from '@/components/settings/llm-access-mode-control';
 import { LockedFieldset } from '@/components/settings/locked-fieldset';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Callout } from '@/components/ui/callout';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { trpc } from '@/main';
 
 export interface UserGroupLlmAccessValue {
@@ -22,6 +22,7 @@ export function UserGroupLlmAccess({
 	llmModelIdsByConfig,
 	inheritedLlmConfigIds = [],
 	inheritedLlmModelIdsByConfig = {},
+	allUsersGroupId,
 	isLicensed,
 	autoSave = false,
 	saveStatus = 'idle',
@@ -31,13 +32,22 @@ export function UserGroupLlmAccess({
 	llmModelIdsByConfig: LlmModelIdsByConfig;
 	inheritedLlmConfigIds?: string[];
 	inheritedLlmModelIdsByConfig?: LlmModelIdsByConfig;
+	allUsersGroupId?: string;
 	isLicensed: boolean;
 	autoSave?: boolean;
 	saveStatus?: 'idle' | 'saving' | 'saved';
 	onChange: (value: UserGroupLlmAccessValue) => void;
 }) {
 	const configs = useQuery(trpc.project.getLlmConfigs.queryOptions());
+	const readiness = useQuery(trpc.project.getLlmAccessReadiness.queryOptions());
 	const projectConfigs = configs.data?.projectConfigs ?? [];
+	const isRestricted = readiness.data?.mode === 'user_group';
+	const allUsersGrantsEverything =
+		allUsersGroupId !== undefined &&
+		projectConfigs.every(
+			(config) =>
+				inheritedLlmConfigIds.includes(config.id) && !Object.hasOwn(inheritedLlmModelIdsByConfig, config.id),
+		);
 	const inheritedProviders = [
 		...new Set([
 			...(configs.data?.configProviders ?? []).map((config) => config.provider),
@@ -68,26 +78,23 @@ export function UserGroupLlmAccess({
 		});
 	};
 
-	const changeMode = (configId: string, mode: 'all' | 'selected', availableModelIds: string[]) => {
+	const changeModel = (configId: string, modelId: string, checked: boolean, availableModelIds: string[]) => {
+		const currentModelIds = llmConfigIds.includes(configId)
+			? (llmModelIdsByConfig[configId] ?? availableModelIds)
+			: [];
+		const nextModelIds = checked
+			? [...new Set([...currentModelIds, modelId])]
+			: currentModelIds.filter((id) => id !== modelId);
+		if (nextModelIds.length === 0) {
+			changeCredential(configId, false);
+			return;
+		}
+		const grantsAllModels = availableModelIds.every((id) => nextModelIds.includes(id));
 		onChange({
-			llmConfigIds,
-			llmModelIdsByConfig:
-				mode === 'all'
-					? removeModelRestriction(llmModelIdsByConfig, configId)
-					: { ...llmModelIdsByConfig, [configId]: availableModelIds },
-		});
-	};
-
-	const changeModel = (configId: string, modelId: string, checked: boolean) => {
-		const selectedModelIds = llmModelIdsByConfig[configId] ?? [];
-		onChange({
-			llmConfigIds,
-			llmModelIdsByConfig: {
-				...llmModelIdsByConfig,
-				[configId]: checked
-					? [...new Set([...selectedModelIds, modelId])]
-					: selectedModelIds.filter((id) => id !== modelId),
-			},
+			llmConfigIds: [...new Set([...llmConfigIds, configId])],
+			llmModelIdsByConfig: grantsAllModels
+				? removeModelRestriction(llmModelIdsByConfig, configId)
+				: { ...llmModelIdsByConfig, [configId]: nextModelIds },
 		});
 	};
 
@@ -101,10 +108,12 @@ export function UserGroupLlmAccess({
 							{saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : null}
 						</span>
 					</div>
-					<p className='mt-1 text-xs text-muted-foreground'>
-						Choose which credentials provide models to members of this group. Users in multiple groups
-						receive the union of their assignments.{autoSave && ' Changes save automatically.'}
-					</p>
+					{isRestricted && (
+						<p className='mt-1 text-xs text-muted-foreground'>
+							Choose which credentials provide models to members of this group. Users in multiple groups
+							receive the union of their assignments.{autoSave && ' Changes save automatically.'}
+						</p>
+					)}
 				</div>
 				{!isLicensed && <UpgradeToEnterprise />}
 			</div>
@@ -115,22 +124,38 @@ export function UserGroupLlmAccess({
 			) : projectConfigs.length === 0 ? (
 				<NoProjectCredentials inheritedProviders={inheritedProviders} />
 			) : (
-				<LockedFieldset disabled={!isLicensed} className='gap-2'>
+				<LockedFieldset disabled={!isLicensed} className='gap-3'>
+					<LlmAccessModeControl />
+					{isRestricted && allUsersGrantsEverything && (
+						<Callout>
+							All Users already grants every model, so this group adds nothing.{' '}
+							<Link
+								to='/settings/project/user-groups/$groupId'
+								params={{ groupId: allUsersGroupId }}
+								search={{ tab: 'llm-access' }}
+								className='underline underline-offset-2 hover:text-foreground'
+							>
+								Remove models from All Users
+							</Link>{' '}
+							to reserve them for specific groups.
+						</Callout>
+					)}
 					<div className='grid gap-3' role='group' aria-label='Allowed LLM credentials'>
 						{projectConfigs.map((config) => {
 							const checkboxId = `user-group-llm-config-${config.id}`;
 							const inherited = inheritedLlmConfigIds.includes(config.id);
 							const directlyAssigned = llmConfigIds.includes(config.id);
-							const inheritedAll = inherited && !Object.hasOwn(inheritedLlmModelIdsByConfig, config.id);
-							const directMode = Object.hasOwn(llmModelIdsByConfig, config.id) ? 'selected' : 'all';
+							const inheritedAll =
+								!isRestricted || (inherited && !Object.hasOwn(inheritedLlmModelIdsByConfig, config.id));
+							const accessBadge = !isRestricted
+								? 'All members'
+								: inherited
+									? 'Inherited from All Users'
+									: null;
+							const directAll = !Object.hasOwn(llmModelIdsByConfig, config.id);
 							const directModelIds = llmModelIdsByConfig[config.id] ?? [];
 							const inheritedModelIds = inheritedLlmModelIdsByConfig[config.id] ?? [];
 							const availableModels = config.availableModels ?? [];
-							const credentialPreview =
-								(config.credentialSource === 'env' ? 'ENV' : config.apiKeyPreview) ??
-								(config.credentialPreviews
-									? Object.values(config.credentialPreviews).join(', ')
-									: null);
 							return (
 								<div key={config.id} className='flex min-w-0 flex-col gap-3 rounded-lg border p-3'>
 									<div className='flex min-w-0 items-start gap-3'>
@@ -153,42 +178,21 @@ export function UserGroupLlmAccess({
 										>
 											<span className='flex flex-wrap items-center gap-1 text-sm font-medium'>
 												<span className='truncate'>{config.name}</span>
-												{inherited && (
+												{accessBadge && (
 													<span className='rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground'>
-														Inherited from All Users
+														{accessBadge}
 													</span>
 												)}
 											</span>
-											<span className='block truncate text-xs text-muted-foreground'>
-												{providerLabel(config.provider)}
-												{credentialPreview ? ` · ${credentialPreview}` : ''}
-											</span>
+											{config.name.toLowerCase() !==
+												providerLabel(config.provider).toLowerCase() && (
+												<span className='block truncate text-xs text-muted-foreground'>
+													{providerLabel(config.provider)}
+												</span>
+											)}
 										</label>
-										{directlyAssigned && !inheritedAll && (
-											<Select
-												value={directMode}
-												onValueChange={(mode) =>
-													changeMode(
-														config.id,
-														mode as 'all' | 'selected',
-														availableModels.map((model) => model.id),
-													)
-												}
-											>
-												<SelectTrigger
-													className='h-8 w-full sm:w-40'
-													aria-label={`${config.name} model access`}
-												>
-													<SelectValue />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectItem value='all'>All models</SelectItem>
-													<SelectItem value='selected'>Selected models</SelectItem>
-												</SelectContent>
-											</Select>
-										)}
 									</div>
-									{(directlyAssigned || inherited) && availableModels.length > 0 && (
+									{(directlyAssigned || inheritedAll || inherited) && availableModels.length > 0 && (
 										<div
 											className='grid gap-2 border-t pt-3 sm:grid-cols-2'
 											role='group'
@@ -199,7 +203,7 @@ export function UserGroupLlmAccess({
 													inheritedAll || inheritedModelIds.includes(model.id);
 												const modelDirect =
 													directlyAssigned &&
-													(directMode === 'all' || directModelIds.includes(model.id));
+													(directAll || directModelIds.includes(model.id));
 												const modelCheckboxId = `${checkboxId}-${model.id}`;
 												return (
 													<label
@@ -210,18 +214,19 @@ export function UserGroupLlmAccess({
 														<Checkbox
 															id={modelCheckboxId}
 															checked={modelInherited || modelDirect}
-															disabled={
-																modelInherited ||
-																!directlyAssigned ||
-																directMode === 'all'
-															}
+															disabled={modelInherited}
 															onCheckedChange={(checked) =>
-																changeModel(config.id, model.id, checked === true)
+																changeModel(
+																	config.id,
+																	model.id,
+																	checked === true,
+																	availableModels.map((candidate) => candidate.id),
+																)
 															}
 														/>
 														<span className='min-w-0 truncate'>
 															{model.name}
-															{modelInherited && (
+															{modelInherited && isRestricted && (
 																<span className='ml-1 text-xs text-muted-foreground'>
 																	(inherited)
 																</span>
@@ -232,11 +237,12 @@ export function UserGroupLlmAccess({
 											})}
 										</div>
 									)}
-									{(directlyAssigned || inherited) && availableModels.length === 0 && (
-										<p className='text-xs text-muted-foreground'>
-											This credential currently exposes no models.
-										</p>
-									)}
+									{(directlyAssigned || inheritedAll || inherited) &&
+										availableModels.length === 0 && (
+											<p className='text-xs text-muted-foreground'>
+												This credential currently exposes no models.
+											</p>
+										)}
 								</div>
 							);
 						})}

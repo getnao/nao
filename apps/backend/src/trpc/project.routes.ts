@@ -63,6 +63,7 @@ import {
 	getAvailableModelsForUser,
 	getDefaultChatModelForUser,
 	getLlmAccessReadiness,
+	seedAllUsersLlmAccess,
 } from '../services/user-group-llm-access.service';
 import {
 	getProjectWarehouseCredentialsSummary,
@@ -406,6 +407,9 @@ export const projectRoutes = {
 					code: 'FORBIDDEN',
 					message: 'An Enterprise user-groups license is required to configure group LLM access.',
 				});
+			}
+			if (input.mode === 'user_group') {
+				await seedAllUsersLlmAccess(ctx.project.id);
 			}
 			if (input.mode === 'user_group' && !(await getLlmAccessReadiness(ctx.project.id)).canEnable) {
 				throw new TRPCError({

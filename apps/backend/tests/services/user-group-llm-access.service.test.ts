@@ -7,6 +7,7 @@ import {
 	resolveUserBackgroundModelId,
 	resolveUserBackgroundModelSelection,
 	resolveUserModelSelection,
+	seedAllUsersLlmAccess,
 } from '../../src/services/user-group-llm-access.service';
 
 const mocks = vi.hoisted(() => ({
@@ -18,6 +19,14 @@ const mocks = vi.hoisted(() => ({
 	getProjectAvailableModels: vi.fn(),
 	getProjectAvailableModelsForConfigs: vi.fn(),
 	listProjectAutomationModelSelections: vi.fn(),
+	listUserGroups: vi.fn(),
+	updateUserGroupLlmAccess: vi.fn(),
+}));
+
+vi.mock('../../src/queries/user-group.queries', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/queries/user-group.queries')>()),
+	listUserGroups: mocks.listUserGroups,
+	updateUserGroupLlmAccess: mocks.updateUserGroupLlmAccess,
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({
@@ -376,6 +385,48 @@ describe('user group LLM access', () => {
 			canEnable: false,
 			unassignedGroupIds: ['group-1'],
 			userIdsWithoutModels: ['user-1'],
+		});
+	});
+
+	describe('seedAllUsersLlmAccess', () => {
+		beforeEach(() => {
+			mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+			mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }, { id: 'config-b' }]);
+			mocks.listUserGroups.mockResolvedValue([
+				{ id: 'all-users', isDefault: true },
+				{ id: 'group-1', isDefault: false },
+			]);
+		});
+
+		it('grants every credential to All Users when no group has one yet', async () => {
+			mocks.getAvailableUserGroupOverview.mockResolvedValue({
+				groups: [
+					{ id: 'all-users', isDefault: true, isLocked: false, llmConfigIds: [], llmModelIdsByConfig: {} },
+				],
+				users: [],
+				memberships: [],
+			});
+
+			await seedAllUsersLlmAccess('project-1');
+
+			expect(mocks.updateUserGroupLlmAccess).toHaveBeenCalledWith(
+				'project-1',
+				'all-users',
+				['config-a', 'config-b'],
+				{},
+			);
+		});
+
+		it('keeps existing group assignments untouched', async () => {
+			mocks.getAvailableUserGroupOverview.mockResolvedValue({
+				groups: [{ id: 'group-1', isLocked: false, llmConfigIds: ['config-a'], llmModelIdsByConfig: {} }],
+				users: [],
+				memberships: [],
+			});
+
+			await seedAllUsersLlmAccess('project-1');
+
+			expect(mocks.updateUserGroupLlmAccess).not.toHaveBeenCalled();
 		});
 	});
 });

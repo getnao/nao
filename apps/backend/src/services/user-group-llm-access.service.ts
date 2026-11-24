@@ -3,7 +3,7 @@ import type { LlmAccessMode, LlmSelectedModel } from '@nao/shared/types';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
-import { mergeUserGroupLlmAccess } from '../queries/user-group.queries';
+import { listUserGroups, mergeUserGroupLlmAccess, updateUserGroupLlmAccess } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import {
 	attachServingLlmConfig,
@@ -124,6 +124,27 @@ export async function getLlmAccessReadiness(projectId: string): Promise<LlmAcces
 			.map((automation) => automation.id),
 		canEnable: userModelCatalogs.some((models) => models.length > 0),
 	};
+}
+
+/** Grants every credential to All Users when no group has any yet, so enabling restrictions removes nobody's access. */
+export async function seedAllUsersLlmAccess(projectId: string): Promise<void> {
+	const readiness = await getLlmAccessReadiness(projectId);
+	if (readiness.assignedConfigCount > 0) {
+		return;
+	}
+	const [configs, groups] = await Promise.all([
+		projectLlmConfigQueries.getProjectLlmConfigs(projectId),
+		listUserGroups(projectId),
+	]);
+	const allUsersGroup = groups.find((group) => group.isDefault);
+	if (allUsersGroup && configs.length > 0) {
+		await updateUserGroupLlmAccess(
+			projectId,
+			allUsersGroup.id,
+			configs.map((config) => config.id),
+			{},
+		);
+	}
 }
 
 export async function getAvailableModelsForUser(projectId: string, userId: string): Promise<ProjectAvailableModel[]> {
