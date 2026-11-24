@@ -39,6 +39,11 @@ describe('groups config', () => {
 			'groups:\n  - id: all_users\nprotected_tables: {}\n',
 			'Protected tables are not managed by groups.yaml',
 		],
+		[
+			'rejects docs_grants outside docs',
+			'groups:\n  - id: all_users\n    access:\n      files:\n        mode: all\n        docs_grants: [{ kind: folder, path: semantics }]\n',
+			'docs_grants only accepts paths under docs/',
+		],
 	])('%s', (_label, source, message) => {
 		expect(() => parseGroupsConfig(source)).toThrowError(new RegExp(message.replaceAll('.', '\\.')));
 	});
@@ -62,6 +67,27 @@ groups:
 		expect(config.allUsers.features).toEqual(['automationCreation']);
 		expect(config.allUsers.skillsAccess).toEqual({ mode: 'restricted', skills: ['shared'] });
 		expect(config.groups[0].features).toEqual(['storyCreation']);
+	});
+
+	it.each([
+		['granted by all_users', 'shared', true],
+		['granted by nobody', 'other', false],
+	])('accepts a preloaded skill only when it is granted (%s)', (_label, skill, accepted) => {
+		const source = `
+groups:
+    - id: all_users
+      capabilities:
+          skills: { mode: restricted, allowed: [shared] }
+    - id: finance
+      capabilities:
+          skills: { mode: restricted, allowed: [], preloaded: [${skill}] }
+`;
+
+		if (accepted) {
+			expect(parseGroupsConfig(source).groups[0].preloadedSkills).toEqual([skill]);
+		} else {
+			expect(() => parseGroupsConfig(source)).toThrowError(`preloaded skill "${skill}"`);
+		}
 	});
 
 	it('reports configuration failures with the dedicated error type', () => {

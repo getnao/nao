@@ -10,12 +10,11 @@ import { stringify } from 'yaml';
 
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
-import { getFilesContextCatalog } from './file-tree-catalog.service';
 import { ALL_USERS_GROUP_ID, assignConfigIds, toSnakeCase } from './groups-config.service';
 
 type ExportedSection = Record<string, unknown>;
 
-export async function exportGroupsConfig(projectId: string, projectPath: string): Promise<string> {
+export async function exportGroupsConfig(projectId: string): Promise<string> {
 	const [groups, users, manualMemberships] = await Promise.all([
 		userGroupQueries.listUserGroups(projectId),
 		projectQueries.listUsersWithProjectAccess(projectId),
@@ -38,16 +37,13 @@ export async function exportGroupsConfig(projectId: string, projectPath: string)
 			);
 		}
 	}
-	const topLevelFileGrants = getFilesContextCatalog(projectPath)
-		.entries.filter((entry) => !entry.path.includes('/'))
-		.map((entry) => ({ kind: entry.kind, path: entry.path }));
 	const exportGroup = (group: userGroupQueries.UserGroup, configId: string) => ({
 		id: configId,
 		...(group.isDefault || group.name === configId ? {} : { name: group.name }),
 		...(group.isDefault
 			? {}
 			: membershipSection(group, group.memberEmails ?? [...(membershipEmails.get(group.id) ?? [])].sort())),
-		...settingsSections(group, configIdsByGroupId, topLevelFileGrants),
+		...settingsSections(group, configIdsByGroupId),
 	});
 	return stringify(
 		{
@@ -84,7 +80,6 @@ function membershipSection(group: userGroupQueries.UserGroup, memberEmails: stri
 function settingsSections(
 	group: userGroupQueries.UserGroup,
 	configIdsByGroupId: ReadonlyMap<string, string>,
-	topLevelFileGrants: Array<{ kind: 'folder' | 'file'; path: string }>,
 ): ExportedSection {
 	return {
 		capabilities: {
@@ -105,7 +100,7 @@ function settingsSections(
 		},
 		access: {
 			databases: exportDatabaseAccess(group.databaseAccess),
-			files: exportFileAccess(group.docsAccess, group.filesAccess, topLevelFileGrants),
+			files: exportFileAccess(group.docsAccess, group.filesAccess),
 		},
 		policies: {
 			rows: exportRowPolicies(group.rowPolicies),
@@ -140,22 +135,15 @@ function exportDatabaseAccess(access: DatabaseContextAccess): ExportedSection {
 	};
 }
 
-function exportFileAccess(
-	docsAccess: FileTreeAccess,
-	filesAccess: FileTreeAccess,
-	topLevelFileGrants: Array<{ kind: 'folder' | 'file'; path: string }>,
-): ExportedSection {
-	if (docsAccess.mode === 'all' && filesAccess.mode === 'all') {
-		return { mode: 'all' };
-	}
+function exportFileAccess(docsAccess: FileTreeAccess, filesAccess: FileTreeAccess): ExportedSection {
 	const docsGrants =
 		docsAccess.mode === 'all'
 			? [{ kind: 'folder' as const, path: 'docs' }]
 			: docsAccess.grants.map((grant) => ({ kind: grant.kind, path: `docs/${grant.path}` }));
-	return {
-		mode: 'restricted',
-		grants: [...docsGrants, ...(filesAccess.mode === 'all' ? topLevelFileGrants : filesAccess.grants)],
-	};
+	if (filesAccess.mode === 'all') {
+		return docsAccess.mode === 'all' ? { mode: 'all' } : { mode: 'all', docs_grants: docsGrants };
+	}
+	return { mode: 'restricted', grants: [...docsGrants, ...filesAccess.grants] };
 }
 
 function exportColumnPolicies(columnPolicies: UserGroupColumnPolicies): ExportedSection[] {

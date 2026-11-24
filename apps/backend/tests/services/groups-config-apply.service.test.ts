@@ -46,19 +46,23 @@ import {
 	userGroup,
 	userGroupMember,
 } from '../../src/db/sqlite-schema';
+import { __reloadEnvForTesting } from '../../src/env';
 import { createProject } from '../../src/queries/project.queries';
-import { createUserGroup, listUserGroups } from '../../src/queries/user-group.queries';
+import { createUserGroup, listUserGroups, updateUserGroup } from '../../src/queries/user-group.queries';
 import { parseGroupsConfig } from '../../src/services/groups-config.service';
 import {
+	applyAllProjectGroupsFiles,
 	applyProjectGroupsFile,
 	createProjectWithGroupsConfig,
 	reconcileGroupsMembershipsForUser,
 	validateProjectGroupsFile,
 } from '../../src/services/groups-config-apply.service';
 import { exportGroupsConfig } from '../../src/services/groups-config-export.service';
+import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const createTemporaryFolder = useTemporaryFolders();
+restoreProcessEnvAfterEach({ afterRestore: __reloadEnvForTesting });
 const PROJECT_ID = 'groups-config-project';
 const USER_ID = 'groups-config-user';
 
@@ -124,7 +128,7 @@ groups:
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledTimes(2);
 		await expect(createUserGroup(PROJECT_ID, 'Blocked in code mode')).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		const storedFinance = (await listUserGroups(PROJECT_ID)).find((group) => group.id === existingId)!;
-		const exportedFinance = parseGroupsConfig(await exportGroupsConfig(PROJECT_ID, projectPath)).groups[0];
+		const exportedFinance = parseGroupsConfig(await exportGroupsConfig(PROJECT_ID)).groups[0];
 		expect(exportedFinance).toMatchObject({
 			name: storedFinance.name,
 			memberEmails: storedFinance.memberEmails,
@@ -156,7 +160,7 @@ groups:
 		expect(await applyProjectGroupsFile(PROJECT_ID, projectPath, USER_ID)).toBe(true);
 	});
 
-	it('exports only manual memberships as emails before the project switches to code', async () => {
+	it('exports manual memberships and all files with restricted docs before the project switches to code', async () => {
 		const ssoUserId = 'sso-user';
 		await db.insert(user).values({ id: ssoUserId, name: 'Bob', email: 'bob@example.com' });
 		await db.insert(projectMember).values({ projectId: PROJECT_ID, userId: ssoUserId, role: 'user' });
@@ -167,10 +171,37 @@ groups:
 			{ groupId: 'ui-finance', userId: USER_ID, provider: 'manual' },
 			{ groupId: 'ui-finance', userId: ssoUserId, provider: 'oidc' },
 		]);
+		const docsAccess = { mode: 'restricted' as const, grants: [{ kind: 'folder' as const, path: 'finance' }] };
+		await updateUserGroup(PROJECT_ID, 'ui-finance', {
+			featureGrants: [],
+			docsAccess,
+			filesAccess: { mode: 'all' },
+		});
 
-		const exported = parseGroupsConfig(await exportGroupsConfig(PROJECT_ID, projectPath));
+		const exported = parseGroupsConfig(await exportGroupsConfig(PROJECT_ID));
 
-		expect(exported.groups[0].memberEmails).toEqual(['alice@example.com']);
+		expect(exported.groups[0]).toMatchObject({
+			memberEmails: ['alice@example.com'],
+			docsAccess,
+			filesAccess: { mode: 'all' },
+		});
+	});
+
+	it('applies only the configured projects at self-hosted startup', async () => {
+		process.env.NAO_DEFAULT_PROJECT_PATH = projectPath;
+		__reloadEnvForTesting();
+		await createProject({
+			id: 'stale-project',
+			orgId: 'groups-config-org',
+			name: 'Stale',
+			type: 'local',
+			path: createTemporaryFolder('groups-config-stale-'),
+		});
+		await db.update(project).set({ userGroupsConfigAppliedAt: new Date() }).where(eq(project.id, 'stale-project'));
+		writeGroups('groups:\n    - id: all_users\n    - id: finance\n');
+
+		await expect(applyAllProjectGroupsFiles()).resolves.toBeUndefined();
+		expect((await listUserGroups(PROJECT_ID)).map((group) => group.configId)).toContain('finance');
 	});
 
 	it('archives unlisted groups and reactivates the same row when its id returns', async () => {

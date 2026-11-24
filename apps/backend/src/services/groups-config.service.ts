@@ -49,6 +49,7 @@ export const ALL_USERS_GROUP_ID = 'all_users';
 
 const MAX_GROUPS = 10_000;
 const MAX_GRANTS = 10_000;
+const DOCS_PREFIX = 'docs/';
 const MAX_PATTERNS = 200;
 const MAX_MEMBERS = 100_000;
 const MAX_SSO_GROUPS = 200;
@@ -76,6 +77,9 @@ const filePathSchema = z
 	.string()
 	.refine((value) => normalizeFileTreePath(value) !== null, 'Invalid path.')
 	.transform((value) => normalizeFileTreePath(value)!);
+const fileGrantsSchema = z
+	.array(z.object({ kind: z.enum(['folder', 'file']), path: filePathSchema }).strict())
+	.max(MAX_GRANTS);
 const rowValueSchema = z
 	.union([z.string(), z.number()])
 	.transform(String)
@@ -177,16 +181,8 @@ const accessSchema = z
 				.strict(),
 		]),
 		files: z.discriminatedUnion('mode', [
-			z.object({ mode: z.literal('all') }).strict(),
-			z
-				.object({
-					mode: z.literal('restricted'),
-					grants: z
-						.array(z.object({ kind: z.enum(['folder', 'file']), path: filePathSchema }).strict())
-						.max(MAX_GRANTS)
-						.default([]),
-				})
-				.strict(),
+			z.object({ mode: z.literal('all'), docs_grants: fileGrantsSchema.optional() }).strict(),
+			z.object({ mode: z.literal('restricted'), grants: fileGrantsSchema.default([]) }).strict(),
 		]),
 	})
 	.strict()
@@ -476,9 +472,9 @@ function normalizeGroupsConfig(entries: GroupEntry[]): NormalizedUserGroupsConfi
 	const customEntries = entries.filter((entry) => entry !== defaults && entry !== allUsers);
 	issues.push(...findDuplicateNames(customEntries));
 	const customIds = new Set(customEntries.map((entry) => entry.id));
-	const resolve = (entry: GroupEntry | undefined) => {
+	const resolve = (entry: GroupEntry | undefined, inheritedSkills?: Capabilities['skills']) => {
 		const settings = resolveSettings(entry, defaults);
-		issues.push(...validateResolvedSettings(entry?.id ?? ALL_USERS_GROUP_ID, settings, customIds));
+		issues.push(...validateResolvedSettings(entry?.id ?? ALL_USERS_GROUP_ID, settings, customIds, inheritedSkills));
 		return settings;
 	};
 	const allUsersSettings = resolve(allUsers);
@@ -488,7 +484,7 @@ function normalizeGroupsConfig(entries: GroupEntry[]): NormalizedUserGroupsConfi
 			name: entry.name ?? entry.id,
 			memberEmails: uniqueSorted(entry.list_of_emails ?? []),
 			ssoMappings: toSsoMappings(entry.sso_groups),
-			...toNormalizedSettings(resolve(entry)),
+			...toNormalizedSettings(resolve(entry, allUsersSettings.capabilities.skills)),
 		}))
 		.sort((left, right) => left.configId.localeCompare(right.configId));
 	if (issues.length > 0) {
@@ -531,7 +527,12 @@ function resolveSettings(entry: GroupEntry | undefined, defaults: GroupEntry | u
 	};
 }
 
-function validateResolvedSettings(id: string, settings: ResolvedSettings, customIds: ReadonlySet<string>): string[] {
+function validateResolvedSettings(
+	id: string,
+	settings: ResolvedSettings,
+	customIds: ReadonlySet<string>,
+	inheritedSkills?: Capabilities['skills'],
+): string[] {
 	const issues: string[] = [];
 	for (const target of settings.capabilities.share_targets.group_ids) {
 		if (target === id) {
@@ -541,17 +542,25 @@ function validateResolvedSettings(id: string, settings: ResolvedSettings, custom
 		}
 	}
 	const skills = settings.capabilities.skills;
-	if (skills.mode === 'restricted') {
-		const allowed = new Set(skills.allowed);
+	if (skills.mode === 'restricted' && inheritedSkills?.mode !== 'all') {
+		const allowed = new Set([...skills.allowed, ...(inheritedSkills?.allowed ?? [])]);
 		for (const skill of skills.preloaded.filter((name) => !allowed.has(name))) {
-			issues.push(`"${id}": preloaded skill "${skill}" must also be in capabilities.skills.allowed.`);
+			issues.push(
+				`"${id}": preloaded skill "${skill}" must be in capabilities.skills.allowed or granted by "${ALL_USERS_GROUP_ID}".`,
+			);
 		}
 	}
-	if (settings.access.files.mode === 'restricted') {
-		for (const grant of settings.access.files.grants) {
+	const files = settings.access.files;
+	if (files.mode === 'restricted') {
+		for (const grant of files.grants) {
 			if (grant.path === 'databases' || grant.path.startsWith('databases/')) {
 				issues.push(`"${id}": grant databases through access.databases, not access.files (${grant.path}).`);
 			}
+		}
+	}
+	for (const grant of files.mode === 'all' ? (files.docs_grants ?? []) : []) {
+		if (!grant.path.startsWith(DOCS_PREFIX)) {
+			issues.push(`"${id}": access.files.docs_grants only accepts paths under docs/ (${grant.path}).`);
 		}
 	}
 	return issues;
@@ -605,7 +614,12 @@ function toDatabaseAccess(access: Access['databases']): DatabaseContextAccess {
 
 function splitFileAccess(access: Access['files']): { docsAccess: DocsContextAccess; filesAccess: FilesContextAccess } {
 	if (access.mode === 'all') {
-		return { docsAccess: { mode: 'all' }, filesAccess: { mode: 'all' } };
+		return {
+			docsAccess: access.docs_grants
+				? normalizeFileTreeAccess({ mode: 'restricted', grants: access.docs_grants.map(toDocsGrant) })
+				: { mode: 'all' },
+			filesAccess: { mode: 'all' },
+		};
 	}
 	const docsGrants: FileTreeGrant[] = [];
 	const fileGrants: FileTreeGrant[] = [];
@@ -613,8 +627,8 @@ function splitFileAccess(access: Access['files']): { docsAccess: DocsContextAcce
 	for (const grant of access.grants) {
 		if (grant.kind === 'folder' && grant.path === 'docs') {
 			allDocs = true;
-		} else if (grant.path.startsWith('docs/')) {
-			docsGrants.push({ kind: grant.kind, path: grant.path.slice(5) });
+		} else if (grant.path.startsWith(DOCS_PREFIX)) {
+			docsGrants.push(toDocsGrant(grant));
 		} else {
 			fileGrants.push(grant);
 		}
@@ -623,6 +637,10 @@ function splitFileAccess(access: Access['files']): { docsAccess: DocsContextAcce
 		docsAccess: allDocs ? { mode: 'all' } : normalizeFileTreeAccess({ mode: 'restricted', grants: docsGrants }),
 		filesAccess: normalizeFileTreeAccess({ mode: 'restricted', grants: fileGrants }),
 	};
+}
+
+function toDocsGrant(grant: FileTreeGrant): FileTreeGrant {
+	return { kind: grant.kind, path: grant.path.slice(DOCS_PREFIX.length) };
 }
 
 function toRowPolicies(rows: Policies['rows']): UserGroupRowPolicies {

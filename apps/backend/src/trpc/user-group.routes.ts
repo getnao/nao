@@ -219,7 +219,7 @@ export const userGroupRoutes = {
 	exportConfig: adminProtectedProcedure.query(async ({ ctx }) => {
 		return {
 			filename: 'groups.yaml',
-			content: await exportGroupsConfig(ctx.project.id, requireProjectPath(ctx.project.path)),
+			content: await exportGroupsConfig(ctx.project.id),
 		};
 	}),
 
