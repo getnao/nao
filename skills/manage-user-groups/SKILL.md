@@ -13,7 +13,7 @@ Use this skill when an administrator wants to move user-group settings from the 
 2. Put the downloaded file at the project root, next to `nao_config.yaml`.
 3. Edit only the keys described by the file and the project's `GROUPS_AS_CODE.md` documentation.
 4. Run `nao group format`, then `nao group lint`.
-5. Review semantic changes with `nao group diff`. Use `nao group diff --exit-code` in CI.
+5. Review the changes with Git.
 6. Commit the file and run `nao deploy`. The first valid apply switches the project permanently to code management.
 
 Never construct the initial file from memory when the UI already contains groups. Downloading first lets nao adopt the existing database rows, preserving shares, budgets and history.
@@ -35,8 +35,6 @@ Never construct the initial file from memory when the UI already contains groups
 ```bash
 nao group format
 nao group lint
-nao group diff
-nao group diff --ref main --exit-code
 nao deploy
 ```
 

@@ -16,16 +16,13 @@ def test_group_forwards_arguments_from_current_project(tmp_path: Path, monkeypat
     ):
         run.return_value = MagicMock(returncode=0)
 
-        group(["diff", "--ref", "main", "--exit-code"])
+        group(["format"])
 
     run.assert_called_once()
     assert run.call_args.args[0] == [
         str(binary),
         "groups",
-        "diff",
-        "--ref",
-        "main",
-        "--exit-code",
+        "format",
     ]
     assert run.call_args.kwargs["cwd"] == str(tmp_path)
 

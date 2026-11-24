@@ -12,17 +12,17 @@ from nao_core.tracking import track_command
 def group(
     args: Annotated[
         list[str],
-        Parameter(allow_leading_hyphen=True, help="lint, format or diff arguments."),
+        Parameter(allow_leading_hyphen=True, help="lint or format arguments."),
     ] = [],
 ) -> None:
-    """Validate, format or diff groups.yaml in the current project."""
+    """Validate or format groups.yaml in the current project."""
     _run(args)
 
 
 def groups(
     args: Annotated[
         list[str],
-        Parameter(allow_leading_hyphen=True, help="lint, format or diff arguments."),
+        Parameter(allow_leading_hyphen=True, help="lint or format arguments."),
     ] = [],
 ) -> None:
     """Alias of `nao group`."""
