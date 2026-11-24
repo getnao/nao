@@ -83,6 +83,28 @@ describe('findStoryImageSources', () => {
 		]);
 	});
 
+	it('fills template links from the columns of each row, and skips expressions it cannot read', () => {
+		const code = [
+			'jsx(Image, { src: `gs://acme-assets/marketing/${row.region}/${row.key}.png` })',
+			'jsx(Image, { src: `https://cdn.acme.com/brand/${item?.id}.webp` })',
+			'jsx(Image, { src: `gs://acme-assets/marketing/${encodeURIComponent(row.key)}.png` })',
+		];
+		const queries = {
+			products: {
+				columns: ['region', 'key', 'id'],
+				data: [
+					{ region: 'emea', key: 'hero', id: 42 },
+					{ key: 'logo', id: 7n },
+				],
+			},
+		};
+		expect(findStoryImageSources(code, queries)).toEqual([
+			'gs://acme-assets/marketing/emea/hero.png',
+			'https://cdn.acme.com/brand/42.webp',
+			'https://cdn.acme.com/brand/7.webp',
+		]);
+	});
+
 	it.each([
 		['<Table query="sites" />', []],
 		['import { Image as Logo } from "nao"; <Logo src={row.logo} />', ['s3://acme-products/logo.png']],

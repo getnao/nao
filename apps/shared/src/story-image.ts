@@ -53,6 +53,11 @@ const DIRECT_IMAGE_SOURCE_PATTERN =
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 const ENCODED_SEPARATOR_PATTERN = /%2f|%5c/i;
 const IMAGE_CALL_PATTERN = /\bImage\b|\.image\(/;
+const TEMPLATE_EXPRESSION_PATTERN = /\$\{([^}]*)\}/;
+const ROW_FIELD_PATTERN = /^\s*[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*\s*$/;
+const ROW_FIELD_SEPARATOR = /\??\./;
+
+type StoryRow = Record<string, unknown>;
 
 /** Data and blob URLs already live in the frame: the story shows them without asking the host. */
 export function isInlineStoryImage(src: string): boolean {
@@ -91,8 +96,9 @@ export function findStoryImageSources(
 	isWanted: (src: string) => boolean = () => true,
 ): string[] {
 	const showsImages = code.some((text) => IMAGE_CALL_PATTERN.test(text));
+	const rows = showsImages ? collectRows(queries) : [];
 	const rowValues = showsImages ? collectStrings(queries) : [];
-	const candidates = [...code.flatMap(linksInCode), ...rowValues.flatMap(linksInValue)];
+	const candidates = [...code.flatMap((text) => linksInCode(text, rows)), ...rowValues.flatMap(linksInValue)];
 	const sources = new Set<string>();
 	for (const candidate of candidates) {
 		if (candidate.length <= MAX_STORY_IMAGE_SOURCE_LENGTH && isWanted(candidate)) {
@@ -162,18 +168,49 @@ function linksInText(text: string): string[] {
 }
 
 /** A link's `href` shows no image, and image paths often hold spaces or brackets, so a quoted link is kept whole. */
-function linksInCode(text: string): string[] {
+function linksInCode(text: string, rows: StoryRow[]): string[] {
 	const quoted: string[] = [];
 	const unquoted = text
 		.replace(LINK_ATTRIBUTE_PATTERN, ' ')
-		.replace(QUOTED_SOURCE_PATTERN, (_match, _quote: string, source: string) => {
-			quoted.push(source);
+		.replace(QUOTED_SOURCE_PATTERN, (_match, quote: string, source: string) => {
+			quoted.push(...(quote === '`' ? fillTemplateFromRows(source, rows) : [source]));
 			return ' ';
 		});
 	return [...quoted.filter(isLiteralImageSource), ...linksInText(unquoted)];
 }
 
-/** A template literal like `gs://bucket/${key}.png` names no real object until it runs. */
+/**
+ * A template literal like `gs://bucket/${row.key}.png` names one object per row, read from the row's `key` column.
+ * Property names survive the bundler's renaming; any other expression only resolves when the story runs.
+ */
+function fillTemplateFromRows(template: string, rows: StoryRow[]): string[] {
+	const parts = template.split(TEMPLATE_EXPRESSION_PATTERN);
+	if (parts.length === 1) {
+		return [template];
+	}
+	const literals = parts.filter((_part, index) => index % 2 === 0);
+	const fields = parts.filter((_part, index) => index % 2 === 1).map(rowField);
+	if (!fields.every((field): field is string => field !== null)) {
+		return [];
+	}
+	return rows.flatMap((row) => {
+		const values = fields.map((field) => row[field]);
+		if (!values.every(isTemplateValue)) {
+			return [];
+		}
+		return [literals.reduce((source, literal, index) => `${source}${values[index - 1]}${literal}`)];
+	});
+}
+
+function rowField(expression: string): string | null {
+	return ROW_FIELD_PATTERN.test(expression) ? (expression.trim().split(ROW_FIELD_SEPARATOR).at(-1) ?? null) : null;
+}
+
+function isTemplateValue(value: unknown): value is string | number | bigint {
+	return typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
+}
+
+/** A template literal left unresolved names no real object until it runs. */
 function isLiteralImageSource(source: string): boolean {
 	return !source.includes('${') && parseStoryImageSource(source) !== null;
 }
@@ -183,6 +220,14 @@ function linksInValue(value: string): string[] {
 	const whole = value.trim();
 	const isWholeLink = BUCKET_SOURCE_PATTERN.test(whole) || WHOLE_HTTPS_SOURCE_PATTERN.test(whole);
 	return isWholeLink && parseStoryImageSource(whole) ? [whole] : linksInText(value);
+}
+
+function collectRows(queries: Record<string, StoryQueryResult>): StoryRow[] {
+	return Object.values(queries).flatMap((result) => result.data.filter(isRow));
+}
+
+function isRow(value: unknown): value is StoryRow {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function collectStrings(value: unknown): string[] {
