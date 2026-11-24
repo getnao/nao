@@ -215,7 +215,9 @@ def cleanup_stale_targets(config_repos: list, base_path: Path, verbose: bool = F
     project_path = base_path.parent
     manifest = base_path / REPO_TARGETS_MANIFEST
     configured = {target.target for repo in config_repos for target in repo.targets}
-    recorded = {line for line in manifest.read_text().splitlines() if line} if manifest.is_file() else set()
+    recorded = (
+        {line for line in manifest.read_text(encoding="utf-8").splitlines() if line} if manifest.is_file() else set()
+    )
 
     unclaimed = [target for target in sorted(configured - recorded) if _holds_files(project_path / target)]
     if unclaimed:
@@ -233,7 +235,7 @@ def cleanup_stale_targets(config_repos: list, base_path: Path, verbose: bool = F
 
     if configured:
         base_path.mkdir(parents=True, exist_ok=True)
-        manifest.write_text("".join(f"{target}\n" for target in sorted(configured)))
+        manifest.write_text("".join(f"{target}\n" for target in sorted(configured)), encoding="utf-8")
     elif manifest.exists():
         manifest.unlink()
 

@@ -37,7 +37,7 @@ class SkillsConfig(BaseModel):
             ):
                 # Create top-customers skill file
                 skill_file = absolute_path / "top-customers.md"
-                skill_file.write_text(generate_top_customers_skill())
+                skill_file.write_text(generate_top_customers_skill(), encoding="utf-8")
                 UI.success(f"Created skills folder with top-customers example: {absolute_path}")
             else:
                 UI.success(f"Created empty skills folder: {absolute_path}")

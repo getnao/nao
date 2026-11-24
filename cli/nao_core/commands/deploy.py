@@ -25,7 +25,7 @@ def _load_naoignore(project_path: Path) -> set[str]:
     if not ignore_file.exists():
         return set()
     patterns = set()
-    for line in ignore_file.read_text().splitlines():
+    for line in ignore_file.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             patterns.add(stripped)
@@ -64,7 +64,7 @@ def _read_project_name(project_path: Path) -> str | None:
         UI.error("No nao_config.yaml found in current directory")
         return None
     try:
-        data = yaml.safe_load(config_file.read_text())
+        data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         UI.error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
         return None

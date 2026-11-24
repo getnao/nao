@@ -38,7 +38,7 @@ class TestCase:
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
         """Load a test case from a YAML file."""
-        with open(file_path) as f:
+        with open(file_path, encoding="utf-8") as f:
             data = yaml.load(f, Loader=_TestFileLoader)
 
         return cls(

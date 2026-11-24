@@ -588,7 +588,7 @@ class TestResultsHandler(http.server.BaseHTTPRequestHandler):
             return
 
         try:
-            data = json.loads(filepath.read_text())
+            data = json.loads(filepath.read_text(encoding="utf-8"))
             self.send_json_response(with_model_summaries(data))
         except Exception as e:
             self.send_error(500, str(e))

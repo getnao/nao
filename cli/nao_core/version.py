@@ -81,7 +81,7 @@ def _read_cache() -> str | None:
     """Return cached latest version if cache exists and is fresh, else None."""
     if not CACHE_FILE.exists():
         return None
-    data = json.loads(CACHE_FILE.read_text())
+    data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
     if time.time() - data.get("checked_at", 0) < CHECK_INTERVAL:
         return data.get("latest")
     return None
@@ -95,7 +95,7 @@ def _fetch_and_cache() -> str | None:
         data = httpx.get(PYPI_URL, timeout=3).json()
         latest = data["info"]["version"]
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_FILE.write_text(json.dumps({"latest": latest, "checked_at": time.time()}))
+        CACHE_FILE.write_text(json.dumps({"latest": latest, "checked_at": time.time()}), encoding="utf-8")
         return latest
     except Exception:
         return None

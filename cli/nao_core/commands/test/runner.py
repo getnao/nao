@@ -534,7 +534,7 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
         "pass_metrics": summarize_pass_metrics(runs),
     }
 
-    output_file.write_text(json.dumps(data, indent=2))
+    output_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return output_file
 
 

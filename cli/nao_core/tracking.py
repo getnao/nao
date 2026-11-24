@@ -44,14 +44,14 @@ def get_or_create_distinct_id() -> str:
     try:
         # Try to read existing ID
         if DISTINCT_ID_FILE.exists():
-            existing_id = DISTINCT_ID_FILE.read_text().strip()
+            existing_id = DISTINCT_ID_FILE.read_text(encoding="utf-8").strip()
             if existing_id:
                 return existing_id
 
         # Create new ID and persist it
         new_id = str(uuid.uuid4())
         DISTINCT_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        DISTINCT_ID_FILE.write_text(new_id)
+        DISTINCT_ID_FILE.write_text(new_id, encoding="utf-8")
         return new_id
     except Exception:
         # If we can't persist, generate a new ID each time

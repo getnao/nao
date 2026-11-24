@@ -108,7 +108,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
     # Try to load existing secret from file
     if secret_path.exists():
         try:
-            secret = secret_path.read_text().strip()
+            secret = secret_path.read_text(encoding="utf-8").strip()
             if secret:
                 console.print(f"[bold green]✓[/bold green] Loaded auth secret from {secret_path}")
                 return secret
@@ -118,7 +118,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
     # Generate and save new secret
     new_secret = secrets.token_urlsafe(32)
     try:
-        secret_path.write_text(new_secret)
+        secret_path.write_text(new_secret, encoding="utf-8")
         # Set restrictive permissions (owner read/write only)
         secret_path.chmod(0o600)
         console.print(f"[bold green]✓[/bold green] Generated new auth secret and saved to {secret_path}")

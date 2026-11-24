@@ -180,7 +180,7 @@ def _build_engine(manifest_path: Path, dialect: str) -> "MetricFlowEngine":
 
     _quiet_metricflow_logs()
     try:
-        manifest = parse_manifest_from_dbt_generated_manifest(manifest_path.read_text())
+        manifest = parse_manifest_from_dbt_generated_manifest(manifest_path.read_text(encoding="utf-8"))
         lookup = SemanticManifestLookup(manifest)
     except Exception as error:
         raise SemanticLayerError(f"Could not load semantic manifest {manifest_path}: {error}") from error

@@ -176,7 +176,7 @@ def _read_referenced_file(project_path: Path, file: str) -> Any:
         return _MISSING
 
     try:
-        value = yaml.safe_load(file_path.read_text())
+        value = yaml.safe_load(file_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as error:
         raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' is not valid YAML: {error}") from error
 

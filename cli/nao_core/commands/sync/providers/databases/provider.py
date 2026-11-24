@@ -149,7 +149,7 @@ def _failed_render_notice(template_name: str) -> str:
 
 def _is_failed_render_placeholder(output_file: Path) -> bool:
     try:
-        return _failed_render_notice(output_file.stem) in output_file.read_text()
+        return _failed_render_notice(output_file.stem) in output_file.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return False
 
@@ -230,7 +230,7 @@ def _should_refresh(
         return False
     if policy == ProfilingRefreshPolicy.INTERVAL:
         try:
-            content = output_file.read_text()
+            content = output_file.read_text(encoding="utf-8")
             match = re.search(r"\*\*Computed at:\*\*\s*`([^`]+)`", content, re.IGNORECASE)
             if match:
                 computed_at_str = match.group(1)
@@ -441,7 +441,9 @@ def sync_database(
                     if sv.get("definition"):
                         content_parts.append("## Definition\n")
                         content_parts.append(f"```sql\n{sv['definition']}\n```\n")
-                    (sv_path / "definition.md").write_text(with_generated_marker("\n".join(content_parts)))
+                    (sv_path / "definition.md").write_text(
+                        with_generated_marker("\n".join(content_parts)), encoding="utf-8"
+                    )
                     state.add_table(schema, sv["name"])
                 UI.print(f"  [green]✓ {schema}[/green] [dim]— {len(semantic_views)} semantic views synced[/dim]")
 
@@ -569,7 +571,7 @@ def render_table(
             content = _placeholder_for_failed_render(table, tpl_name, output_file, e, messages.append)
 
         if content is not None:
-            output_file.write_text(with_generated_marker(content))
+            output_file.write_text(with_generated_marker(content), encoding="utf-8")
 
     return RenderedTable(columns=ctx.all_columns(), errors=errors, messages=messages)
 

@@ -264,13 +264,13 @@ def _load_nao_config() -> NaoConfig:
 
 def _save_metabase_config(metabase_config: MetabaseConfig) -> None:
     config_path = Path.cwd() / "nao_config.yaml"
-    data = yaml.safe_load(config_path.read_text())
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise MetabaseCliError("nao_config.yaml must contain a YAML object.")
     serialized_config = metabase_config.model_dump(mode="json")
     serialized_config["api_key"] = metabase_config.api_key.get_secret_value()
     data["metabase"] = serialized_config
-    config_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+    config_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
 def _parse_parameter_values(parameters: list[str] | None) -> dict[str, Any]:
