@@ -7,11 +7,13 @@ import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
 import * as billingQueries from '../queries/billing.queries';
 import * as orgQueries from '../queries/organization.queries';
+import * as projectQueries from '../queries/project.queries';
 import type { SearchPaginationInput } from '../types/backoffice';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { extractConfiguredDatabases } from '../utils/nao-config';
 import { toBillingSummary } from './backoffice-billing.service';
+import { deleteOrganizationPermanently, deleteProjectPermanently } from './backoffice-deletion.service';
 import { isLicenseExpired, verifyOrganizationLicense } from './license.service';
 import * as membershipService from './membership.service';
 import { assessProjectReadiness } from './project-readiness.service';
@@ -43,9 +45,12 @@ export async function getOrganizationDetail(orgId: string) {
 
 export async function updateOrganization(
 	orgId: string,
-	values: { name?: string; bypassBilling?: boolean; license?: string | null },
+	{
+		deactivated,
+		...values
+	}: { name?: string; bypassBilling?: boolean; license?: string | null; deactivated?: boolean },
 ) {
-	await requireOrganization(orgId);
+	const organization = await requireOrganization(orgId);
 	if (values.license) {
 		await assertActiveOrganizationLicense(orgId, values.license);
 	}
@@ -58,7 +63,15 @@ export async function updateOrganization(
 	if (values.license !== undefined) {
 		await orgQueries.updateOrganizationLicense(orgId, values.license);
 	}
+	const { deactivatedAt } = resolveDeactivationChange(organization.deactivatedAt, deactivated);
+	if (deactivatedAt !== undefined) {
+		await orgQueries.updateOrganizationDeactivatedAt(orgId, deactivatedAt);
+	}
 	return toOrganizationSummary(await requireOrganization(orgId));
+}
+
+export async function deleteOrganization(orgId: string): Promise<void> {
+	await deleteOrganizationPermanently(orgId);
 }
 
 export async function putOrganizationMember(orgId: string, userId: string, role: OrgRole) {
@@ -78,16 +91,7 @@ export async function getProjectDetail(projectId: string) {
 	]);
 	const inspection = inspectProject(project);
 	return {
-		project: {
-			id: project.id,
-			orgId: project.orgId ?? '',
-			orgName: project.orgName ?? '',
-			name: project.name,
-			type: project.type,
-			hasPath: inspection.context.hasPath,
-			createdAt: project.createdAt,
-			updatedAt: project.updatedAt,
-		},
+		project: toProjectSummary(project),
 		members,
 		context: inspection.context,
 		databases: inspection.databases,
@@ -115,6 +119,19 @@ export async function getProjectDetail(projectId: string) {
 		})),
 		stats,
 	};
+}
+
+export async function updateProject(projectId: string, { deactivated }: { deactivated: boolean }) {
+	const project = await requireProject(projectId);
+	const { deactivatedAt } = resolveDeactivationChange(project.deactivatedAt, deactivated);
+	if (deactivatedAt !== undefined) {
+		await projectQueries.updateProjectDeactivatedAt(projectId, deactivatedAt);
+	}
+	return toProjectSummary(await requireProject(projectId));
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+	await deleteProjectPermanently(projectId);
 }
 
 export async function putProjectMember(projectId: string, userId: string, role: UserRole) {
@@ -239,10 +256,25 @@ async function toOrganizationSummary(organization: Awaited<ReturnType<typeof req
 			.filter(Boolean),
 		hasGoogleSso: isSet(organization.googleClientId) && isSet(organization.googleClientSecret),
 		bypassBilling: organization.bypassBilling,
+		deactivatedAt: organization.deactivatedAt,
 		license: await toOrganizationLicenseSummary(organization.id, organization.license),
 		billing: toBillingSummary(organization.bypassBilling, organization.billing),
 		createdAt: organization.createdAt,
 		updatedAt: organization.updatedAt,
+	};
+}
+
+function toProjectSummary(project: Awaited<ReturnType<typeof requireProject>>) {
+	return {
+		id: project.id,
+		orgId: project.orgId ?? '',
+		orgName: project.orgName ?? '',
+		name: project.name,
+		type: project.type,
+		hasPath: isSet(project.path),
+		deactivatedAt: project.deactivatedAt,
+		createdAt: project.createdAt,
+		updatedAt: project.updatedAt,
 	};
 }
 
@@ -263,7 +295,7 @@ function toUserSummary(user: NonNullable<Awaited<ReturnType<typeof userQueries.g
 	};
 }
 
-/** Keeps the original deactivation date when an already deactivated user is deactivated again. */
+/** Keeps the original deactivation date when an already deactivated user, organization or project is deactivated again. */
 function resolveDeactivationChange(
 	currentDeactivatedAt: Date | null,
 	deactivated: boolean | undefined,

@@ -37,6 +37,7 @@ export async function listOrganizations(input: SearchPaginationInput) {
 				googleAuthDomains: s.organization.googleAuthDomains,
 				bypassBilling: s.organization.bypassBilling,
 				license: s.organization.license,
+				deactivatedAt: s.organization.deactivatedAt,
 				billing: s.organizationBilling,
 				creditBalanceMicroUsd: s.creditWallet.balanceMicroUsd,
 				memberCount: memberCounts.count,
@@ -66,6 +67,7 @@ export async function listOrganizations(input: SearchPaginationInput) {
 			hasGoogleSso: isSet(row.googleClientId) && isSet(row.googleClientSecret),
 			bypassBilling: row.bypassBilling,
 			license: row.license,
+			deactivatedAt: row.deactivatedAt,
 			billing: row.billing,
 			creditBalanceMicroUsd: Number(row.creditBalanceMicroUsd ?? 0),
 			memberCount: Number(row.memberCount ?? 0),
@@ -109,6 +111,7 @@ export async function getOrganizationProjects(orgId: string) {
 			type: s.project.type,
 			path: s.project.path,
 			memberCount: memberCounts.count,
+			deactivatedAt: s.project.deactivatedAt,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})
@@ -182,6 +185,7 @@ export async function listProjects(input: ProjectPaginationInput) {
 				memberCount: memberCounts.count,
 				messages30d: messageCounts.messages,
 				errors30d: messageCounts.errors,
+				deactivatedAt: s.project.deactivatedAt,
 				createdAt: s.project.createdAt,
 				updatedAt: s.project.updatedAt,
 			})
@@ -227,6 +231,7 @@ export async function getProjectForBackoffice(projectId: string) {
 			mattermostSettings: s.project.mattermostSettings,
 			whatsappSettings: s.project.whatsappSettings,
 			mcpEndpointSettings: s.project.mcpEndpointSettings,
+			deactivatedAt: s.project.deactivatedAt,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})

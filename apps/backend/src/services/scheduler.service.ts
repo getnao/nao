@@ -23,6 +23,7 @@ const POLL_INTERVAL_MS = 30_000;
 const RECLAIM_INTERVAL_MS = 60_000;
 const LEASE_DURATION_MS = 10 * 60_000;
 const CLAIM_BATCH_SIZE = 10;
+const SKIPPED_ONE_OFF_DEFER_MS = 60 * 60_000;
 const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
 const handlers = new Map<string, JobRegistration>();
@@ -148,11 +149,14 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 		const payload = job.payload ?? {};
 		const projectId = await registration.resolveProjectId?.(payload);
 		if (projectId && !(await hasProjectCloudBillingAccess(projectId))) {
-			logger.info(`Scheduler skipped job '${job.name}': cloud billing access is restricted`, {
-				source: 'system',
-				context: { jobId: job.id, name: job.name, projectId },
-			});
-			await onJobSuccess(job);
+			logger.info(
+				`Scheduler skipped job '${job.name}': the project is deactivated or its cloud billing access is restricted`,
+				{
+					source: 'system',
+					context: { jobId: job.id, name: job.name, projectId },
+				},
+			);
+			await onJobSkipped(job);
 			return;
 		}
 		await registration.handler(payload, job);
@@ -160,6 +164,15 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 	} catch (err) {
 		await onJobFailure(job, err);
 	}
+}
+
+/** A recurring job waits for its next tick; a one-off job is kept for when its project gets access back. */
+async function onJobSkipped(job: DBScheduledJob): Promise<void> {
+	if (job.cron) {
+		await onJobSuccess(job);
+		return;
+	}
+	await scheduledJobQueries.rescheduleJob(job.id, new Date(Date.now() + SKIPPED_ONE_OFF_DEFER_MS));
 }
 
 async function onJobSuccess(job: DBScheduledJob): Promise<void> {
