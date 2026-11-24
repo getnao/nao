@@ -64,6 +64,9 @@ const costSeries = [
 
 const messageSeries = [
 	{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
+	{ data_key: 'automationEditorMessageCount', color: 'var(--chart-10)', label: 'Web (automations)' },
+	{ data_key: 'contextEditorMessageCount', color: 'var(--chart-11)', label: 'Web (context hub)' },
+	{ data_key: 'automationMessageCount', color: 'var(--chart-12)', label: 'Automations' },
 	{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
 	{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 	{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
@@ -138,13 +141,18 @@ function UsageOverview({
 	canViewChatReplay: boolean;
 	canViewUsage: boolean;
 }) {
-	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView, expandReplay } = usageSearch;
+	const { provider, users, credentials, feedback, tools, sources, search, splitByUser, tokenView, expandReplay } =
+		usageSearch;
 	const periodState = useUsagePeriodSettings({ canViewUsage, usageSearch, onUpdateSearch });
 	const { period, granularity } = periodState;
 
 	const usedProviders = useQuery({
 		...trpc.usage.getUsedProviders.queryOptions(),
 		enabled: canViewUsage,
+	});
+	const llmConfigs = useQuery({
+		...trpc.usage.getLlmCredentials.queryOptions(),
+		enabled: canViewAllUsage,
 	});
 	const chatFacets = useQuery({
 		...trpc.project.getProjectChats.queryOptions({
@@ -159,6 +167,7 @@ function UsageOverview({
 		period,
 		granularity,
 		provider: provider === 'all' ? undefined : provider,
+		llmConfigIds: canViewAllUsage ? credentials : undefined,
 		userNames: canViewAllUsage ? users : undefined,
 		sources,
 	};
@@ -176,6 +185,7 @@ function UsageOverview({
 		...trpc.usage.getTotalUsage.queryOptions({
 			period,
 			provider: provider === 'all' ? undefined : provider,
+			llmConfigIds: canViewAllUsage ? credentials : undefined,
 			userNames: canViewAllUsage ? users : undefined,
 			sources,
 		}),
@@ -217,6 +227,18 @@ function UsageOverview({
 			onUpdateSavedPeriod={periodState.updateSavedPeriod}
 			onDeleteSavedPeriod={periodState.deleteSavedPeriod}
 			availableProviders={usedProviders.data}
+			availableCredentials={
+				canViewAllUsage
+					? llmConfigs.data?.map(({ id, name, disabled }) => ({
+							id,
+							name: disabled ? `${name} (inactive)` : name,
+						}))
+					: undefined
+			}
+			selectedCredentialIds={canViewAllUsage ? credentials : undefined}
+			onSelectedCredentialIdsChange={
+				canViewAllUsage ? (value) => onUpdateSearch({ credentials: value }) : undefined
+			}
 			chatFacets={chatFacets.data?.facets}
 			selectedUserNames={users}
 			onSelectedUserNamesChange={(value) => onUpdateSearch({ users: value })}

@@ -81,6 +81,11 @@ body {
 	@apply m-0 h-full overflow-hidden;
 }
 
+/* Menus and dialogs lock scrolling by making the body relative; when it only becomes so then, Safari redraws the page and icons on fractional pixels shift. */
+body {
+	position: relative;
+}
+
 /* Safari clips icon strokes that touch the viewBox edge when the icon lands on a fractional pixel. */
 svg.lucide {
 	overflow: visible;
@@ -201,6 +206,7 @@ code.dollar:before {
 	--color-chart-9: var(--chart-9);
 	--color-chart-10: var(--chart-10);
 	--color-chart-11: var(--chart-11);
+	--color-chart-12: var(--chart-12);
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -259,6 +265,7 @@ code.dollar:before {
 	--chart-9: oklch(0.62 0.18 145);
 	--chart-10: oklch(0.65 0.19 335);
 	--chart-11: oklch(0.68 0.15 210);
+	--chart-12: oklch(0.6 0.15 115);
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -312,6 +319,7 @@ code.dollar:before {
 	--chart-9: oklch(0.72 0.18 145);
 	--chart-10: oklch(0.74 0.18 335);
 	--chart-11: oklch(0.78 0.14 210);
+	--chart-12: oklch(0.76 0.15 115);
 }
 
 @layer base {
@@ -398,13 +406,19 @@ code.dollar:before {
 [data-streamdown='code-block-body'] {
 	border: none;
 	border-radius: inherit;
-	padding: 0.625rem 0rem;
+	padding: 0.625rem 0.75rem;
 }
 
-/* More breathing room between the line number gutter and the code */
+/* Gutter as wide as the block's longest line number so every line keeps the same edge and gap */
 [data-streamdown='code-block-body'] code > span::before {
-	margin-right: 1.25rem;
-	padding-right: 0.5rem;
+	width: auto;
+	min-width: 2ch;
+	margin-right: 1rem;
+	padding-right: 0;
+}
+
+[data-streamdown='code-block-body'] code:has(> span:nth-child(100)) > span::before {
+	min-width: 3ch;
 }
 
 [data-streamdown='code-block'] > div:has(> [data-streamdown='code-block-actions']) {
@@ -471,12 +485,155 @@ code.dollar:before {
 	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
+.cited-markdown-lines {
+	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+	animation: cited-markdown-lines-fade 2s ease-in forwards;
+}
+
+@keyframes cited-markdown-lines-fade {
+	0%,
+	70% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+.code-query-link {
+	text-decoration: underline;
+	cursor: pointer;
+}
+
 ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(245 158 11 / 18%);
 }
 
 .dark ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(250 204 21 / 20%);
+}
+
+/* Markdown file editor: matches the read-only Markdown preview */
+
+.markdown-file-editor .tiptap {
+	@apply min-h-full text-sm leading-relaxed outline-none;
+}
+
+.markdown-file-editor .tiptap > * + * {
+	margin-top: 0.75em;
+}
+
+.markdown-file-editor .tiptap h1,
+.markdown-file-editor .tiptap h2 {
+	@apply mt-6 mb-2 font-semibold;
+	font-size: 20px;
+}
+
+.markdown-file-editor .tiptap h3,
+.markdown-file-editor .tiptap h4,
+.markdown-file-editor .tiptap h5,
+.markdown-file-editor .tiptap h6 {
+	@apply mt-6 mb-2 font-semibold;
+	font-size: 18px;
+}
+
+.markdown-file-editor .tiptap > :first-child {
+	margin-top: 0;
+}
+
+.markdown-file-editor .tiptap ul {
+	@apply list-disc pl-6;
+}
+
+.markdown-file-editor .tiptap ol {
+	@apply list-decimal pl-6;
+}
+
+.markdown-file-editor .tiptap li > p {
+	margin-top: 0;
+}
+
+.markdown-file-editor .tiptap blockquote {
+	@apply border-l-4 pl-4 italic text-muted-foreground;
+}
+
+.markdown-file-editor .tiptap code {
+	@apply rounded bg-muted px-1.5 py-0.5 font-mono text-sm;
+}
+
+.markdown-file-editor .tiptap pre {
+	@apply overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs;
+}
+
+.markdown-file-editor .tiptap pre code {
+	@apply bg-transparent p-0;
+}
+
+.markdown-file-editor .tiptap hr {
+	@apply my-6 border-border;
+}
+
+.markdown-file-editor .tiptap strong {
+	@apply font-semibold;
+}
+
+.markdown-file-editor .tiptap a {
+	@apply text-primary underline underline-offset-2;
+}
+
+.markdown-file-editor .tiptap table {
+	@apply w-full border-collapse border border-border;
+}
+
+.markdown-file-editor .tiptap th,
+.markdown-file-editor .tiptap td {
+	@apply border border-border px-3 py-1.5 text-left align-top;
+}
+
+.markdown-file-editor .tiptap th {
+	@apply bg-muted/40 font-semibold;
+}
+
+.markdown-file-editor .tiptap .selectedCell {
+	@apply bg-primary/10;
+}
+
+/* Rendered Markdown diff */
+
+.markdown-rendered-diff .markdown-diff-added {
+	background-color: color-mix(in oklab, var(--color-emerald-500) 22%, transparent);
+	border-radius: 2px;
+}
+
+.markdown-rendered-diff .markdown-diff-added-block {
+	background-color: color-mix(in oklab, var(--color-emerald-500) 8%, transparent);
+	box-shadow: inset 3px 0 var(--color-emerald-500);
+	padding-left: 0.75rem;
+	border-radius: 2px;
+}
+
+.markdown-rendered-diff .markdown-diff-added-block .markdown-diff-added {
+	background-color: transparent;
+}
+
+.markdown-rendered-diff .markdown-diff-removed {
+	background-color: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+	color: var(--color-red-700);
+	text-decoration-color: color-mix(in oklab, var(--color-red-500) 70%, transparent);
+	border-radius: 2px;
+	white-space: pre-wrap;
+}
+
+.dark .markdown-rendered-diff .markdown-diff-removed {
+	color: var(--color-red-300);
+}
+
+.markdown-rendered-diff .markdown-diff-removed-block {
+	display: block;
+	margin-top: 0.75em;
+	padding: 0.25rem 0.75rem;
+	background-color: color-mix(in oklab, var(--color-red-500) 8%, transparent);
+	box-shadow: inset 3px 0 var(--color-red-500);
 }
 
 /* Tiptap story editor */
@@ -616,35 +773,45 @@ code.dollar:before {
 	max-height: var(--prompt-max-height, none);
 }
 
-/* Mention pills: outlined chip, matching the "Share chat" button */
+/* Mention pills: coloured inline text, the icon flows with the label so both share the text baseline */
 .prompt-container .mention-pill,
 .message-container .mention-pill {
-	border: 1px solid var(--border);
-	background: var(--background);
-	font-size: 0.825rem;
-	font-weight: 470;
-	line-height: 1.2;
-	padding: 0.375rem 0.5rem;
-	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+	margin: 0;
+	padding: 0 0.125rem;
+	border-radius: 0.25rem;
+	background: transparent;
+	color: var(--primary);
+	font-weight: 500;
+	line-height: inherit;
+	transition:
+		background-color 0.15s ease,
+		outline-color 0.1s ease;
 }
 
 /* The library fades a hovered pill, which promotes it to its own layer and makes the input border redraw */
 .prompt-container .mention-pill:hover,
 .message-container .mention-pill:hover {
 	opacity: 1;
-	background: var(--accent);
+	background: color-mix(in oklch, var(--primary) 10%, transparent);
+	cursor: pointer;
 }
 
 .prompt-container .mention-pill-with-icon,
 .message-container .mention-pill-with-icon {
-	padding-left: 1.75rem;
+	padding-left: 0.125rem;
 }
 
 .prompt-container .mention-pill .mention-pill-icon,
 .message-container .mention-pill .mention-pill-icon {
-	left: 0.5rem;
-	width: 0.75rem;
-	height: 0.75rem;
+	position: relative;
+	top: auto;
+	left: auto;
+	transform: none;
+	vertical-align: middle;
+	width: 0.85em;
+	height: 0.85em;
+	margin-right: 0.2em;
+	opacity: 0.75;
 }
 
 /* The icon and the delete cross swap in place on hover, so both take the exact box of the icon */
@@ -652,18 +819,14 @@ code.dollar:before {
 .message-container .mention-pill-icon-original,
 .prompt-container .mention-pill .mention-pill-icon svg,
 .message-container .mention-pill .mention-pill-icon svg {
-	width: 0.75rem;
-	height: 0.75rem;
+	width: 0.85em;
+	height: 0.85em;
 }
 
 /* Fading the icons promotes them to their own layer, which rounds them to other pixels and makes them jump */
 .prompt-container .mention-pill-icon-original,
 .prompt-container .mention-pill-icon-delete {
 	transition: none;
-}
-
-.dark .mention-pill {
-	border-color: var(--input);
 }
 
 /* Mention menu: match select dropdown styling */
@@ -719,6 +882,26 @@ code.dollar:before {
 	direction: ltr;
 }
 
+/* Skills menu: one compact line per skill, "/name description…" */
+.prompt-container .mention-menu:has(.skill-mention-icon) {
+	min-width: min(560px, calc(100vw - 32px));
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) {
+	grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
+	grid-template-areas: 'icon label label-right';
+	column-gap: 0;
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) .mention-menu-item-icon {
+	width: auto;
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) .mention-menu-item-label-right {
+	margin-left: calc(var(--spacing) * 2.5);
+	font-size: var(--text-sm);
+}
+
 .replay-nav-highlight:not([data-replay-bordered='true']) {
 	@apply rounded-xl;
 	outline: 2px solid var(--primary);
@@ -733,11 +916,27 @@ code.dollar:before {
 	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
+/*
+ * Off-screen message groups skip rendering; the padding keeps highlight outlines inside their paint containment.
+ * Groups showing an inline popup or an expanded map opt out, since containment would clip them.
+ */
+.chat-message-groups > :not(:last-child):not(:has([data-overflows-chat-group])) {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 600px;
+	margin: -0.5rem;
+	padding: 0.5rem;
+}
+
 .chat-artifact-reveal-highlight {
 	@apply rounded-lg;
 	outline: 1px solid var(--primary);
 	outline-offset: 2px;
 	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+/* A collapsible clips what overflows it, so the outline is drawn on the tool call's own edge there. */
+[data-slot='accordion-content'] .chat-artifact-reveal-highlight {
+	outline-offset: -1px;
 }
 
 @keyframes replay-highlight-pulse {

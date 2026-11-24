@@ -22,10 +22,10 @@ import {
 } from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
-import { useCitedElementHighlight } from '@/hooks/use-cited-element-highlight';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
+import { useShowStoryFilters } from '@/stores/shown-story-filters';
 
 interface StoryPreviewProps {
 	code: string;
@@ -33,6 +33,7 @@ interface StoryPreviewProps {
 	cacheSchedule: string | null;
 	queryData: QueryDataMap | null;
 	chatId: string;
+	storyId: string | null;
 	storySlug: string;
 	versionKey?: string | number;
 	filtersEnabled?: boolean;
@@ -48,6 +49,7 @@ export const StoryPreview = memo(function StoryPreview({
 	cacheSchedule,
 	queryData,
 	chatId,
+	storyId,
 	storySlug,
 	versionKey,
 	filtersEnabled = true,
@@ -56,8 +58,6 @@ export const StoryPreview = memo(function StoryPreview({
 	isViewingLatest = true,
 	theme,
 }: StoryPreviewProps) {
-	const contentRef = useRef<HTMLDivElement>(null);
-	useCitedElementHighlight(contentRef, storySlug);
 	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
 	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
@@ -67,6 +67,7 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	useShowStoryFilters(storyId, storyFilters.activeSelections);
 	const segments = useMemo(() => {
 		const nextSegments = stabilizeStorySegments(
 			splitCodeIntoSegments(code, storyFilters.resolvedParameters),
@@ -96,9 +97,19 @@ export const StoryPreview = memo(function StoryPreview({
 				? {
 						api: filterApi,
 						selections: storyFilters.debouncedSelections,
+						filterSummary: storyFilters.filterSummary,
+						queryFilterStatuses: storyFilters.queryFilterStatuses,
+						filterTargets: storyFilters.filterTargets,
 					}
 				: null,
-		[filterApi, filtersEnabled, storyFilters.debouncedSelections],
+		[
+			filterApi,
+			filtersEnabled,
+			storyFilters.debouncedSelections,
+			storyFilters.filterSummary,
+			storyFilters.queryFilterStatuses,
+			storyFilters.filterTargets,
+		],
 	);
 
 	const renderChart = useCallback(
@@ -179,12 +190,7 @@ export const StoryPreview = memo(function StoryPreview({
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
-				<div
-					ref={contentRef}
-					data-story-content
-					data-story-chat-id={chatId}
-					className='p-6 flex flex-col gap-4'
-				>
+				<div data-story-content data-story-chat-id={chatId} className='p-6 flex flex-col gap-4'>
 					<StoryFilterBar
 						filters={storyFilters.filters}
 						parameters={storyFilters.parameters}

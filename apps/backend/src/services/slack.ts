@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
 
-import { cardToBlockKit, createSlackAdapter } from '@chat-adapter/slack';
+import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { stripAssistantTags } from '@nao/shared';
 import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
@@ -14,7 +14,7 @@ import {
 	WebClient,
 } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
+import { Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
 
 import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
@@ -58,9 +58,16 @@ import {
 	formatSlackMessageText,
 	isRecoverableSlackPayloadError,
 	renderMapImage,
+	resolveChatSqlOutput,
 	type SlackTableRenderState,
+	toSlackBlocks,
 	type TruncationNotice,
 } from '../utils/messaging-provider';
+import {
+	buildSlackNativeChart,
+	hasRoomForSlackNativeChart,
+	type SlackNativeChartInput,
+} from '../utils/slack-native-chart';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
@@ -480,7 +487,7 @@ export class ProjectSlackBot {
 			if (!shouldReplyToSlackThreadMessage(this._config.replyMode, message)) {
 				return;
 			}
-			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: false });
+			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: this._config.replyMode === 'mention' });
 		});
 
 		this._bot.onNewMessage(/[\s\S]+/, async (thread, message) => {
@@ -667,13 +674,10 @@ export class ProjectSlackBot {
 		ctx: ConversationContext,
 		children: ConversationContext['blocks'],
 		finalDelivery = false,
-	): Promise<void> {
+	): Promise<boolean> {
 		const streamState = this._getSlackStreamState(ctx);
-		if (streamState.payloadRejected && !finalDelivery) {
-			return;
-		}
-		if (children.length === 0) {
-			return;
+		if ((streamState.payloadRejected && !finalDelivery) || children.length === 0) {
+			return false;
 		}
 
 		const slackChildren = finalDelivery ? children : [...children, createStopButtonActions()];
@@ -683,10 +687,11 @@ export class ProjectSlackBot {
 				const postedMessageTs = await this._postSlackCard(ctx, slackChildren);
 				streamState.messageTs = postedMessageTs;
 				streamState.lastDeliveredChildren = [...children];
+				return true;
 			} catch (error) {
 				if (isRecoverableSlackPayloadError(error)) {
 					await this._handleOversizedSlackPayload(ctx, finalDelivery);
-					return;
+					return false;
 				}
 				logger.warn(
 					`${finalDelivery ? 'Slack final card post failed' : 'Slack streaming card post failed'}: ${String(error)}`,
@@ -696,14 +701,14 @@ export class ProjectSlackBot {
 					},
 				);
 			}
-			return;
+			return false;
 		}
 
 		try {
 			const { channelId } = this._getSlackMessageDestination(ctx);
 			await this._updateSlackCard(channelId, messageTs, slackChildren);
 			streamState.lastDeliveredChildren = [...children];
-			return;
+			return true;
 		} catch (error) {
 			if (!isRecoverableSlackPayloadError(error)) {
 				logger.warn(
@@ -713,9 +718,10 @@ export class ProjectSlackBot {
 						context: { chatId: ctx.chatId, threadId: ctx.thread.id },
 					},
 				);
-				return;
+				return false;
 			}
 			await this._handleOversizedSlackPayload(ctx, finalDelivery);
+			return false;
 		}
 	}
 
@@ -752,7 +758,7 @@ export class ProjectSlackBot {
 			...(threadTs ? { thread_ts: threadTs } : {}),
 			text: buildSlackCardNotificationText(children, await getAppName()),
 		};
-		(args as { blocks?: unknown }).blocks = cardToBlockKit(Card({ children }));
+		(args as { blocks?: unknown }).blocks = toSlackBlocks(children);
 		const result = await this._slackClient.chat.postMessage(args);
 		if (!result.ok || !result.ts) {
 			throw new Error(result.error ?? 'Slack did not return a timestamp for the posted card.');
@@ -770,7 +776,7 @@ export class ProjectSlackBot {
 			ts: messageTs,
 			text: buildSlackCardNotificationText(children, await getAppName()),
 		};
-		(args as { blocks?: unknown }).blocks = cardToBlockKit(Card({ children }));
+		(args as { blocks?: unknown }).blocks = toSlackBlocks(children);
 		const result = await this._slackClient.chat.update(args);
 		if (!result.ok) {
 			throw new Error(result.error ?? 'Slack failed to update the card.');
@@ -1075,14 +1081,14 @@ export class ProjectSlackBot {
 
 	private async _saveOrUpdateUserMessage(ctx: ConversationContext, fetchUnseenMessages: boolean): Promise<void> {
 		const text = ctx.userMessage.text;
+		const existingChat = await chatQueries.getChatBySlackThread(ctx.thread.id);
 		const unseenMessages = fetchUnseenMessages
-			? await this._getUnseenSlackMessages(ctx.thread.id, ctx.userMessage.id)
+			? await this._getUnseenSlackMessages(ctx.thread.id, ctx.userMessage.id, Boolean(existingChat))
 			: null;
 		const messageText = unseenMessages
 			? `[Previous messages in this Slack thread]\n${unseenMessages}\n\n[Your message]\n${text}`
 			: text;
 
-		const existingChat = await chatQueries.getChatBySlackThread(ctx.thread.id);
 		if (existingChat) {
 			await chatQueries.upsertMessage({
 				role: 'user',
@@ -1105,7 +1111,11 @@ export class ProjectSlackBot {
 		ctx.isNewChat = true;
 	}
 
-	private async _getUnseenSlackMessages(threadId: string, currentMessageId: string): Promise<string | null> {
+	private async _getUnseenSlackMessages(
+		threadId: string,
+		currentMessageId: string,
+		isChatLinked: boolean,
+	): Promise<string | null> {
 		const { channelId, threadTs } = parseSlackThreadId(threadId);
 		if (!channelId || !threadTs) {
 			return null;
@@ -1116,7 +1126,7 @@ export class ProjectSlackBot {
 				channel: channelId,
 				ts: threadTs,
 			});
-			const messages = this._extractUnseenUserMessages(result?.messages ?? [], currentMessageId);
+			const messages = this._extractUnseenMessages(result?.messages ?? [], currentMessageId, isChatLinked);
 			if (messages.length === 0) {
 				return null;
 			}
@@ -1131,29 +1141,41 @@ export class ProjectSlackBot {
 		}
 	}
 
-	private _extractUnseenUserMessages(
+	/**
+	 * A chat already linked to the thread holds everything up to nao's last message there, so only what
+	 * came after is unseen. Otherwise the whole thread is, including what nao and other bots posted.
+	 */
+	private _extractUnseenMessages(
 		allMessages: SlackReplyMessage[],
 		currentMessageId: string,
+		isChatLinked: boolean,
 	): SlackReplyMessage[] {
 		const currentIndex = allMessages.findIndex((msg) => msg.ts === currentMessageId);
 		if (currentIndex === -1) {
 			return [];
 		}
-		const priorMessages = allMessages.slice(0, currentIndex);
-		const lastBotIndex = this._findLastBotMessageIndex(priorMessages);
-		return priorMessages.slice(lastBotIndex + 1).filter((msg) => !this._isBotMessage(msg));
+		const priorMessages = allMessages.slice(0, currentIndex).filter((msg) => msg.text?.trim());
+		if (!isChatLinked) {
+			return priorMessages;
+		}
+		const lastOwnIndex = this._findLastOwnMessageIndex(priorMessages);
+		return priorMessages.slice(lastOwnIndex + 1);
 	}
 
-	private _findLastBotMessageIndex(messages: SlackReplyMessage[]): number {
+	private _findLastOwnMessageIndex(messages: SlackReplyMessage[]): number {
 		for (let i = messages.length - 1; i >= 0; i--) {
-			if (this._isBotMessage(messages[i])) {
+			if (this._isOwnMessage(messages[i])) {
 				return i;
 			}
 		}
 		return -1;
 	}
 
-	private _isBotMessage(message: SlackReplyMessage): boolean {
+	private _isOwnMessage(message: SlackReplyMessage): boolean {
+		const botUserId = this._bot.getAdapter('slack').botUserId;
+		if (botUserId) {
+			return message.user === botUserId;
+		}
 		return !!message.bot_id || (message as { subtype?: string }).subtype === 'bot_message';
 	}
 
@@ -1171,7 +1193,7 @@ export class ProjectSlackBot {
 	private _formatThreadMessages(messages: SlackReplyMessage[], userNames: Map<string, string>): string {
 		return messages
 			.map((msg) => {
-				const name = msg.user ? userNames.get(msg.user) || msg.user : 'Unknown';
+				const name = msg.user ? userNames.get(msg.user) || msg.user : msg.bot_profile?.name || 'Bot';
 				const text = (msg.text || '').replace(SLACK_MENTION_REGEX, '').trim();
 				return `${name}: ${text}`;
 			})
@@ -1271,6 +1293,7 @@ export class ProjectSlackBot {
 			toolGroupBlockIndex: -1,
 		};
 
+		const handledToolResultIds = new Set<string>();
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			const part = uiMessage.parts[uiMessage.parts.length - 1];
 			if (!part) {
@@ -1293,21 +1316,49 @@ export class ProjectSlackBot {
 					.map((messagePart) => messagePart.text)
 					.join('\n\n');
 				await this._handleTextPart(allText, state, ctx);
-			} else if (isQueryResultPart(part)) {
-				this._handleSqlPart(part, state);
-			} else if (part.type === 'tool-display_chart') {
-				await this._handleChartPart(part, state, ctx);
-			} else if (part.type === 'tool-display_map') {
-				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
 				await this._handleClarificationPart(part, state, ctx);
-			} else if (part.type === 'tool-write') {
-				await this._handleWritePart(part, state, ctx);
 			}
+			await this._handleNewToolResults(uiMessage.parts, handledToolResultIds, state, ctx);
 		}
 
 		await this._sendFinalText(ctx, activeStream);
 		return state;
+	}
+
+	/**
+	 * Parallel tool calls finish while a sibling is still the last part, so every part is scanned
+	 * and each finished result is handled once, in order (queries before the charts that use them).
+	 */
+	private async _handleNewToolResults(
+		parts: UIMessagePart[],
+		handledToolResultIds: Set<string>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		for (const part of parts) {
+			if (
+				!('toolCallId' in part) ||
+				part.state !== 'output-available' ||
+				handledToolResultIds.has(part.toolCallId)
+			) {
+				continue;
+			}
+			handledToolResultIds.add(part.toolCallId);
+			await this._handleToolResult(part, state, ctx);
+		}
+	}
+
+	private async _handleToolResult(part: UIMessagePart, state: StreamState, ctx: ConversationContext): Promise<void> {
+		if (isQueryResultPart(part)) {
+			this._handleSqlPart(part, state);
+		} else if (part.type === 'tool-display_chart') {
+			await this._handleChartPart(part, state, ctx);
+		} else if (part.type === 'tool-display_map') {
+			await this._handleMapPart(part, state, ctx);
+		} else if (part.type === 'tool-write') {
+			await this._handleWritePart(part, state, ctx);
+		}
 	}
 
 	private async _handleClarificationPart(
@@ -1356,17 +1407,18 @@ export class ProjectSlackBot {
 		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		const sqlOutput = await resolveChatSqlOutput(state, ctx.chatId, part.input.query_id);
 		if (!sqlOutput) {
 			return;
 		}
 		try {
 			const displaySettings = await projectQueries.getDisplaySettings(this.projectId);
-			const png = generateChartImage({
-				config: part.input,
-				data: sqlOutput.rows,
-				dateFormat: displaySettings.dateFormat,
-			});
+			const chartInput = { config: part.input, data: sqlOutput.rows, dateFormat: displaySettings.dateFormat };
+			if (await this._pushNativeChart(chartInput, part.toolCallId, state, ctx)) {
+				return;
+			}
+
+			const png = generateChartImage(chartInput);
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedToolCallIds.add(part.toolCallId);
 
@@ -1387,6 +1439,27 @@ export class ProjectSlackBot {
 		}
 	}
 
+	/** Posts a hoverable Slack chart; returns false when it does not fit or was not delivered, so the caller sends a PNG. */
+	private async _pushNativeChart(
+		chartInput: SlackNativeChartInput,
+		toolCallId: string,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<boolean> {
+		const nativeChart = hasRoomForSlackNativeChart(ctx.blocks) ? buildSlackNativeChart(chartInput) : null;
+		if (!nativeChart || this._getSlackStreamState(ctx).payloadRejected) {
+			return false;
+		}
+		this._closeCurrentTextRun(ctx);
+		ctx.blocks.push(nativeChart);
+		if (!(await this._editConversationCard(ctx, ctx.blocks))) {
+			ctx.blocks.splice(ctx.blocks.indexOf(nativeChart), 1);
+			return false;
+		}
+		state.renderedToolCallIds.add(toolCallId);
+		return true;
+	}
+
 	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
@@ -1400,6 +1473,7 @@ export class ProjectSlackBot {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		await resolveChatSqlOutput(state, ctx.chatId, part.input.query_id);
 		const png = await renderMapImage(part, state, this.projectId, {
 			chatId: ctx.chatId,
 			toolCallId: part.toolCallId,
@@ -1850,7 +1924,8 @@ class SlackService {
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||
-			previous.modelSelection?.modelId !== next.modelSelection?.modelId
+			previous.modelSelection?.modelId !== next.modelSelection?.modelId ||
+			previous.modelSelection?.llmConfigId !== next.modelSelection?.llmConfigId
 		);
 	}
 }

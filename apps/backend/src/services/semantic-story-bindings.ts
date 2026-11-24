@@ -56,7 +56,7 @@ export async function bindSemanticQuery(
 		return { query, skippedFilterIds: [] };
 	}
 
-	const parameterized: SemanticQuery = { ...query, params: { ...query.params, ...bindings.parameterValues } };
+	const parameterized = withParameterValues(query, bindings);
 	const activeFilters = bindings.dimensionFilters.filter((filter) =>
 		isFilterSelectionActive(filter.filterType, bindings.selections[filter.id], filter.valueType),
 	);
@@ -64,13 +64,7 @@ export async function bindSemanticQuery(
 		return { query: parameterized, skippedFilterIds: [] };
 	}
 
-	const metrics = resolveSemanticQueryParameters(parameterized).metrics;
-	const catalog = await loadCatalog();
-	const applicable = activeFilters.filter(
-		(filter) =>
-			canFilterMetrics(catalog, metrics, filter.dimension!) &&
-			(filter.filterType !== 'date_range' || isTimeDimension(catalog, filter.dimension!)),
-	);
+	const applicable = await listBindableFilters(parameterized, activeFilters, loadCatalog);
 
 	return {
 		query: applicable.reduce<SemanticQuery>(
@@ -79,6 +73,41 @@ export async function bindSemanticQuery(
 		),
 		skippedFilterIds: activeFilters.filter((filter) => !applicable.includes(filter)).map((filter) => filter.id),
 	};
+}
+
+/** The dimension filters the semantic layer can apply to this query's metrics, whatever their selection. */
+export async function listBindableFilterIds(
+	query: SemanticQuery,
+	bindings: SemanticStoryBindings,
+	loadCatalog: CatalogLoader,
+): Promise<string[]> {
+	const filters = await listBindableFilters(
+		withParameterValues(query, bindings),
+		bindings.dimensionFilters,
+		loadCatalog,
+	);
+	return filters.map((filter) => filter.id);
+}
+
+async function listBindableFilters(
+	query: SemanticQuery,
+	filters: ParsedFilterBlock[],
+	loadCatalog: CatalogLoader,
+): Promise<ParsedFilterBlock[]> {
+	if (filters.length === 0) {
+		return [];
+	}
+	const metrics = resolveSemanticQueryParameters(query).metrics;
+	const catalog = await loadCatalog();
+	return filters.filter(
+		(filter) =>
+			canFilterMetrics(catalog, metrics, filter.dimension!) &&
+			(filter.filterType !== 'date_range' || isTimeDimension(catalog, filter.dimension!)),
+	);
+}
+
+function withParameterValues(query: SemanticQuery, bindings: SemanticStoryBindings): SemanticQuery {
+	return { ...query, params: { ...query.params, ...bindings.parameterValues } };
 }
 
 /** Unknown metrics and an unavailable catalog are let through: the semantic layer reports real errors at compile time. */

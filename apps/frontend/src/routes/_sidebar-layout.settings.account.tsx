@@ -4,22 +4,27 @@ import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
-import { EditMemberDialog } from '@/components/settings/team';
+import { EditMemberDialog } from '@/components/settings/team/edit-member-dialog';
 import { NewsletterSubscribeInlineForm } from '@/components/newsletter-subscribe';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
 import { useAuthRoute } from '@/hooks/use-auth-route';
+import { clearLastSeen } from '@/hooks/use-last-seen';
 import { usePermissions } from '@/hooks/use-permissions';
 import { UserProfileCard } from '@/components/settings/profile-card';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { soundNotificationStorage } from '@/hooks/use-stream-end-sound';
+import { steerOnEnterStorage } from '@/components/chat-input-message-queue';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { ThemeSelector } from '@/components/settings/theme-selector';
 import { ToolCallDensitySetting } from '@/components/settings/tool-call-density-setting';
 import { DangerZone } from '@/components/settings/danger-zone';
 import { SettingsMemories } from '@/components/settings/memories';
+import { TwoFactorSettings } from '@/components/settings/two-factor-settings';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
+import { clearRequestAnswers } from '@/components/custom-story/story-request-answers';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/account')({
@@ -33,6 +38,7 @@ function GeneralPage() {
 	const queryClient = useQueryClient();
 	const { isAdmin, isViewer, role } = usePermissions();
 	const [soundEnabled, setSoundEnabled] = useLocalStorage(soundNotificationStorage);
+	const [steerOnEnter, setSteerOnEnter] = useLocalStorage(steerOnEnterStorage);
 	const [toolCallDensity, setToolCallDensity, toolCallDensityState] = useToolCallDensity();
 
 	const navigation = useAuthRoute();
@@ -63,6 +69,8 @@ function GeneralPage() {
 
 	const handleSignOut = async () => {
 		queryClient.clear();
+		clearLastSeen();
+		clearRequestAnswers();
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {
@@ -104,6 +112,13 @@ function GeneralPage() {
 							checked={soundEnabled}
 							onCheckedChange={setSoundEnabled}
 						/>
+						<SettingsToggleRow
+							id='steer-on-enter'
+							label='Enter steers the running agent'
+							description={`While the agent runs, Enter steers it and ${getShortcutLabel('swap-steer-queue')} queues. Off: Enter queues and ${getShortcutLabel('swap-steer-queue')} steers.`}
+							checked={steerOnEnter}
+							onCheckedChange={setSteerOnEnter}
+						/>
 						<ToolCallDensitySetting
 							value={toolCallDensity}
 							onValueChange={setToolCallDensity}
@@ -121,6 +136,8 @@ function GeneralPage() {
 							control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
 						/>
 					</SettingsCard>
+
+					<TwoFactorSettings />
 
 					<SettingsMemories isAdmin={isAdmin} />
 

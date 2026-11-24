@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	extractConditionalGroupContent,
+	findRenderedRulesLines,
 	isRootRulesPath,
+	isRulesFilePath,
 	renderConditionalGroupBlocks,
 	renderConditionalGroupBlocksWithSourceLines,
 } from '../src/rules-template';
@@ -196,6 +198,36 @@ describe('renderConditionalGroupBlocks', () => {
 	});
 });
 
+describe('findRenderedRulesLines', () => {
+	const source = ['# Rules', '{% if group("finance") %}', 'Finance only', '{% endif %}', 'For everyone', 'Last'].join(
+		'\n',
+	);
+
+	it.each([
+		{
+			case: 'moves lines below a block hidden from the group',
+			groups: [],
+			lines: { start: 5, end: 6 },
+			expected: { start: 2, end: 3 },
+		},
+		{
+			case: 'skips the directives of a block shown',
+			groups: ['finance'],
+			lines: { start: 2, end: 5 },
+			expected: { start: 2, end: 3 },
+		},
+		{
+			case: 'finds nothing for a block hidden from the group',
+			groups: [],
+			lines: { start: 3, end: 3 },
+			expected: null,
+		},
+	])('$case', ({ groups, lines, expected }) => {
+		const rendered = renderConditionalGroupBlocksWithSourceLines(source, licensed(groups));
+		expect(findRenderedRulesLines(rendered, lines)).toEqual(expected);
+	});
+});
+
 describe('extractConditionalGroupContent', () => {
 	it('returns matching block content without directives or global text', () => {
 		const source = [
@@ -295,6 +327,24 @@ describe('isRootRulesPath', () => {
 		'rejects non-root path %s',
 		(filePath) => {
 			expect(isRootRulesPath(filePath)).toBe(false);
+		},
+	);
+});
+
+describe('isRulesFilePath', () => {
+	const rulesFile = 'repos/business_context/nao/RULES.md';
+
+	it.each(['/repos/business_context/nao/RULES.md', 'repos\\business_context\\nao\\RULES.md', '/RULES.md'])(
+		'accepts the configured rules file and the root RULES.md: %s',
+		(filePath) => {
+			expect(isRulesFilePath(filePath, rulesFile)).toBe(true);
+		},
+	);
+
+	it.each(['/repos/business_context/RULES.md', '/repos/x/../business_context/nao/RULES.md'])(
+		'rejects other paths: %s',
+		(filePath) => {
+			expect(isRulesFilePath(filePath, rulesFile)).toBe(false);
 		},
 	);
 });

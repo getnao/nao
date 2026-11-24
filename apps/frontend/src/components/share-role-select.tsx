@@ -31,6 +31,7 @@ export function ShareRoleSelect({
 	label,
 	ariaLabel,
 	className,
+	descriptions = SHARE_ROLE_DESCRIPTIONS,
 }: {
 	role: ShareRole | null;
 	onChange: (role: ShareRole) => void;
@@ -39,6 +40,7 @@ export function ShareRoleSelect({
 	label?: string;
 	ariaLabel?: string;
 	className?: string;
+	descriptions?: Record<ShareRole, string>;
 }) {
 	return (
 		<DropdownMenu>
@@ -60,7 +62,7 @@ export function ShareRoleSelect({
 							<div className='flex flex-col gap-0.5'>
 								<span className='text-xs font-medium'>{SHARE_ROLE_LABELS[option]}</span>
 								<span className='text-[11px] leading-tight whitespace-nowrap text-muted-foreground'>
-									{SHARE_ROLE_DESCRIPTIONS[option]}
+									{descriptions[option]}
 								</span>
 							</div>
 						</DropdownMenuRadioItem>

@@ -17,6 +17,7 @@ import {
 	ProviderNotConnectedError,
 	resolveRecommendationRepo,
 } from '../services/context-pr.service';
+import { applyRecommendationToChanges } from '../services/context-recommendation-apply.service';
 import { buildAgentPrompt } from '../services/context-recommendation-prompt';
 import {
 	repairRecommendationTriggerRefs,
@@ -24,6 +25,8 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { resolveRepositoryToken } from '../services/shared-github-token.service';
+import { getAvailableModelsForUser } from '../services/user-group-llm-access.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -31,7 +34,7 @@ import {
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
 import { llmProviderSchema } from '../types/llm';
-import { getProjectAvailableModels } from '../utils/llm';
+import { redactCredentialedUrls } from '../utils/credential-redaction';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -57,7 +60,7 @@ function toPullRequestTrpcError(err: unknown): TRPCError {
 	}
 	return new TRPCError({
 		code: 'INTERNAL_SERVER_ERROR',
-		message: err instanceof Error ? err.message : 'Failed to create pull request',
+		message: err instanceof Error ? redactCredentialedUrls(err.message) : 'Failed to create pull request',
 	});
 }
 
@@ -119,11 +122,16 @@ export const contextRecommendationRoutes = {
 	}),
 
 	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => {
-		return getProjectAvailableModels(ctx.project.id);
+		return getAvailableModelsForUser(ctx.project.id, ctx.user.id);
 	}),
 
 	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
-		return crQueries.getConfig(ctx.project.id);
+		const config = await crQueries.getConfig(ctx.project.id);
+		if (!config) {
+			return null;
+		}
+		const { encryptedGithubAccessToken: _encryptedGithubAccessToken, ...publicConfig } = config;
+		return publicConfig;
 	}),
 
 	setConfig: recommendationMutationProcedure
@@ -131,6 +139,7 @@ export const contextRecommendationRoutes = {
 			z.object({
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().min(1).optional(),
 				frequency: z.enum(CONTEXT_RECOMMENDATION_FREQUENCIES).optional(),
 				customSystemPromptInstructions: z.string().max(MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH).optional(),
 				autoCreatePrs: z.boolean().optional(),
@@ -152,6 +161,7 @@ export const contextRecommendationRoutes = {
 				await setContextRecommendationModel(ctx.project.id, {
 					provider: input.modelProvider,
 					modelId: input.modelId,
+					...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
 				});
 			}
 			if (input.frequency) {
@@ -201,6 +211,17 @@ export const contextRecommendationRoutes = {
 			});
 		}),
 
+	applyToChanges: recommendationMutationProcedure
+		.input(z.object({ id: z.string() }))
+		.mutation(async ({ ctx, input }) =>
+			applyRecommendationToChanges({
+				projectId: ctx.project.id,
+				projectFolder: ctx.project.path,
+				editor: ctx.user,
+				recommendationId: input.id,
+			}),
+		),
+
 	getPrStatus: recommendationsProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
 		const rec = await crQueries.getRecommendationById(ctx.project.id, input.id);
 		if (!rec?.prUrl) {
@@ -209,7 +230,7 @@ export const contextRecommendationRoutes = {
 
 		const githubParsed = github.parsePullRequestUrl(rec.prUrl);
 		if (githubParsed) {
-			const token = await userQueries.getGithubToken(ctx.user.id);
+			const token = await resolveRepositoryToken(ctx.project.id, 'github', ctx.user.id);
 			if (!token) {
 				return null;
 			}

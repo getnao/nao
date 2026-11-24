@@ -10,12 +10,18 @@ import {
 	getStandaloneCustomStoryFile,
 	getStandaloneCustomStoryNarratives,
 	getStandaloneCustomStoryQueryData,
+	getStandaloneCustomStoryQuerySql,
 	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
+import { readStoryMapBoundary } from '../services/story-map-boundary';
+import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
-	STANDALONE_QUERY_SQL_UNAVAILABLE,
+	mapBoundaryKey,
+	storyModelRequest,
+	storyQueryInputs,
 	storySnapshotHtml,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
@@ -47,13 +53,20 @@ const standaloneOwnerProcedure = protectedProcedure
 
 export const standaloneCustomStoryRoutes = {
 	listVersions: standaloneOwnerProcedure.query(async ({ ctx }) => {
-		const versions = await storyQueries.listStoryVersionsByStoryId(ctx.story.id);
+		const [versions, changes] = await Promise.all([
+			storyQueries.listStoryVersionsByStoryId(ctx.story.id),
+			listStoryVersionChanges(ctx.story, ctx.user.id),
+		]);
 		return {
 			id: ctx.story.id,
 			title: ctx.story.title,
 			slug: ctx.story.slug,
 			archivedAt: ctx.story.archivedAt,
-			versions: versions.map(({ version, createdAt }) => ({ version, createdAt })),
+			versions: versions.map(({ version, createdAt }) => ({
+				version,
+				createdAt,
+				change: changes.get(version) ?? null,
+			})),
 		};
 	}),
 
@@ -76,28 +89,58 @@ export const standaloneCustomStoryRoutes = {
 		}),
 
 	getQueryData: standaloneOwnerProcedure
-		.input(z.object({ queryId: z.string(), versionNumber }))
+		.input(z.object({ queryId: z.string(), versionNumber, inputs: storyQueryInputs }))
 		.query(async ({ ctx, input }) => {
 			try {
-				return await getStandaloneCustomStoryQueryData(ctx.story.id, input.queryId, input.versionNumber);
+				return await getStandaloneCustomStoryQueryData(ctx.story.id, input.queryId, input.versionNumber, {
+					deferRefresh: true,
+					rerun: { inputs: input.inputs, viewerId: ctx.user.id },
+				});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
 
-	getQuerySql: standaloneOwnerProcedure.input(z.object({ queryId: z.string() })).query((): { sqlQuery: string } => {
-		throw new TRPCError({ code: 'NOT_FOUND', message: STANDALONE_QUERY_SQL_UNAVAILABLE });
-	}),
+	listModels: standaloneOwnerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.story.projectId, ctx.user.id)),
+
+	runModel: standaloneOwnerProcedure
+		.input(z.object({ request: storyModelRequest }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				return await runCustomStoryModel(
+					{ projectId: ctx.story.projectId, storyId: ctx.story.id, viewerId: ctx.user.id },
+					input.request,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	getQuerySql: standaloneOwnerProcedure
+		.input(z.object({ queryId: z.string(), versionNumber }))
+		.query(async ({ ctx, input }) => {
+			try {
+				return {
+					sqlQuery: await getStandaloneCustomStoryQuerySql(ctx.story.id, input.queryId, input.versionNumber),
+				};
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
 
 	getNarratives: standaloneOwnerProcedure.query(async ({ ctx }) => {
 		try {
-			return await getStandaloneCustomStoryNarratives(ctx.story.id);
+			return await getStandaloneCustomStoryNarratives(ctx.story.id, { deferRefresh: true });
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}
 	}),
 
 	getChartPlugins: standaloneOwnerProcedure.query(({ ctx }) => readStoryChartPluginSources(ctx.story.id)),
+
+	getMapBoundary: standaloneOwnerProcedure
+		.input(z.object({ key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readStoryMapBoundary(ctx.story.id, input.key)),
 
 	getState: standaloneOwnerProcedure.query(({ ctx }) => getCustomStoryStateByStoryId(ctx.story.id, ctx.user.id)),
 

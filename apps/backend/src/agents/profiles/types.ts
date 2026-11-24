@@ -1,4 +1,4 @@
-import type { StepResult, ToolChoice } from 'ai';
+import type { OutputInterface, StepResult, ToolChoice } from 'ai';
 
 import type { AgentChat, AgentToolsResolver } from '../../services/agent';
 import type { AgentTools, MessageSource } from '../../types/chat';
@@ -18,10 +18,16 @@ export interface AgentProfile {
 	/** Recorded on the run's messages and analytics events. */
 	source: MessageSource;
 	tools: AgentToolsResolver;
+	/** MCP servers the run is restricted to, so the prompt only offers those; absent for every server. */
+	mcpServers?: string[] | null;
+	/** Tools that end the turn as soon as they are called, on top of the interactive stop conditions. */
+	turnEndingTools?: string[];
 	/** Restricts the tools of the next step, for steps of the profile's flow that must end with a given tool call. */
 	stepTools?: (steps: StepResult<AgentTools>[]) => AgentStepTools | undefined;
 	/** Replaces the project system prompt (RULES.md, memories, connections) for runs with a dedicated purpose. */
 	systemPrompt?: (context: { timezone?: string; chat: AgentChat }) => string | Promise<string>;
+	/** Replaces the analyst introduction at the top of the project system prompt. */
+	role?: string;
 	/** Appended to the project system prompt. */
 	promptAppendix?: string;
 	/** Chat app the answer is posted to, which adapts the prompt to its formatting. */
@@ -32,7 +38,13 @@ export interface AgentProfile {
 	supportsCustomCharts?: boolean;
 	/** Leaves the user's memories out of the prompt and skips memory extraction, so the outcome does not depend on who runs it. */
 	excludesMemories?: boolean;
+	/** Leaves the published RULES.md out of the prompt, for runs that edit the rules rather than follow them. */
+	excludesUserRules?: boolean;
 	/** Ends non-interactive runs after this many steps instead of when the agent suggests follow-ups. */
 	maxSteps?: number;
 	usageCategory?: ManagedAiUsageCategory;
+	/** Asks the model for a structured answer instead of text, returned as `output` by `streamToCompletion`. */
+	output?: OutputInterface;
+	/** Caps each answer below the model's own limit, for runs a caller pays per call. */
+	maxOutputTokens?: number;
 }

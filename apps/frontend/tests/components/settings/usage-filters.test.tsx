@@ -4,11 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USAGE_PERIOD_SELECTION, MAX_SAVED_USAGE_PERIODS } from '@nao/backend/usage';
 
+import { stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { deferred } from '../../helpers/deferred';
 import type { SavedUsagePeriod } from '@nao/backend/usage';
 import type { ComponentProps } from 'react';
 import { UsageFilters } from '@/components/settings/usage-filters';
 import { UsagePeriodFilter } from '@/components/settings/usage-period-filter';
+
+stubResizeObserver();
+stubScrollIntoView();
 
 const savedPeriods: SavedUsagePeriod[] = [{ id: 'year', days: 365, granularity: 'month' }];
 
@@ -22,6 +26,9 @@ describe('UsageFilters', () => {
 	});
 
 	it('disables creation when the saved period limit is reached', () => {
+		stubResizeObserver();
+		stubScrollIntoView();
+
 		const savedPeriodsAtLimit: SavedUsagePeriod[] = Array.from({ length: MAX_SAVED_USAGE_PERIODS }, (_, index) => ({
 			id: `saved-period-${index}`,
 			days: index + 1,
@@ -39,6 +46,21 @@ describe('UsageFilters', () => {
 		expect(screen.queryByRole('dialog', { name: 'Create period filter' })).toBeNull();
 	});
 
+	it.each([
+		['keeps only the clicked source', ['Only Slack'], ['slack']],
+		['starts from an empty selection', ['Deselect all', 'Web', 'MCP'], ['web', 'mcp']],
+	])('%s and applies the source filter right away', (_case, clicks, expected) => {
+		const onSelectedSourcesChange = vi.fn();
+		renderUsageFilters({ onSelectedSourcesChange });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+		for (const name of clicks) {
+			fireEvent.click(screen.queryByRole('button', { name }) ?? screen.getByRole('option', { name }));
+		}
+
+		expect(onSelectedSourcesChange).toHaveBeenLastCalledWith(expected);
+	});
+
 	it('toggles the split per user view from the toolbar', () => {
 		const onSplitByUserChange = vi.fn();
 		renderUsageFilters({ splitByUser: false, onSplitByUserChange });
@@ -49,6 +71,38 @@ describe('UsageFilters', () => {
 		fireEvent.click(toggle);
 
 		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
+	});
+
+	it('filters usage by credential selection', () => {
+		const onSelectedCredentialIdsChange = vi.fn();
+		render(
+			<UsageFilters
+				provider='all'
+				onProviderChange={vi.fn()}
+				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}
+				onPeriodSelectionChange={vi.fn()}
+				savedPeriods={[]}
+				onCreateSavedPeriod={vi.fn()}
+				onUpdateSavedPeriod={vi.fn()}
+				onDeleteSavedPeriod={vi.fn()}
+				availableProviders={[]}
+				availableCredentials={[
+					{ id: 'client-a', name: 'Client A' },
+					{ id: 'client-b', name: 'Client B' },
+				]}
+				onSelectedCredentialIdsChange={onSelectedCredentialIdsChange}
+				chatFacets={undefined}
+				selectedUserNames={undefined}
+				onSelectedUserNamesChange={vi.fn()}
+				selectedSources={undefined}
+				onSelectedSourcesChange={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Credentials' }));
+		fireEvent.click(screen.getByText('Client B'));
+
+		expect(onSelectedCredentialIdsChange).toHaveBeenCalledWith(['client-a']);
 	});
 
 	it.each([

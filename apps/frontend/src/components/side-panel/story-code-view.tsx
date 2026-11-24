@@ -11,6 +11,7 @@ import { CodeSelectionAsk } from '@/components/code-selection-ask';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { useRevealCitedLines } from '@/hooks/use-code-reveal';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { useQueryIdLinks } from '@/hooks/use-query-id-links';
 
 const MONACO_OPTIONS = {
 	minimap: { enabled: false },
@@ -64,6 +65,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 	const onSaveRef = useRef(onSave);
 	onSaveRef.current = onSave;
 	useRevealCitedLines(codeEditor, { storySlug });
+	useQueryIdLinks(codeEditor);
 
 	useEffect(() => {
 		const nextErrors = readOnly ? [] : validateStoryCode(code);

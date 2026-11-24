@@ -163,6 +163,7 @@ const usageFilterObjectSchema = z.object({
 	period: usagePeriodRangeSchema,
 	granularity: granularitySchema.optional(),
 	provider: llmProviderSchema.optional(),
+	llmConfigIds: z.array(z.string().min(1)).optional(),
 	userNames: z.array(z.string()).optional(),
 	sources: z.array(z.enum(USAGE_SOURCES)).optional(),
 });
@@ -203,6 +204,9 @@ export interface UsageRecord {
 	date: string;
 	messageCount: number;
 	webMessageCount: number;
+	automationEditorMessageCount: number;
+	contextEditorMessageCount: number;
+	automationMessageCount: number;
 	slackMessageCount: number;
 	teamsMessageCount: number;
 	telegramMessageCount: number;

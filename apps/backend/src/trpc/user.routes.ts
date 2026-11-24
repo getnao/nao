@@ -15,8 +15,10 @@ import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
 import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
 import { addProjectMember } from '../services/membership.service';
-import { addTeamMember } from '../services/team-member';
+import { posthog, PostHogEvent } from '../services/posthog';
+import { addTeamMembers } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
+import { teamMembersInputSchema } from '../types/team-member';
 import type { StoredUserPreferences } from '../types/usage';
 import { type DiscordLinkTokenPayload, verifyDiscordLinkToken } from '../utils/discord-link-token';
 import { buildUserAddedEmail } from '../utils/email-builders';
@@ -96,8 +98,7 @@ export const userRoutes = {
 	addUserToProject: adminProtectedProcedure
 		.input(
 			z.object({
-				email: z.string().min(1),
-				name: z.string().min(1).optional(),
+				members: teamMembersInputSchema,
 				groupIds: z.array(z.string().min(1)).max(100).default([]),
 			}),
 		)
@@ -108,9 +109,8 @@ export const userRoutes = {
 				await handleUserGroupQuery(() => validateAssignableUserGroupIds(projectId, groupIds));
 			}
 
-			return addTeamMember({
-				email: input.email,
-				name: input.name,
+			return addTeamMembers({
+				members: input.members,
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
 					await addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);
@@ -138,9 +138,13 @@ export const userRoutes = {
 		return { shouldShow: await shouldShowGithubStarPrompt(ctx.user.id) };
 	}),
 
-	dismissGithubStarPrompt: protectedProcedure.mutation(async ({ ctx }) => {
-		await dismissGithubStarPrompt(ctx.user.id);
-	}),
+	dismissGithubStarPrompt: protectedProcedure
+		.input(z.object({ starred: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await dismissGithubStarPrompt(ctx.user.id);
+			const event = input.starred ? PostHogEvent.GithubStarClicked : PostHogEvent.GithubStarPromptDismissed;
+			posthog.capture(ctx.user.id, event);
+		}),
 
 	getMemorySettings: protectedProcedure.query(async ({ ctx }) => {
 		const memoryEnabled = await userQueries.getUserMemoryEnabled(ctx.user.id);

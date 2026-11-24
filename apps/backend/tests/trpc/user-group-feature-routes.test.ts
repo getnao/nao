@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	createSharedStory: vi.fn(),
 	pinSharedStory: vi.fn(),
 	createStoryVersion: vi.fn(),
+	createStandaloneVersion: vi.fn(),
 	getDisplaySettings: vi.fn(),
 	getAutomation: vi.fn(),
 	getChatInfo: vi.fn(),
@@ -103,6 +104,7 @@ vi.mock('../../src/queries/story.queries', async (importOriginal) => ({
 	StoryVersionConflictError: (await importOriginal<typeof import('../../src/queries/story.queries')>())
 		.StoryVersionConflictError,
 	createStoryVersion: mocks.createStoryVersion,
+	createStandaloneVersion: mocks.createStandaloneVersion,
 	archiveStory: mocks.archiveStory,
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getStoryById: mocks.getStoryByChatAndSlug,
@@ -132,6 +134,7 @@ vi.mock('../../src/services/story-edit-lock.service', async (importOriginal) => 
 }));
 vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../../src/agents/profiles/messaging', () => ({ messagingAgent: vi.fn() }));
+vi.mock('../../src/agents/profiles/story-model', () => ({ storyModelAgent: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
@@ -225,6 +228,7 @@ describe('user group feature route enforcement', () => {
 		mockEffectiveFeatures(['storyCreation']);
 		mocks.getAutomation
 			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ id: 'automation-id', accessRole: 'owner' })
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce({ id: 'automation-id', scheduledJobId: null });
@@ -244,10 +248,10 @@ describe('user group feature route enforcement', () => {
 		await expect(caller.automation.delete({ id: 'automation-id' })).resolves.toEqual({ success: true });
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.listAutomations).toHaveBeenCalledWith('project-id', 'user-id');
-		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id');
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id', 'viewer');
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-id', 'user-id', 'automation-id', 'editor');
 		expect(mocks.updateAutomation).toHaveBeenCalledWith(
 			'project-id',
-			'user-id',
 			'automation-id',
 			expect.objectContaining({ title: 'Existing Automation', prompt: 'Updated prompt' }),
 		);
@@ -417,6 +421,7 @@ describe('user group feature route enforcement', () => {
 			'# Latest version',
 			true,
 			'* * * * *',
+			{ viewerUserId: 'user-id' },
 		);
 		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
 			'html',
@@ -558,6 +563,46 @@ describe('user group feature route enforcement', () => {
 				...change,
 			});
 		}
+	});
+
+	describe('standalone stories', () => {
+		const STANDALONE_STORY = {
+			id: 'story-id',
+			chatId: null,
+			projectId: 'project-id',
+			slug: 'standalone-story',
+			title: 'Standalone Story',
+			format: 'classic',
+		};
+		const saveStandaloneEdit = () =>
+			caller.story.createStandaloneVersion({ storyId: 'story-id', code: '# Edited', basedOnVersion: 2 });
+
+		it('saves an edit of a standalone story on top of the version it was based on', async () => {
+			mocks.getStoryByChatAndSlug.mockResolvedValue(STANDALONE_STORY);
+			mocks.createStandaloneVersion.mockResolvedValue({ storyId: 'story-id', version: 3 });
+
+			await expect(saveStandaloneEdit()).resolves.toEqual({ storyId: 'story-id', version: 3 });
+			expect(mocks.createStandaloneVersion).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: 'user-id',
+					projectId: 'project-id',
+					slug: 'standalone-story',
+					code: '# Edited',
+					basedOnVersion: 2,
+					origin: 'editor',
+				}),
+			);
+		});
+
+		it.each([
+			['a story that lives in a chat', { chatId: 'chat-id' }, 'NOT_FOUND'],
+			['a custom story', { format: 'custom' }, 'BAD_REQUEST'],
+		])('refuses to save markdown into %s', async (_label, override, code) => {
+			mocks.getStoryByChatAndSlug.mockResolvedValue({ ...STANDALONE_STORY, ...override });
+
+			await expect(saveStandaloneEdit()).rejects.toMatchObject({ code });
+			expect(mocks.createStandaloneVersion).not.toHaveBeenCalled();
+		});
 	});
 });
 

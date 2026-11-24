@@ -172,6 +172,13 @@ def test_budget_requires_a_positive_limit():
         BudgetConfig(period=BudgetPeriod.MONTH)
 
 
+def test_a_model_declares_its_context_window():
+    assert ModelConfig(id="acsw@azure/gpt-6-sol", context_window=1_050_000).context_window == 1_050_000
+    assert ModelConfig(id="gpt-6-sol").context_window is None
+    with pytest.raises(ValueError, match="greater than 0"):
+        ModelConfig(id="gpt-6-sol", context_window=0)
+
+
 def test_costs_are_resolved_per_model():
     config = LLMConfig(
         providers=[

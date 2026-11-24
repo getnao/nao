@@ -23,13 +23,15 @@ export function useShareAudience() {
 	};
 }
 
+type ShareSource = { chatId: string } | { storyId: string } | { automationId: string };
+
 export function useShareCandidates({
-	chatId,
+	source,
 	withGroups,
 	excludedKeys,
 	enabled,
 }: {
-	chatId: string;
+	source: ShareSource;
 	withGroups: boolean;
 	excludedKeys: Set<string>;
 	enabled: boolean;
@@ -38,10 +40,23 @@ export function useShareCandidates({
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projectId = project.data?.id;
 	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
-	const membersQuery = useQuery({
-		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId }),
-		enabled: enabled && hasProject,
+	const storyId = 'storyId' in source ? source.storyId : null;
+	const chatId = 'chatId' in source ? source.chatId : null;
+	const chatMembersQuery = useQuery({
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId: chatId ?? '' }),
+		enabled: enabled && hasProject && chatId !== null,
 	});
+	const storyMembersQuery = useQuery({
+		...trpc.project.getProjectMembersByStoryId.queryOptions({ storyId: storyId ?? '' }),
+		enabled: enabled && hasProject && storyId !== null,
+	});
+	const automationMembersQuery = useQuery({
+		...trpc.automation.listShareCandidates.queryOptions(),
+		enabled: enabled && hasProject && 'automationId' in source,
+	});
+	const membersQuery = { chat: chatMembersQuery, story: storyMembersQuery, automation: automationMembersQuery }[
+		getShareSourceKind(source)
+	];
 	const groupsQuery = useQuery({
 		...trpc.storyShare.listShareableGroups.queryOptions(),
 		enabled: enabled && withGroups && hasProject,
@@ -70,6 +85,13 @@ export function useShareCandidates({
 	}, [showsGroups, groupsQuery.data, hasProject, membersQuery.isFetching, membersQuery.data, excludedKeys]);
 
 	return { candidates, isLoading: membersQuery.isFetching || (withGroups && groupsQuery.isFetching) };
+}
+
+function getShareSourceKind(source: ShareSource): 'chat' | 'story' | 'automation' {
+	if ('chatId' in source) {
+		return 'chat';
+	}
+	return 'storyId' in source ? 'story' : 'automation';
 }
 
 /** Runs one sharing change at a time and keeps the last failed one so it can be retried. */

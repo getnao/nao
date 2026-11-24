@@ -5,6 +5,10 @@ import { SystemPrompt } from '../../src/components/ai/system-prompt';
 import { renderToMarkdown } from '../../src/lib/markdown';
 import { formatCurrentDate, resolveTimezone } from '../../src/utils/date';
 
+function getRulesLine(markdown: string): string {
+	return markdown.split('\n').find((line) => line.startsWith('- `RULES.md` —')) ?? '';
+}
+
 function getTemplateLine(markdown: string, template: string): string {
 	return markdown.split('\n').find((line) => line.includes(`\`${template}.md\` —`)) ?? '';
 }
@@ -255,6 +259,23 @@ describe('SystemPrompt context structure', () => {
 		expect(markdown).not.toContain('`repos/<name>/`');
 		expect(markdown).not.toContain('— source repositories;');
 	});
+
+	it('tells the agent not to read RULES.md once its content is injected', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ userRules: 'Always answer in euros.', internalSkills: [] }));
+		const rulesSection = markdown.slice(markdown.indexOf('## User Rules'));
+
+		expect(getRulesLine(markdown)).toContain('already in the **User Rules** section');
+		expect(getRulesLine(markdown)).not.toContain('read it for project conventions');
+		expect(rulesSection).toContain('never read `RULES.md` with a tool');
+		expect(rulesSection).toContain('Always answer in euros.');
+	});
+
+	it('tells the agent to read RULES.md when its content is not injected', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
+
+		expect(getRulesLine(markdown)).toContain('read it for project conventions');
+		expect(markdown).not.toContain('## User Rules');
+	});
 });
 
 describe('SystemPrompt saved files rules', () => {
@@ -288,6 +309,25 @@ describe('SystemPrompt saved files rules', () => {
 			}),
 		);
 		expect(markdown).not.toContain('**save_to**');
+	});
+
+	it('points to the story-kit skill instead of inlining the guide when the run can load skills', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { customStoriesEnabled: true } }));
+		expect(markdown).toContain('**load_skill** with **custom-story-kit**');
+		expect(markdown).toContain('- **custom-story-kit** — ');
+		expect(markdown).not.toContain('useStoryState("key", initial)');
+	});
+
+	it('does not list the story-kit skill when the run cannot author custom stories', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('Built-in Skills');
+		expect(markdown).not.toContain('custom-story-kit');
+	});
+
+	it('keeps the no-guess column rule when the columns template is not synced', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ templates: ['preview'], internalSkills: [] }));
+		expect(markdown).not.toContain('`columns.md` —');
+		expect(markdown).toContain('Never guess column names');
 	});
 
 	it('tells custom stories to persist what a viewer would redo on every visit', () => {
@@ -392,7 +432,6 @@ describe('SystemPrompt local database rules', () => {
 		const withoutStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
 
 		expect(withStorage).toContain('**save_to**');
-		expect(withStorage).toContain('format: "parquet"');
 		expect(withStorage).toContain('**saved-file** chip');
 		expect(withoutStorage).not.toContain('**save_to**');
 	});
@@ -551,6 +590,35 @@ describe('SystemPrompt follow-up suggestions rules', () => {
 	});
 });
 
+describe('SystemPrompt map boundaries', () => {
+	const uploadedSet = {
+		key: 'french_postal_codes',
+		label: 'French postal codes',
+		file: { name: 'postal.geojson', size: 1024, storageKey: 'projects/p1/map-boundaries/a.geojson' },
+		joinProperty: 'code_postal',
+		regionKeyHint: '5-digit French postal code',
+		featureCount: 6000,
+	};
+
+	it('lists built-in and custom sets with how to join them, without their geometry', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({ mapBoundaries: [uploadedSet], options: { customStoriesEnabled: true } }),
+		);
+
+		expect(markdown).toContain('## Map boundaries');
+		expect(markdown).toContain('**world_countries** (built-in)');
+		expect(markdown).toContain(
+			'**french_postal_codes** (uploaded, 6000 features): French postal codes. Join property: code_postal.',
+		);
+		expect(markdown).toContain('useMapBoundary("key")');
+		expect(markdown).not.toContain(uploadedSet.file.storageKey);
+	});
+
+	it('leaves the prompt unchanged when the project has no custom set', () => {
+		expect(renderToMarkdown(SystemPrompt({}))).not.toContain('## Map boundaries');
+	});
+});
+
 describe('SystemPrompt display_map rules', () => {
 	it('includes the display_map rule by default', () => {
 		expect(renderToMarkdown(SystemPrompt({}))).toContain('display_map');
@@ -560,5 +628,24 @@ describe('SystemPrompt display_map rules', () => {
 		expect(renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql', 'display_chart'] }))).not.toContain(
 			'display_map',
 		);
+	});
+});
+
+describe('SystemPrompt personal skills', () => {
+	const personalSkills = [{ name: 'my-orders', description: 'My weekly orders.', body: 'Completed orders only.' }];
+
+	it('lists each personal skill by name and description and points to load_skill', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ personalSkills }));
+
+		expect(markdown).toContain('Personal Skills');
+		expect(markdown).toContain('**my-orders** — My weekly orders.');
+		expect(markdown).toContain('**load_skill**');
+		expect(markdown).not.toContain('Completed orders only.');
+	});
+
+	it('omits the section when the run has no load_skill tool, since personal skills have no file to read', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ personalSkills, toolNames: ['read'] }));
+
+		expect(markdown).not.toContain('Personal Skills');
 	});
 });

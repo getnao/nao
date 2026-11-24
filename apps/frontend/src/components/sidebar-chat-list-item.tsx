@@ -199,11 +199,13 @@ export function ChatListItem({ chat, needsAttention = false, resumeOnboarding = 
 				)}
 			</Link>
 
-			<ShareDialog
-				open={isShareDialogOpen}
-				onOpenChange={setIsShareDialogOpen}
-				target={{ kind: 'chat', chatId: chat.id }}
-			/>
+			{isShareDialogOpen && (
+				<ShareDialog
+					open={isShareDialogOpen}
+					onOpenChange={setIsShareDialogOpen}
+					target={{ kind: 'chat', chatId: chat.id }}
+				/>
+			)}
 		</>
 	);
 }

@@ -10,7 +10,8 @@ import { promisify } from 'util';
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { renderProjectTextForAgent } from '../../services/agent-visible-project-file.service';
 import { toReadableText } from '../../services/file-text';
-import { assertProjectContextPathAllowed } from '../../services/project-context-path-access.service';
+import { isNaoInternalMcpPath, readNaoInternalMcpFile } from '../../services/nao-internal-mcp';
+import { assertProjectContextPathRenderAllowed } from '../../services/project-context-path-access.service';
 import { toProjectPathError } from '../../services/project-path-error.service';
 import { readUserFile } from '../../services/storage/user-files';
 import { readStoryLibraryFile } from '../../services/story-library';
@@ -53,6 +54,9 @@ const readAnywhere = (filePath: string, context: ToolContext): Promise<string> =
 	if (isStoragePath(filePath)) {
 		return readUserFile(toStorageScope(context), toStorageRelativePath(filePath));
 	}
+	if (isNaoInternalMcpPath(filePath)) {
+		return readNaoInternalMcpFile(context, filePath);
+	}
 	return readProjectFile(filePath, context);
 };
 
@@ -71,7 +75,7 @@ const readProjectFile = async (filePath: string, context: ToolContext): Promise<
 		}
 		const content = renderProjectTextForAgent(validatedFile.virtualPath, bytes.toString('utf-8'), context);
 		if (content === null) {
-			throw new Error('RULES.md could not be rendered safely.');
+			throw new Error(`Access denied: ${filePath} could not be rendered safely.`);
 		}
 		return content;
 	} finally {
@@ -96,7 +100,7 @@ function resolveAllowedProjectPath(filePath: string, context: ToolContext): Allo
 	if (!isWithinPath(canonical.realPath, projectRoot)) {
 		throw new Error(`Access denied: '${filePath}' changed while being read`);
 	}
-	assertProjectContextPathAllowed(context, filePath, canonical.virtualPath, 'file');
+	assertProjectContextPathRenderAllowed(context, filePath, canonical.virtualPath, 'file');
 	return { projectRoot, realPath: canonical.realPath };
 }
 
@@ -190,7 +194,7 @@ function authorizeDescriptorPath(
 
 	const relativePath = path.relative(projectRoot, descriptorPath);
 	const virtualPath = relativePath ? `/${relativePath.replaceAll(path.sep, '/')}` : '/';
-	assertProjectContextPathAllowed(context, filePath, virtualPath, 'file');
+	assertProjectContextPathRenderAllowed(context, filePath, virtualPath, 'file');
 	return { realPath: descriptorPath, virtualPath };
 }
 

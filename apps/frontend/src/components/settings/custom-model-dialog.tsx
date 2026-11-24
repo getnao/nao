@@ -46,6 +46,7 @@ export function CustomModelDialog({
 		inputCacheWrite: '',
 		output: '',
 	});
+	const [contextWindow, setContextWindow] = useState('');
 	const wasOpenRef = useRef(false);
 
 	useEffect(() => {
@@ -61,6 +62,7 @@ export function CustomModelDialog({
 			inputCacheWrite: formatCost(value?.costPerM?.inputCacheWrite),
 			output: formatCost(value?.costPerM?.output),
 		});
+		setContextWindow(String(value?.contextWindow ?? ''));
 	}, [open, value]);
 
 	const handleSave = () => {
@@ -73,6 +75,7 @@ export function CustomModelDialog({
 			id: modelId,
 			displayName: trimmedName || undefined,
 			costPerM,
+			contextWindow: parseContextWindow(contextWindow),
 		});
 		if (supportsModelParameters) {
 			onSaveParameters?.(parameters.buildSettings());
@@ -142,6 +145,33 @@ export function CustomModelDialog({
 						</p>
 					</div>
 
+					<div className='grid gap-2'>
+						<div className='flex items-baseline justify-between'>
+							<label
+								htmlFor='custom-model-context-window'
+								className='text-sm font-medium text-foreground'
+							>
+								Context window
+								<span className='text-muted-foreground font-normal ml-1'>(optional)</span>
+							</label>
+							<span className='text-xs text-muted-foreground'>Tokens</span>
+						</div>
+						<Input
+							id='custom-model-context-window'
+							type='number'
+							inputMode='numeric'
+							step='1000'
+							min='1'
+							placeholder='200000'
+							value={contextWindow}
+							onChange={(e) => setContextWindow(e.target.value)}
+						/>
+						<p className='text-xs text-muted-foreground'>
+							Set it for a model nao does not know, such as one routed through a gateway. It decides when
+							a chat is compacted.
+						</p>
+					</div>
+
 					{supportsModelParameters && (
 						<div className='grid gap-2 border-t border-border pt-4'>
 							<span className='text-sm font-medium text-foreground'>Model parameters</span>
@@ -185,6 +215,11 @@ function parseCost(value: string): number | undefined {
 		return undefined;
 	}
 	return parsed;
+}
+
+function parseContextWindow(value: string): number | undefined {
+	const parsed = Number(value.trim());
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function buildCostPerM(costs: Record<CostKey, string>): CustomModelMetadata['costPerM'] {

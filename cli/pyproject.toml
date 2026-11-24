@@ -32,7 +32,7 @@ dependencies = [
     "packaging>=21.3",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
-    "cryptography>=46.0.3",
+    "cryptography>=44.0.1",
     "dotenv>=0.9.9",
     "python-dotenv>=1.2.1",
     "jinja2>=3.1.0",
@@ -55,7 +55,8 @@ dependencies = [
 # Database backends
 postgres = ["ibis-framework[postgres]>=9.0.0"]
 bigquery = ["ibis-framework[bigquery]>=9.0.0", "google-cloud>=0.34.0"]
-snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=4.2.0"]
+# 3.17 is the first connector to accept the lowercase programmatic_access_token authenticator.
+snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=3.17.0"]
 # duckdb>=1.5.2: earlier engines speak DuckLake catalog format 0.4 and refuse to
 # attach a 1.0 catalog outright, so a resolved 1.5.1 fails against any recent lake.
 # duckdb<2: 2.0 removed DuckDBPyConnection.fetch_arrow_table, which ibis 12's DuckDB backend
@@ -109,7 +110,9 @@ nao = "nao_core.main:main"
 
 [project.urls]
 Homepage = "https://getnao.io"
-Repository = "https://github.com/naolabs/chat"
+Repository = "https://github.com/getnao/nao"
+Issues = "https://github.com/getnao/nao/issues"
+Changelog = "https://github.com/getnao/nao/releases"
 
 [dependency-groups]
 dev = [

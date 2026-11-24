@@ -13,7 +13,7 @@ import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { useAgentMessagesGetter, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useStoryIds } from '@/hooks/use-story-ids';
 import { useSourceQuery } from '@/hooks/use-source-query';
@@ -34,7 +34,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 	const getMessages = useAgentMessagesGetter();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
+	const { open: openSidePanel, getState: getSidePanelState } = useSidePanelActions();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 
 	const storyIds = useStoryIds();
@@ -80,6 +80,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 	);
 
 	const handleAddToStory = useCallback(async () => {
+		const { isVisible, currentStorySlug, currentStoryTabIndex } = getSidePanelState();
 		const latestStoryId = storyIds[storyIds.length - 1];
 		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
 		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
@@ -136,18 +137,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 				targetId,
 			);
 		}
-	}, [
-		storyIds,
-		isVisible,
-		currentStorySlug,
-		chatId,
-		config,
-		queryClient,
-		currentStoryTabIndex,
-		addToStory,
-		addToCustomStory,
-		openSidePanel,
-	]);
+	}, [storyIds, getSidePanelState, chatId, config, queryClient, addToStory, addToCustomStory, openSidePanel]);
 	const headerActions = useMemo(
 		() =>
 			isEditable ? (

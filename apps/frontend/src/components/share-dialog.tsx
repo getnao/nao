@@ -1,12 +1,16 @@
 import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Link as LinkIcon, Loader2, SearchIcon, Users, X } from 'lucide-react';
+import type { ShareRole } from '@nao/shared/types';
 
 import type { ShareModel, ShareTarget, ShareTargetState } from '@/hooks/use-share-target';
+import type { ShareOwner } from '@/lib/share-access';
 import type { ShareDraft, ShareSavedState } from '@/lib/share-draft';
+import type { TransferCandidate } from '@/components/transfer-ownership-dialog';
 import { ShareAccessPanel } from '@/components/share-access-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
 	Dialog,
 	DialogContent,
@@ -26,6 +30,7 @@ import { useShareTarget } from '@/hooks/use-share-target';
 import { useSession } from '@/lib/auth-client';
 import { shareSubjectKey } from '@/lib/share-access';
 import { createShareDraft, isShareDraftChanged, isShareDraftEmpty, STOP_SHARING_DRAFT } from '@/lib/share-draft';
+import { invalidateStoryOwnershipCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -33,16 +38,31 @@ export type { ShareTarget } from '@/hooks/use-share-target';
 
 type ShareAttempt = 'save' | 'stopSharing';
 
+const UNSAVED_SHARING_ERROR = 'Save or cancel your sharing changes first, so the new owner gets the sharing you see.';
+
+const SHARE_DIALOG_TITLES: Record<ShareTarget['kind'], string> = {
+	chat: 'Share chat',
+	story: 'Share story',
+	'standalone-story': 'Share story',
+	automation: 'Share automation',
+};
+
+const AUTOMATION_ROLE_DESCRIPTIONS: Record<ShareRole, string> = {
+	viewer: 'See it and the status of its runs',
+	editor: 'Change it, run it and pause it',
+};
+
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	target: ShareTarget;
+	onStoryTransferred?: () => void;
 }
 
-export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
+export function ShareDialog({ open, onOpenChange, target, onStoryTransferred }: ShareDialogProps) {
 	const share = useShareTarget(target, open);
 	const audience = useShareAudience();
-	const title = target.kind === 'chat' ? 'Share chat' : 'Share story';
+	const title = SHARE_DIALOG_TITLES[target.kind];
 
 	if (share.isLoading || audience.isLoading) {
 		return <ShareLoadingDialog open={open} onOpenChange={onOpenChange} title={title} className='sm:max-w-lg' />;
@@ -54,12 +74,13 @@ export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='sm:max-w-lg'>
 				<ShareDialogBody
-					chatId={target.chatId}
+					target={target}
 					title={title}
 					description={describeAudience(share.model)}
 					model={share.model}
 					commands={share.commands}
 					onClose={() => onOpenChange(false)}
+					onStoryTransferred={onStoryTransferred}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -67,19 +88,21 @@ export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
 }
 
 function ShareDialogBody({
-	chatId,
+	target,
 	title,
 	description,
 	model,
 	commands,
 	onClose,
+	onStoryTransferred,
 }: {
-	chatId: string;
+	target: ShareTarget;
 	title: string;
 	description: string;
 	model: ShareModel;
 	commands: ShareTargetState['commands'];
 	onClose: () => void;
+	onStoryTransferred?: () => void;
 }) {
 	const { data: session } = useSession();
 	const audience = useShareAudience();
@@ -90,13 +113,29 @@ function ShareDialogBody({
 	const [editedDraft, setEditedDraft] = useState<ShareDraft | null>(null);
 	const draft = editedDraft ?? createShareDraft(saved, audience.canShareToProject);
 	const [notify, setNotify] = useState(false);
-	const canNotify = smtpQuery.data === true;
+	const canNotify = smtpQuery.data === true && model.itemLabel !== 'automation';
 	const hasChanges = model.canManage && isShareDraftChanged(draft, saved);
+	const hasEditedSharing = editedDraft !== null && hasChanges;
 	const sharesWithNobody = isShareDraftEmpty(draft);
+	const ownerCandidates = useOwnerCandidates(model);
+	const storyId = model.storyId;
+	const [newOwner, setNewOwner] = useState<ShareOwner | null>(null);
+	const transfer = useStoryTransfer(() => {
+		setNewOwner(null);
+		setEditedDraft(null);
+		onStoryTransferred?.();
+	});
+	const chooseNewOwner = (owner: ShareOwner | null) => {
+		if (transfer.isPending) {
+			return;
+		}
+		transfer.reset();
+		setNewOwner(owner);
+	};
 
 	const excludedKeys = useMemo(() => new Set([shareSubjectKey('user', model.owner?.id ?? '')]), [model.owner?.id]);
 	const { candidates, isLoading } = useShareCandidates({
-		chatId,
+		source: target,
 		withGroups: model.withGroups,
 		excludedKeys,
 		enabled: model.canManage,
@@ -140,7 +179,20 @@ function ShareDialogBody({
 				canNotify={canNotify}
 				notify={notify}
 				onNotifyChange={setNotify}
+				ownerCandidates={ownerCandidates}
+				onChangeOwner={chooseNewOwner}
+				roleDescriptions={model.itemLabel === 'automation' ? AUTOMATION_ROLE_DESCRIPTIONS : undefined}
 			/>
+			{storyId && (
+				<TransferOwnerConfirmation
+					newOwner={newOwner}
+					isPending={transfer.isPending}
+					isBlocked={hasEditedSharing}
+					error={hasEditedSharing ? UNSAVED_SHARING_ERROR : transfer.error?.message}
+					onCancel={() => chooseNewOwner(null)}
+					onConfirm={() => newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })}
+				/>
+			)}
 			{actions.error && (
 				<ShareActionError message={actions.error} onRetry={retry} onDismiss={actions.dismissError} />
 			)}
@@ -183,6 +235,27 @@ function toSavedState(model: ShareModel): ShareSavedState {
 	return { isShared: model.isShared, ...model.generalAccess, grants: model.grants };
 }
 
+/** Project members the story can be handed to: everyone but viewers and its current owner. */
+function useOwnerCandidates(model: ShareModel): TransferCandidate[] {
+	const recipients = useQuery({
+		...trpc.story.listTransferRecipients.queryOptions({ storyId: model.storyId ?? '' }),
+		enabled: model.storyId !== null && model.canManage,
+	});
+	return recipients.data ?? [];
+}
+
+function useStoryTransfer(onTransferred: () => void) {
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.story.transferOwnership.mutationOptions({
+			onSuccess: () => {
+				invalidateStoryOwnershipCaches(queryClient);
+				onTransferred();
+			},
+		}),
+	);
+}
+
 function describeConfirm(
 	model: ShareModel,
 	{ hasChanges, sharesWithNobody }: { hasChanges: boolean; sharesWithNobody: boolean },
@@ -206,6 +279,9 @@ function copyShareLinkOnceSaved(saving: Promise<string | null>): void {
 function describeAudience(model: ShareModel): string {
 	if (model.itemLabel === 'chat') {
 		return 'People you share it with can read this conversation.';
+	}
+	if (model.itemLabel === 'automation') {
+		return 'It keeps running as its owner. Editors can change its prompt, triggers and tools.';
 	}
 	return 'People you share it with always see the latest version. Editors can change it from their own chats.';
 }
@@ -300,6 +376,38 @@ function ShareActionError({
 				<X className='size-3' />
 			</Button>
 		</div>
+	);
+}
+
+function TransferOwnerConfirmation({
+	newOwner,
+	isPending,
+	isBlocked,
+	error,
+	onCancel,
+	onConfirm,
+}: {
+	newOwner: ShareOwner | null;
+	isPending: boolean;
+	isBlocked: boolean;
+	error?: string;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	return (
+		<ConfirmationDialog
+			open={newOwner !== null}
+			onOpenChange={(open) => !open && onCancel()}
+			title={`Transfer ownership to ${newOwner?.name ?? ''}?`}
+			description="They get the story with its link, sharing, versions and live settings. You'll keep access only if it stays shared with you, through the project or one of your groups."
+			confirmLabel='Transfer'
+			confirmVariant='default'
+			onConfirm={onConfirm}
+			isPending={isPending}
+			isConfirmDisabled={isBlocked}
+			error={error}
+			preventCloseWhilePending
+		/>
 	);
 }
 

@@ -15,6 +15,7 @@ import { Welcome } from '../components/email/welcome';
 import { env } from '../env';
 import { CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
+import type { NotificationTable } from '../types/notification';
 import { type EmailBranding, resolveEmailBranding } from './email-branding';
 
 const DOCS_URL = 'https://docs.getnao.io';
@@ -149,11 +150,22 @@ export async function buildNotificationEmail(
 	attachments?: EmailAttachment[],
 	unsubscribeUrl?: string,
 	bodyHtml?: string,
+	table?: NotificationTable,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
 	return createEmail(
 		`${title} — ${branding.appName}`,
-		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl, branding }),
+		NotificationEmail({
+			userName: user.name,
+			title,
+			body,
+			bodyHtml,
+			table,
+			linkUrl,
+			ctaLabel,
+			unsubscribeUrl,
+			branding,
+		}),
 		branding,
 		attachments ?? [],
 	);

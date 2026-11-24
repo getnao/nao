@@ -1,5 +1,6 @@
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from typing import Any, TypeVar
 
@@ -14,6 +15,10 @@ from .assertions import Assertion
 from .case import TestCase
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5005")
+CONNECT_TIMEOUT_SECONDS = 10
+# The agent answers a test with as many tool calls as it needs, so only a request silent for far longer is dropped.
+RUN_TEST_TIMEOUT = (CONNECT_TIMEOUT_SECONDS, 30 * 60)
+REASONING_EFFORTS_TIMEOUT = (CONNECT_TIMEOUT_SECONDS, 30)
 
 DataclassT = TypeVar("DataclassT")
 
@@ -152,6 +157,7 @@ class AgentClient:
         test_case: TestCase,
         provider: str = "openai",
         model_id: str = "gpt-4.1",
+        llm_config_id: str | None = None,
         costs: ModelCosts | None = None,
         comparison: ComparisonConfig | None = None,
         retry_auth: bool = True,
@@ -166,6 +172,9 @@ class AgentClient:
             },
             "prompt": test_case.prompt,
         }
+
+        if llm_config_id:
+            payload["model"]["llmConfigId"] = llm_config_id
 
         if reasoning_effort:
             payload["model"]["reasoningEffort"] = reasoning_effort
@@ -186,9 +195,8 @@ class AgentClient:
         if cost_payload is not None:
             payload["meta"] = {"costs": cost_payload}
 
-        response = session.post(
-            f"{self.backend_url}/api/test/run",
-            json=payload,
+        response = send_request(
+            session.post, f"{self.backend_url}/api/test/run", json=payload, timeout=RUN_TEST_TIMEOUT
         )
 
         if response.status_code == 401:
@@ -197,6 +205,7 @@ class AgentClient:
                     test_case,
                     provider,
                     model_id,
+                    llm_config_id=llm_config_id,
                     costs=costs,
                     comparison=comparison,
                     reasoning_effort=reasoning_effort,
@@ -209,7 +218,7 @@ class AgentClient:
         if response.status_code != 200:
             raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
 
-        data = response.json()
+        data = read_json(response)
         return TestResult(
             text=data["text"],
             tool_calls=data["toolCalls"],
@@ -226,9 +235,11 @@ class AgentClient:
     def get_reasoning_efforts(self, provider: str, model_id: str, retry_auth: bool = True) -> list[str]:
         """List the reasoning efforts the backend can run a model at, from the lowest."""
         session, auth_generation = self._get_session()
-        response = session.get(
+        response = send_request(
+            session.get,
             f"{self.backend_url}/api/test/reasoning-efforts",
             params={"provider": provider, "modelId": model_id},
+            timeout=REASONING_EFFORTS_TIMEOUT,
         )
 
         if response.status_code == 401:
@@ -244,7 +255,7 @@ class AgentClient:
         if response.status_code != 200:
             raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
 
-        return response.json()["reasoningEfforts"]
+        return read_json(response)["reasoningEfforts"]
 
 
 _client: AgentClient | None = None
@@ -267,6 +278,21 @@ def get_client(
             project_name=project_name,
         )
     return _client
+
+
+def send_request(request: Callable[..., requests.Response], url: str, **kwargs: Any) -> requests.Response:
+    """A dropped connection or a timeout fails the request like an error status does."""
+    try:
+        return request(url, **kwargs)
+    except requests.RequestException as error:
+        raise AgentClientError(f"Request failed: {error}") from error
+
+
+def read_json(response: requests.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError as error:
+        raise AgentClientError(f"The nao server sent a response that is not JSON: {error}") from error
 
 
 def serialize_model_costs(costs: ModelCosts | None) -> dict[str, float] | None:

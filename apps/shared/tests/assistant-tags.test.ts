@@ -3,19 +3,29 @@ import { describe, expect, it } from 'vitest';
 import { extractStoryReferenceTags, stripAssistantTags } from '../src/assistant-tags';
 
 describe('stripAssistantTags', () => {
-	it('keeps the text a citation wraps', () => {
-		const text = 'Total paid was <citation-number id="query_a1b2" column="total_paid">99</citation-number>.';
-		expect(stripAssistantTags(text)).toBe('Total paid was 99.');
-	});
-
-	it('keeps the name a saved file wraps', () => {
-		const text = 'Here it is: <saved-file path="/home/exports/churn-2025.csv">churn-2025.csv</saved-file>';
-		expect(stripAssistantTags(text)).toBe('Here it is: churn-2025.csv');
-	});
-
-	it('keeps the title a story reference wraps', () => {
-		const text = 'See <story-reference id="b411e523">Top 5 Customers by Payments</story-reference>.';
-		expect(stripAssistantTags(text)).toBe('See Top 5 Customers by Payments.');
+	it.each([
+		[
+			'a citation',
+			'Total paid was <citation-number id="query_a1b2" column="total_paid">99</citation-number>.',
+			'Total paid was 99.',
+		],
+		[
+			'a saved file',
+			'Here it is: <saved-file path="/home/exports/churn-2025.csv">churn-2025.csv</saved-file>',
+			'Here it is: churn-2025.csv',
+		],
+		[
+			'a story reference',
+			'See <story-reference id="b411e523">Top 5 Customers by Payments</story-reference>.',
+			'See Top 5 Customers by Payments.',
+		],
+		[
+			'a context file',
+			'See <context-file path="docs/glossary.md" lines="4-8">the glossary</context-file>.',
+			'See the glossary.',
+		],
+	])('keeps the text %s wraps', (_tag, text, expected) => {
+		expect(stripAssistantTags(text)).toBe(expected);
 	});
 
 	it('keeps the text of a citation whose opening tag starts with an OpenAI citation marker', () => {

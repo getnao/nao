@@ -1,6 +1,3 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { McpUserRole } from '../../src/types/mcp-endpoint';
@@ -31,20 +28,18 @@ vi.mock('../../src/services/context-recommendations.service', () => ({
 }));
 
 import { env } from '../../src/env';
-import { registerContextAdminTools } from '../../src/mcp/tools/context-admin-tools';
+import { BASELINE_TOOL, listToolNames, useContextAdminMcpClient } from '../helpers/context-admin-mcp-client';
+import { createRecommendation as recommendation } from '../helpers/context-recommendation';
 
 const RECOMMENDATION_TOOLS = ['list_recommendations', 'get_recommendation', 'set_recommendation_status'];
 
-const BASELINE_TOOL = 'baseline';
-
-const connections: Array<{ client: Client; server: McpServer }> = [];
+const connect = useContextAdminMcpClient();
 
 beforeEach(() => {
 	env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = true;
 });
 
-afterEach(async () => {
-	await Promise.all(connections.splice(0).map(({ client, server }) => Promise.all([client.close(), server.close()])));
+afterEach(() => {
 	vi.clearAllMocks();
 });
 
@@ -52,20 +47,20 @@ describe('MCP recommendation tools registration', () => {
 	it.each<McpUserRole>(['admin', 'context_admin'])('exposes them to %s', async (role) => {
 		const client = await connect(role);
 
-		expect(await toolNames(client)).toEqual(expect.arrayContaining(RECOMMENDATION_TOOLS));
+		expect(await listToolNames(client)).toEqual(expect.arrayContaining(RECOMMENDATION_TOOLS));
 	});
 
 	it('hides them from regular users', async () => {
 		const client = await connect('user');
 
-		expect(await toolNames(client)).toEqual([BASELINE_TOOL]);
+		expect(await listToolNames(client)).toEqual([BASELINE_TOOL]);
 	});
 
 	it('hides them when context recommendations are disabled on the instance', async () => {
 		env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = false;
 		const client = await connect('admin');
 
-		const names = await toolNames(client);
+		const names = await listToolNames(client);
 		expect(names).toContain('search_chats');
 		expect(names).not.toContain('list_recommendations');
 	});
@@ -176,80 +171,3 @@ describe('MCP set_recommendation_status', () => {
 		expect(mocks.setRecommendationStatus).not.toHaveBeenCalled();
 	});
 });
-
-async function connect(role: McpUserRole): Promise<Client> {
-	const server = new McpServer({ name: 'test', version: '0.0.0' });
-	server.registerTool(
-		BASELINE_TOOL,
-		{ description: 'Always registered, like the tools of the other modes.' },
-		() => ({
-			content: [],
-		}),
-	);
-	registerContextAdminTools(server, {
-		userId: 'user-1',
-		projectId: 'project-1',
-		role,
-		settings: { enabled: true, subAgentModeEnabled: true, contextLayerModeEnabled: true },
-		chartDataMode: false,
-		storyCreationEnabled: true,
-		customStoryCreationEnabled: false,
-	});
-	const client = new Client({ name: 'test-client', version: '0.0.0' });
-	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-	connections.push({ client, server });
-	return client;
-}
-
-async function toolNames(client: Client): Promise<string[]> {
-	const { tools } = await client.listTools();
-	return tools.map((tool) => tool.name);
-}
-
-function recommendation(overrides: Record<string, unknown>) {
-	return {
-		id: 'rec',
-		projectId: 'project-1',
-		runId: 'run-1',
-		fingerprint: 'fingerprint',
-		suggestedFile: 'RULES.md',
-		subjectKey: 'revenue',
-		status: 'open',
-		impactScore: 80,
-		impact: { affectedChats: 4, failureShare: 0.5 },
-		insights: [
-			{ signalType: 'downvote_theme', metric: 'downvotes', count: 3, triggerRefs: [{ chatId: 'chat-1' }] },
-		],
-		title: 'Exclude refunds from revenue',
-		summary: 'Revenue answers include refunded orders.',
-		suggestedAction: 'Document that revenue excludes refunds.',
-		fixKind: 'patch',
-		fixTarget: 'rules',
-		category: 'semantic_missing',
-		rootCause: 'RULES.md does not say revenue excludes refunds.',
-		rootCauseKind: 'context_missing',
-		proposedEdits: [
-			{
-				path: 'RULES.md',
-				kind: 'edit',
-				oldContent: '# Revenue',
-				newContent: '# Revenue\nRevenue excludes refunds.',
-			},
-		],
-		fixGuidance: null,
-		fixPrompt: null,
-		prUrl: null,
-		prBranch: null,
-		prCreatedAt: null,
-		llmProvider: null,
-		llmModelId: null,
-		firstSeenAt: new Date('2026-10-01T03:00:00.000Z'),
-		lastSeenAt: new Date('2026-10-20T03:00:00.000Z'),
-		occurrenceCount: 2,
-		statusChangedAt: null,
-		statusChangedBy: null,
-		createdAt: new Date('2026-10-01T03:00:00.000Z'),
-		...overrides,
-	};
-}

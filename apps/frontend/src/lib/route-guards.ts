@@ -1,5 +1,7 @@
 import { redirect } from '@tanstack/react-router';
 
+import { canRoleManagePersonalSkills } from '@nao/shared';
+
 import { queryClient, trpc } from '@/main';
 
 export async function requireAdvancedSettingsAccess(pathname: string) {
@@ -61,6 +63,21 @@ export async function requireContextAdminOrAdmin() {
 	if (!project || (project.userRole !== 'admin' && project.userRole !== 'context_admin')) {
 		throw redirect({ to: '/settings/account' });
 	}
+}
+
+/** The Context Hub opens to context editors, and to members whose groups grant personal skills, on those alone. */
+export async function requireContextHubOrPersonalSkillsAccess() {
+	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
+	const access = await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
+	if (!project || !canRoleManagePersonalSkills(project.userRole, access.features.personalSkills)) {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
+/** Loads whether the file tree is granted before the Context Hub renders, so it opens in the right view. */
+export async function requireContextHubAccess() {
+	await requireContextAdminOrAdmin();
+	await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
 }
 
 export async function requireNonViewer() {

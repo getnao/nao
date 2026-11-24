@@ -1,9 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import type { RequestOptions } from 'node:http';
+import { Readable } from 'node:stream';
+import { gzipSync } from 'node:zlib';
 
-import { isPrivateAddress, isPrivateHostname, resolveSafeAddress } from '../../src/utils/safe-fetch';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { fetchPublicUrl, isPrivateAddress, isPrivateHostname, resolveSafeAddress } from '../../src/utils/safe-fetch';
 
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('dns/promises', () => ({ default: { lookup } }));
+
+type Reply = { status: number; headers?: Record<string, string>; body?: string | Buffer; dropsAfterBody?: boolean };
+const pinned = vi.hoisted(() => ({
+	requests: [] as { options: RequestOptions; body: unknown }[],
+	replies: [] as Reply[],
+}));
+vi.mock('http', () => ({ default: { request: fakeRequest } }));
+vi.mock('https', () => ({ default: { request: fakeRequest } }));
 
 function resolvesTo(...addresses: string[]): void {
 	lookup.mockResolvedValue(addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })));
@@ -91,3 +104,125 @@ describe('resolveSafeAddress', () => {
 		expect(lookup).not.toHaveBeenCalled();
 	});
 });
+
+describe('fetchPublicUrl', () => {
+	beforeEach(() => {
+		pinned.requests.length = 0;
+		pinned.replies.length = 0;
+	});
+
+	it.each([
+		['the metadata server', 'http://169.254.169.254/computeMetadata/v1/', 'private address'],
+		['localhost', 'http://127.0.0.1:3000/api/health', 'private address'],
+		['a non-http protocol', 'file:///etc/passwd', 'Only http and https'],
+	])('refuses %s without sending a request', async (_target, url, message) => {
+		await expect(fetchPublicUrl(url)).rejects.toThrow(message);
+		expect(pinned.requests).toEqual([]);
+	});
+
+	it('connects to the address it checked even when DNS answers differently afterwards', async () => {
+		lookup.mockResolvedValueOnce([{ address: '93.184.215.14', family: 4 }]);
+		lookup.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
+		pinned.replies.push({ status: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true}' });
+
+		const response = await fetchPublicUrl('https://mcp.example.com/mcp', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: '{"jsonrpc":"2.0"}',
+		});
+
+		expect(await response.json()).toEqual({ ok: true });
+		const [{ options, body }] = pinned.requests;
+		expect(options).toMatchObject({ host: '93.184.215.14', servername: 'mcp.example.com', method: 'POST' });
+		expect(options.headers).toMatchObject({ host: 'mcp.example.com', 'content-type': 'application/json' });
+		expect(body).toBe('{"jsonrpc":"2.0"}');
+	});
+
+	it('sends a multipart body with its boundary, as an audio transcription does', async () => {
+		resolvesTo('93.184.215.14');
+		const form = new FormData();
+		form.append('model', 'whisper-1');
+
+		await fetchPublicUrl('https://llm.example.com/v1/audio/transcriptions', { method: 'POST', body: form });
+
+		const [{ options, body }] = pinned.requests;
+		const contentType = (options.headers as Record<string, string>)['content-type'];
+		const boundary = contentType.match(/^multipart\/form-data; boundary=(.+)$/)?.[1];
+		expect(boundary).toBeDefined();
+		expect(String(body)).toContain(`--${boundary}`);
+		expect(String(body)).toContain('whisper-1');
+	});
+
+	it('fails a compressed reply whose connection drops midway instead of hanging', async () => {
+		resolvesTo('93.184.215.14');
+		const compressed = gzipSync('x'.repeat(10_000));
+		pinned.replies.push({
+			status: 200,
+			headers: { 'content-encoding': 'gzip' },
+			body: compressed.subarray(0, compressed.length / 2),
+			dropsAfterBody: true,
+		});
+
+		const response = await fetchPublicUrl('https://mcp.example.com/.well-known/oauth-protected-resource');
+
+		await expect(response.text()).rejects.toThrow();
+	});
+
+	it('refuses a public server that redirects onto a private address', async () => {
+		resolvesTo('93.184.215.14');
+		pinned.replies.push({ status: 302, headers: { location: 'http://169.254.169.254/computeMetadata/v1/' } });
+
+		await expect(fetchPublicUrl('https://mcp.example.com/mcp')).rejects.toThrow('private address');
+		expect(pinned.requests).toHaveLength(1);
+	});
+
+	it('follows a public redirect and keeps credentials on their origin', async () => {
+		resolvesTo('93.184.215.14');
+		pinned.replies.push({ status: 307, headers: { location: 'https://other.example.com/mcp' } });
+		pinned.replies.push({ status: 200, body: 'done' });
+
+		const response = await fetchPublicUrl('https://mcp.example.com/mcp', {
+			method: 'POST',
+			headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+		});
+
+		expect(await response.text()).toBe('done');
+		const { options } = pinned.requests[1];
+		expect(options).toMatchObject({ servername: 'other.example.com', method: 'POST' });
+		expect(options.headers).not.toHaveProperty('authorization');
+		expect(options.headers).toMatchObject({ 'content-type': 'application/json' });
+	});
+});
+
+/** Stands in for `http.request`/`https.request`, recording the request and answering with the next reply. */
+function fakeRequest(options: RequestOptions, onResponse: (response: Readable) => void) {
+	const request = Object.assign(new EventEmitter(), {
+		end(body?: unknown) {
+			pinned.requests.push({ options, body });
+			const reply = pinned.replies.shift() ?? { status: 200 };
+			const response = Object.assign(replyStream(reply), {
+				statusCode: reply.status,
+				headers: reply.headers ?? {},
+			});
+			queueMicrotask(() => onResponse(response));
+		},
+	});
+	return request;
+}
+
+function replyStream(reply: Reply): Readable {
+	const chunks = reply.body ? [Buffer.from(reply.body)] : [];
+	if (!reply.dropsAfterBody) {
+		return Readable.from(chunks);
+	}
+	return new Readable({
+		read() {
+			const chunk = chunks.shift();
+			if (chunk) {
+				this.push(chunk);
+			} else {
+				this.destroy(new Error('socket hang up'));
+			}
+		},
+	});
+}

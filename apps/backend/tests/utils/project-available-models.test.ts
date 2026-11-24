@@ -1,13 +1,33 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __reloadEnvForTesting } from '../../src/env';
-import { getProjectAvailableModels, resolveProviderModel } from '../../src/utils/llm';
+import {
+	attachServingLlmConfig,
+	filterModelsByConfigAccess,
+	getProjectAvailableModels,
+	resolveContextWindow,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../../src/utils/llm';
 import { useNaoConfigProjects } from '../helpers/nao-config-project';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 
 const mocks = vi.hoisted(() => ({
+	isCloud: false,
 	getProjectById: vi.fn(),
 	getProjectLlmConfigs: vi.fn(),
+	getProjectLlmConfigById: vi.fn(),
+	getProjectLlmConfigByProvider: vi.fn(),
+}));
+
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return mocks.isCloud;
+	},
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({
@@ -16,7 +36,8 @@ vi.mock('../../src/queries/project.queries', () => ({
 
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
-	getProjectLlmConfigByProvider: vi.fn(),
+	getProjectLlmConfigById: mocks.getProjectLlmConfigById,
+	getProjectLlmConfigByProvider: mocks.getProjectLlmConfigByProvider,
 }));
 
 vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
@@ -43,6 +64,26 @@ describe('getProjectAvailableModels', () => {
 		__reloadEnvForTesting();
 		vi.clearAllMocks();
 		mocks.getProjectLlmConfigs.mockResolvedValue([]);
+		mocks.getProjectLlmConfigById.mockResolvedValue(null);
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue(null);
+	});
+
+	it('filters models by credential and explicit model subset', () => {
+		const models = [
+			{ llmConfigId: 'config-a', modelId: 'model-a' },
+			{ llmConfigId: 'config-a', modelId: 'model-b' },
+			{ llmConfigId: 'config-b', modelId: 'model-c' },
+			{ modelId: 'model-d' },
+		];
+
+		expect(
+			filterModelsByConfigAccess(models, ['config-a', 'config-b'], {
+				'config-a': ['model-b'],
+			}),
+		).toEqual([
+			{ llmConfigId: 'config-a', modelId: 'model-b' },
+			{ llmConfigId: 'config-b', modelId: 'model-c' },
+		]);
 	});
 
 	it('keeps the curated nao models available after BYOK is configured', async () => {
@@ -50,7 +91,11 @@ describe('getProjectAvailableModels', () => {
 		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'org-1', path: null, envVars: {} });
 
 		const managed = await getProjectAvailableModels('project-1');
-		expect(managed.map(({ provider, modelId }) => ({ provider, modelId }))).toEqual([
+		expect(
+			managed
+				.filter(({ provider }) => provider === 'nao')
+				.map(({ provider, modelId }) => ({ provider, modelId })),
+		).toEqual([
 			{ provider: 'nao', modelId: 'gpt-6-luna' },
 			{ provider: 'nao', modelId: 'gpt-6-sol' },
 		]);
@@ -186,4 +231,219 @@ describe('getProjectAvailableModels', () => {
 			},
 		]);
 	});
+
+	it('keeps duplicate providers separate by credential id', async () => {
+		const configs = [
+			{
+				id: 'config-a',
+				name: 'Client A',
+				provider: 'openai',
+				apiKey: 'key-a',
+				credentials: null,
+				enabledModels: ['gpt-5-mini'],
+				customModels: [{ id: 'gpt-5-mini', contextWindow: 100_000 }],
+				modelSettings: {},
+				baseUrl: null,
+				disabledAt: null,
+			},
+			{
+				id: 'config-b',
+				name: 'Client B',
+				provider: 'openai',
+				apiKey: 'key-b',
+				credentials: null,
+				enabledModels: ['gpt-5-mini'],
+				customModels: [{ id: 'gpt-5-mini', contextWindow: 200_000 }],
+				modelSettings: {},
+				baseUrl: null,
+				disabledAt: null,
+			},
+		];
+		mocks.getProjectById.mockResolvedValue({ path: null, envVars: {} });
+		mocks.getProjectLlmConfigs.mockResolvedValue(configs);
+		mocks.getProjectLlmConfigById.mockImplementation(
+			async (_projectId: string, configId: string) => configs.find((config) => config.id === configId) ?? null,
+		);
+
+		const models = await getProjectAvailableModels('project-1');
+
+		expect(
+			models
+				.filter(({ llmConfigId }) => llmConfigId)
+				.map(({ llmConfigId, llmConfigName }) => ({ llmConfigId, llmConfigName })),
+		).toEqual([
+			{ llmConfigId: 'config-a', llmConfigName: 'Client A' },
+			{ llmConfigId: 'config-b', llmConfigName: 'Client B' },
+		]);
+		await expect(
+			resolveProviderModel('project-1', 'openai', 'gpt-5-mini', true, undefined, undefined, 'config-b'),
+		).resolves.toMatchObject({ contextWindow: 200_000 });
+		expect(mocks.getProjectLlmConfigById).toHaveBeenCalledWith('project-1', 'config-b');
+	});
+
+	it('keeps an ENV credential id stable while resolving the current environment key', async () => {
+		const config = {
+			id: 'env-openai',
+			name: 'OpenAI (ENV)',
+			provider: 'openai',
+			credentialSource: 'env' as const,
+			apiKey: '',
+			credentials: null,
+			enabledModels: ['gpt-5-mini'],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+			disabledAt: null,
+		};
+		mocks.getProjectById.mockResolvedValue({ path: null, envVars: {} });
+		mocks.getProjectLlmConfigs.mockResolvedValue([config]);
+		mocks.getProjectLlmConfigById.mockResolvedValue(config);
+
+		process.env.OPENAI_API_KEY = 'first-key';
+		expect(await resolveProviderSettings('project-1', 'openai', config.id)).toMatchObject({
+			apiKey: 'first-key',
+		});
+		expect((await getProjectAvailableModels('project-1')).filter((model) => model.provider === 'openai')).toEqual([
+			expect.objectContaining({ provider: 'openai', llmConfigId: config.id }),
+		]);
+
+		process.env.OPENAI_API_KEY = 'rotated-key';
+		expect(await resolveProviderSettings('project-1', 'openai', config.id)).toMatchObject({
+			apiKey: 'rotated-key',
+		});
+
+		delete process.env.OPENAI_API_KEY;
+		await expect(resolveProviderSettings('project-1', 'openai', config.id)).resolves.toBeNull();
+		expect((await getProjectAvailableModels('project-1')).some((model) => model.provider === 'openai')).toBe(false);
+
+		process.env.OPENAI_API_KEY = 'restored-key';
+		expect(await resolveProviderSettings('project-1', 'openai', config.id)).toMatchObject({
+			apiKey: 'restored-key',
+		});
+	});
+
+	it.each([
+		{ envKey: 'env-key', expected: { provider: 'openai', modelId: 'gpt-4.1', llmConfigId: 'env-openai' } },
+		{ envKey: undefined, expected: { provider: 'openai', modelId: 'gpt-4.1' } },
+	])(
+		'attributes a selection without a credential to the saved one serving it (env key $envKey)',
+		async ({ envKey, expected }) => {
+			if (envKey) {
+				process.env.OPENAI_API_KEY = envKey;
+			}
+			mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+				id: 'env-openai',
+				provider: 'openai',
+				credentialSource: 'env',
+			});
+
+			await expect(
+				attachServingLlmConfig('project-1', { provider: 'openai', modelId: 'gpt-4.1' }),
+			).resolves.toEqual(expected);
+		},
+	);
+
+	it('gives a model the context window nao_config.yaml declares for it, over the one nao knows', async () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai',
+			'    api_key: sk-openai',
+			'    models:',
+			'    - id: acsw@azure/gpt-6-sol',
+			'      context_window: 1050000',
+			'    - id: gpt-6-sol',
+			'      context_window: 400000',
+			'    - id: gpt-6-luna',
+			'    - id: acsw@azure/unlisted',
+		]);
+		mocks.getProjectById.mockResolvedValue({ path: dir, envVars: {} });
+
+		const windows: Record<string, number | undefined> = {};
+		for (const modelId of ['acsw@azure/gpt-6-sol', 'gpt-6-sol', 'gpt-6-luna', 'acsw@azure/unlisted']) {
+			const resolved = await resolveProviderModel('project-1', 'openai', modelId);
+			expect(await resolveContextWindow('project-1', { provider: 'openai', modelId })).toBe(
+				resolved?.contextWindow,
+			);
+			windows[modelId] = resolved?.contextWindow;
+		}
+
+		expect(windows).toEqual({
+			'acsw@azure/gpt-6-sol': 1_050_000,
+			'gpt-6-sol': 400_000,
+			'gpt-6-luna': 1_050_000,
+			'acsw@azure/unlisted': 200_000,
+		});
+	});
+});
+
+describe('resolveProviderModel with a project base URL pointing at a private address', () => {
+	const captured: { url?: string; authorization?: string }[] = [];
+	const captureServer = http.createServer((request, response) => {
+		captured.push({ url: request.url, authorization: request.headers.authorization });
+		response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(chatCompletion()));
+	});
+
+	beforeAll(() => new Promise<void>((resolve) => captureServer.listen(0, '127.0.0.1', resolve)));
+	afterAll(() => new Promise<void>((resolve) => captureServer.close(() => resolve())));
+
+	beforeEach(() => {
+		captured.length = 0;
+		mocks.getProjectById.mockResolvedValue(null);
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			provider: 'openaiCompatible',
+			apiKey: 'canary-key',
+			baseUrl: `http://127.0.0.1:${(captureServer.address() as AddressInfo).port}/v1`,
+			enabledModels: ['internal-model'],
+			customModels: [{ id: 'internal-model' }],
+			modelSettings: {},
+			credentials: null,
+		});
+		return () => {
+			mocks.isCloud = false;
+			mocks.getProjectLlmConfigByProvider.mockReset();
+		};
+	});
+
+	it('is refused on cloud before any request leaves the server', async () => {
+		mocks.isCloud = true;
+
+		await expect(generateWithProjectModel()).rejects.toThrow('private address');
+		expect(captured).toEqual([]);
+	});
+
+	it('is refused on cloud for a credential that reads its key from the environment', async () => {
+		mocks.isCloud = true;
+		vi.stubEnv('OPENAI_COMPATIBLE_API_KEY', 'env-key');
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			...(await mocks.getProjectLlmConfigByProvider()),
+			credentialSource: 'env',
+		});
+
+		await expect(generateWithProjectModel()).rejects.toThrow('private address');
+		expect(captured).toEqual([]);
+		vi.unstubAllEnvs();
+	});
+
+	it('is reached on a self-hosted instance, where internal endpoints are the point', async () => {
+		await generateWithProjectModel();
+
+		expect(captured).toEqual([{ url: '/v1/chat/completions', authorization: 'Bearer canary-key' }]);
+	});
+
+	async function generateWithProjectModel() {
+		const resolved = await resolveProviderModel('project-1', 'openaiCompatible', 'internal-model');
+		return resolved!.model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] });
+	}
+
+	function chatCompletion() {
+		return {
+			id: 'chatcmpl-1',
+			object: 'chat.completion',
+			created: 0,
+			model: 'internal-model',
+			choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+	}
 });

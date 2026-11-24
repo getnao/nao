@@ -4,6 +4,7 @@ import { ENTERPRISE_FEATURES } from '@/routes/_sidebar-layout.settings.enterpris
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (options: unknown) => options,
+	lazyRouteComponent: vi.fn(),
 	redirect: vi.fn(),
 }));
 vi.mock('@/main', () => ({ queryClient: {}, trpc: {} }));
@@ -19,7 +20,7 @@ describe('Enterprise features', () => {
 	});
 
 	it('uses the row-level-security license feature', () => {
-		const rowLevelSecurity = ENTERPRISE_FEATURES.find((feature) => feature.label === 'Row-level security');
+		const rowLevelSecurity = ENTERPRISE_FEATURES.find((feature) => feature.label === 'Record access rules');
 
 		expect(rowLevelSecurity).toMatchObject({ key: 'row-level-security' });
 	});

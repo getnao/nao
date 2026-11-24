@@ -100,6 +100,10 @@ class FabricConfig(DatabaseConfig):
         default_factory=_detect_fabric_driver,
         description="ODBC driver — must be 'ODBC Driver 17/18 for SQL Server' (not FreeTDS)",
     )
+    trust_server_certificate: bool = Field(
+        default=False,
+        description="Skip server certificate validation (e.g. for private endpoints whose certificate names another host)",
+    )
 
     @model_validator(mode="after")
     def validate_credentials(self) -> "FabricConfig":
@@ -245,7 +249,7 @@ class FabricConfig(DatabaseConfig):
             f"Server={self.host},{self.port}",
             f"Database={_odbc_escape(self.database)}",
             "Encrypt=yes",
-            "TrustServerCertificate=no",
+            f"TrustServerCertificate={'yes' if self.trust_server_certificate else 'no'}",
         ]
 
     def get_database_name(self) -> str:

@@ -22,16 +22,21 @@ export const COMPARISON_CHANGES: Record<TestComparisonChange, { tone: Tone; labe
 	worsened: { tone: 'fail', label: 'Less reliable', title: 'Less reliable with your changes' },
 	fixed: { tone: 'pass', label: 'Fixed', title: 'Fixed by your changes' },
 	improved: { tone: 'pass', label: 'More reliable', title: 'More reliable with your changes' },
+	new: { tone: 'neutral', label: 'New', title: 'New test, only run with your changes' },
+	removed: { tone: 'neutral', label: 'Removed', title: 'Deleted by your changes, only run on the main branch' },
 	unchanged: { tone: 'neutral', label: 'No change', title: 'Same results on both' },
 	pending: { tone: 'neutral', label: 'Incomplete', title: 'Incomplete' },
 };
+
+/** The only side a test the changes add or delete runs on. */
+const ONE_SIDED_VARIANTS = { new: 'draft', removed: 'production' } as const;
 
 /**
  * What a run says about the test, in a few words, from the attempts recorded so far. A comparison says nothing more,
  * as the outcome of each side shows next to it.
  */
 export function describeRun(run: TestHistoryRun): RunVerdict {
-	const expectedAttempts = run.attemptsPerVariant * (run.trigger === 'comparison' ? 2 : 1);
+	const expectedAttempts = run.attemptsPerVariant * run.variantCount;
 	if (isActiveRun(run)) {
 		return { tone: 'pending', title: `Running ${run.results.length}/${expectedAttempts}`, detail: null };
 	}
@@ -104,6 +109,11 @@ function describeModels(run: TestHistoryRun): RunVerdict {
 function describeComparison(comparison: NonNullable<TestHistoryRun['comparison']>): RunVerdict {
 	if (comparison.change === 'unchanged') {
 		return describeUnchanged(outcomeTone(comparison.draft.passedAttempts, comparison.draft.totalAttempts));
+	}
+	if (comparison.change === 'new' || comparison.change === 'removed') {
+		const outcome = comparison[ONE_SIDED_VARIANTS[comparison.change]];
+		const tone = outcomeTone(outcome.passedAttempts, outcome.totalAttempts);
+		return { tone, title: COMPARISON_CHANGES[comparison.change].title, detail: null };
 	}
 	const { tone, title } = COMPARISON_CHANGES[comparison.change];
 	return { tone, title, detail: null };

@@ -9,6 +9,7 @@ import {
 	createCompletionCard,
 	createMapLinkCard,
 	createSlackTableRenderState,
+	createStopButtonActions,
 	createStopButtonCard,
 	createTelegramCompletionCard,
 	createTelegramMapLinkCard,
@@ -16,6 +17,7 @@ import {
 	createWhatsappMapLink,
 	isRecoverableSlackPayloadError,
 	SLACK_SECTION_TEXT_MAX_CHARS,
+	toSlackBlocks,
 } from '../../src/utils/messaging-provider';
 
 type AnyBlock = { type: string; [key: string]: unknown };
@@ -175,7 +177,7 @@ describe('createTextBlocks', () => {
 		const blocks = createTextBlocks(text);
 
 		expect(blocks.map((block) => block.type)).toEqual(['text', 'table', 'text']);
-		expect(tableChild(blocks)).toEqual({
+		expect(tableChild(blocks)).toMatchObject({
 			type: 'table',
 			headers: ['Column A', 'Column B'],
 			rows: [
@@ -190,7 +192,7 @@ describe('createTextBlocks', () => {
 	it('handles tables without outer pipes and alignment markers', () => {
 		const text = ['Revenue | Region', ':---|---:', 'Hello | World'].join('\n');
 		const table = tableChild(createTextBlocks(text));
-		expect(table).toEqual({
+		expect(table).toMatchObject({
 			type: 'table',
 			headers: ['Revenue', 'Region'],
 			rows: [['Hello', 'World']],
@@ -251,7 +253,7 @@ describe('createTextBlocks', () => {
 	it('parses a real table that follows a closed code block', () => {
 		const text = ['```', 'code', '```', '', '| A | B |', '|---|---|', '| 1 | 2 |'].join('\n');
 		const table = tableChild(createTextBlocks(text));
-		expect(table).toEqual({
+		expect(table).toMatchObject({
 			type: 'table',
 			headers: ['A', 'B'],
 			rows: [['1', '2']],
@@ -894,5 +896,30 @@ describe('buildSlackTableBlocks', () => {
 
 		expect(tableBlocks).toHaveLength(1);
 		expect(sectionBlocks.every((block) => (block.text?.text.length ?? 0) <= 3000)).toBe(true);
+	});
+});
+
+describe('toSlackBlocks', () => {
+	it('always expands text sections so long answers skip the "See more" fold', () => {
+		const blocks = toSlackBlocks([...createTextBlocks('x'.repeat(5000)), createStopButtonActions()]);
+
+		const sections = blocks.filter((block) => block.type === 'section');
+		expect(sections.length).toBeGreaterThan(1);
+		expect(sections.every((block) => block.expand === true)).toBe(true);
+		expect(blocks.filter((block) => block.type !== 'section').every((block) => !('expand' in block))).toBe(true);
+	});
+
+	it('expands the text around tables in posted messages', () => {
+		const blocks = buildSlackTableBlocks('Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |') ?? [];
+
+		expect(blocks.find((block) => block.type === 'section')).toMatchObject({ expand: true });
+		expect(blocks.find((block) => block.type === 'data_table')).not.toHaveProperty('expand');
+	});
+
+	it('shows every table row on a single page', () => {
+		const rows = Array.from({ length: 30 }, (_, index) => `| ${index} | x |`).join('\n');
+		const blocks = buildSlackTableBlocks(`| a | b |\n|---|---|\n${rows}`) ?? [];
+
+		expect(blocks.find((block) => block.type === 'data_table')).toMatchObject({ page_size: 30 });
 	});
 });

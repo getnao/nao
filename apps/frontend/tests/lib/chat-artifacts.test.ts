@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
-import { areChatArtifactsEqual, collectChatArtifacts, countChatArtifacts } from '@/lib/chat-artifacts';
+import {
+	areChatArtifactsEqual,
+	collectChatArtifacts,
+	countChatArtifacts,
+	findQueryToolCallId,
+} from '@/lib/chat-artifacts';
 
 function queryPart(id: string, name: string | undefined, columns: string[], rowCount: number): UIMessagePart {
 	return {
@@ -115,5 +120,39 @@ describe('collectChatArtifacts', () => {
 		expect(areChatArtifactsEqual(build(), build(2))).toBe(false);
 		expect(areChatArtifactsEqual(build(), build(1, 'Renamed'))).toBe(false);
 		expect(areChatArtifactsEqual(build(), build(1, 'S', 'renamed.csv'))).toBe(false);
+	});
+});
+
+describe('collectChatArtifacts while streaming', () => {
+	it('reads each message once and reads again only the message replaced by a new chunk', () => {
+		const settled = message('a1', 'assistant', {
+			type: 'text',
+			text: '<story-reference id="s1">Revenue</story-reference>',
+		});
+		const streaming = message('a2', 'assistant', { type: 'text', text: 'Also' });
+		collectChatArtifacts([settled, streaming]);
+
+		settled.parts.push({ type: 'text', text: '<story-reference id="s9">Unseen</story-reference>' });
+		const nextChunk = message('a2', 'assistant', {
+			type: 'text',
+			text: 'Also <story-reference id="s2">Churn</story-reference>',
+		});
+
+		expect(collectChatArtifacts([settled, nextChunk]).mentionedStories).toEqual([
+			{ storyId: 's1', title: 'Revenue' },
+			{ storyId: 's2', title: 'Churn' },
+		]);
+	});
+});
+
+describe('findQueryToolCallId', () => {
+	it('points a query id at the tool call of its latest run', () => {
+		const messages = [
+			message('a1', 'assistant', queryPart('query_revenue', 'Revenue', ['month'], 3)),
+			message('a2', 'assistant', queryPart('query_revenue', 'Revenue', ['month'], 5)),
+		];
+
+		expect(findQueryToolCallId(messages, 'query_revenue')).toBe('call_query_revenue_5');
+		expect(findQueryToolCallId(messages, 'query_unknown')).toBeUndefined();
 	});
 });

@@ -1,6 +1,6 @@
 import { ADD_SELECTION_TO_CHAT_SHORTCUT } from '@nao/shared/keyboard-shortcut';
 import type { Shortcut } from '@/lib/platform';
-import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
+import { formatShortcut, formatShortcutLabel, isMac } from '@/lib/platform';
 
 export type ShortcutId =
 	| 'toggle-sidebar'
@@ -12,6 +12,9 @@ export type ShortcutId =
 	| 'keyboard-help'
 	| 'stop-generation'
 	| 'cycle-model'
+	| 'swap-steer-queue'
+	| 'go-to-file'
+	| 'close-file-tab'
 	| 'toggle-test-drawer'
 	| 'run-tests'
 	| 'add-selection-to-chat'
@@ -26,6 +29,7 @@ export type ShortcutDefinition = {
 	alternateShortcuts?: readonly Shortcut[];
 	allowInInput?: boolean;
 	isHandledInStory?: boolean;
+	isSettingsOnly?: boolean;
 };
 
 export const SHORTCUTS: readonly ShortcutDefinition[] = [
@@ -85,6 +89,27 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'Chat',
 		shortcut: { shift: true, key: 'Tab' },
 	},
+	// Handled by the chat input alone: while the agent runs, it does what Enter does not (steer or queue).
+	{
+		id: 'swap-steer-queue',
+		label: 'Steer the running agent instead of queuing',
+		group: 'Chat',
+		shortcut: { mod: true, key: 'Enter' },
+	},
+	{
+		id: 'go-to-file',
+		label: 'Go to file',
+		group: 'File Explorer',
+		shortcut: { mod: true, key: 'p' },
+		isSettingsOnly: true,
+	},
+	// Browsers keep Cmd+W, and Ctrl+W outside macOS, to close their own tab.
+	{
+		id: 'close-file-tab',
+		label: 'Close the file tab',
+		group: 'File Explorer',
+		shortcut: isMac ? { ctrl: true, key: 'w' } : { alt: true, key: 'w' },
+	},
 	{
 		id: 'toggle-test-drawer',
 		label: 'Show or hide the tests',
@@ -126,10 +151,9 @@ export function getShortcutTokens(id: ShortcutId): string[] {
 }
 
 export function getAppWideShortcuts(): Shortcut[] {
-	return SHORTCUTS.filter((entry) => entry.shortcut.mod && !entry.isHandledInStory).flatMap((entry) => [
-		entry.shortcut,
-		...(entry.alternateShortcuts ?? []),
-	]);
+	return SHORTCUTS.filter((entry) => entry.shortcut.mod && !entry.isHandledInStory && !entry.isSettingsOnly).flatMap(
+		(entry) => [entry.shortcut, ...(entry.alternateShortcuts ?? [])],
+	);
 }
 
 export function getShortcutLabel(id: ShortcutId): string {

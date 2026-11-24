@@ -1,35 +1,36 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
 import { AutomationRunHistoryToolCall, GetAutomationToolCall, UpdateAutomationToolCall } from './automation-editor';
-import { ClarificationToolCall, RequestWarehouseSelectionToolCall } from './clarification';
+import { ClarificationToolCall } from './clarification';
 import { CodemodeToolCall } from './codemode';
+import {
+	ApplyRecommendationToolCall,
+	GetRecommendationToolCall,
+	ListRecommendationsToolCall,
+	SetRecommendationStatusToolCall,
+} from './context-recommendations';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
 import { DisplayMapToolCall } from './display-map';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
 import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
-import { GenerateOnboardingRulesToolCall } from './generate-onboarding-rules';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
 import { McpToolCall } from './mcp';
-import { OnboardingAgentPromptToolCall } from './onboarding-agent-prompt';
-import { OnboardingCommandToolCall } from './onboarding-command';
+import { onboardingToolComponents } from './onboarding';
 import { QueryAppDbToolCall } from './query-app-db';
 import { ReadToolCall } from './read';
 import { PageQueryResultToolCall } from './page-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
-import { RequestWarehouseCredentialsToolCall } from './request-warehouse-credentials';
-import { RestartOnboardingToolCall } from './restart-onboarding';
 import { SearchToolCall } from './search';
 import { StrReplaceToolCall } from './str-replace';
 import { TaskToolCall } from './task';
-import { RetryWarehouseSetupToolCall, WaitForWarehouseSetupToolCall } from './warehouse-setup-status';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
-import { getToolName, isToolSettled } from '@/lib/ai';
+import { areToolPartsEqual, getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
 import { useAssistantMessage } from '@/contexts/assistant-message';
 
@@ -48,22 +49,15 @@ const toolComponents: Partial<{
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
 	execute_semantic_query: ExecuteSemanticQueryToolCall,
-	generate_onboarding_rules: GenerateOnboardingRulesToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
-	onboarding_agent_prompt: OnboardingAgentPromptToolCall,
-	onboarding_command: OnboardingCommandToolCall,
 	read: ReadToolCall,
 	page_query_result: PageQueryResultToolCall,
-	request_warehouse_credentials: RequestWarehouseCredentialsToolCall,
-	request_warehouse_selection: RequestWarehouseSelectionToolCall,
-	restart_onboarding: RestartOnboardingToolCall,
-	retry_warehouse_setup: RetryWarehouseSetupToolCall,
 	search: SearchToolCall,
 	str_replace: StrReplaceToolCall,
 	task: TaskToolCall,
-	wait_for_warehouse_setup: WaitForWarehouseSetupToolCall,
 	write: WriteToolCall,
+	...onboardingToolComponents,
 };
 
 export const dynamicToolComponents = {
@@ -77,6 +71,10 @@ export const dynamicToolComponents = {
 	get_automation: GetAutomationToolCall,
 	update_automation: UpdateAutomationToolCall,
 	get_automation_run_history: AutomationRunHistoryToolCall,
+	list_recommendations: ListRecommendationsToolCall,
+	get_recommendation: GetRecommendationToolCall,
+	apply_recommendation: ApplyRecommendationToolCall,
+	set_recommendation_status: SetRecommendationStatusToolCall,
 } satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
 
 export type DynamicToolName = keyof typeof dynamicToolComponents;
@@ -113,4 +111,8 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 			{Rendered}
 		</ToolCallProvider>
 	);
-});
+}, arePropsEqual);
+
+function arePropsEqual(previous: { toolPart: UIToolPart }, next: { toolPart: UIToolPart }): boolean {
+	return areToolPartsEqual(previous.toolPart, next.toolPart);
+}

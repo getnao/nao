@@ -1,7 +1,12 @@
 import { type LlmProvider, providerKind } from '@nao/shared/types';
 import { describe, expect, it } from 'vitest';
 
-import { createProviderModel, disableModelReasoning, fitThinkingBudget } from '../../src/agents/providers';
+import {
+	createProviderModel,
+	disableModelReasoning,
+	fitThinkingBudget,
+	getContextWindow,
+} from '../../src/agents/providers';
 import type { ModelInferenceSettings, ProviderSettings } from '../../src/types/llm';
 import { BEDROCK_GPT6_MODEL_IDS } from '../helpers/bedrock-model-ids';
 
@@ -328,6 +333,17 @@ describe('Google Gemini', () => {
 });
 
 describe('Bedrock', () => {
+	it.each(['eu', 'apac', 'us-gov'])('gives an unlisted %s. geo id the context window of its twin', (geo) => {
+		const twinWindow = getContextWindow('bedrock', 'us.anthropic.claude-sonnet-5-5');
+
+		expect(twinWindow).toBe(1_000_000);
+		expect(getContextWindow('bedrock', `${geo}.anthropic.claude-sonnet-5-5`)).toBe(twinWindow);
+	});
+
+	it('keeps the default context window for a geo id with no listed twin', () => {
+		expect(getContextWindow('bedrock', 'eu.anthropic.claude-future-9')).toBe(200_000);
+	});
+
 	describe.each([
 		{ region: 'us-east-1', prefix: 'us' },
 		{ region: 'eu-west-1', prefix: 'eu' },

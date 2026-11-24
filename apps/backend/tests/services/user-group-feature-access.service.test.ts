@@ -37,12 +37,14 @@ describe('user group feature access service', () => {
 				storyCreation: true,
 				customStoryCreation: false,
 				automationCreation: false,
+				personalSkills: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
 			canSeeAdvancedSettings: false,
+			canUseAdvancedContextExplorer: false,
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 		});
@@ -54,6 +56,7 @@ describe('user group feature access service', () => {
 			storyCreation: true,
 			customStoryCreation: false,
 			automationCreation: false,
+			personalSkills: false,
 		});
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id', 'user')).resolves.toMatchObject({
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
@@ -85,6 +88,24 @@ describe('user group feature access service', () => {
 		});
 	});
 
+	it.each([
+		{ role: 'admin', groupsGrant: false, expected: true },
+		{ role: 'context_admin', groupsGrant: true, expected: true },
+		{ role: 'context_admin', groupsGrant: false, expected: false },
+		{ role: 'user', groupsGrant: true, expected: false },
+	] as const)(
+		'gives the File Explorer to a $role when groups grant it: $groupsGrant',
+		async ({ role, groupsGrant, expected }) => {
+			mocks.resolveUserGroupAccess.mockResolvedValue({
+				...resolvedGroupAccess,
+				advancedContextExplorer: groupsGrant,
+			});
+			await expect(getEffectiveUserGroupAccess('project-id', 'user-id', role)).resolves.toMatchObject({
+				canUseAdvancedContextExplorer: expected,
+			});
+		},
+	);
+
 	it('denies advanced settings to users whose groups hide them', async () => {
 		await expect(canSeeAdvancedSettings('project-id', 'user-id', 'user')).resolves.toBe(false);
 		await expect(canSeeAdvancedSettings('project-id', 'user-id', 'context_admin')).resolves.toBe(true);
@@ -104,6 +125,7 @@ describe('user group feature access service', () => {
 				storyCreation: false,
 				customStoryCreation: false,
 				automationCreation: false,
+				personalSkills: false,
 			},
 			restrictedFeatures: ['storyCreation', 'automationCreation'],
 		});
@@ -112,6 +134,7 @@ describe('user group feature access service', () => {
 				storyCreation: false,
 				customStoryCreation: false,
 				automationCreation: false,
+				personalSkills: false,
 			},
 			restrictedFeatures: ['automationCreation'],
 		});
@@ -161,4 +184,5 @@ const resolvedGroupAccess = {
 		canChange: false,
 	},
 	showAllSettings: false,
+	advancedContextExplorer: false,
 };

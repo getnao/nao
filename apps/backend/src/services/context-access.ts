@@ -1,4 +1,9 @@
-import { type DatabaseContextAccess, isDatabaseContextTableGranted } from '@nao/shared';
+import {
+	type DatabaseContextAccess,
+	getWarehouseColumnSecurityTable,
+	isDatabaseContextTableGranted,
+	type WarehouseColumnSecurity,
+} from '@nao/shared';
 
 import type { DatabaseContextCatalog, DatabaseObject } from '../agents/user-rules';
 
@@ -88,6 +93,28 @@ export function assertWarehouseTableAccess(access: WarehouseTableAccess | undefi
 		throw new Error('Warehouse table access was not resolved for this request.');
 	}
 	return access;
+}
+
+export function getColumnSecurityContextAccess(
+	security: WarehouseColumnSecurity,
+	contextPath: string,
+): 'full' | 'restricted' | 'blocked' | undefined {
+	const identity = parseDatabaseContextPath(contextPath);
+	if (
+		!identity ||
+		identity.databaseType === undefined ||
+		identity.database === undefined ||
+		identity.schema === undefined ||
+		identity.table === undefined
+	) {
+		return undefined;
+	}
+	return getWarehouseColumnSecurityTable(security, {
+		databaseType: identity.databaseType,
+		database: identity.database,
+		schema: identity.schema,
+		table: identity.table,
+	})?.access;
 }
 
 function deduplicateAndSortTables(tables: WarehouseTableIdentity[]): WarehouseTableIdentity[] {

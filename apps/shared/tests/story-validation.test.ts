@@ -303,10 +303,18 @@ describe('validateStoryCode', () => {
 			expect(validateStoryCode(code)).toEqual([]);
 		});
 
-		it('flags select filters missing options, table/column and dimension', () => {
+		it('accepts a filter backed by an options query', () => {
+			const code =
+				'<filter id="customer" label="Customer" type="multi_select" options_query_id="query_customer_options" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags select filters without any options source', () => {
 			expect(
 				validateStoryCode('<filter id="country" type="select" />').some((e) =>
-					/Select filters require `options=.*or a semantic layer `dimension`/.test(e.message),
+					/Select filters require `options=.*an `options_query_id`, or a semantic layer `dimension`/.test(
+						e.message,
+					),
 				),
 			).toBe(true);
 		});
@@ -361,12 +369,22 @@ describe('validateStoryCode', () => {
 			);
 		});
 
-		it('flags value_type on non-text filters and unknown value types', () => {
+		it('accepts select filters with a boolean value type', () => {
+			expect(
+				validateStoryCode(
+					`<filter id="open" type="select" dimension="pr__is_open" options='["true","false"]' value_type="boolean" />`,
+				),
+			).toEqual([]);
+		});
+
+		it('flags value_type on untyped filters and unknown value types', () => {
 			const messages = [
 				...validateStoryCode('<filter id="q" type="search" value_type="number" />'),
 				...validateStoryCode('<filter id="user" type="text" value_type="integer" />'),
 			].map((error) => error.message);
-			expect(messages.some((message) => message.includes('only applies to type="text"'))).toBe(true);
+			expect(messages.some((message) => message.includes('only applies to select, multi_select and text'))).toBe(
+				true,
+			);
 			expect(messages.some((message) => message.includes('Invalid value_type "integer"'))).toBe(true);
 		});
 

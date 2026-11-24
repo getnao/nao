@@ -90,6 +90,7 @@ def _column_row(
     hidden: str = "NO",
     table_description: str | None = None,
     require_partition_filter: bool = False,
+    nested_fields: list[dict[str, str]] | None = None,
 ):
     return (
         table,
@@ -102,6 +103,7 @@ def _column_row(
         hidden,
         table_description,
         require_partition_filter,
+        nested_fields,
     )
 
 
@@ -674,6 +676,37 @@ class TestFetchSchemaPartitionMetadata:
             {"name": "tags", "type": "ARRAY<STRING>", "nullable": True, "description": None}
         ]
 
+    def test_bulk_metadata_lists_documented_nested_fields(self):
+        conn = _metadata_conn(
+            column_rows=[
+                _column_row(
+                    "orders",
+                    name="items",
+                    data_type="ARRAY<STRUCT<amount NUMERIC, converted_amount FLOAT64>>",
+                    description="Order lines",
+                    partitioning="NO",
+                    nested_fields=[
+                        {"field_path": "items.amount", "data_type": "NUMERIC", "description": "Original currency"},
+                        {
+                            "field_path": "items.converted_amount",
+                            "data_type": "FLOAT64",
+                            "description": "Converted to EUR",
+                        },
+                    ],
+                )
+            ],
+            partition_rows=[],
+        )
+
+        result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["orders"])
+
+        assert (result["orders"].columns or [])[0]["fields"] == [
+            {"path": "items.amount", "type": "NUMERIC", "description": "Original currency"},
+            {"path": "items.converted_amount", "type": "FLOAT64", "description": "Converted to EUR"},
+        ]
+        column_query = conn.raw_sql.call_args_list[0][0][0]
+        assert "field_path != column_name" in column_query
+
     def test_selected_unpartitioned_table_is_known_without_fallback_queries(self):
         conn = _metadata_conn(
             column_rows=[_column_row("plain_table", name="id", data_type="INT64", partitioning="NO")],
@@ -1008,7 +1041,7 @@ class TestColumnsNativeTypes:
 
         assert names == ["id"]
 
-    def test_nested_field_paths_are_ignored(self):
+    def test_nested_field_descriptions_are_listed_under_their_column(self):
         ctx, mock_conn = _make_context(schema_items=[("payload", _dtype("struct<name: string>"))])
         mock_conn.raw_sql.return_value = [
             ("payload", "payload", "STRUCT<name STRING>", None),
@@ -1019,8 +1052,7 @@ class TestColumnsNativeTypes:
 
         assert cols[0]["type"] == "STRUCT<name STRING>"
         assert cols[0]["description"] is None
-        query = mock_conn.raw_sql.call_args[0][0]
-        assert "field_path = column_name" in query
+        assert cols[0]["fields"] == [{"path": "payload.name", "type": "STRING", "description": "Nested name"}]
 
     def test_struct_column_keeps_its_own_description(self):
         ctx, mock_conn = _make_context(schema_items=[("payload", _dtype("struct<name: string>"))])

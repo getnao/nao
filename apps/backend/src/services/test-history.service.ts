@@ -11,7 +11,7 @@ import type {
 	TestRunResultDetails,
 } from '../types/test-run';
 import { isSameTestModel, testModelColorIndex, testResultModel } from '../types/test-run';
-import { compareContextVariants } from '../utils/test-comparison';
+import { compareContextVariants, listOneSidedTests } from '../utils/test-comparison';
 import { buildTestDataDiff } from '../utils/test-data-comparison';
 import { type SummarizedTestResult, summarizeModels } from '../utils/test-model-summary';
 import { summarizeRunTests, type TestAttemptTotals, toAttemptCounts } from '../utils/test-run-totals';
@@ -83,8 +83,9 @@ export async function listRunsWithTestTotals(projectId: string) {
 	const runs = await testRunQueries.listRuns(projectId);
 	const rows = await testRunQueries.listTestAttemptTotals(runs.map((run) => run.id));
 	const rowsByRun = new Map<string, TestAttemptTotals[]>();
-	for (const { runId, ...row } of rows) {
-		rowsByRun.set(runId, [...(rowsByRun.get(runId) ?? []), row]);
+	for (const { runId, llmConfigId, ...row } of rows) {
+		const normalized = { ...row, ...(llmConfigId && { llmConfigId }) };
+		rowsByRun.set(runId, [...(rowsByRun.get(runId) ?? []), normalized]);
 	}
 	return runs.map((run) => ({ ...run, testTotals: summarizeRunTests(rowsByRun.get(run.id) ?? [], run.models) }));
 }
@@ -115,7 +116,9 @@ export async function getPreviousModelSummaries(
 }
 
 export async function getModelStats(projectId: string): Promise<TestModelStats[]> {
-	return testRunQueries.listRecentModelStats(projectId, new Date(Date.now() - MODEL_STATS_WINDOW_MS));
+	return (await testRunQueries.listRecentModelStats(projectId, new Date(Date.now() - MODEL_STATS_WINDOW_MS))).map(
+		({ llmConfigId, ...stats }) => ({ ...stats, ...(llmConfigId && { llmConfigId }) }),
+	);
 }
 
 /** The latest runs of a test, with an older one of them too when asked for, as when opened from a run of several tests. */
@@ -137,14 +140,17 @@ export async function getTestHistory(
 	return runs.map((run) => {
 		const results = resultsByRun.get(run.id) ?? [];
 		const attemptsPerVariant = run.models.length * run.attempts;
+		const oneSidedTests = listOneSidedTests(run.contextChanges);
+		const isComparedWithProduction = run.trigger === 'comparison' && !oneSidedTests.has(testPath);
 		return {
 			...run,
 			results,
 			testTotals: summarizeRunTests(results.map(toAttemptTotals), run.models),
 			attemptsPerVariant,
+			variantCount: isComparedWithProduction ? 2 : 1,
 			comparison:
 				run.trigger === 'comparison'
-					? (compareContextVariants(results, attemptsPerVariant).tests.at(0) ?? null)
+					? (compareContextVariants(results, attemptsPerVariant, oneSidedTests).tests.at(0) ?? null)
 					: null,
 		};
 	});

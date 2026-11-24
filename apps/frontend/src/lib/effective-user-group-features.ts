@@ -12,6 +12,7 @@ const DENIED_FEATURES: EffectiveUserGroupFeatures = {
 	storyCreation: false,
 	customStoryCreation: false,
 	automationCreation: false,
+	personalSkills: false,
 };
 
 const LOADING_ACCESS: EffectiveUserGroupAccess = {
@@ -27,6 +28,7 @@ const EXAMPLE_PROJECT_ACCESS: EffectiveUserGroupAccess = {
 		storyCreation: true,
 		customStoryCreation: true,
 		automationCreation: false,
+		personalSkills: false,
 	},
 	toolCallDensityPolicy: {
 		defaultDensity: 'detailed',

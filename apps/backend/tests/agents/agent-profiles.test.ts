@@ -14,9 +14,13 @@ vi.mock('../../src/services/cloud-billing-access.service', () => ({
 
 import { adminAgent } from '../../src/agents/profiles/admin';
 import { analyticsAgent } from '../../src/agents/profiles/analytics';
+import { contextEditorAgent } from '../../src/agents/profiles/context-editor';
 import { exampleAgent } from '../../src/agents/profiles/example';
 import { messagingAgent } from '../../src/agents/profiles/messaging';
 import { testRunAgent } from '../../src/agents/profiles/test-run';
+import { SystemPrompt } from '../../src/components/ai/system-prompt';
+import { env } from '../../src/env';
+import { renderToMarkdown } from '../../src/lib/markdown';
 import type { AgentToolsContext } from '../../src/services/agent';
 import { authorizeAgentRun } from '../../src/services/agent-run';
 import type { AgentRequest } from '../../src/types/chat';
@@ -74,6 +78,65 @@ describe('agent profiles', () => {
 		expect(tools).toHaveProperty('display_chart');
 		expect(tools).not.toHaveProperty('write');
 		expect(tools).not.toHaveProperty('str_replace');
+	});
+
+	it('keeps the published RULES.md and the user memories out of the Context Hub agent prompt', () => {
+		const profile = contextEditorAgent({
+			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
+			shown: { type: 'overview' },
+		});
+
+		expect(profile).toMatchObject({ source: 'contextEditor', excludesUserRules: true, excludesMemories: true });
+		expect(profile.promptAppendix).toContain('is not part of your instructions here');
+		expect(analyticsAgent.excludesUserRules).toBeUndefined();
+	});
+
+	it.each([
+		{ isEnabled: true, label: 'gives' },
+		{ isEnabled: false, label: 'keeps out' },
+	])('$label the Context Hub agent the recommendations when they are enabled: $isEnabled', async ({ isEnabled }) => {
+		const wasEnabled = env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED;
+		env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = isEnabled;
+		try {
+			const profile = contextEditorAgent({
+				editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
+				shown: { type: 'overview' },
+			});
+			const context = {
+				agentSettings: null,
+				toolContext: { userGroupFeatures: [] },
+			} as unknown as AgentToolsContext;
+			const tools = await profile.tools(context);
+
+			expect(tools).toHaveProperty('edit_context_file');
+			expect('apply_recommendation' in tools).toBe(isEnabled);
+			expect(profile.promptAppendix?.includes('list_recommendations')).toBe(isEnabled);
+		} finally {
+			env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = wasEnabled;
+		}
+	});
+
+	it('introduces the Context Hub agent as the context editor instead of the data analyst', () => {
+		const profile = contextEditorAgent({
+			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
+			shown: { type: 'overview' },
+		});
+
+		const prompt = renderToMarkdown(SystemPrompt({ role: profile.role }));
+
+		expect(prompt).toContain('You are nao, the context editor of the Context Hub');
+		expect(prompt).not.toContain('expert AI data analyst');
+		expect(renderToMarkdown(SystemPrompt({}))).toContain('expert AI data analyst');
+	});
+
+	it('teaches only the Context Hub agent to link context files', () => {
+		const profile = contextEditorAgent({
+			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
+			shown: { type: 'overview' },
+		});
+
+		expect(profile.promptAppendix).toContain('<context-file path="docs/glossary.md" lines="4-8">');
+		expect(renderToMarkdown(SystemPrompt({}))).not.toContain('<context-file');
 	});
 
 	it('adapts the analytics agent to the chat app it answers in', () => {

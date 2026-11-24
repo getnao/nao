@@ -1,0 +1,446 @@
+name: PR Screenshots
+
+on:
+    pull_request_target:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - 'apps/frontend/**'
+
+permissions:
+    contents: read
+
+concurrency:
+    group: pr-screenshots-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+# Claude reads the frontend diff and captures the screens it changes, then the PNGs are
+# committed to the orphan `pr-screenshots` branch and embedded in the PR description.
+#
+# Runs on pull_request_target so fork PRs get it too: the workflow always comes from the base
+# branch, and the `authorize` job limits it to collaborators with write access and contributors
+# approved for PRs in .github/APPROVED_CONTRIBUTORS (the pr-gate rule).
+#
+# Trust boundaries, so neither the PR code nor its dependencies can reach a secret:
+# - PR code (npm install scripts, backend, Vite, the capture script) only runs inside the
+#   `nao-app` container, which holds no secret, mounts a copy of the sources and never the
+#   docker socket. The host runner, where the user has passwordless sudo, runs no PR code.
+# - Claude runs on the host with the API key. Its permission rules let it edit only its work
+#   directory and run only `capture-screens` (plus read-only commands inside its directories, never
+#   env or /proc). The wrapper drops the key and copies the PNGs out of the container with `docker cp`.
+#   CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is not used: its mandatory sandbox blocks the docker socket.
+# - The `publish` job holds the only write token and never checks out or runs the PR code:
+#   it validates the uploaded PNGs and sanitises the captions before posting them.
+# - Symlinks are deleted from the host checkout before Claude starts, so a PR cannot point
+#   one of its files at /proc or a runner file and have Claude read it.
+env:
+    SCREENSHOTS_BRANCH: pr-screenshots
+
+jobs:
+    authorize:
+        name: Check the PR author
+        runs-on: ubuntu-latest
+        if: >-
+            !github.event.pull_request.draft &&
+            !endsWith(github.event.pull_request.user.login, '[bot]')
+        outputs:
+            allowed: ${{ steps.check.outputs.allowed }}
+        steps:
+            - name: Check the author is a collaborator or an approved contributor
+              id: check
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const { owner, repo } = context.repo;
+                      const author = context.payload.pull_request.user.login.toLowerCase();
+                      core.setOutput('allowed', String((await hasWriteAccess()) || (await isApprovedForPullRequests())));
+
+                      async function hasWriteAccess() {
+                          try {
+                              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: author });
+                              return ['admin', 'maintain', 'write'].includes(data.permission);
+                          } catch {
+                              return false;
+                          }
+                      }
+
+                      async function isApprovedForPullRequests() {
+                          const { data } = await github.rest.repos.getContent({
+                              owner,
+                              repo,
+                              path: '.github/APPROVED_CONTRIBUTORS',
+                              ref: context.payload.repository.default_branch,
+                          });
+                          return Buffer.from(data.content, 'base64')
+                              .toString('utf8')
+                              .split('\n')
+                              .map((line) => line.trim().toLowerCase().split(/\s+/))
+                              .some(([username, capability]) => {
+                                  return username === author && capability === 'pr';
+                              });
+                      }
+
+    capture:
+        name: Capture UI screenshots
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        needs: authorize
+        if: needs.authorize.outputs.allowed == 'true'
+        outputs:
+            has_screenshots: ${{ steps.collect.outputs.has_screenshots }}
+        env:
+            APP_DIR: /tmp/pr-screenshots/app
+            BASE_DIR: /tmp/pr-screenshots/base
+            WORK_DIR: /tmp/pr-screenshots/claude
+            SHOTS_DIR: /tmp/pr-screenshots/shots
+            OUT_DIR: /tmp/pr-screenshots/out
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Remove symlinks from the checkout
+              run: find "$GITHUB_WORKSPACE" -type l -delete
+
+            # Compares the PR head with the commit it branched from, so changes that landed on the base
+            # branch since then never show up as part of this PR.
+            - name: Prepare the sources and the diff
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  mkdir -p "$APP_DIR" "$BASE_DIR" "$WORK_DIR" "$SHOTS_DIR" "$OUT_DIR" "$RUNNER_TEMP/bin"
+                  FORK_POINT=$(git merge-base "origin/$BASE_REF" HEAD)
+                  git archive HEAD | tar -x -C "$APP_DIR"
+                  git archive "$FORK_POINT" | tar -x -C "$BASE_DIR"
+                  git diff "$FORK_POINT" HEAD -- apps/ > "$WORK_DIR/pr.diff"
+
+            # nao-app runs the PR head (after screenshots), nao-base runs its fork point (before screenshots).
+            - name: Start the apps in isolated containers
+              run: |
+                  NODE_VERSION=$(tr -d 'v \n' < .nvmrc)
+                  [[ "$NODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected .nvmrc: $NODE_VERSION"; exit 1; }
+
+                  start_app() {
+                      docker run -d --name "$1" -v "$2:/app" -w /app \
+                          -e NAO_DEFAULT_PROJECT_PATH=/app/example \
+                          -e BETTER_AUTH_URL=http://localhost:3000 \
+                          -e BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+                          -e POSTHOG_DISABLED=true \
+                          "node:$NODE_VERSION-bookworm" sleep infinity
+                      docker exec "$1" bash -ec '
+                          ./scripts/use-pinned-npm.sh
+                          npm ci
+                          npm install -g bun@1.3.11
+                          npx -y playwright@1.56.1 install --with-deps chromium
+                          npm run -w @nao/backend db:migrate
+                          npm run -w @nao/backend db:seed
+                      '
+                      docker exec -d -w /app/apps/backend "$1" bash -c 'bun src/index.ts > /tmp/backend.log 2>&1'
+                      docker exec -d "$1" bash -c 'npm run dev:frontend > /tmp/frontend.log 2>&1'
+                      for _ in $(seq 1 90); do
+                          if docker exec "$1" bash -c 'curl -s -o /dev/null localhost:5005 && curl -sf -o /dev/null localhost:3000'; then
+                              echo "$1 is up"
+                              return 0
+                          fi
+                          sleep 2
+                      done
+                      docker exec "$1" tail -n 50 /tmp/backend.log /tmp/frontend.log
+                      return 1
+                  }
+
+                  start_app nao-base "$BASE_DIR" > "$RUNNER_TEMP/nao-base.log" 2>&1 &
+                  BASE_PID=$!
+                  start_app nao-app "$APP_DIR"
+                  if ! wait "$BASE_PID"; then
+                      cat "$RUNNER_TEMP/nao-base.log"
+                      docker rm -f nao-base > /dev/null
+                      echo "::warning::The base app did not start, no before screenshots"
+                  fi
+
+            - name: Install the capture command
+              run: |
+                  printf '#!/usr/bin/env bash\nWORK_DIR=%q\nSHOTS_DIR=%q\n' "$WORK_DIR" "$SHOTS_DIR" > "$RUNNER_TEMP/bin/capture-screens"
+                  cat >> "$RUNNER_TEMP/bin/capture-screens" <<'EOF'
+                  set -uo pipefail
+                  unset ANTHROPIC_API_KEY
+
+                  capture() {
+                      echo "=== $2: $1"
+                      docker exec "$1" bash -c 'rm -rf /shots && mkdir /shots' || return 1
+                      docker cp "$WORK_DIR/capture.mjs" "$1:/app/pr-screenshots-capture.mjs"
+                      docker exec "$1" bash -c '
+                          export CHROME_PATH=$(ls -d /root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | head -n 1)
+                          timeout 300 node /app/pr-screenshots-capture.mjs || { tail -n 30 /tmp/backend.log /tmp/frontend.log; exit 1; }
+                      '
+                  }
+
+                  copy_out() {
+                      local DIR="$SHOTS_DIR/$2"
+                      rm -rf "$DIR" && mkdir -p "$DIR"
+                      docker cp "$1:/shots/." "$DIR/" 2>/dev/null
+                      find "$DIR" -mindepth 1 \( ! -type f -o -size +5M \) -prune -exec rm -rf {} +
+                      for FILE in "$DIR"/*; do
+                          NAME=$(basename "$FILE")
+                          if [[ ! "$NAME" =~ ^[a-z0-9-]{1,60}\.png$ ]] || [ "$(head -c 8 "$FILE" | od -An -tx1 | tr -d ' \n')" != "89504e470d0a1a0a" ]; then
+                              rm -f "$FILE"
+                          fi
+                      done
+                  }
+
+                  capture nao-app after
+                  STATUS=$?
+                  capture nao-base before || echo "The before capture failed, expected when the screen is new in this PR"
+                  copy_out nao-app after
+                  copy_out nao-base before
+                  echo "Screenshots in $SHOTS_DIR:"
+                  ls -1R "$SHOTS_DIR"
+                  exit $STATUS
+                  EOF
+                  chmod +x "$RUNNER_TEMP/bin/capture-screens"
+
+            - name: Capture screenshots with Claude
+              continue-on-error: true
+              working-directory: ${{ env.WORK_DIR }}
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.CLAUDE_CI_API_KEY }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
+              run: |
+                  PROMPT=$(cat <<EOF
+                  You run in CI on pull request #$PR_NUMBER "$PR_TITLE" of nao, an analytics agent chat app.
+                  Your job: capture screenshots of the UI this PR changes, so reviewers see it without running the branch.
+
+                  1. Read the diff in ./pr.diff (the full sources are in $GITHUB_WORKSPACE) and work out which screens or UI states
+                     visibly change (at most 4). If nothing visible changes (tests, types, refactors, logic without UI effect),
+                     write \`[]\` to ./manifest.json and stop.
+                  2. Two copies of the app run in containers, both at http://localhost:3000 (backend on :5005) from inside their
+                     container, signed out, seeded with one org and project built from \`example/\`: the PR branch ("after") and the
+                     base branch ("before"). Sign in at /login with test@test.test / test1234 (an org and project admin).
+                  3. Write ./capture.mjs, a Node ESM script using \`puppeteer-core\` (resolved from the app's node_modules) launched
+                     headless with \`executablePath: process.env.CHROME_PATH\`, \`args: ['--no-sandbox']\` and a 1440x900 viewport.
+                     It signs in, navigates, puts the UI in the changed state (open the dialog, toggle the setting, hover the element,
+                     type in the input, ...), waits for the network to settle and saves each PNG as /shots/<kebab-case-name>.png.
+                     Crop every screenshot to the zone that changed: find the closest container that holds the whole change (the card,
+                     dialog, form section, table, menu...), scroll it into view and capture its bounding box with \`page.screenshot({ clip })\`
+                     plus ~24px of margin, so a reviewer sees the change and just enough around it to place it. Capture the whole viewport
+                     only when the change is page-wide (layout, navigation, theme). Locate the zone with the same selector on both
+                     branches so the before and after crops match. The same script runs on both branches, so wrap each screenshot in
+                     its own try/catch: an element that only exists in the PR must not stop the others.
+                  4. Run it with the \`capture-screens\` command (no arguments), the only shell command you can run. It runs
+                     ./capture.mjs in both containers, prints the output and copies the PNGs to $SHOTS_DIR/after and $SHOTS_DIR/before.
+                  5. Open every PNG with the Read tool and check the after one really shows the change, not a spinner, an error or
+                     the login page, and that the crop is tight around the change. Fix ./capture.mjs and run \`capture-screens\` again when not.
+                  6. Write ./manifest.json as \`[{"file": "name.png", "caption": "one short plain-text sentence", "before": true}]\`,
+                     in reading order. Set \`before\` to true only when before/name.png shows the same screen in the same state, so
+                     the pair makes a meaningful comparison (a restyle, a changed layout or copy). Set it to false when the screen
+                     or element is new, or the before shot is broken.
+                  EOF
+                  )
+                  # Absolute edit rule: a relative one follows the shell's cwd, so a cd into the sources would block writes.
+                  SETTINGS=$(jq -nc --arg edit "Edit(/$WORK_DIR/**)" '{permissions: {allow: ["Bash(capture-screens)", $edit], deny: ["Read(//proc/**)"]}}')
+                  PATH="$RUNNER_TEMP/bin:$PATH" npx -y @anthropic-ai/claude-code@2.1.323 -p "$PROMPT" \
+                      --model claude-sonnet-5-5 \
+                      --max-turns 60 \
+                      --add-dir "$GITHUB_WORKSPACE" "$SHOTS_DIR" \
+                      --settings "$SETTINGS"
+
+            - name: Collect screenshots
+              id: collect
+              run: |
+                  cp -r "$SHOTS_DIR/after" "$SHOTS_DIR/before" "$OUT_DIR/" 2>/dev/null || true
+                  cp "$WORK_DIR/manifest.json" "$OUT_DIR/" 2>/dev/null || true
+                  if [ -f "$OUT_DIR/manifest.json" ] && ls "$OUT_DIR"/after/*.png > /dev/null 2>&1; then
+                      echo "has_screenshots=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Upload screenshots
+              if: steps.collect.outputs.has_screenshots == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: pr-screenshots
+                  path: ${{ env.OUT_DIR }}
+                  retention-days: 3
+
+    publish:
+        name: Post screenshots
+        runs-on: ubuntu-latest
+        needs: capture
+        if: needs.capture.outputs.has_screenshots == 'true'
+        permissions:
+            contents: write
+            pull-requests: write
+
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  name: pr-screenshots
+                  path: ${{ runner.temp }}/shots
+
+            - name: Commit screenshots and add them to the PR description
+              uses: actions/github-script@v7
+              env:
+                  SHOTS_DIR: ${{ runner.temp }}/shots
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const path = require('path');
+                      const { owner, repo } = context.repo;
+                      const branch = process.env.SCREENSHOTS_BRANCH;
+                      const pr = context.payload.pull_request;
+                      const sha = pr.head.sha.slice(0, 7);
+                      const folder = `pr-${pr.number}/${sha}`;
+                      const sectionStart = '<!-- pr-screenshots:start -->';
+                      const sectionEnd = '<!-- pr-screenshots:end -->';
+
+                      const shots = readValidScreenshots(process.env.SHOTS_DIR);
+                      if (shots.length === 0) {
+                          core.info('No valid screenshot to publish');
+                          return;
+                      }
+
+                      const commitSha = await commitScreenshots(shots.flatMap(toCommittedFiles));
+                      const imageBaseUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${folder}`;
+                      await upsertDescriptionSection(
+                          `${sectionStart}\n## 📸 UI Screenshots\n\nCaptured by Claude from the frontend diff at \`${sha}\`.\n\n${renderScreenshots(shots, imageBaseUrl)}\n${sectionEnd}`,
+                      );
+
+                      function renderScreenshots(shots, baseUrl) {
+                          return groupScreenshots(shots)
+                              .map((group) => (Array.isArray(group) ? renderRow(group, baseUrl) : renderComparison(group, baseUrl)))
+                              .join('\n\n');
+                      }
+
+                      /** Keeps the manifest order: a before/after pair stands alone, consecutive screens without a before go two per row. */
+                      function groupScreenshots(shots) {
+                          const groups = [];
+                          for (const shot of shots) {
+                              const previous = groups.at(-1);
+                              if (!shot.before && Array.isArray(previous) && previous.length < 2) {
+                                  previous.push(shot);
+                              } else {
+                                  groups.push(shot.before ? shot : [shot]);
+                              }
+                          }
+                          return groups;
+                      }
+
+                      function renderComparison(shot, baseUrl) {
+                          const cells = [renderImage(baseUrl, 'before', shot), renderImage(baseUrl, 'after', shot)];
+                          return `#### ${shot.caption}\n\n${renderTable(['Before', 'After'], cells)}`;
+                      }
+
+                      function renderRow(row, baseUrl) {
+                          const captions = row.map((shot) => shot.caption);
+                          return renderTable(captions, row.map((shot) => renderImage(baseUrl, 'after', shot)));
+                      }
+
+                      function renderImage(baseUrl, side, { file, caption }) {
+                          return `![${caption}](${baseUrl}/${side}/${file})`;
+                      }
+
+                      function renderTable(headers, cells) {
+                          return [headers, headers.map(() => ':---:'), cells].map((row) => `| ${row.join(' | ')} |`).join('\n');
+                      }
+
+                      function toCommittedFiles({ file, after, before }) {
+                          const files = [{ path: `after/${file}`, content: after }];
+                          return before ? [...files, { path: `before/${file}`, content: before }] : files;
+                      }
+
+                      function readValidScreenshots(dir) {
+                          const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+                          if (!Array.isArray(manifest)) {
+                              return [];
+                          }
+                          return manifest
+                              .filter((entry) => /^[a-z0-9-]{1,60}\.png$/.test(String(entry?.file)))
+                              .filter((entry) => isPng(path.join(dir, 'after', entry.file)))
+                              .slice(0, 4)
+                              .map((entry) => ({
+                                  file: entry.file,
+                                  caption: sanitizeCaption(entry.caption, entry.file),
+                                  after: readBase64(path.join(dir, 'after', entry.file)),
+                                  before: entry.before === true && isPng(path.join(dir, 'before', entry.file)) ? readBase64(path.join(dir, 'before', entry.file)) : null,
+                              }));
+                      }
+
+                      function readBase64(filePath) {
+                          return fs.readFileSync(filePath).toString('base64');
+                      }
+
+                      function isPng(filePath) {
+                          const stat = fs.lstatSync(filePath, { throwIfNoEntry: false });
+                          if (!stat?.isFile() || stat.size > 5 * 1024 * 1024) {
+                              return false;
+                          }
+                          return fs.readFileSync(filePath).subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+                      }
+
+                      /** Plain text only: no markdown, HTML, mentions or anything that looks like a token. */
+                      function sanitizeCaption(caption, file) {
+                          const text = String(caption ?? '').replace(/[^\p{L}\p{N} .,:;'()\/-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+                          const looksLikeSecret = /sk-ant|[A-Za-z0-9]{24,}/.test(text);
+                          return text && !looksLikeSecret ? text : file;
+                      }
+
+                      async function commitScreenshots(files) {
+                          for (let attempt = 0; attempt < 3; attempt++) {
+                              const parent = await getBranchHead();
+                              const tree = await github.rest.git.createTree({
+                                  owner,
+                                  repo,
+                                  base_tree: parent?.treeSha,
+                                  tree: await Promise.all(files.map(createBlobEntry)),
+                              });
+                              const commit = await github.rest.git.createCommit({
+                                  owner,
+                                  repo,
+                                  message: `Screenshots for #${pr.number} at ${sha}`,
+                                  tree: tree.data.sha,
+                                  parents: parent ? [parent.sha] : [],
+                              });
+                              try {
+                                  if (parent) {
+                                      await github.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha });
+                                  } else {
+                                      await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
+                                  }
+                                  return commit.data.sha;
+                              } catch (error) {
+                                  core.warning(`Branch ${branch} moved, retrying: ${error.message}`);
+                              }
+                          }
+                          throw new Error(`Could not update ${branch}`);
+                      }
+
+                      async function createBlobEntry({ path: filePath, content }) {
+                          const blob = await github.rest.git.createBlob({ owner, repo, content, encoding: 'base64' });
+                          return { path: `${folder}/${filePath}`, mode: '100644', type: 'blob', sha: blob.data.sha };
+                      }
+
+                      async function getBranchHead() {
+                          try {
+                              const { data } = await github.rest.repos.getBranch({ owner, repo, branch });
+                              return { sha: data.commit.sha, treeSha: data.commit.commit.tree.sha };
+                          } catch (error) {
+                              if (error.status === 404) {
+                                  return null;
+                              }
+                              throw error;
+                          }
+                      }
+
+                      /** Replaces the screenshots section of the PR description, or appends it, keeping the author's text. */
+                      async function upsertDescriptionSection(section) {
+                          const { data: current } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+                          const description = current.body ?? '';
+                          const sectionPattern = new RegExp(`${sectionStart}[\\s\\S]*?${sectionEnd}`);
+                          const updated = sectionPattern.test(description)
+                              ? description.replace(sectionPattern, () => {
+                                    return section;
+                                })
+                              : [description.trimEnd(), section].filter(Boolean).join('\n\n');
+                          await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body: updated });
+                      }

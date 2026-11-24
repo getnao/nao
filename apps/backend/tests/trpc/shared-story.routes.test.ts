@@ -12,13 +12,15 @@ const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getStoryById: vi.fn(),
 	getStoryOwnerId: vi.fn(),
+	deleteStoryViewerDataCache: vi.fn(),
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
 	getLatestStoryRefreshFailure: vi.fn(),
 	executeLiveQuery: vi.fn(),
+	executeStoryLiveQuery: vi.fn(),
 	getStoryQueryData: vi.fn(),
-	refreshStoryData: vi.fn(),
+	refreshStoryById: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
@@ -51,6 +53,9 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: vi.fn(async () => null),
 }));
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
+	deleteStoryViewerDataCache: mocks.deleteStoryViewerDataCache,
+}));
 vi.mock('../../src/queries/story-folder.queries', () => ({}));
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
@@ -59,8 +64,9 @@ vi.mock('../../src/services/cloud-billing-access.service', () => ({
 }));
 vi.mock('../../src/services/live-story', () => ({
 	executeLiveQuery: mocks.executeLiveQuery,
+	executeStoryLiveQuery: mocks.executeStoryLiveQuery,
 	getStoryQueryData: mocks.getStoryQueryData,
-	refreshStoryData: mocks.refreshStoryData,
+	refreshStoryById: mocks.refreshStoryById,
 }));
 vi.mock('../../src/services/shareable-user-groups.service', () => ({
 	filterShareableUserGroupIds: vi.fn(async (_projectId: string, groupIds: string[]) => groupIds),
@@ -70,6 +76,9 @@ vi.mock('../../src/services/story-filters', () => ({
 	getFilteredStoryQueryData: vi.fn(),
 	getStoryFilterOptions: vi.fn(),
 	getStoryQuerySql: vi.fn(),
+}));
+vi.mock('../../src/services/user-group-context-access.service', () => ({
+	hasEffectiveWarehouseRestrictions: vi.fn(async () => false),
 }));
 vi.mock('../../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
@@ -121,6 +130,16 @@ describe('storyShare.getSharedStoryInfo', () => {
 		});
 	});
 
+	it('finds a standalone story, which has no chat, by its id', async () => {
+		mocks.getStoryById.mockResolvedValue({ id: 'story-1', chatId: null, projectId: 'project-1' });
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+
+		await expect(
+			createCaller('owner-1').storyShare.getSharedStoryInfo({ storyId: 'story-1' }),
+		).resolves.toMatchObject({ isShared: true, storyId: 'story-1' });
+		expect(mocks.getStoryByChatAndSlug).not.toHaveBeenCalled();
+	});
+
 	it('shows the access list to a project admin', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 
@@ -135,17 +154,20 @@ describe('storyShare.getLiveQueryData', () => {
 	const STORY_CODE =
 		'<chart query_id="q_customers" chart_type="kpi_card" x_axis_key="x" series=\'[{"data_key":"n"}]\' />';
 
+	const SHARED_CUSTOMERS_STORY = {
+		id: 'share-1',
+		projectId: 'project-1',
+		userId: 'sharer-1',
+		ownerUserId: 'owner-1',
+		visibility: 'specific',
+		storyId: 'story-1',
+		chatId: 'chat-1',
+		slug: 'customers',
+		code: STORY_CODE,
+	};
+
 	beforeEach(() => {
-		mocks.getSharedStoryByStoryId.mockResolvedValue({
-			id: 'share-1',
-			projectId: 'project-1',
-			userId: 'owner-1',
-			visibility: 'specific',
-			storyId: 'story-1',
-			chatId: 'chat-1',
-			slug: 'customers',
-			code: STORY_CODE,
-		});
+		mocks.getSharedStoryByStoryId.mockResolvedValue(SHARED_CUSTOMERS_STORY);
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockImplementation(
 			async (_shareId: string, userId: string) => userId === 'recipient-1',
@@ -161,7 +183,22 @@ describe('storyShare.getLiveQueryData', () => {
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
 			storyCode: expect.any(String),
+			viewerUserId: 'recipient-1',
 		});
+	});
+
+	it('runs a query of a shared standalone story from the SQL saved with it', async () => {
+		mocks.getSharedStoryByStoryId.mockResolvedValue({ ...SHARED_CUSTOMERS_STORY, chatId: null });
+		mocks.executeStoryLiveQuery.mockResolvedValue({ data: [{ n: 7 }], columns: ['n'] });
+
+		await expect(
+			createCaller('recipient-1').storyShare.getLiveQueryData({ storyId: 'story-1', queryId: 'q_customers' }),
+		).resolves.toEqual({ data: [{ n: 7 }], columns: ['n'] });
+		expect(mocks.executeStoryLiveQuery).toHaveBeenCalledWith({ id: 'story-1', chatId: null }, 'q_customers', {
+			billingAccessVerifiedProjectId: 'project-1',
+			storyCode: expect.any(String),
+		});
+		expect(mocks.executeLiveQuery).not.toHaveBeenCalled();
 	});
 
 	it('refuses a project member the story was not shared with', async () => {
@@ -202,8 +239,9 @@ describe('shared Story manual refresh', () => {
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 			cachedAt: new Date('2026-09-12T10:00:00.000Z'),
 		});
-		mocks.refreshStoryData.mockResolvedValue({
+		mocks.refreshStoryById.mockResolvedValue({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			queriesRefreshed: 1,
 		});
 		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess());
 		mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) => {
@@ -225,6 +263,7 @@ describe('shared Story manual refresh', () => {
 		const story = await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 		expect(story.canRefresh).toBe(expected);
+		expect(story).not.toHaveProperty('ownerUserId');
 		expect(mocks.getSharedStoryByStoryId).toHaveBeenCalledWith('story-1');
 		expect(mocks.getSharedStory).not.toHaveBeenCalled();
 	});
@@ -245,6 +284,7 @@ describe('shared Story manual refresh', () => {
 			expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 				deferRefresh: expected,
 				deferFirstRefresh: expected,
+				viewerUserId: userId,
 			});
 		},
 	);
@@ -258,6 +298,7 @@ describe('shared Story manual refresh', () => {
 		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 			deferRefresh: false,
 			deferFirstRefresh: expected,
+			viewerUserId: userId,
 		});
 	});
 
@@ -300,7 +341,7 @@ describe('shared Story manual refresh', () => {
 			code: 'FORBIDDEN',
 		});
 
-		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+		expect(mocks.refreshStoryById).not.toHaveBeenCalled();
 		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
 	});
 
@@ -312,7 +353,7 @@ describe('shared Story manual refresh', () => {
 		);
 
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
-		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+		expect(mocks.refreshStoryById).not.toHaveBeenCalled();
 		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
 	});
 
@@ -320,7 +361,7 @@ describe('shared Story manual refresh', () => {
 		await createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' });
 
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith({
@@ -331,14 +372,31 @@ describe('shared Story manual refresh', () => {
 			trigger: 'manual',
 		});
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'owner-1' }));
+	});
+
+	it('lets an admin recipient refresh a shared standalone story with the owner principal', async () => {
+		mocks.getSharedStoryByStoryId.mockResolvedValue({ ...SHARED_ORDERS_STORY, chatId: null });
+		mocks.getStoryById.mockResolvedValue({ id: 'story-1', chatId: null, isLive: true });
+
+		await expect(createCaller('admin-1').storyShare.refreshData({ storyId: 'story-1' })).resolves.toMatchObject({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+		});
+
+		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
+			billingAccessVerifiedProjectId: 'project-1',
+		});
+		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: 'owner-1', chatId: null }),
+		);
 	});
 
 	it('lets an admin trigger an owner-scoped refresh while recording the admin actor', async () => {
 		await createCaller('admin-1').storyShare.refreshData({ storyId: 'story-1' });
 
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith(expect.objectContaining({ userId: 'owner-1' }));
@@ -348,7 +406,7 @@ describe('shared Story manual refresh', () => {
 
 	it('fails the activity and rethrows the original refresh error', async () => {
 		const refreshError = new Error('Warehouse unavailable');
-		mocks.refreshStoryData.mockRejectedValueOnce(refreshError);
+		mocks.refreshStoryById.mockRejectedValueOnce(refreshError);
 
 		await expect(createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' })).rejects.toMatchObject({
 			message: 'Warehouse unavailable',

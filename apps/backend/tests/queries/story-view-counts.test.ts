@@ -24,6 +24,7 @@ const DIRECTLY_SHARED_STORY_ID = 'directly-shared-story';
 
 describe('story view counts', () => {
 	beforeAll(async () => {
+		await import('../../src/services/user-group-availability.service');
 		await db
 			.insert(s.user)
 			.values([OWNER_ID, VIEWER_ID].map((id) => ({ id, name: id, email: `${id}@example.com` })));

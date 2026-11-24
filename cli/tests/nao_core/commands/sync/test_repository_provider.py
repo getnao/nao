@@ -1,11 +1,10 @@
 """Unit tests for the repository sync provider."""
 
-from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from rich.console import Console
 
 from nao_core.commands.sync.providers.repositories.provider import (
     RepositorySyncProvider,
@@ -16,7 +15,7 @@ from nao_core.commands.sync.providers.repositories.provider import (
     sync_repo,
 )
 from nao_core.config.base import NaoConfig
-from nao_core.config.repos import RepoConfig
+from nao_core.config.repos import RepoConfig, RepoTarget
 
 FILTERABLE_FILES = {"models/dim.sql": "SELECT 1", "models/schema.yml": "version: 2", "readme.md": "docs"}
 PROVIDER_MODULE = "nao_core.commands.sync.providers.repositories.provider"
@@ -92,6 +91,48 @@ class TestRepoConfig:
         )
         assert config.include == ["src/**/*.py"]
 
+    def test_rejects_unknown_keys(self):
+        with pytest.raises(ValueError, match="targetz"):
+            RepoConfig.model_validate({"name": "test", "url": "https://github.com/test/repo", "targetz": []})
+
+    def test_rejects_overlapping_target_sources(self):
+        with pytest.raises(ValueError, match="sources 'nao/tests' and 'nao/tests/unit' overlap"):
+            RepoConfig(
+                name="test",
+                url="https://github.com/test/repo",
+                targets=[
+                    RepoTarget(source="nao/tests", target="tests/all"),
+                    RepoTarget(source="nao/tests/unit", target="tests/unit"),
+                ],
+            )
+
+    def test_normalizes_target_paths(self):
+        config = RepoConfig(
+            name="test",
+            url="https://github.com/test/repo",
+            targets=[RepoTarget(source="./nao/tests/", target="tests/analytics/")],
+        )
+        assert (config.targets[0].source, config.targets[0].target) == ("nao/tests", "tests/analytics")
+
+    @pytest.mark.parametrize(
+        ("source", "target", "message"),
+        [
+            pytest.param("nao/tests", "tests", "must be a subfolder", id="top_folder"),
+            pytest.param("nao/tests", "repos/analytics", "inside 'repos/'", id="inside_repos"),
+            pytest.param("nao/tests", "databases/analytics", "inside 'databases/'", id="inside_databases"),
+            pytest.param("nao/tests", "tests/../../etc", "no '..'", id="target_traversal"),
+            pytest.param("nao/tests", "/tmp/tests", "no '..'", id="absolute_target"),
+            pytest.param("nao\\tests", "tests/analytics", "forward slashes", id="backslash_source"),
+            pytest.param("../secrets", "tests/analytics", "no '..'", id="source_traversal"),
+            pytest.param(".", "tests/analytics", "relative path", id="whole_repo"),
+        ],
+    )
+    def test_rejects_invalid_targets(self, source: str, target: str, message: str):
+        with pytest.raises(ValueError, match=message):
+            RepoConfig(
+                name="test", url="https://github.com/test/repo", targets=[RepoTarget(source=source, target=target)]
+            )
+
 
 class TestRepositorySyncProvider:
     def test_provider_properties(self):
@@ -136,18 +177,13 @@ class TestRepositorySyncProvider:
         assert result.error == "Failed to sync 1 repository: repo2"
 
     @patch(f"{PROVIDER_MODULE}.sync_repo", return_value=False)
-    def test_sync_escapes_repository_name_markup(self, mock_sync, tmp_path: Path):
-        provider = RepositorySyncProvider()
-        output = StringIO()
-        console = Console(file=output, force_terminal=False)
+    @patch(f"{PROVIDER_MODULE}.console")
+    def test_sync_reports_failed_repository_names_as_plain_text(self, mock_console, mock_sync, tmp_path: Path):
         repo = RepoConfig(name="my[b]db", url="https://github.com/test/repo")
 
-        with patch(f"{PROVIDER_MODULE}.console", console):
-            result = provider.sync([repo], tmp_path)
-            console.print(result.error)
+        result = RepositorySyncProvider().sync([repo], tmp_path)
 
-        assert "my[b]db" in output.getvalue()
-        mock_sync.assert_called_once()
+        assert result.error == "Failed to sync 1 repository: my[b]db"
 
     @patch(f"{PROVIDER_MODULE}.sync_repo", return_value=True)
     @patch(f"{PROVIDER_MODULE}.console")
@@ -175,7 +211,7 @@ def git_clone_stub(base_path: Path, repo_name: str, files: dict[str, str] | None
 
     def _run(*_args, **_kwargs):
         cloned = base_path / f"{repo_name}.tmp"
-        cloned.mkdir(exist_ok=True)
+        cloned.mkdir(parents=True, exist_ok=True)
         _write_files(cloned, files or {})
         return MagicMock(returncode=0)
 
@@ -191,7 +227,7 @@ class TestCloneOrPullRepo:
 
         assert result is True
         git_run.assert_called_once()
-        assert "clone" in git_run.call_args[0][0]
+        assert git_run.call_args[0][0][:5] == ["git", "clone", "--depth", "1", "--single-branch"]
 
     def test_clones_with_branch(self, git_run, tmp_path: Path):
         repo = RepoConfig(
@@ -322,6 +358,53 @@ class TestCloneOrPullRepo:
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is False
+
+
+class TestRepoTargets:
+    def test_moves_target_out_of_the_repo_and_replaces_its_folder(self, git_run, tmp_path: Path):
+        repos = tmp_path / "repos"
+        _write_files(tmp_path / "tests" / "analytics", {"removed_upstream.yml": "prompt: old"})
+        git_run.side_effect = git_clone_stub(repos, "analytics", ANALYTICS_FILES)
+
+        assert clone_or_pull_repo(_analytics_repo(), repos) is True
+
+        assert sorted(_list_files(tmp_path / "tests" / "analytics")) == ["nested/refunds.yml", "orders.yml"]
+        assert _list_files(repos / "analytics") == ["models/orders.sql"]
+
+    def test_leaves_project_untouched_when_a_source_is_missing(self, git_run, tmp_path: Path):
+        repos = tmp_path / "repos"
+        _write_files(repos / "analytics", {"models/orders.sql": "SELECT 0"})
+        _write_files(tmp_path / "tests" / "analytics", {"orders.yml": "prompt: production"})
+        repo = _analytics_repo(targets=[{"source": "nao/tests", "target": "tests/analytics"}, _MISSING_TARGET])
+        git_run.side_effect = git_clone_stub(repos, "analytics", ANALYTICS_FILES)
+
+        assert clone_or_pull_repo(repo, repos) is False
+
+        assert (tmp_path / "tests" / "analytics" / "orders.yml").read_text() == "prompt: production"
+        assert (repos / "analytics" / "models" / "orders.sql").read_text() == "SELECT 0"
+        assert not (repos / "analytics.tmp").exists()
+
+    def test_refuses_a_source_removed_by_the_filters(self, git_run, tmp_path: Path):
+        repos = tmp_path / "repos"
+        git_run.side_effect = git_clone_stub(repos, "analytics", ANALYTICS_FILES)
+
+        assert clone_or_pull_repo(_analytics_repo(include=["models/**"]), repos) is False
+        assert not (tmp_path / "tests").exists()
+
+    def test_moves_targets_of_a_local_repo(self, tmp_path: Path):
+        source = _write_files(tmp_path / "source", ANALYTICS_FILES)
+        project = tmp_path / "project"
+        repo = RepoConfig(
+            name="analytics",
+            local_path=str(source),
+            targets=[RepoTarget(source="nao/tests", target="tests/analytics")],
+        )
+
+        assert sync_local_repo(repo, project / "repos") is True
+
+        assert sorted(_list_files(project / "tests" / "analytics")) == ["nested/refunds.yml", "orders.yml"]
+        assert _list_files(project / "repos" / "analytics") == ["models/orders.sql"]
+        assert (source / "nao" / "tests" / "orders.yml").exists()
 
 
 class TestMatchesPatterns:
@@ -502,6 +585,27 @@ class TestSyncRepo:
 
         assert result is True
         mock_git.assert_called_once_with(repo, base)
+
+
+ANALYTICS_FILES = {
+    "models/orders.sql": "SELECT 1",
+    "nao/tests/orders.yml": "prompt: orders",
+    "nao/tests/nested/refunds.yml": "prompt: refunds",
+}
+_MISSING_TARGET = {"source": "nao/missing", "target": "docs/analytics"}
+
+
+def _analytics_repo(**overrides: Any) -> RepoConfig:
+    settings = {
+        "name": "analytics",
+        "url": "https://github.com/test/analytics",
+        "targets": [{"source": "nao/tests", "target": "tests/analytics"}],
+    }
+    return RepoConfig.model_validate({**settings, **overrides})
+
+
+def _list_files(root: Path) -> list[str]:
+    return [path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()]
 
 
 def _write_files(root: Path, files: dict[str, str]) -> Path:

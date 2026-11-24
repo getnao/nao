@@ -23,6 +23,7 @@ import { ToolCallProvider } from '@/contexts/tool-call';
 
 vi.mock('@/contexts/side-panel', () => ({
 	useSidePanel: () => ({ open: vi.fn(), currentStorySlug: null, isVisible: false }),
+	useSidePanelActions: () => ({ open: vi.fn(), getState: () => ({ currentStorySlug: null, isVisible: false }) }),
 }));
 
 // `TableDisplay` reaches `@/hooks/use-date-format`, which imports `@/main` and would execute the

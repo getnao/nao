@@ -13,6 +13,7 @@ export interface StoryDraft {
 }
 
 const storiesByMessages = new WeakMap<UIMessage[], StorySummary[]>();
+const storiesByMessage = new WeakMap<UIMessage, StorySummary[]>();
 
 export interface ViewedStory {
 	slug: string;
@@ -48,24 +49,21 @@ export function findStories(messages: UIMessage[]): StorySummary[] {
 		return cachedStories;
 	}
 
-	const seen = new Map<string, string>();
-
-	for (const message of messages) {
-		for (const part of message.parts) {
-			if (part.type !== 'tool-story') {
-				continue;
-			}
-
-			const output = part.output;
-			if (output?.success && output.id && !output.story_chat_id) {
-				seen.set(output.id, output.title);
-			}
-		}
+	const titleById = new Map<string, string>();
+	for (const story of messages.flatMap(findMessageStories)) {
+		titleById.set(story.id, story.title);
 	}
 
-	const stories = [...seen.entries()].map(([id, title]) => ({ id, title }));
+	const stories = [...titleById.entries()].map(([id, title]) => ({ id, title }));
 	storiesByMessages.set(messages, stories);
 	return stories;
+}
+
+export function areStoriesEqual(left: StorySummary[], right: StorySummary[]): boolean {
+	return (
+		left.length === right.length &&
+		left.every((story, index) => story.id === right[index]?.id && story.title === right[index]?.title)
+	);
 }
 
 export function findStoryIds(messages: UIMessage[]): string[] {
@@ -123,4 +121,21 @@ export function findStoryDraft(
 	}
 
 	return prefixMatchedDraft;
+}
+
+function findMessageStories(message: UIMessage): StorySummary[] {
+	const cachedStories = storiesByMessage.get(message);
+	if (cachedStories) {
+		return cachedStories;
+	}
+
+	const stories = message.parts.flatMap((part) => {
+		if (part.type !== 'tool-story') {
+			return [];
+		}
+		const output = part.output;
+		return output?.success && output.id && !output.story_chat_id ? [{ id: output.id, title: output.title }] : [];
+	});
+	storiesByMessage.set(message, stories);
+	return stories;
 }

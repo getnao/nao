@@ -2,7 +2,7 @@ import { MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
 import { describe, expect, it } from 'vitest';
 
 import { describeStoryElement } from '../../src/services/agent';
-import { AgentRequestUserMessageSchema, CitationDataSchema } from '../../src/types/chat';
+import { AgentRequestSchema, AgentRequestUserMessageSchema, CitationDataSchema } from '../../src/types/chat';
 
 describe('AgentRequestUserMessageSchema', () => {
 	it('enforces the decoded image size limit on the server schema', () => {
@@ -74,5 +74,17 @@ describe('CitationDataSchema', () => {
 
 	it('accepts a known part kind', () => {
 		expect(CitationDataSchema.safeParse(citation({ kind: 'axis-tick', label: 'Feb' })).success).toBe(true);
+	});
+});
+
+describe('AgentRequestSchema story filters', () => {
+	it('accepts every selection the story filters accept, however large', () => {
+		const allOptions = Array.from({ length: 500 }, (_, index) => `option-${index}`);
+		const parsed = AgentRequestSchema.safeParse({
+			message: { text: 'Why did revenue drop?' },
+			storyFilters: { storyId: 'story-1', selections: { region: allOptions, search: 'a'.repeat(5_000) } },
+		});
+
+		expect(parsed.success).toBe(true);
 	});
 });

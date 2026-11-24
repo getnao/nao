@@ -5,7 +5,19 @@ import {
 	toStoryFolderMentionId,
 	toStoryReferenceMentionId,
 } from '@nao/shared';
-import { extractQueryIds } from '@nao/shared/story-segments';
+import {
+	isFilterSelectionActive,
+	type StoryFilterSelection,
+	type StoryFilterSelections,
+	type StoryFilterType,
+} from '@nao/shared/sql-template';
+import {
+	extractQueryIds,
+	getStoryFiltersFromCode,
+	getStoryParametersFromCode,
+	type ParsedFilterBlock,
+	type ParsedParameterBlock,
+} from '@nao/shared/story-segments';
 
 import { ReferencedStoriesPrompt } from '../components/ai/referenced-story-prompt';
 import { renderToMarkdown } from '../lib/markdown';
@@ -15,7 +27,7 @@ import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
-import type { UIMessage, UIMessagePart } from '../types/chat';
+import type { ShownStoryFilters, UIMessage, UIMessagePart } from '../types/chat';
 import type { StoryDetails, StoryFile, StoryQuery, StorySummary } from '../types/story-reference';
 import { logger } from '../utils/logger';
 import { isViewableStoryFile } from '../utils/story-file-path';
@@ -199,6 +211,79 @@ export async function safeExpandStoryReferences<T extends MessageLike>(
 		});
 		return messages;
 	}
+}
+
+/** The filters the user sees a story with as they write, so the agent answers about the same rows. */
+export async function describeShownStoryFilters(
+	scope: StoryReferenceScope,
+	shown: ShownStoryFilters | undefined,
+): Promise<string | null> {
+	if (!shown || Object.keys(shown.selections).length === 0) {
+		return null;
+	}
+	const story = await storyReferenceQueries.getReferenceableStory(scope.userId, scope.projectId, shown.storyId);
+	return story ? describeStoryFilters(story, shown.selections) : null;
+}
+
+/** Selections the story does not declare, or that narrow nothing, are left out. */
+export function describeStoryFilters(
+	story: { title: string; code: string },
+	selections: StoryFilterSelections,
+): string | null {
+	const lines = [
+		...uniqueById(getStoryFiltersFromCode(story.code)).flatMap((filter) =>
+			describeFilter(filter, selections[filter.id]),
+		),
+		...uniqueById(getStoryParametersFromCode(story.code)).flatMap((parameter) =>
+			describeParameter(parameter, selections[parameter.id]),
+		),
+	];
+	if (lines.length === 0) {
+		return null;
+	}
+	return [
+		`[The user is looking at the story ${JSON.stringify(story.title)} with these filters applied:`,
+		...lines,
+		'When the question is about the data of this story, apply the same filters to the queries you run and say which filters you used. Leave a filter out or change its value only when the user asks, and say so.]',
+	].join('\n');
+}
+
+function describeFilter(filter: ParsedFilterBlock, selection: StoryFilterSelection | undefined): string[] {
+	if (!selection || !isFilterSelectionActive(filter.filterType, selection, filter.valueType)) {
+		return [];
+	}
+	return [`- ${filter.label} (\`${filter.id}\`): ${describeFilterValue(filter.filterType, selection)}`];
+}
+
+function describeFilterValue(type: StoryFilterType, selection: StoryFilterSelection): string {
+	const values = [selection]
+		.flat()
+		.filter((value) => value.trim() !== '')
+		.map((value) => JSON.stringify(value));
+	switch (type) {
+		case 'date_range':
+			return `from ${values[0]} to ${values[1]}`;
+		case 'search':
+			return `contains ${values[0]}`;
+		case 'multi_select':
+			return `any of ${values.join(', ')}`;
+		default:
+			return values[0];
+	}
+}
+
+function describeParameter(parameter: ParsedParameterBlock, selection: StoryFilterSelection | undefined): string[] {
+	const option = parameter.options.find((candidate) => candidate.value === selection);
+	if (!option) {
+		return [];
+	}
+	const shownAs = option.label === option.value ? '' : ` (shown as ${JSON.stringify(option.label)})`;
+	return [`- ${parameter.label} (\`${parameter.id}\`): ${JSON.stringify(option.value)}${shownAs}`];
+}
+
+/** A filter repeated across the tabs of a story is one filter with one selection. */
+function uniqueById<T extends { id: string }>(blocks: T[]): T[] {
+	return [...new Map(blocks.map((block) => [block.id, block])).values()];
 }
 
 async function loadPublishedFiles(versionIds: string[]): Promise<Map<string, StoryFile[]>> {

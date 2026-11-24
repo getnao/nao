@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	canRoleManagePersonalSkills,
 	canRoleSeeAdvancedSettings,
+	canRoleUseAdvancedContextExplorer,
 	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_CONFIG,
@@ -48,7 +50,12 @@ describe('user group configuration', () => {
 			showAllSettings: true,
 			preloadedSkills: [],
 		});
-		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
+		expect(USER_GROUP_FEATURES).toEqual([
+			'storyCreation',
+			'customStoryCreation',
+			'automationCreation',
+			'personalSkills',
+		]);
 	});
 
 	it('serializes the project sharing permission', () => {
@@ -134,37 +141,47 @@ describe('user group configuration', () => {
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: true,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 	});
 
-	it('shows all settings to All Users and hides them for custom groups until configured', () => {
-		const storedBeforeSettingExisted = {
-			version: 2,
-			features: [],
-			toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
-		};
+	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
+		'grants %s to All Users and not to custom groups until configured',
+		(setting) => {
+			const storedBeforeSettingExisted = {
+				version: 2,
+				features: [],
+				toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+			};
 
-		expect(parseStoredUserGroupConfig(storedBeforeSettingExisted, true).showAllSettings).toBe(true);
-		expect(parseStoredUserGroupConfig(storedBeforeSettingExisted, false).showAllSettings).toBe(false);
-		expect(parseStoredUserGroupConfig(['story-creation'], true).showAllSettings).toBe(true);
-	});
+			expect(parseStoredUserGroupConfig(storedBeforeSettingExisted, true)[setting]).toBe(true);
+			expect(parseStoredUserGroupConfig(storedBeforeSettingExisted, false)[setting]).toBe(false);
+			expect(parseStoredUserGroupConfig(['story-creation'], true)[setting]).toBe(true);
+		},
+	);
 
-	it('keeps the saved settings visibility over the group default', () => {
-		const hidden = {
-			version: 2,
-			features: [],
-			toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
-			showAllSettings: false,
-		};
-		const shown = {
-			version: 2,
-			features: [],
-			toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
-			showAllSettings: true,
-		};
+	it.each(['showAllSettings', 'advancedContextExplorer'] as const)(
+		'keeps the saved %s over the group default',
+		(setting) => {
+			const stored = (value: boolean) => ({
+				version: 2,
+				features: [],
+				toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+				[setting]: value,
+			});
 
-		expect(parseStoredUserGroupConfig(hidden, true).showAllSettings).toBe(false);
-		expect(parseStoredUserGroupConfig(shown, false).showAllSettings).toBe(true);
+			expect(parseStoredUserGroupConfig(stored(false), true)[setting]).toBe(false);
+			expect(parseStoredUserGroupConfig(stored(true), false)[setting]).toBe(true);
+		},
+	);
+
+	it('leaves the File Explorer setting out of the stored config until it is chosen', () => {
+		expect(serializeUserGroupConfig([], DEFAULT_TOOL_CALL_DENSITY_POLICY)).not.toHaveProperty(
+			'advancedContextExplorer',
+		);
+		expect(
+			serializeUserGroupConfig([], DEFAULT_TOOL_CALL_DENSITY_POLICY, 'inherit', false, [], undefined, false),
+		).toMatchObject({ advancedContextExplorer: false });
 	});
 
 	it('inherits project sharing when the stored permission is missing or unknown', () => {
@@ -189,6 +206,7 @@ describe('user group configuration', () => {
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 	});
 
@@ -203,6 +221,7 @@ describe('user group configuration', () => {
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 	});
 
@@ -222,6 +241,7 @@ describe('user group configuration', () => {
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 	});
 
@@ -236,6 +256,7 @@ describe('user group configuration', () => {
 			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
+			advancedContextExplorer: false,
 		});
 	});
 });
@@ -286,5 +307,31 @@ describe('resolveProjectSharingPermission', () => {
 
 	it('lets an explicit block win over any explicit allow', () => {
 		expect(resolveProjectSharingPermission([allUsers('allowed'), group('allowed'), group('blocked')])).toBe(false);
+	});
+});
+
+describe('canRoleUseAdvancedContextExplorer', () => {
+	it.each([
+		{ role: 'admin', groupsGrant: false, expected: true },
+		{ role: 'context_admin', groupsGrant: true, expected: true },
+		{ role: 'context_admin', groupsGrant: false, expected: false },
+		{ role: 'user', groupsGrant: true, expected: false },
+		{ role: 'viewer', groupsGrant: true, expected: false },
+		{ role: null, groupsGrant: true, expected: false },
+	] as const)('gives $role the File Explorer: $expected when groups grant it: $groupsGrant', (testCase) => {
+		expect(canRoleUseAdvancedContextExplorer(testCase.role, testCase.groupsGrant)).toBe(testCase.expected);
+	});
+});
+
+describe('canRoleManagePersonalSkills', () => {
+	it.each([
+		{ role: 'admin', groupsGrant: false, expected: true },
+		{ role: 'context_admin', groupsGrant: false, expected: true },
+		{ role: 'user', groupsGrant: true, expected: true },
+		{ role: 'user', groupsGrant: false, expected: false },
+		{ role: 'viewer', groupsGrant: true, expected: false },
+		{ role: null, groupsGrant: true, expected: false },
+	] as const)('lets $role write personal skills: $expected when groups grant it: $groupsGrant', (testCase) => {
+		expect(canRoleManagePersonalSkills(testCase.role, testCase.groupsGrant)).toBe(testCase.expected);
 	});
 });

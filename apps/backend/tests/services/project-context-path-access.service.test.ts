@@ -1,7 +1,10 @@
 import type { DocsContextAccess, FilesContextAccess } from '@nao/shared';
 import { describe, expect, it } from 'vitest';
 
-import { isProjectContextPathAllowed } from '../../src/services/project-context-path-access.service';
+import {
+	isProjectContextPathAllowed,
+	isProjectContextPathRenderAllowed,
+} from '../../src/services/project-context-path-access.service';
 
 type PathAccessContext = Parameters<typeof isProjectContextPathAllowed>[0];
 type PathKind = Parameters<typeof isProjectContextPathAllowed>[3];
@@ -67,6 +70,40 @@ describe('project context path access', () => {
 		});
 		expect(isPathAllowed(context, ALLOWED_TABLE_COLUMNS, 'file')).toBe(true);
 		expect(isPathAllowed(context, DENIED_TABLE_COLUMNS, 'file')).toBe(false);
+	});
+
+	it('allows synthesized columns while blocking raw restricted table artifacts', () => {
+		const context = pathAccessContext({
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [
+					{
+						databaseType: 'postgres',
+						database: 'app',
+						schema: 'public',
+						table: 'orders',
+						restrictedColumns: ['cost'],
+						access: 'restricted',
+						deniedColumns: ['cost'],
+					},
+				],
+			},
+		});
+		const tablePath = '/databases/type=postgres/database=app/schema=public/table=orders';
+
+		expect(
+			isProjectContextPathRenderAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file'),
+		).toBe(true);
+		expect(
+			isProjectContextPathRenderAllowed(
+				context,
+				`${tablePath}/notes/columns.md`,
+				`${tablePath}/notes/columns.md`,
+				'file',
+			),
+		).toBe(false);
+		expect(isPathAllowed(context, `${tablePath}/preview.md`, 'file')).toBe(false);
+		expect(isPathAllowed(context, `${tablePath}/columns.md`, 'file')).toBe(false);
 	});
 });
 
@@ -221,6 +258,7 @@ function isPathAllowed(context: PathAccessContext, virtualPath: string, kind: Pa
 function pathAccessContext(overrides: Partial<PathAccessContext> = {}): PathAccessContext {
 	return {
 		warehouseTableAccess: { enforced: false },
+		warehouseColumnSecurity: { enforced: false },
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },
 		mcpAccess: { mode: 'all' },

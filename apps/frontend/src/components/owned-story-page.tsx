@@ -129,9 +129,11 @@ export function OwnedStoryPage({
 		}
 	});
 	const isEditing = editor.viewMode !== 'preview' || editor.isCodeDirty;
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
 	const presence = useStoryEditSession({
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing,
+		conversationChatId: questionChatId,
 	});
 	useCloseWhenUneditable(presence.canEdit || editor.isCodeDirty, () => {
 		if (editor.viewMode !== 'preview') {
@@ -187,8 +189,12 @@ export function OwnedStoryPage({
 					isRestoreDisabled: !presence.canEdit,
 				}}
 				elementSelection={
-					canSelectElements
-						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+					showAskBar
+						? {
+								isSelecting: canSelectElements && isSelectingElements,
+								onSelectingChange: setIsSelectingElements,
+								disabled: !canSelectElements,
+							}
 						: undefined
 				}
 			/>
@@ -244,6 +250,7 @@ export function OwnedStoryPage({
 											queryData={queryData}
 											theme={storyTheme}
 											chatId={chatId}
+											storyId={storyId}
 											storySlug={storySlug}
 											liveQueryStoryId={isOwner ? null : storyId}
 											cacheSchedule={story.cacheSchedule}
@@ -258,7 +265,12 @@ export function OwnedStoryPage({
 					/>
 
 					{showAskBar && storyId && (
-						<StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />
+						<StoryAskBar
+							storyId={storyId}
+							canEdit
+							isInputHidden={isAskInputHidden}
+							onChatChange={setQuestionChatId}
+						/>
 					)}
 				</SelectionProvider>
 			</div>
@@ -268,8 +280,7 @@ export function OwnedStoryPage({
 					<LiveStorySettingsDialog
 						open={isLiveSettingsOpen}
 						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
+						story={{ chatId, storySlug }}
 						isLive={isLive}
 						isLiveTextDynamic={isLiveTextDynamic}
 						cacheSchedule={liveCacheSchedule}
@@ -340,6 +351,7 @@ function PreviewContent({
 	queryData,
 	theme,
 	chatId,
+	storyId,
 	storySlug,
 	liveQueryStoryId,
 	cacheSchedule,
@@ -351,6 +363,7 @@ function PreviewContent({
 	queryData: QueryDataMap | null;
 	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
 	chatId: string;
+	storyId: string | null;
 	storySlug: string;
 	liveQueryStoryId: string | null;
 	cacheSchedule?: string | null;
@@ -441,6 +454,7 @@ function PreviewContent({
 	return (
 		<StoryTabbedContent
 			code={code}
+			storyId={storyId}
 			storySlug={storySlug}
 			baselineQueryData={queryData}
 			filterApi={filterApi}
