@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import s, { type DBProjectSlackInstallation, type NewProjectSlackInstallation } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -41,6 +41,7 @@ export async function upsertSlackInstallation(
 					encryptedBotToken: installation.encryptedBotToken,
 					scopes: installation.scopes,
 					installedByUserId: installation.installedByUserId ?? null,
+					installationVersion: sql`${s.projectSlackInstallation.installationVersion} + 1`,
 					updatedAt: new Date(),
 				},
 			})
@@ -57,7 +58,7 @@ export async function deleteSlackInstallationByProjectId(projectId: string): Pro
 export async function deleteSlackInstallationIfCurrent(
 	projectId: string,
 	teamId: string,
-	updatedAt: Date,
+	installationVersion: number,
 ): Promise<boolean> {
 	const deleted = await db
 		.delete(s.projectSlackInstallation)
@@ -65,7 +66,7 @@ export async function deleteSlackInstallationIfCurrent(
 			and(
 				eq(s.projectSlackInstallation.projectId, projectId),
 				eq(s.projectSlackInstallation.teamId, teamId),
-				eq(s.projectSlackInstallation.updatedAt, updatedAt),
+				eq(s.projectSlackInstallation.installationVersion, installationVersion),
 			),
 		)
 		.returning({ projectId: s.projectSlackInstallation.projectId })

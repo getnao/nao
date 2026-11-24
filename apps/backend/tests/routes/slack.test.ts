@@ -138,6 +138,7 @@ describe('shared Slack webhook route', () => {
 		mocks.getSlackInstallationByTeamId.mockResolvedValue({
 			projectId: 'project-1',
 			teamId: 'T123',
+			installationVersion: 2,
 			updatedAt: installedAt,
 		});
 		mocks.deleteSlackInstallationIfCurrent.mockResolvedValue(true);
@@ -145,7 +146,7 @@ describe('shared Slack webhook route', () => {
 		const response = await sharedHandler()(signedRequest(body, 'application/json'), reply());
 
 		expect(mocks.stopProject).toHaveBeenCalledWith('project-1');
-		expect(mocks.deleteSlackInstallationIfCurrent).toHaveBeenCalledWith('project-1', 'T123', installedAt);
+		expect(mocks.deleteSlackInstallationIfCurrent).toHaveBeenCalledWith('project-1', 'T123', 2);
 		expect(mocks.getProjectSlackConfig).not.toHaveBeenCalled();
 		expect(mocks.getWebhooks).not.toHaveBeenCalled();
 		expect(response.statusCode).toBe(200);
@@ -163,6 +164,7 @@ describe('shared Slack webhook route', () => {
 		mocks.getSlackInstallationByTeamId.mockResolvedValue({
 			projectId: 'project-1',
 			teamId: 'T123',
+			installationVersion: 2,
 			updatedAt: installedAt,
 		});
 
@@ -185,13 +187,14 @@ describe('shared Slack webhook route', () => {
 		mocks.getSlackInstallationByTeamId.mockResolvedValue({
 			projectId: 'project-1',
 			teamId: 'T123',
+			installationVersion: 2,
 			updatedAt: installedAt,
 		});
 		mocks.deleteSlackInstallationIfCurrent.mockResolvedValue(false);
 
 		const response = await sharedHandler()(signedRequest(body, 'application/json'), reply());
 
-		expect(mocks.deleteSlackInstallationIfCurrent).toHaveBeenCalledWith('project-1', 'T123', installedAt);
+		expect(mocks.deleteSlackInstallationIfCurrent).toHaveBeenCalledWith('project-1', 'T123', 2);
 		expect(mocks.stopProject).not.toHaveBeenCalled();
 		expect(response.statusCode).toBe(200);
 		expect(response.body).toBe('ok');

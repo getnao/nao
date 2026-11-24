@@ -64,7 +64,7 @@ export const slackRoutes = async (app: App) => {
 			const deleted = await slackInstallationQueries.deleteSlackInstallationIfCurrent(
 				installation.projectId,
 				teamId,
-				installation.updatedAt,
+				installation.installationVersion,
 			);
 
 			if (deleted) {

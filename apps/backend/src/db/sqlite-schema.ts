@@ -460,6 +460,7 @@ export const projectSlackInstallation = sqliteTable(
 		installedByUserId: text('installed_by_user_id').references(() => user.id, {
 			onDelete: 'set null',
 		}),
+		installationVersion: integer('installation_version').default(1).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

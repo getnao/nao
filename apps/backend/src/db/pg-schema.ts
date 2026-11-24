@@ -438,6 +438,7 @@ export const projectSlackInstallation = pgTable(
 		installedByUserId: text('installed_by_user_id').references(() => user.id, {
 			onDelete: 'set null',
 		}),
+		installationVersion: integer('installation_version').default(1).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

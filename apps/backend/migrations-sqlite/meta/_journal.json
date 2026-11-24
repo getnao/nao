@@ -848,6 +848,13 @@
       "when": 1795529946200,
       "tag": "0120_cloud-slack-oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "6",
+      "when": 1795536241060,
+      "tag": "0121_slack_installation_version_number",
+      "breakpoints": true
     }
   ]
 }
