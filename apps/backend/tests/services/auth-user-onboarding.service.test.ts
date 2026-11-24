@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	addDefaultOrganization: vi.fn(),
 	addDefaultProject: vi.fn(),
+	getDefaultProject: vi.fn(),
 	initializeDefaultOrganization: vi.fn(),
 	isMicrosoft: vi.fn(),
 	isOidc: vi.fn(),
+	registerEnvLlmConfigs: vi.fn(),
 }));
 
 vi.mock('../../src/queries/organization.queries', () => ({
@@ -19,6 +21,12 @@ vi.mock('../../src/services/microsoft-auth.service', () => ({
 vi.mock('../../src/services/oidc-auth.service', () => ({
 	isSocialProviderOidc: mocks.isOidc,
 }));
+vi.mock('../../src/queries/project.queries', () => ({
+	getDefaultProject: mocks.getDefaultProject,
+}));
+vi.mock('../../src/services/env-llm-config.service', () => ({
+	registerEnvLlmConfigs: mocks.registerEnvLlmConfigs,
+}));
 
 import { initializeSelfHostedUserAfterCreation } from '../../src/services/auth-user-onboarding.service';
 
@@ -28,6 +36,8 @@ beforeEach(() => {
 	mocks.initializeDefaultOrganization.mockReset().mockResolvedValue(undefined);
 	mocks.isMicrosoft.mockReset().mockReturnValue(false);
 	mocks.isOidc.mockReset().mockReturnValue(false);
+	mocks.getDefaultProject.mockReset().mockResolvedValue(null);
+	mocks.registerEnvLlmConfigs.mockReset().mockResolvedValue(0);
 });
 
 describe('initializeSelfHostedUserAfterCreation', () => {
@@ -64,5 +74,14 @@ describe('initializeSelfHostedUserAfterCreation', () => {
 		expect(mocks.initializeDefaultOrganization).toHaveBeenCalledWith('user-1');
 		expect(mocks.addDefaultOrganization).not.toHaveBeenCalled();
 		expect(mocks.addDefaultProject).not.toHaveBeenCalled();
+		expect(mocks.registerEnvLlmConfigs).not.toHaveBeenCalled();
+	});
+
+	it('registers env credentials when a default project exists', async () => {
+		mocks.getDefaultProject.mockResolvedValue({ id: 'project-1' });
+
+		await initializeSelfHostedUserAfterCreation('user-1', undefined, true);
+
+		expect(mocks.registerEnvLlmConfigs).toHaveBeenCalledWith('project-1');
 	});
 });

@@ -92,10 +92,10 @@ import { normalizeCitationMarkersStream } from '../utils/citation-markers-stream
 import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { HandlerError } from '../utils/error';
 import {
+	attachServingLlmConfig,
 	getProjectDeclaredModels,
 	resolveAnnotationModelId,
 	resolveDefaultChatModel,
-	resolveDefaultModelSelection,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
@@ -112,6 +112,7 @@ import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { assertUserIsActive } from './account-status.service';
+import { resolveUserBackgroundModel } from './background-model.service';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
@@ -148,6 +149,7 @@ import {
 	appendAgentUserGroupRestrictions,
 	resolveAgentUserGroupAccess,
 } from './user-group-feature-access.service';
+import { resolveUserModelSelection } from './user-group-llm-access.service';
 import { safeListPersonalSkillsForAgent } from './user-skill.service';
 import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
@@ -345,7 +347,7 @@ export class AgentService {
 		userId?: string,
 		unbilledManagedAiUsage = false,
 	): Promise<LlmSelectedModel> {
-		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
+		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection, userId);
 		await assertModelBudget(projectId, resolved, userId);
 		if (resolved.provider === 'nao' && !unbilledManagedAiUsage) {
 			const orgId = (await projectQueries.getProjectById(projectId))?.orgId;
@@ -357,8 +359,12 @@ export class AgentService {
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
-	async resolveModelSelection(projectId: string, modelSelection?: LlmSelectedModel): Promise<LlmSelectedModel> {
-		return this._getResolvedLlmSelectedModel(projectId, modelSelection);
+	async resolveModelSelection(
+		projectId: string,
+		modelSelection?: LlmSelectedModel,
+		userId?: string,
+	): Promise<LlmSelectedModel> {
+		return this._getResolvedLlmSelectedModel(projectId, modelSelection, userId);
 	}
 
 	async create(
@@ -384,7 +390,11 @@ export class AgentService {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
 		await this._disposeAgent(chat.id);
-		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
+		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(
+			chat.projectId,
+			modelSelection,
+			chat.userId,
+		);
 		if (!options.isBudgetChecked) {
 			await assertModelBudget(chat.projectId, resolvedLlmSelectedModel, chat.userId);
 		}
@@ -421,7 +431,7 @@ export class AgentService {
 			contextFolder: options.contextFolder,
 		});
 		toolContext.linkedStory = await resolveLinkedStory(chat);
-		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
+		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel, agentSettings);
 		const agentTools = await profile.tools({ chat, agentSettings, toolContext, webTools, customBoundaries });
 		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, agentTools);
 		const agent = new AgentManager(
@@ -444,9 +454,13 @@ export class AgentService {
 	protected async _getResolvedLlmSelectedModel(
 		projectId: string,
 		modelSelection?: LlmSelectedModel,
+		userId?: string,
 	): Promise<LlmSelectedModel> {
+		if (userId) {
+			return resolveUserModelSelection(projectId, userId, modelSelection);
+		}
 		if (modelSelection) {
-			return modelSelection;
+			return attachServingLlmConfig(projectId, modelSelection);
 		}
 
 		const defaultModel = await resolveDefaultChatModel(projectId);
@@ -513,17 +527,17 @@ export class AgentService {
 
 	private async _resolveWebTools(
 		projectId: string,
-		provider: LlmProvider,
+		modelSelection: LlmSelectedModel,
 		agentSettings: AgentSettings | null,
 	): Promise<Record<string, unknown> | null> {
 		if (!agentSettings?.webSearch?.enabled) {
 			return null;
 		}
-		const settings = await resolveProviderSettings(projectId, provider);
+		const settings = await resolveProviderSettings(projectId, modelSelection.provider, modelSelection.llmConfigId);
 		if (!settings) {
 			return null;
 		}
-		return createWebSearchTools(provider, settings);
+		return createWebSearchTools(modelSelection.provider, settings);
 	}
 
 	protected async _getModelConfig(
@@ -539,6 +553,7 @@ export class AgentService {
 			true,
 			usageContext,
 			inferenceOverrides,
+			modelSelection.llmConfigId,
 		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -634,8 +649,7 @@ export class AgentManager {
 				: messages;
 		await this._runCompaction.apply({
 			chat: this.chat,
-			provider: this._modelSelection.provider,
-			modelId: this._modelSelection.modelId,
+			modelSelection: this._modelSelection,
 			runId: this._usageContext.runId,
 			billingMode: this._usageContext.billingMode,
 			messages: workingMessages,
@@ -809,6 +823,7 @@ export class AgentManager {
 						tokenUsage,
 						llmProvider: this._modelSelection.provider,
 						llmModelId: this._modelSelection.modelId,
+						llmConfigId: this._modelSelection.llmConfigId,
 					});
 				} finally {
 					this._finish();
@@ -995,6 +1010,7 @@ export class AgentManager {
 			messages: uiMessages,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
+			llmConfigId: this._modelSelection.llmConfigId,
 			runId: this._usageContext.runId,
 			billingMode: this._usageContext.billingMode,
 		});
@@ -1011,26 +1027,30 @@ export class AgentManager {
 	}
 
 	private async _generateTitle(userMessageText: string): Promise<void> {
-		const pinned = await resolveDefaultModelSelection(this.chat.projectId, 'title');
-		const provider = pinned?.provider ?? this._modelSelection.provider;
-		const summaryModelId =
-			pinned?.modelId ??
-			(await resolveAnnotationModelId(
-				this.chat.projectId,
-				this._modelSelection,
-				getProviderMeta(provider).summaryModelId,
-			));
-		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false, {
-			userId: this.chat.userId,
+		const resolved = await resolveUserBackgroundModel({
 			projectId: this.chat.projectId,
-			chatId: this.chat.id,
-			runId: this._usageContext.runId,
-			category: 'title',
-			billingMode: this._usageContext.billingMode,
+			userId: this.chat.userId,
+			defaultCategory: 'title',
+			fallback: this._modelSelection,
+			preferredModelId: (selection) =>
+				resolveAnnotationModelId(
+					this.chat.projectId,
+					selection,
+					getProviderMeta(selection.provider).summaryModelId,
+				),
+			usageContext: {
+				userId: this.chat.userId,
+				projectId: this.chat.projectId,
+				chatId: this.chat.id,
+				runId: this._usageContext.runId,
+				category: 'title',
+				billingMode: this._usageContext.billingMode,
+			},
 		});
-		if (!modelResult) {
+		if (!resolved) {
 			return;
 		}
+		const { provider, model: modelResult } = resolved;
 
 		const { text, usage } = await generateText({
 			...disableModelReasoning(provider, modelResult),
@@ -1049,7 +1069,12 @@ export class AgentManager {
 			}),
 		});
 
-		this._trackTitleGenerationInference(provider, modelResult.model.modelId, convertToTokenUsage(usage));
+		this._trackTitleGenerationInference(
+			provider,
+			modelResult.model.modelId,
+			convertToTokenUsage(usage),
+			resolved.llmConfigId,
+		);
 
 		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);
 		if (!title) {
@@ -1065,7 +1090,12 @@ export class AgentManager {
 		}
 	}
 
-	private _trackTitleGenerationInference(provider: LlmProvider, modelId: string, usage: TokenUsage): void {
+	private _trackTitleGenerationInference(
+		provider: LlmProvider,
+		modelId: string,
+		usage: TokenUsage,
+		llmConfigId?: string,
+	): void {
 		scheduleSaveLlmInferenceRecord({
 			type: 'title_generation',
 			projectId: this.chat.projectId,
@@ -1073,6 +1103,7 @@ export class AgentManager {
 			chatId: this.chat.id,
 			llmProvider: provider,
 			llmModelId: modelId,
+			llmConfigId,
 			...usage,
 		});
 	}
@@ -1170,7 +1201,12 @@ export class AgentManager {
 	private async _computeCost(usage: TokenUsage, costs?: ModelCosts): Promise<TokenCost> {
 		const customModels = await getProjectDeclaredModels(this.chat.projectId)
 			.then(
-				(sources) => sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
+				(sources) =>
+					sources.find(
+						(source) =>
+							source.provider === this._modelSelection.provider &&
+							source.llmConfigId === this._modelSelection.llmConfigId,
+					)?.models ?? [],
 			)
 			.catch(() => []);
 		return convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId, customModels, costs);
@@ -1385,6 +1421,10 @@ export class AgentManager {
 
 	getModelId(): string {
 		return this._modelSelection.modelId;
+	}
+
+	getModelSelection(): LlmSelectedModel {
+		return { ...this._modelSelection };
 	}
 }
 

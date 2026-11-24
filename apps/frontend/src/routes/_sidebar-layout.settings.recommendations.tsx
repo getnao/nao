@@ -59,6 +59,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRecommendationsViewState } from '@/hooks/use-recommendations-view-state';
 import { useContentCenteredStyle } from '@/hooks/use-sidebar-content-offset';
 import { useSidePanel } from '@/hooks/use-side-panel';
+import { findAvailableModel, llmModelValue } from '@/lib/llm-model';
 import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -1218,18 +1219,20 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 	};
 
 	const selectedModel = selectBackgroundModel(defaultModels.data?.settings, 'context_recommendation');
-	const selectedModelValue = selectedModel ? modelValue(selectedModel) : undefined;
-	const selectedAvailableModel = selectedModel
-		? availableModels.data?.find((model) => modelValue(model) === selectedModelValue)
-		: undefined;
+	const selectedAvailableModel = selectedModel ? findAvailableModel(availableModels.data, selectedModel) : undefined;
+	const selectedModelValue = selectedModel ? llmModelValue(selectedAvailableModel ?? selectedModel) : undefined;
 	const selectedModelUnavailable = !!selectedModel && !selectedAvailableModel;
 
 	const handleModelChange = async (value: string) => {
-		const model = availableModels.data?.find((candidate) => modelValue(candidate) === value);
+		const model = availableModels.data?.find((candidate) => llmModelValue(candidate) === value);
 		if (!model) {
 			return;
 		}
-		await setConfig.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+		await setConfig.mutateAsync({
+			modelProvider: model.provider,
+			modelId: model.modelId,
+			llmConfigId: model.llmConfigId,
+		});
 		invalidateConfig();
 	};
 
@@ -1322,6 +1325,11 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 												>
 													{selectedAvailableModel?.name ?? selectedModel.modelId}
 												</span>
+												{selectedAvailableModel?.llmConfigName && (
+													<span className='text-muted-foreground'>
+														{selectedAvailableModel.llmConfigName}
+													</span>
+												)}
 												{selectedModelUnavailable && (
 													<AlertTriangle
 														className='size-3.5 text-amber-500'
@@ -1346,7 +1354,7 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 										</SelectItem>
 									)}
 									{availableModels.data?.map((m) => (
-										<SelectItem key={modelValue(m)} value={modelValue(m)}>
+										<SelectItem key={llmModelValue(m)} value={llmModelValue(m)}>
 											<div className='flex items-center gap-2'>
 												<LlmProviderIcon
 													provider={m.provider}
@@ -1354,6 +1362,9 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 													className='size-4'
 												/>
 												{m.name}
+												{m.llmConfigName && (
+													<span className='text-muted-foreground'>{m.llmConfigName}</span>
+												)}
 											</div>
 										</SelectItem>
 									))}
@@ -1478,8 +1489,4 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 			<RecommendationRepoCard />
 		</div>
 	);
-}
-
-function modelValue(model: { provider: string; modelId: string }): string {
-	return JSON.stringify([model.provider, model.modelId]);
 }

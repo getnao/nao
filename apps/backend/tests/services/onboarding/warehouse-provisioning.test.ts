@@ -542,7 +542,7 @@ describe('warehouse provisioning', () => {
 		).resolves.toEqual({ valid: true });
 
 		expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-			'https://api.github.com/repos/acme/analytics',
+			'https://api.github.com/repos/acme/analytics/branches?per_page=1',
 			'https://api.github.com/repos/acme/analytics/branches/feature%2Fcontext',
 		]);
 		expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({

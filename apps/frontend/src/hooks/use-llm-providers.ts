@@ -1,21 +1,17 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isManagedProvider, PROVIDER_META } from '@nao/backend/provider-meta';
-import {
-	LLM_PROVIDERS,
-	NAMED_PROVIDER_KIND,
-	providerKind,
-	providerName,
-	toNamedProvider,
-	toProviderName,
-} from '@nao/shared/types';
-import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
+import { LLM_PROVIDERS, NAMED_PROVIDER_KIND, providerKind, providerLabel } from '@nao/shared/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { LlmProvider, LlmProviderKind } from '@nao/shared/types';
+import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
+
 import type { InheritedKeySource } from '@/components/settings/llm-provider-form';
 import { trpc } from '@/main';
 
 export interface EditingState {
 	provider: LlmProvider;
+	configId?: string;
+	configName?: string;
 	isEditing: boolean;
 	inheritedKeySource: InheritedKeySource | null;
 	focusedModelId?: string;
@@ -49,19 +45,9 @@ export function useLlmProviders() {
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
 	// Kinds that accept several instances stay on offer: each new one is added under its own name.
-	const availableProvidersToAdd: LlmProviderKind[] = LLM_PROVIDERS.filter(
-		(p) =>
-			!isManagedProvider(p) &&
-			(p === NAMED_PROVIDER_KIND ||
-				(!projectConfiguredProviders.includes(p) &&
-					!envProviders.includes(p) &&
-					!configProviders.some((c) => c.provider === p))),
-	);
+	const availableProvidersToAdd: LlmProviderKind[] = LLM_PROVIDERS.filter((provider) => !isManagedProvider(provider));
 
-	// Names already in use, so that adding an endpoint cannot silently overwrite one of them.
-	const takenProviderNames = [...projectConfiguredProviders, ...configProviders.map((c) => c.provider)]
-		.map(providerName)
-		.filter((name): name is string => name !== null);
+	const takenConfigNames = projectConfigs.map((config) => config.name);
 
 	const unconfiguredEnvProviders = envProviders.filter((p) => !projectConfiguredProviders.includes(p));
 
@@ -108,14 +94,15 @@ export function useLlmProviders() {
 			return;
 		}
 
-		const provider = resolveSubmittedProvider(editingState.provider, values.name);
-		const name = providerName(provider);
-		if (!editingState.isEditing && name && takenProviderNames.includes(name)) {
-			throw new Error(`An endpoint named '${name}' already exists`);
+		const name = values.name?.trim();
+		if (!editingState.configId && name && takenConfigNames.includes(name)) {
+			throw new Error(`A credential named '${name}' already exists`);
 		}
 
 		await upsertLlmConfig.mutateAsync({
-			provider,
+			configId: editingState.configId,
+			name,
+			provider: editingState.provider,
 			apiKey: values.apiKey,
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
@@ -136,13 +123,16 @@ export function useLlmProviders() {
 	const handleEditConfig = (config: (typeof projectConfigs)[0]) => {
 		setEditingState({
 			provider: config.provider,
+			configId: config.id,
+			configName: config.name,
 			isEditing: true,
-			inheritedKeySource: resolveInheritedKeySource(config.provider),
+			inheritedKeySource: config.credentialSource === 'env' ? 'env' : resolveInheritedKeySource(config.provider),
 			initialValues: {
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
 				modelSettings: config.modelSettings ?? {},
-				baseUrl: config.baseUrl ?? '',
+				baseUrl:
+					config.baseUrl ?? (config.credentialSource === 'env' ? (envBaseUrls[config.provider] ?? '') : ''),
 			},
 		});
 	};
@@ -151,6 +141,7 @@ export function useLlmProviders() {
 	const handleOverrideConfigProvider = (configProvider: (typeof configProviders)[0]) => {
 		setEditingState({
 			provider: configProvider.provider,
+			configName: providerLabel(configProvider.provider),
 			isEditing: true,
 			inheritedKeySource: 'config',
 			initialValues: {
@@ -162,8 +153,8 @@ export function useLlmProviders() {
 		});
 	};
 
-	const handleDeleteConfig = async (provider: LlmProvider) => {
-		await deleteLlmConfig.mutateAsync({ provider });
+	const handleDeleteConfig = async (configId: string) => {
+		await deleteLlmConfig.mutateAsync({ configId });
 		await invalidateQueries();
 	};
 
@@ -172,6 +163,7 @@ export function useLlmProviders() {
 		const inheritsCredentials = providerKind(provider) !== NAMED_PROVIDER_KIND;
 		setEditingState({
 			provider,
+			configName: providerLabel(provider),
 			isEditing: false,
 			inheritedKeySource: inheritsCredentials ? resolveInheritedKeySource(provider) : null,
 		});
@@ -182,6 +174,7 @@ export function useLlmProviders() {
 		const baseUrl = PROVIDER_META[providerKind(provider)].requiresBaseUrl ? (envBaseUrls[provider] ?? '') : '';
 		setEditingState({
 			provider,
+			configName: providerLabel(provider),
 			isEditing: true,
 			inheritedKeySource: 'env',
 			initialValues: { enabledModels: [], customModels: [], modelSettings: {}, baseUrl },
@@ -210,20 +203,20 @@ export function useLlmProviders() {
 		}
 	};
 
-	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
+	const getModelDisplayName = (provider: LlmProvider, modelId: string, configId?: string) => {
 		const models = knownModels.data?.[providerKind(provider)] ?? [];
 		const knownName = models.find((m) => m.id === modelId)?.name;
 		if (knownName) {
 			return knownName;
 		}
-		const customModel = findCustomModel(provider, modelId);
+		const customModel = findCustomModel(provider, modelId, configId);
 		return customModel?.displayName?.trim() || modelId;
 	};
 
-	const findCustomModel = (provider: LlmProvider, modelId: string) => {
+	const findCustomModel = (provider: LlmProvider, modelId: string, configId?: string) => {
 		const fromProjectConfig = projectConfigs
-			.find((c) => c.provider === provider)
-			?.customModels?.find((m) => m.id === modelId);
+			.find((config) => (configId ? config.id === configId : config.provider === provider))
+			?.customModels?.find((model) => model.id === modelId);
 		if (fromProjectConfig) {
 			return fromProjectConfig;
 		}
@@ -237,7 +230,7 @@ export function useLlmProviders() {
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
-		takenProviderNames,
+		takenConfigNames,
 		unconfiguredEnvProviders,
 		unconfiguredConfigProviders,
 		currentModels,
@@ -262,10 +255,4 @@ export function useLlmProviders() {
 		handleEditProvider,
 		getModelDisplayName,
 	};
-}
-
-/** A provider the admin named is saved under that name, so the project can hold several of its kind. */
-function resolveSubmittedProvider(provider: LlmProvider, name?: string): LlmProvider {
-	const instanceName = name ? toProviderName(name) : null;
-	return instanceName ? toNamedProvider(instanceName) : provider;
 }

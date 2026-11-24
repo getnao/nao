@@ -236,6 +236,29 @@ describe('warehouse credentials', () => {
 		});
 	});
 
+	it('keeps the working GitHub token when a replacement lacks Contents access', async () => {
+		await saveProjectWarehouseEnvVars(
+			'project-1',
+			'postgres',
+			{ NAO_ONBOARDING_POSTGRES_PASSWORD: '"secret"' },
+			{
+				githubConnection: {
+					repoFullName: 'acme/analytics',
+					accessToken: 'github_pat_old-token',
+				},
+			},
+		);
+		mocks.validateRepositoryAccess.mockRejectedValueOnce(new Error('Forbidden'));
+
+		await expect(updateProjectGithubContextToken('project-1', 'github_pat_new-token')).rejects.toThrow(
+			'Could not access this repository',
+		);
+		expect(await getProjectWarehouseEnvVars('project-1')).toMatchObject({
+			[ONBOARDING_GITHUB_REPOSITORY_URL_ENV]:
+				'"https://x-access-token:github_pat_old-token@github.com/acme/analytics.git"',
+		});
+	});
+
 	it('validates replacement GitHub tokens and supports revocation', async () => {
 		await saveProjectWarehouseEnvVars(
 			'project-1',

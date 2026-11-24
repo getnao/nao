@@ -26,46 +26,54 @@ export function FileContextSetup({ files, disabled, error, onFilesChange }: File
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [rejection, setRejection] = useState<string | null>(null);
+	const filesRef = useRef(files);
+	const addQueueRef = useRef(Promise.resolve());
 
-	const addFiles = async (candidates: File[]) => {
-		try {
-			const nextFiles = [...files];
-			const fingerprints = new Set(await Promise.all(files.map(fileFingerprint)));
-			let totalSize = files.reduce((total, file) => total + file.size, 0);
-			let nextRejection: string | null = null;
+	filesRef.current = files;
 
-			for (const file of candidates) {
-				const problem = validateFile(file);
-				if (problem) {
-					nextRejection = problem;
-					continue;
+	const addFiles = (candidates: File[]) => {
+		addQueueRef.current = addQueueRef.current.then(async () => {
+			try {
+				const currentFiles = filesRef.current;
+				const nextFiles = [...currentFiles];
+				const fingerprints = new Set(await Promise.all(currentFiles.map(fileFingerprint)));
+				let totalSize = currentFiles.reduce((total, file) => total + file.size, 0);
+				let nextRejection: string | null = null;
+
+				for (const file of candidates) {
+					const problem = validateFile(file);
+					if (problem) {
+						nextRejection = problem;
+						continue;
+					}
+					const fingerprint = await fileFingerprint(file);
+					if (fingerprints.has(fingerprint)) {
+						continue;
+					}
+					if (nextFiles.length >= MAX_BUSINESS_CONTEXT_FILES) {
+						nextRejection = `You can upload up to ${MAX_BUSINESS_CONTEXT_FILES} business context files.`;
+						continue;
+					}
+					if (totalSize + file.size > MAX_BUSINESS_CONTEXT_TOTAL_SIZE_MB * 1024 * 1024) {
+						nextRejection = `Business context files cannot exceed ${MAX_BUSINESS_CONTEXT_TOTAL_SIZE_MB} MB in total.`;
+						continue;
+					}
+					fingerprints.add(fingerprint);
+					nextFiles.push(file);
+					totalSize += file.size;
 				}
-				const fingerprint = await fileFingerprint(file);
-				if (fingerprints.has(fingerprint)) {
-					continue;
-				}
-				if (nextFiles.length >= MAX_BUSINESS_CONTEXT_FILES) {
-					nextRejection = `You can upload up to ${MAX_BUSINESS_CONTEXT_FILES} business context files.`;
-					continue;
-				}
-				if (totalSize + file.size > MAX_BUSINESS_CONTEXT_TOTAL_SIZE_MB * 1024 * 1024) {
-					nextRejection = `Business context files cannot exceed ${MAX_BUSINESS_CONTEXT_TOTAL_SIZE_MB} MB in total.`;
-					continue;
-				}
-				fingerprints.add(fingerprint);
-				nextFiles.push(file);
-				totalSize += file.size;
+
+				setRejection(nextRejection);
+				filesRef.current = nextFiles;
+				onFilesChange(nextFiles);
+			} catch (caughtError) {
+				setRejection(
+					caughtError instanceof Error
+						? caughtError.message
+						: 'Could not read the selected business context files.',
+				);
 			}
-
-			setRejection(nextRejection);
-			onFilesChange(nextFiles);
-		} catch (caughtError) {
-			setRejection(
-				caughtError instanceof Error
-					? caughtError.message
-					: 'Could not read the selected business context files.',
-			);
-		}
+		});
 	};
 
 	const handleDrop = (event: DragEvent<HTMLElement>) => {

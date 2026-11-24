@@ -1,13 +1,14 @@
 import { isCloudBillingEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
-import { getOrganizationById } from '../queries/organization.queries';
-import { getProjectById } from '../queries/project.queries';
+import { getOrganizationById, isOrganizationDeactivated } from '../queries/organization.queries';
+import { getProjectById, isProjectDeactivated } from '../queries/project.queries';
 import { type BillingStatus, isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
 
 const ACTIVE_RECONCILIATION_GRACE_MS = 24 * 60 * 60 * 1000;
 const BILLING_ACCESS_RESTRICTED_MESSAGE =
 	'Cloud billing access is restricted. Ask an organization admin to update billing.';
+const DEACTIVATED_MESSAGE = 'This workspace has been deactivated. Contact nao support to restore it.';
 const PROJECT_SETUP_REQUIRED_MESSAGE =
 	'Cloud billing access is restricted. Finish setting up your project to start the free trial.';
 
@@ -97,6 +98,9 @@ function getLocalTrialAccessEndsAt(entitlement: CloudBillingEntitlement | null):
 }
 
 export async function hasOrganizationCloudBillingAccess(organizationId: string): Promise<boolean> {
+	if (await isOrganizationDeactivated(organizationId)) {
+		return false;
+	}
 	if (!isCloudBillingEnabled()) {
 		return true;
 	}
@@ -109,6 +113,9 @@ export async function hasOrganizationCloudBillingAccess(organizationId: string):
 }
 
 export async function hasProjectCloudBillingAccess(projectId: string): Promise<boolean> {
+	if (await isProjectDeactivated(projectId)) {
+		return false;
+	}
 	if (!isCloudBillingEnabled()) {
 		return true;
 	}
@@ -123,6 +130,9 @@ export async function hasProjectCloudBillingAccess(projectId: string): Promise<b
 }
 
 export async function assertOrganizationCloudBillingAccess(organizationId: string): Promise<void> {
+	if (await isOrganizationDeactivated(organizationId)) {
+		throw new HandlerError('FORBIDDEN', DEACTIVATED_MESSAGE);
+	}
 	if (!(await hasOrganizationCloudBillingAccess(organizationId))) {
 		const billing = await getOrganizationBilling(organizationId);
 		throw new CloudBillingAccessRestrictedError(
@@ -132,6 +142,9 @@ export async function assertOrganizationCloudBillingAccess(organizationId: strin
 }
 
 export async function assertProjectCloudBillingAccess(projectId: string): Promise<void> {
+	if (await isProjectDeactivated(projectId)) {
+		throw new HandlerError('FORBIDDEN', DEACTIVATED_MESSAGE);
+	}
 	if (!isCloudBillingEnabled()) {
 		return;
 	}

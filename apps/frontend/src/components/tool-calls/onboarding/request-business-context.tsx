@@ -283,7 +283,9 @@ export function RequestBusinessContext({
 							validatedFingerprint={validatedNotionFingerprint}
 							validatedPages={validatedNotionPages}
 							isValidating={validateNotion.isPending}
-							isContextValidating={validateNotion.isPending || validateConfluence.isPending}
+							isContextValidating={
+								validateNotion.isPending || validateConfluence.isPending || validateGithub.isPending
+							}
 							isStarting={isStarting}
 							canStart
 							hasConnectedContext={hasConnectedContext}

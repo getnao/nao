@@ -5,12 +5,20 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationById: vi.fn(),
 	getProjectById: vi.fn(),
 	isCloudBillingEnabled: vi.fn(() => true),
+	isOrganizationDeactivated: vi.fn(async () => false),
+	isProjectDeactivated: vi.fn(async () => false),
 }));
 
 vi.mock('../../src/env', () => ({ isCloudBillingEnabled: mocks.isCloudBillingEnabled }));
 vi.mock('../../src/queries/billing.queries', () => ({ getOrganizationBilling: mocks.getOrganizationBilling }));
-vi.mock('../../src/queries/organization.queries', () => ({ getOrganizationById: mocks.getOrganizationById }));
-vi.mock('../../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
+vi.mock('../../src/queries/organization.queries', () => ({
+	getOrganizationById: mocks.getOrganizationById,
+	isOrganizationDeactivated: mocks.isOrganizationDeactivated,
+}));
+vi.mock('../../src/queries/project.queries', () => ({
+	getProjectById: mocks.getProjectById,
+	isProjectDeactivated: mocks.isProjectDeactivated,
+}));
 
 import {
 	assertOrganizationCloudBillingAccess,
@@ -234,6 +242,14 @@ describe('project cloud billing access', () => {
 		expect(mocks.getOrganizationBilling).toHaveBeenCalledWith('organization-1');
 	});
 
+	it('denies access to a deactivated project even when cloud billing is disabled', async () => {
+		mocks.isCloudBillingEnabled.mockReturnValue(false);
+		mocks.isProjectDeactivated.mockResolvedValueOnce(true);
+
+		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(false);
+		await expect(assertProjectCloudBillingAccess('project-1')).resolves.toBeUndefined();
+	});
+
 	it('grants access without checking Stripe when the organization bypasses billing', async () => {
 		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
 		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
@@ -250,6 +266,16 @@ describe('cloud billing access assertions', () => {
 		mocks.isCloudBillingEnabled.mockReturnValue(true);
 		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
 		mocks.getOrganizationBilling.mockResolvedValue(null);
+	});
+
+	it('rejects a deactivated organization before looking at its billing', async () => {
+		mocks.isOrganizationDeactivated.mockResolvedValueOnce(true);
+
+		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: 'This workspace has been deactivated. Contact nao support to restore it.',
+		});
+		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
 	});
 
 	it('allows an organization that bypasses billing', async () => {

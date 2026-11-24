@@ -215,6 +215,7 @@ function result(
 		tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId ?? null,
 		reasoningEffort: null,
 		contextVariant,
 		passed,

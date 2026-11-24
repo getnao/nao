@@ -257,7 +257,7 @@ export function publicRepoUrl(repoFullName: string): string {
 }
 
 export async function validateRepositoryAccess(token: string, repoFullName: string): Promise<void> {
-	await githubFetchJson(token, `/repos/${repoFullName}`);
+	await githubFetchJson(token, `/repos/${repoFullName}/branches?per_page=1`);
 }
 
 export async function validateRepositoryBranch(token: string, repoFullName: string, branch: string): Promise<void> {

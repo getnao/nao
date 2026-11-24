@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0f9808c4-23ea-4760-8bdd-5350dbe1f61a",
+  "id": "f3b83e24-6f8b-48ce-9e3a-e70fff578fa3",
   "prevId": "3e58964b-b6df-4cec-b3d6-784176b2777b",
   "tables": {
     "account": {
@@ -899,6 +899,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "mcp_enabled": {
           "name": "mcp_enabled",
           "type": "integer",
@@ -1079,6 +1086,13 @@
         },
         "error_message": {
           "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1679,6 +1693,13 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2644,6 +2665,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "input_total_tokens": {
           "name": "input_total_tokens",
           "type": "integer",
@@ -3603,6 +3631,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "input_total_tokens": {
@@ -6820,6 +6855,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "llm_access_mode": {
+          "name": "llm_access_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'project'"
+        },
         "column_security": {
           "name": "column_security",
           "type": "text",
@@ -7170,12 +7213,27 @@
           "notNull": true,
           "autoincrement": false
         },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "provider": {
           "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "credential_source": {
+          "name": "credential_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'database'"
         },
         "api_key": {
           "name": "api_key",
@@ -7222,6 +7280,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "disabled_at": {
+          "name": "disabled_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -7247,13 +7312,14 @@
           ],
           "isUnique": false
         },
-        "project_llm_config_project_provider": {
-          "name": "project_llm_config_project_provider",
+        "project_llm_config_project_name": {
+          "name": "project_llm_config_project_name",
           "columns": [
             "project_id",
-            "provider"
+            "name"
           ],
-          "isUnique": true
+          "isUnique": true,
+          "where": "\"project_llm_config\".\"disabled_at\" IS NULL"
         }
       },
       "foreignKeys": {
@@ -10996,6 +11062,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "reasoning_effort": {
           "name": "reasoning_effort",
           "type": "text",
@@ -11424,6 +11497,22 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "llm_config_ids": {
+          "name": "llm_config_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "llm_model_ids_by_config": {
+          "name": "llm_model_ids_by_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",
@@ -12041,13 +12130,6 @@
         },
         "model_selection": {
           "name": "model_selection",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "warnings": {
-          "name": "warnings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
