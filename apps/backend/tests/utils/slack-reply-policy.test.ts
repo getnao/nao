@@ -15,9 +15,14 @@ describe('shouldReplyToSlackThreadMessage', () => {
 		expect(shouldReplyToSlackThreadMessage('thread', createMessage({ isMention: true }))).toBe(true);
 	});
 
+	it('allows mentions in mention mode', () => {
+		expect(shouldReplyToSlackThreadMessage('mention', createMessage({ isMention: true }))).toBe(true);
+	});
+
 	it('does not allow bot or self messages', () => {
 		expect(shouldReplyToSlackThreadMessage('thread', createMessage({ isBot: true }))).toBe(false);
 		expect(shouldReplyToSlackThreadMessage('thread', createMessage({ isMe: true }))).toBe(false);
+		expect(shouldReplyToSlackThreadMessage('mention', createMessage({ isBot: true, isMention: true }))).toBe(false);
 	});
 });
 
