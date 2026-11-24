@@ -48,6 +48,8 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	archive_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	list_story_folders: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	move_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
 
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {

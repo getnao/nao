@@ -174,7 +174,7 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 			story_ids: z
 				.array(z.string())
 				.describe(
-					'UUIDs of stories the sub-agent created or updated. Forward each one to `get_story` / `update_story` / `archive_story` / `delete_story`.',
+					'UUIDs of stories the sub-agent created or updated. Forward each one to `get_story` / `update_story` / `move_story` / `archive_story` / `delete_story`.',
 				),
 			model: ASK_NAO_MODEL_SCHEMA,
 		},
