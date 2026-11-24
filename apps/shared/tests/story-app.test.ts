@@ -3,9 +3,26 @@ import { describe, expect, it } from 'vitest';
 import {
 	extractStoryMapBoundaryKeys,
 	fitMapBoundariesInExport,
+	isStoryLinkUrl,
 	MAX_STORY_EXPORT_BOUNDARY_BYTES,
 	type StoryMapBoundary,
 } from '../src/story-app';
+
+describe('isStoryLinkUrl', () => {
+	it.each([
+		['https://crm.example.com/accounts/42', true],
+		['http://intranet.local/report?id=1', true],
+		['javascript:alert(1)', false],
+		['data:text/html,<script>alert(1)</script>', false],
+		['blob:https://app.example.com/1234', false],
+		['mailto:someone@example.com', false],
+		['/stories/relative', false],
+		['not a url', false],
+		[42, false],
+	])('%s → %s', (value, expected) => {
+		expect(isStoryLinkUrl(value)).toBe(expected);
+	});
+});
 
 describe('extractStoryMapBoundaryKeys', () => {
 	it('finds the keys loaded by React and HTML stories, once each', () => {
