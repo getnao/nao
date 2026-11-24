@@ -187,17 +187,27 @@ groups:
 		});
 	});
 
-	it('applies only the configured projects at self-hosted startup', async () => {
-		process.env.NAO_DEFAULT_PROJECT_PATH = projectPath;
+	it.each([
+		['skips projects outside the configured paths', true],
+		['applies every project when no path is configured', false],
+	])('%s at self-hosted startup', async (_label, configurePath) => {
+		delete process.env.NAO_PROJECT_PATHS;
+		delete process.env.NAO_DEFAULT_PROJECT_PATH;
+		if (configurePath) {
+			process.env.NAO_DEFAULT_PROJECT_PATH = projectPath;
+			await createProject({
+				id: 'stale-project',
+				orgId: 'groups-config-org',
+				name: 'Stale',
+				type: 'local',
+				path: createTemporaryFolder('groups-config-stale-'),
+			});
+			await db
+				.update(project)
+				.set({ userGroupsConfigAppliedAt: new Date() })
+				.where(eq(project.id, 'stale-project'));
+		}
 		__reloadEnvForTesting();
-		await createProject({
-			id: 'stale-project',
-			orgId: 'groups-config-org',
-			name: 'Stale',
-			type: 'local',
-			path: createTemporaryFolder('groups-config-stale-'),
-		});
-		await db.update(project).set({ userGroupsConfigAppliedAt: new Date() }).where(eq(project.id, 'stale-project'));
 		writeGroups('groups:\n    - id: all_users\n    - id: finance\n');
 
 		await expect(applyAllProjectGroupsFiles()).resolves.toBeUndefined();

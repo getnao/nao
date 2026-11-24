@@ -20,7 +20,6 @@ import * as userQueries from '../queries/user.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger, serializeError } from '../utils/logger';
-import { getConfiguredProjectPaths } from '../utils/project-paths';
 import {
 	assignConfigIds,
 	GroupsConfigError,
@@ -131,11 +130,7 @@ export async function createProjectWithGroupsConfig(
 
 export async function applyAllProjectGroupsFiles(): Promise<void> {
 	const failures: string[] = [];
-	const configuredPaths = new Set(getConfiguredProjectPaths());
-	const projects = (await projectQueries.listProjectFolders()).filter(
-		(project) => isCloud || configuredPaths.has(project.path),
-	);
-	for (const project of projects) {
+	for (const project of await projectQueries.listProjectFolders({ servedOnly: true })) {
 		try {
 			await applyProjectGroupsFile(project.id, project.path, null);
 		} catch (error) {

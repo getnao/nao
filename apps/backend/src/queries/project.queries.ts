@@ -368,11 +368,11 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 	return results;
 };
 
-export const listProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+export const listProjectFolders = async ({ servedOnly = false } = {}): Promise<{ id: string; path: string }[]> => {
 	const projects = await db
 		.select({ id: s.project.id, path: s.project.path })
 		.from(s.project)
-		.where(isNotNull(s.project.path))
+		.where(and(isNotNull(s.project.path), servedOnly ? await selfHostedServedProjectsFilter() : undefined))
 		.execute();
 	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
 };
