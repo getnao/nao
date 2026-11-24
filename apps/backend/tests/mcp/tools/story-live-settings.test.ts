@@ -1,16 +1,16 @@
-import '../../src/env';
+import '../../../src/env';
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import s from '../../src/db/abstractSchema';
-import { db } from '../../src/db/db';
-import { registerAssetTools } from '../../src/mcp/tools/asset-tools';
-import { registerContextLayerTools } from '../../src/mcp/tools/context-layer';
-import { callNaoInternalMcpTool, listNaoInternalMcpTools } from '../../src/services/nao-internal-mcp';
-import { createMcpContext, FakeMcpServer } from '../helpers/fake-mcp-server';
+import s from '../../../src/db/abstractSchema';
+import { db } from '../../../src/db/db';
+import { registerAssetTools } from '../../../src/mcp/tools/asset-tools';
+import { registerContextLayerTools } from '../../../src/mcp/tools/context-layer';
+import { callNaoInternalMcpTool, listNaoInternalMcpTools } from '../../../src/services/nao-internal-mcp';
+import { createMcpContext, FakeMcpServer } from '../../helpers/fake-mcp-server';
 
-vi.mock('../../src/db/db', async () => {
-	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
+vi.mock('../../../src/db/db', async () => {
+	const { createInMemoryDbWithInlineTransactions } = await import('../../helpers/in-memory-db');
 	return { db: createInMemoryDbWithInlineTransactions() };
 });
 
