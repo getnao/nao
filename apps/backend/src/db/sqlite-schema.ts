@@ -282,6 +282,8 @@ export const organization = sqliteTable('organization', {
 	license: text('license'),
 	twoFactorRequired: integer('two_factor_required', { mode: 'boolean' }).default(false).notNull(),
 	twoFactorEmailCodes: integer('two_factor_email_codes', { mode: 'boolean' }).default(true).notNull(),
+	/** Set from the cloud backoffice: the organization is hidden and every background run stops. */
+	deactivatedAt: integer('deactivated_at', { mode: 'timestamp_ms' }),
 
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -377,6 +379,8 @@ export const project = sqliteTable(
 		columnSecurity: text('column_security', { mode: 'json' }).$type<StoredProjectColumnSecurity>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
 		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
+		/** Set from the cloud backoffice: the project is hidden and every background run stops. */
+		deactivatedAt: integer('deactivated_at', { mode: 'timestamp_ms' }),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

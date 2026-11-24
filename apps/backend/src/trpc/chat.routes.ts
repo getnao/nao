@@ -37,7 +37,7 @@ export const chatRoutes = {
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
-		if (userId !== ctx.user.id) {
+		if (userId !== ctx.user.id || (chat.projectId && (await projectQueries.isProjectDeactivated(chat.projectId)))) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
 

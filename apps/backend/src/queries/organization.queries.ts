@@ -89,7 +89,7 @@ export const listUserOrgMemberships = async (userId: string) => {
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
-		.where(eq(s.orgMember.userId, userId))
+		.where(and(eq(s.orgMember.userId, userId), isNull(s.organization.deactivatedAt)))
 		.orderBy(asc(s.organization.name), asc(s.organization.id))
 		.execute();
 };
@@ -106,9 +106,11 @@ const findUserOrgMembership = async (userId: string, organizationId?: string): P
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.where(
-			organizationId
-				? and(eq(s.orgMember.userId, userId), eq(s.orgMember.orgId, organizationId))
-				: eq(s.orgMember.userId, userId),
+			and(
+				eq(s.orgMember.userId, userId),
+				organizationId ? eq(s.orgMember.orgId, organizationId) : undefined,
+				isNull(s.organization.deactivatedAt),
+			),
 		)
 		.orderBy(asc(s.orgMember.createdAt))
 		.limit(1)
@@ -131,7 +133,7 @@ export const getUserOrgMembershipByProject = async (
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.innerJoin(s.project, eq(s.project.orgId, s.organization.id))
-		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId)))
+		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId), isNull(s.organization.deactivatedAt)))
 		.limit(1)
 		.execute();
 	return result ?? null;
@@ -196,6 +198,23 @@ export const updateOrganizationName = async (orgId: string, name: string): Promi
 
 export const updateOrganizationBypassBilling = async (orgId: string, bypassBilling: boolean): Promise<void> => {
 	await db.update(s.organization).set({ bypassBilling }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export const updateOrganizationDeactivatedAt = async (orgId: string, deactivatedAt: Date | null): Promise<void> => {
+	await db.update(s.organization).set({ deactivatedAt }).where(eq(s.organization.id, orgId)).execute();
+};
+
+/** An organization deactivated from the cloud backoffice. */
+export const isOrganizationDeactivated = async (orgId: string): Promise<boolean> => {
+	if (env.NAO_MODE !== 'cloud') {
+		return false;
+	}
+	const organization = await getOrganizationById(orgId);
+	return Boolean(organization?.deactivatedAt);
+};
+
+export const deleteOrganization = async (orgId: string): Promise<void> => {
+	await db.delete(s.organization).where(eq(s.organization.id, orgId)).execute();
 };
 
 export const updateOrganizationLicense = async (orgId: string, license: string | null): Promise<void> => {
@@ -543,7 +562,7 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
 		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(eq(s.project.orgId, orgId))
+		.where(and(eq(s.project.orgId, orgId), isNull(s.project.deactivatedAt)))
 		.orderBy(asc(s.project.name))
 		.execute();
 

@@ -272,6 +272,8 @@ export const organization = pgTable('organization', {
 	license: text('license'),
 	twoFactorRequired: boolean('two_factor_required').default(false).notNull(),
 	twoFactorEmailCodes: boolean('two_factor_email_codes').default(true).notNull(),
+	/** Set from the cloud backoffice: the organization is hidden and every background run stops. */
+	deactivatedAt: timestamp('deactivated_at'),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
@@ -361,6 +363,8 @@ export const project = pgTable(
 		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
+		/** Set from the cloud backoffice: the project is hidden and every background run stops. */
+		deactivatedAt: timestamp('deactivated_at'),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
