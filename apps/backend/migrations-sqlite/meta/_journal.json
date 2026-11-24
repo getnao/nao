@@ -827,6 +827,13 @@
       "when": 1795513638181,
       "tag": "0117_group_llm_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1795518622634,
+      "tag": "0118_groups_as_code_v2",
+      "breakpoints": true
     }
   ]
 }

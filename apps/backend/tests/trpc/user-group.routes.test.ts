@@ -69,6 +69,9 @@ vi.mock('../../src/queries/project-llm-config.queries', () => ({
 vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
 	invalidateProjectViewerCaches: mocks.invalidateProjectViewerCaches,
 }));
+vi.mock('../../src/queries/groups-config.queries', () => ({
+	isGroupsConfigManaged: vi.fn(async () => false),
+}));
 vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
 	createUserGroup: mocks.createUserGroup,

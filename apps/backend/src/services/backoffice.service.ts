@@ -12,6 +12,7 @@ import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { extractConfiguredDatabases } from '../utils/nao-config';
 import { toBillingSummary } from './backoffice-billing.service';
+import { reconcileGroupsMembershipsForUser } from './groups-config-apply.service';
 import { isLicenseExpired, verifyOrganizationLicense } from './license.service';
 import * as membershipService from './membership.service';
 import { assessProjectReadiness } from './project-readiness.service';
@@ -148,6 +149,9 @@ export async function updateUser(
 	}
 	const changes = { ...values, ...resolveDeactivationChange(user.deactivatedAt, deactivated) };
 	const updated = Object.keys(changes).length ? await userQueries.updateUserForBackoffice(userId, changes) : user;
+	if (values.email !== undefined && values.email !== user.email) {
+		await reconcileGroupsMembershipsForUser(userId);
+	}
 	if (deactivated) {
 		await userQueries.revokeUserCredentials(userId);
 	}

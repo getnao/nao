@@ -10,6 +10,8 @@
 
 import './env';
 
+import { execFileSync } from 'node:child_process';
+
 import { hashPassword } from 'better-auth/crypto';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -20,6 +22,8 @@ import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
 import * as accountQueries from './queries/account.queries';
 import * as userQueries from './queries/user.queries';
+import { GROUPS_CONFIG_FILENAME, lintGroupsFile } from './services/groups-config.service';
+import { diffGroupsConfigSources, formatGroupsConfig } from './services/groups-config-cli.service';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
@@ -121,6 +125,7 @@ COMMANDS:
     serve           Run migrations and start the chat server (default)
     migrate         Run database migrations only
     reset-password  Reset a user's password directly in the local database
+    groups          Lint, format or diff groups.yaml
 
 OPTIONS:
     -h, --help  Show this help message
@@ -131,6 +136,11 @@ SERVE OPTIONS:
 
 RESET-PASSWORD OPTIONS:
     --email <email>   Email of the user whose password should be reset
+
+GROUPS COMMANDS:
+    groups lint
+    groups format
+    groups diff [--ref HEAD] [--exit-code]
 
 ENVIRONMENT VARIABLES:
     DB_URI              Database connection URI
@@ -267,8 +277,56 @@ async function runMigrateCommand(): Promise<void> {
 	}
 }
 
+function runGroupsCommand(args: string[]): void {
+	const [subcommand, ...options] = args;
+	const filename = path.join(process.cwd(), GROUPS_CONFIG_FILENAME);
+	switch (subcommand) {
+		case 'lint':
+			lintGroupsFile(process.cwd());
+			console.log(`${GROUPS_CONFIG_FILENAME} is valid.`);
+			return;
+		case 'format': {
+			const formatted = formatGroupsConfig(fs.readFileSync(filename, 'utf8'));
+			fs.writeFileSync(filename, formatted);
+			console.log(`Formatted ${GROUPS_CONFIG_FILENAME}.`);
+			return;
+		}
+		case 'diff': {
+			const nextSource = fs.readFileSync(filename, 'utf8');
+			const reference = optionValue(options, '--ref') ?? 'HEAD';
+			let currentSource: string | null = null;
+			try {
+				currentSource = execFileSync('git', ['show', `${reference}:./${GROUPS_CONFIG_FILENAME}`], {
+					cwd: process.cwd(),
+					encoding: 'utf8',
+					stdio: ['ignore', 'pipe', 'ignore'],
+				});
+			} catch {
+				currentSource = null;
+			}
+			const changes = diffGroupsConfigSources(currentSource, nextSource);
+			console.log(changes.length > 0 ? changes.join('\n') : 'No changes.');
+			if (changes.length > 0 && options.includes('--exit-code')) {
+				process.exitCode = 1;
+			}
+			return;
+		}
+		default:
+			throw new Error('Usage: nao-chat-server groups lint|format|diff [--ref HEAD] [--exit-code]');
+	}
+}
+
+function optionValue(args: string[], name: string): string | undefined {
+	const index = args.indexOf(name);
+	return index >= 0 ? args[index + 1] : undefined;
+}
+
 async function main(): Promise<void> {
 	const args = process.argv.slice(2);
+	if (args[0] === 'groups' || args[0] === 'group') {
+		runGroupsCommand(args.slice(1));
+		return;
+	}
 	const { command, options } = parseArgs(args);
 
 	if (options['help']) {

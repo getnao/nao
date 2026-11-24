@@ -376,6 +376,7 @@ export const project = sqliteTable(
 		columnSecurity: text('column_security', { mode: 'json' }).$type<StoredProjectColumnSecurity>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
 		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
+		userGroupsConfigAppliedAt: integer('user_groups_config_applied_at', { mode: 'timestamp_ms' }),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -719,6 +720,9 @@ export const userGroup = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+		configId: text('config_id'),
+		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+		memberEmails: text('member_emails', { mode: 'json' }).$type<string[]>(),
 		featureGrants: text('feature_grants', { mode: 'json' })
 			.$type<StoredUserGroupConfig>()
 			.notNull()
@@ -748,6 +752,7 @@ export const userGroup = sqliteTable(
 	(t) => [
 		index('user_group_projectId_idx').on(t.projectId),
 		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		unique('user_group_project_config_id_unique').on(t.projectId, t.configId),
 		uniqueIndex('user_group_project_default_unique')
 			.on(t.projectId)
 			.where(sql`${t.isDefault} = 1`),
@@ -1851,6 +1856,8 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'user_group.config_applied',
+	'user_group.config_failed',
 	'user_group.impersonation_started',
 	'user_group.impersonation_stopped',
 ] as const;

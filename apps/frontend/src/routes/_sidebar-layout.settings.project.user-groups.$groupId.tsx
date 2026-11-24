@@ -21,22 +21,27 @@ function UserGroupDetailPage() {
 	const { tab } = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
+	const configStatus = useQuery(trpc.userGroup.configStatus.queryOptions());
 	const group = groupId === 'new' ? 'new' : overview.data?.groups.find((candidate) => candidate.id === groupId);
+	const readOnly = configStatus.data?.mode === 'code';
 
 	useEffect(() => {
-		if (groupId !== 'new' && overview.data && (!group || (group !== 'new' && group.isLocked))) {
+		if (
+			(readOnly && groupId === 'new') ||
+			(groupId !== 'new' && overview.data && (!group || (group !== 'new' && group.isLocked)))
+		) {
 			void navigate({
 				to: '/settings/project/user-groups',
 				search: { tab: 'groups' },
 				replace: true,
 			});
 		}
-	}, [group, groupId, navigate, overview.data]);
+	}, [group, groupId, navigate, overview.data, readOnly]);
 
-	if (overview.isLoading) {
+	if (overview.isLoading || configStatus.isLoading) {
 		return <div className='text-sm text-muted-foreground'>Loading group...</div>;
 	}
-	if (overview.isError) {
+	if (overview.isError || configStatus.isError) {
 		return <div className='text-sm text-destructive'>Failed to load User Groups.</div>;
 	}
 	if (!group || (group !== 'new' && group.isLocked)) {
@@ -61,8 +66,14 @@ function UserGroupDetailPage() {
 				User Groups
 			</Link>
 			<h2 className='text-lg font-semibold text-foreground'>{group === 'new' ? 'New group' : group.name}</h2>
+			{readOnly && (
+				<p className='rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground'>
+					This group is managed by groups.yaml. Edit and deploy that file to make changes.
+				</p>
+			)}
 			<UserGroupEditor
 				group={group}
+				readOnly={readOnly}
 				activeTab={tab}
 				onTabChange={(nextTab) => {
 					void navigate({

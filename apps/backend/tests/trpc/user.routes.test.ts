@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
 	getUserProfile: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	isGroupsConfigManaged: vi.fn(async () => false),
 	isUserConfinedToOrganization: vi.fn(),
 	organizationRoleMappingActive: false,
+	reconcileGroupsMembershipsForUser: vi.fn(),
 	updateProjectMemberRole: vi.fn(),
 	updateUser: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
@@ -45,6 +47,9 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
 }));
+vi.mock('../../src/queries/groups-config.queries', () => ({
+	isGroupsConfigManaged: mocks.isGroupsConfigManaged,
+}));
 vi.mock('../../src/queries/user-preference.queries', () => ({}));
 vi.mock('../../src/services/context-explorer-git.service', () => ({ cleanupContextWorktree: vi.fn() }));
 vi.mock('../../src/services/license.service', () => ({
@@ -54,6 +59,10 @@ vi.mock('../../src/services/license.service', () => ({
 vi.mock('../../src/services/github-star-prompt.service', () => ({
 	dismissGithubStarPrompt: mocks.dismissGithubStarPrompt,
 	shouldShowGithubStarPrompt: vi.fn(),
+}));
+vi.mock('../../src/services/groups-config-apply.service', () => ({
+	CODE_MANAGED_GROUPS_MESSAGE: 'Groups are managed in code.',
+	reconcileGroupsMembershipsForUser: mocks.reconcileGroupsMembershipsForUser,
 }));
 vi.mock('../../src/services/posthog', () => ({
 	posthog: { capture: mocks.capturePostHogEvent },

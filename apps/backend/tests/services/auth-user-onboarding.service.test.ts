@@ -8,12 +8,16 @@ const mocks = vi.hoisted(() => ({
 	isMicrosoft: vi.fn(),
 	isOidc: vi.fn(),
 	registerEnvLlmConfigs: vi.fn(),
+	applyProjectGroupsFile: vi.fn(),
 }));
 
 vi.mock('../../src/queries/organization.queries', () => ({
 	addUserToDefaultOrganizationIfExists: mocks.addDefaultOrganization,
 	addUserToDefaultProjectIfExists: mocks.addDefaultProject,
 	initializeDefaultOrganizationForFirstUser: mocks.initializeDefaultOrganization,
+}));
+vi.mock('../../src/services/groups-config-apply.service', () => ({
+	applyProjectGroupsFile: mocks.applyProjectGroupsFile,
 }));
 vi.mock('../../src/services/microsoft-auth.service', () => ({
 	isSocialProviderMicrosoft: mocks.isMicrosoft,
@@ -38,6 +42,7 @@ beforeEach(() => {
 	mocks.isOidc.mockReset().mockReturnValue(false);
 	mocks.getDefaultProject.mockReset().mockResolvedValue(null);
 	mocks.registerEnvLlmConfigs.mockReset().mockResolvedValue(0);
+	mocks.applyProjectGroupsFile.mockReset().mockResolvedValue(undefined);
 });
 
 describe('initializeSelfHostedUserAfterCreation', () => {
@@ -75,13 +80,15 @@ describe('initializeSelfHostedUserAfterCreation', () => {
 		expect(mocks.addDefaultOrganization).not.toHaveBeenCalled();
 		expect(mocks.addDefaultProject).not.toHaveBeenCalled();
 		expect(mocks.registerEnvLlmConfigs).not.toHaveBeenCalled();
+		expect(mocks.applyProjectGroupsFile).not.toHaveBeenCalled();
 	});
 
-	it('registers env credentials when a default project exists', async () => {
-		mocks.getDefaultProject.mockResolvedValue({ id: 'project-1' });
+	it('initializes env credentials and groups config when a default project exists', async () => {
+		mocks.getDefaultProject.mockResolvedValue({ id: 'project-1', path: '/project' });
 
 		await initializeSelfHostedUserAfterCreation('user-1', undefined, true);
 
 		expect(mocks.registerEnvLlmConfigs).toHaveBeenCalledWith('project-1');
+		expect(mocks.applyProjectGroupsFile).toHaveBeenCalledWith('project-1', '/project', 'user-1');
 	});
 });

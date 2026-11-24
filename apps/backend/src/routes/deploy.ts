@@ -8,9 +8,17 @@ import yaml from 'js-yaml';
 import type { App } from '../app';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
+import * as groupsConfigQueries from '../queries/groups-config.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
-import { createProject, recordProjectDeployment } from '../services/project.service';
+import { GroupsConfigError } from '../services/groups-config.service';
+import {
+	applyProjectGroupsFile,
+	createProjectWithGroupsConfig,
+	validateNewProjectGroupsFile,
+	validateProjectGroupsFile,
+} from '../services/groups-config-apply.service';
+import { createProject, reconcileProjectReadiness, recordProjectDeployment } from '../services/project.service';
 
 export const deployRoutes = async (app: App) => {
 	app.post('/deploy', async (request, reply) => {
@@ -67,6 +75,8 @@ export const deployRoutes = async (app: App) => {
 			let status: 'created' | 'updated';
 
 			if (existing) {
+				const groupsManaged = await groupsConfigQueries.isGroupsConfigManaged(existing.id);
+				await validateProjectGroupsFile(existing.id, extractDir, groupsManaged);
 				projectId = existing.id;
 				status = 'updated';
 
@@ -75,20 +85,29 @@ export const deployRoutes = async (app: App) => {
 				}
 				fs.mkdirSync(existing.path!, { recursive: true });
 				copyDirectoryContents(extractDir, existing.path!);
+				await applyProjectGroupsFile(projectId, existing.path!, apiKey.createdBy);
 				await recordProjectDeployment(projectId);
 			} else {
+				const groupsConfig = await validateNewProjectGroupsFile(org.id, extractDir);
 				const projectId_ = crypto.randomUUID();
 				const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId_);
 				fs.mkdirSync(projectDir, { recursive: true });
 				copyDirectoryContents(extractDir, projectDir);
 
-				const project = await createProject({
+				const projectValues = {
+					id: projectId_,
 					name: projectName,
 					type: 'local',
 					path: projectDir,
 					orgId: org.id,
 					deployedAt: new Date(),
-				});
+				} as const;
+				const project = groupsConfig
+					? await createProjectWithGroupsConfig(projectValues, groupsConfig, apiKey.createdBy)
+					: await createProject(projectValues);
+				if (groupsConfig) {
+					await reconcileProjectReadiness(project.id);
+				}
 				projectId = project.id;
 				status = 'created';
 
@@ -96,6 +115,11 @@ export const deployRoutes = async (app: App) => {
 			}
 
 			return reply.send({ projectId, projectName, status });
+		} catch (error) {
+			if (error instanceof GroupsConfigError) {
+				return reply.status(400).send({ error: error.message });
+			}
+			throw error;
 		} finally {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}

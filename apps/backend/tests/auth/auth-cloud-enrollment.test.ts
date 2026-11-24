@@ -93,6 +93,9 @@ vi.mock('../../src/services/email', () => ({
 }));
 vi.mock('../../src/services/github', () => ({ githubOAuthConfig: vi.fn(() => null) }));
 vi.mock('../../src/services/gitlab', () => ({ gitlabOAuthConfig: vi.fn(() => null) }));
+vi.mock('../../src/services/groups-config-apply.service', () => ({
+	reconcileGroupsMembershipsForUser: vi.fn(),
+}));
 vi.mock('../../src/services/license.service', () => ({
 	hasFeature: vi.fn().mockResolvedValue(false),
 	LICENSE_FEATURES: { sso: 'sso' },

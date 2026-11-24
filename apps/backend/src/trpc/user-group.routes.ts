@@ -13,12 +13,9 @@ import {
 	FREE_CUSTOM_USER_GROUP_LIMIT,
 	type GroupShareTargets,
 	isDatabaseContextTableGranted,
-	isMicrosoftEntraGroupId,
-	MAX_PRELOADED_SKILLS,
 	type McpAccess,
 	normalizeDatabaseContextAccess,
 	normalizeFileTreeAccess,
-	normalizeFileTreePath,
 	normalizeMcpAccess,
 	normalizeProjectColumnSecurity,
 	normalizeProjectRowSecurity,
@@ -26,19 +23,11 @@ import {
 	normalizeUserGroupColumnPolicies,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
-	PROJECT_SHARING_PERMISSIONS,
 	type ProjectColumnSecurity,
 	type ProjectRowSecurity,
-	ROW_SECURITY_COMBINATORS,
-	ROW_SECURITY_MAX_CONDITIONS,
-	ROW_SECURITY_MAX_VALUE_LENGTH,
-	ROW_SECURITY_OPERATORS,
 	rowSecurityTableKey,
 	type SkillsAccess,
 	stripRowSecurityWhereClause,
-	TOOL_CALL_DENSITIES,
-	USER_GROUP_FEATURES,
-	USER_ROLES,
 	type UserGroupColumnPolicies,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
@@ -49,6 +38,7 @@ import { z } from 'zod';
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import type { ActivityType } from '../db/abstractSchema';
 import { env, isCloud } from '../env';
+import * as groupsConfigQueries from '../queries/groups-config.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
@@ -56,6 +46,12 @@ import * as userGroupQueries from '../queries/user-group.queries';
 import * as impersonationQueries from '../queries/user-group-impersonation.queries';
 import { logActivity } from '../services/activity';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
+import {
+	assertGroupsUiManaged,
+	getGroupsConfigStatus,
+	withGroupsConfigLock,
+} from '../services/groups-config-apply.service';
+import { exportGroupsConfig } from '../services/groups-config-export.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
 import {
@@ -80,212 +76,37 @@ import {
 } from '../services/user-group-feature-access.service';
 import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
 import { budgetLimitUsdSchema } from '../types/member-budget';
+import {
+	databaseAccessSchema,
+	featureGrantsSchema,
+	fileTreeAccessSchema,
+	groupNameSchema,
+	mcpAccessSchema,
+	preloadedSkillsSchema,
+	projectRowSecuritySchema,
+	projectSharingSchema,
+	shareTargetsSchema,
+	skillsAccessSchema,
+	ssoMappingsSchema,
+	toolCallDensityPolicySchema,
+	updateProjectColumnSecuritySchema,
+	userGroupColumnPoliciesSchema,
+	userGroupRowPoliciesSchema,
+} from '../types/user-group-schemas';
 import { assertMemberBudgetLicensed } from '../utils/member-budget';
 import { parseEntraGroupNaoGroupMapping, parseOidcGroupNaoGroupMapping } from '../utils/sso-group-mapping';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 const MAX_BULK_MEMBERSHIP_USERS = 1_000;
-const groupNameSchema = z.string().trim().min(1, 'Group name is required.').max(80, 'Group name is too long.');
-const featureGrantsSchema = z.array(z.enum(USER_GROUP_FEATURES)).max(USER_GROUP_FEATURES.length);
-const toolCallDensityPolicySchema = z.object({
-	defaultDensity: z.enum(TOOL_CALL_DENSITIES),
-	canChange: z.boolean(),
+const groupsLockedAdminProcedure = adminProtectedProcedure.use(({ ctx, next }) =>
+	withGroupsConfigLock(ctx.project.id, next),
+);
+const uiManagedGroupsAdminProcedure = groupsLockedAdminProcedure.use(async ({ ctx, next }) => {
+	await assertGroupsUiManaged(ctx.project.id);
+	return next();
 });
-const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
-const shareTargetsSchema = z
-	.object({
-		includeOwnGroup: z.boolean(),
-		groupIds: z.array(z.string().min(1)).max(10_000),
-	})
-	.strict();
-const skillNameSchema = z.string().trim().min(1).max(200);
-const preloadedSkillsSchema = z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS);
 const llmConfigIdsSchema = z.array(z.string().min(1)).max(200);
 const llmModelIdsByConfigSchema = z.record(z.string().min(1), z.array(z.string().trim().min(1).max(500)).max(1_000));
-const skillsAccessSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('all') }).strict(),
-	z.object({ mode: z.literal('restricted'), skills: z.array(skillNameSchema).max(10_000) }).strict(),
-]);
-const contextNameSchema = z.string().trim().min(1).max(255);
-const databaseContextGrantSchema = z.discriminatedUnion('kind', [
-	z
-		.object({
-			kind: z.literal('schema'),
-			databaseType: contextNameSchema,
-			database: contextNameSchema,
-			schema: contextNameSchema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('table'),
-			databaseType: contextNameSchema,
-			database: contextNameSchema,
-			schema: contextNameSchema,
-			table: contextNameSchema,
-		})
-		.strict(),
-]);
-const databaseAccessSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('all'), strict: z.boolean().default(true) }).strict(),
-	z
-		.object({
-			mode: z.literal('restricted'),
-			strict: z.boolean().default(true),
-			grants: z.array(databaseContextGrantSchema).max(10_000),
-			patterns: z.array(z.string().max(255)).max(200).default([]),
-		})
-		.strict(),
-]);
-const fileTreePathSchema = z
-	.string()
-	.max(1_024)
-	.refine((value) => normalizeFileTreePath(value) !== null, 'Invalid path.')
-	.transform((value) => normalizeFileTreePath(value)!);
-const fileTreeGrantSchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('folder'), path: fileTreePathSchema }).strict(),
-	z.object({ kind: z.literal('file'), path: fileTreePathSchema }).strict(),
-]);
-const fileTreeAccessSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('all') }).strict(),
-	z.object({ mode: z.literal('restricted'), grants: z.array(fileTreeGrantSchema).max(10_000) }).strict(),
-]);
-const mcpGrantSchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('server'), server: contextNameSchema }).strict(),
-	z.object({ kind: z.literal('tool'), server: contextNameSchema, tool: contextNameSchema }).strict(),
-]);
-const mcpAccessSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('all') }).strict(),
-	z.object({ mode: z.literal('restricted'), grants: z.array(mcpGrantSchema).max(10_000) }).strict(),
-]);
-const ssoIdentifierSchema = z.string().trim().min(1).max(255);
-const ssoMappingsSchema = z
-	.object({
-		version: z.literal(1),
-		providers: z
-			.object({
-				oidc: z.array(ssoIdentifierSchema).max(200),
-				microsoft: z
-					.array(
-						ssoIdentifierSchema.refine(isMicrosoftEntraGroupId, 'Invalid Microsoft Entra group object ID.'),
-					)
-					.max(200),
-			})
-			.strict(),
-		defaultProjectRole: z.enum(USER_ROLES).nullable().optional(),
-	})
-	.strict();
-const rowTableIdentitySchema = z.object({
-	databaseType: contextNameSchema,
-	database: contextNameSchema,
-	schema: contextNameSchema,
-	table: contextNameSchema,
-});
-const projectRowSecuritySchema = z
-	.object({
-		version: z.literal(1),
-		tables: z
-			.array(
-				rowTableIdentitySchema
-					.extend({ constraintColumns: z.array(contextNameSchema).min(1).max(256) })
-					.strict(),
-			)
-			.max(10_000),
-	})
-	.strict();
-const projectColumnSecuritySchema = z
-	.object({
-		version: z.literal(1),
-		tables: z
-			.array(
-				rowTableIdentitySchema
-					.extend({ restrictedColumns: z.array(contextNameSchema).min(1).max(256) })
-					.strict(),
-			)
-			.max(10_000),
-	})
-	.strict();
-const updateProjectColumnSecuritySchema = projectColumnSecuritySchema.extend({
-	expectedCurrent: projectColumnSecuritySchema.optional(),
-});
-const userGroupColumnPoliciesSchema = z
-	.object({
-		version: z.literal(1),
-		policies: z
-			.array(
-				rowTableIdentitySchema.extend({ grantedColumns: z.array(contextNameSchema).min(1).max(256) }).strict(),
-			)
-			.max(10_000),
-	})
-	.strict();
-const rowSecurityConditionSchema = z
-	.object({
-		column: contextNameSchema,
-		operator: z.enum(ROW_SECURITY_OPERATORS),
-		value: z.string().max(ROW_SECURITY_MAX_VALUE_LENGTH).optional(),
-	})
-	.strict()
-	.superRefine((condition, context) => {
-		const needsValue = condition.operator !== 'is-null' && condition.operator !== 'is-not-null';
-		if (needsValue && !condition.value?.trim()) {
-			context.addIssue({ code: 'custom', path: ['value'], message: 'A condition value is required.' });
-		}
-		if (!needsValue && condition.value !== undefined) {
-			context.addIssue({ code: 'custom', path: ['value'], message: 'This operator does not accept a value.' });
-		}
-		if (
-			(condition.operator === 'is-one-of' || condition.operator === 'is-not-one-of') &&
-			condition.value?.split(',').some((item) => !item.trim())
-		) {
-			context.addIssue({
-				code: 'custom',
-				path: ['value'],
-				message: 'Condition lists cannot contain empty values.',
-			});
-		}
-	});
-const rowSecuritySqlPredicateSchema = z
-	.string()
-	.trim()
-	.min(1, 'Enter a WHERE clause.')
-	.max(ROW_SECURITY_MAX_VALUE_LENGTH)
-	.superRefine((value, context) => {
-		if (!value) {
-			return;
-		}
-		if (!/^where\b/i.test(value)) {
-			context.addIssue({ code: 'custom', message: 'Start with WHERE.' });
-		} else if (stripRowSecurityWhereClause(value) === null) {
-			context.addIssue({ code: 'custom', message: 'Enter an expression after WHERE.' });
-		}
-	});
-const userGroupRowPoliciesSchema = z
-	.object({
-		version: z.literal(1),
-		policies: z
-			.array(
-				z.union([
-					rowTableIdentitySchema.extend({ access: z.literal('full') }).strict(),
-					rowTableIdentitySchema
-						.extend({
-							access: z.literal('predicate'),
-							mode: z.literal('guided'),
-							combinator: z.enum(ROW_SECURITY_COMBINATORS),
-							conditions: z.array(rowSecurityConditionSchema).min(1).max(ROW_SECURITY_MAX_CONDITIONS),
-						})
-						.strict(),
-					rowTableIdentitySchema
-						.extend({
-							access: z.literal('predicate'),
-							mode: z.literal('sql'),
-							predicate: rowSecuritySqlPredicateSchema,
-						})
-						.strict(),
-				]),
-			)
-			.max(10_000),
-	})
-	.strict();
 
 async function validateLlmAccess(
 	projectId: string,
@@ -391,6 +212,17 @@ export const userGroupRoutes = {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
 	}),
 
+	configStatus: adminProtectedProcedure.query(async ({ ctx }) => {
+		return getGroupsConfigStatus(ctx.project.id);
+	}),
+
+	exportConfig: adminProtectedProcedure.query(async ({ ctx }) => {
+		return {
+			filename: 'groups.yaml',
+			content: await exportGroupsConfig(ctx.project.id, requireProjectPath(ctx.project.path)),
+		};
+	}),
+
 	effectiveOidcEnvMappings: adminProtectedProcedure.query(async ({ ctx }) => {
 		if (!(await hasFeature(LICENSE_FEATURES.sso))) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'SSO requires an Enterprise license.' });
@@ -427,10 +259,11 @@ export const userGroupRoutes = {
 		return handleQuery(() => userGroupQueries.getProjectColumnSecurity(ctx.project.id));
 	}),
 
-	updateColumnSecurity: adminProtectedProcedure
+	updateColumnSecurity: groupsLockedAdminProcedure
 		.input(updateProjectColumnSecuritySchema)
 		.mutation(async ({ ctx, input }) => {
 			const columnSecurity = normalizeProjectColumnSecurity({ version: input.version, tables: input.tables });
+			await assertCodeManagedColumnPoliciesRemainValid(ctx.project.id, columnSecurity);
 			const expectedCurrent =
 				input.expectedCurrent === undefined ? undefined : normalizeProjectColumnSecurity(input.expectedCurrent);
 			await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
@@ -452,8 +285,9 @@ export const userGroupRoutes = {
 		return handleQuery(() => userGroupQueries.getProjectRowSecurity(ctx.project.id));
 	}),
 
-	updateRowSecurity: adminProtectedProcedure.input(projectRowSecuritySchema).mutation(async ({ ctx, input }) => {
+	updateRowSecurity: groupsLockedAdminProcedure.input(projectRowSecuritySchema).mutation(async ({ ctx, input }) => {
 		const rowSecurity = normalizeProjectRowSecurity(input);
+		await assertCodeManagedRowPoliciesRemainValid(ctx.project.id, rowSecurity);
 		await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
 		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
 		const updated = await handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
@@ -469,7 +303,7 @@ export const userGroupRoutes = {
 		return getFilesContextCatalog(requireProjectPath(ctx.project.path));
 	}),
 
-	create: adminProtectedProcedure
+	create: uiManagedGroupsAdminProcedure
 		.input(
 			z.object({
 				name: groupNameSchema,
@@ -561,7 +395,7 @@ export const userGroupRoutes = {
 			return group;
 		}),
 
-	update: adminProtectedProcedure
+	update: uiManagedGroupsAdminProcedure
 		.input(
 			z.object({
 				groupId: z.string().min(1),
@@ -679,7 +513,7 @@ export const userGroupRoutes = {
 			return group;
 		}),
 
-	updateLlmAccess: adminProtectedProcedure
+	updateLlmAccess: uiManagedGroupsAdminProcedure
 		.input(
 			z.object({
 				groupId: z.string().min(1),
@@ -700,14 +534,16 @@ export const userGroupRoutes = {
 			);
 		}),
 
-	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
-		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
-		await revokeUnauthorizedProjectWideShares(ctx.project.id);
-	}),
+	delete: uiManagedGroupsAdminProcedure
+		.input(z.object({ groupId: z.string().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await revokeUnauthorizedProjectWideShares(ctx.project.id);
+		}),
 
-	setMembership: adminProtectedProcedure
+	setMembership: uiManagedGroupsAdminProcedure
 		.input(
 			z.object({
 				groupId: z.string().min(1),
@@ -724,7 +560,7 @@ export const userGroupRoutes = {
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 
-	setMemberships: adminProtectedProcedure
+	setMemberships: uiManagedGroupsAdminProcedure
 		.input(
 			z.object({
 				groupId: z.string().min(1),
@@ -888,6 +724,32 @@ async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: Pr
 	}
 }
 
+async function assertCodeManagedRowPoliciesRemainValid(
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): Promise<void> {
+	if (!(await groupsConfigQueries.isGroupsConfigManaged(projectId))) {
+		return;
+	}
+	const tables = new Map(rowSecurity.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]));
+	for (const group of await userGroupQueries.listUserGroups(projectId)) {
+		for (const policy of group.rowPolicies.policies) {
+			const columns = tables.get(rowSecurityTableKey(policy));
+			const isValid =
+				columns !== undefined &&
+				(policy.access === 'full' ||
+					policy.mode === 'sql' ||
+					policy.conditions.every(({ column }) => columns.includes(column)));
+			if (!isValid) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'This change would invalidate a row policy managed by groups.yaml.',
+				});
+			}
+		}
+	}
+}
+
 async function assertColumnSecurityChangeAllowed(
 	projectId: string,
 	columnSecurity: ProjectColumnSecurity,
@@ -909,6 +771,29 @@ async function assertColumnSecurityChangeAllowed(
 	});
 	if (!onlyRemovesTables) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Column-level security requires an Enterprise license.' });
+	}
+}
+
+async function assertCodeManagedColumnPoliciesRemainValid(
+	projectId: string,
+	columnSecurity: ProjectColumnSecurity,
+): Promise<void> {
+	if (!(await groupsConfigQueries.isGroupsConfigManaged(projectId))) {
+		return;
+	}
+	const tables = new Map(
+		columnSecurity.tables.map((table) => [columnSecurityTableKey(table), new Set(table.restrictedColumns)]),
+	);
+	for (const group of await userGroupQueries.listUserGroups(projectId)) {
+		for (const policy of group.columnPolicies.policies) {
+			const columns = tables.get(columnSecurityTableKey(policy));
+			if (!columns || policy.grantedColumns.some((column) => !columns.has(column))) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'This change would invalidate a column policy managed by groups.yaml.',
+				});
+			}
+		}
 	}
 }
 

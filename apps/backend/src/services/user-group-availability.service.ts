@@ -106,6 +106,7 @@ export async function applyCurrentUserGroupAvailability(
 	projectId: string,
 	groups: userGroupQueries.UserGroup[],
 ): Promise<AvailableUserGroup[]> {
+	groups = groups.filter((group) => group.archivedAt === null || group.archivedAt === undefined);
 	if (await hasFeature(LICENSE_FEATURES.userGroups, { projectId })) {
 		return groups.map((group) => ({ ...group, isLocked: false }));
 	}

@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { env } from '../env';
+import * as groupsConfigQueries from '../queries/groups-config.queries';
 import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
 import * as discordConfigQueries from '../queries/project-discord-config.queries';
@@ -14,6 +15,10 @@ import { cleanupContextWorktree } from '../services/context-explorer-git.service
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
 import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
+import {
+	CODE_MANAGED_GROUPS_MESSAGE,
+	reconcileGroupsMembershipsForUser,
+} from '../services/groups-config-apply.service';
 import { addProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { addTeamMembers } from '../services/team-member';
@@ -106,6 +111,9 @@ export const userRoutes = {
 			const projectId = ctx.project.id;
 			const groupIds = unique(input.groupIds);
 			if (groupIds.length > 0) {
+				if (await groupsConfigQueries.isGroupsConfigManaged(projectId)) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: CODE_MANAGED_GROUPS_MESSAGE });
+				}
 				await handleUserGroupQuery(() => validateAssignableUserGroupIds(projectId, groupIds));
 			}
 
@@ -114,6 +122,7 @@ export const userRoutes = {
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
 					await addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);
+					await reconcileGroupsMembershipsForUser(userId);
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.project.name, 'project', password, ctx.user.email),

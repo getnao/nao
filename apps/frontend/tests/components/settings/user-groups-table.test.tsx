@@ -131,6 +131,7 @@ vi.mock('@/main', () => ({
 		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
+			configStatus: { queryOptions: vi.fn(() => ({ queryKey: ['config-status'] })) },
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
 			docsContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['docs-context-catalog'] })) },
 			filesContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['files-context-catalog'] })) },
@@ -163,6 +164,11 @@ vi.mock('@/main', () => ({
 			update: { mutationOptions: vi.fn() },
 			updateLlmAccess: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
+		},
+	},
+	trpcClient: {
+		userGroup: {
+			exportConfig: { query: vi.fn() },
 		},
 	},
 }));
@@ -445,34 +451,42 @@ beforeEach(() => {
 					? null
 					: queryKey === 'microsoft-config'
 						? false
-						: queryKey === 'column-security' || queryKey === 'row-security'
-							? { version: 1, tables: [] }
-							: queryKey === 'rules-file'
-								? { content: '', hash: 'rules-hash' }
-								: queryKey === 'member-budget-overview'
-									? { period: 'month', defaultLimitUsd: 0, groups: [], members: [] }
-									: queryKey === 'llm-configs'
-										? {
-												projectConfigs: [
-													{
-														id: 'credential-a',
-														name: 'OpenAI production',
-														provider: 'openai',
-														baseUrl: null,
-													},
-													{
-														id: 'credential-b',
-														name: 'OpenAI backup',
-														provider: 'openai',
-														baseUrl: null,
-													},
-												],
-											}
-										: queryKey === 'context-catalog'
-											? { syncState: 'ready', objects: [] }
-											: queryKey === 'docs-context-catalog'
-												? { syncState: 'ready', entries: [] }
-												: overview,
+						: queryKey === 'config-status'
+							? {
+									mode: 'ui',
+									appliedAt: null,
+									lastAttemptFailed: false,
+									errorMessage: null,
+									pendingEmails: [],
+								}
+							: queryKey === 'column-security' || queryKey === 'row-security'
+								? { version: 1, tables: [] }
+								: queryKey === 'rules-file'
+									? { content: '', hash: 'rules-hash' }
+									: queryKey === 'member-budget-overview'
+										? { period: 'month', defaultLimitUsd: 0, groups: [], members: [] }
+										: queryKey === 'llm-configs'
+											? {
+													projectConfigs: [
+														{
+															id: 'credential-a',
+															name: 'OpenAI production',
+															provider: 'openai',
+															baseUrl: null,
+														},
+														{
+															id: 'credential-b',
+															name: 'OpenAI backup',
+															provider: 'openai',
+															baseUrl: null,
+														},
+													],
+												}
+											: queryKey === 'context-catalog'
+												? { syncState: 'ready', objects: [] }
+												: queryKey === 'docs-context-catalog'
+													? { syncState: 'ready', entries: [] }
+													: overview,
 		};
 	});
 	mocks.useMutation.mockReturnValue({
@@ -967,6 +981,24 @@ describe('ConditionalRulesHelp', () => {
 });
 
 describe('UserGroupEditor', () => {
+	it('disables editing controls when groups.yaml owns the group', () => {
+		render(
+			<UserGroupEditor
+				group={analysts}
+				readOnly
+				activeTab='features'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByRole('textbox', { name: 'Group name' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.queryByRole('button', { name: 'Delete group' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+	});
+
 	it('invalidates effective user access and database objects with user-group queries', async () => {
 		const queryClient = {
 			invalidateQueries: mocks.invalidateQueries,
