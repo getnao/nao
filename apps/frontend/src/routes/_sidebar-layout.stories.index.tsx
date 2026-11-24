@@ -201,6 +201,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	const folderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
 		enabled: !!activeProjectId,
+		staleTime: 0,
 	});
 	const archivedFolderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: true }),
@@ -209,6 +210,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	const folderItems = useQuery({
 		...trpc.storyFolder.listItems.queryOptions(),
 		enabled: !!activeProjectId,
+		staleTime: 0,
 	});
 
 	const currentUserName = session?.user?.name ?? 'Me';
