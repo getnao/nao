@@ -86,12 +86,19 @@ export async function getFilteredStoryQueryDataByStoryId(
 	return executeFilteredQueries(await loadFilterableStoryById(storyId), selections, executionOptions);
 }
 
-export async function getStoryFilterTargets(chatId: string, storySlug: string): Promise<StoryFilterTargets> {
-	return listStoryFilterTargets(await loadChatFilterableStory(chatId, storySlug));
+export async function getStoryFilterTargets(
+	chatId: string,
+	storySlug: string,
+	selections: StoryFilterSelections = {},
+): Promise<StoryFilterTargets> {
+	return listStoryFilterTargets(await loadChatFilterableStory(chatId, storySlug), selections);
 }
 
-export async function getStoryFilterTargetsByStoryId(storyId: string): Promise<StoryFilterTargets> {
-	return listStoryFilterTargets(await loadFilterableStoryById(storyId));
+export async function getStoryFilterTargetsByStoryId(
+	storyId: string,
+	selections: StoryFilterSelections = {},
+): Promise<StoryFilterTargets> {
+	return listStoryFilterTargets(await loadFilterableStoryById(storyId), selections);
 }
 
 export async function getStoryQuerySql(
@@ -137,10 +144,16 @@ async function executeFilteredQueries(
 	);
 }
 
-/** For each query of the story, the filters that can change it, whether or not they have a value yet. */
-async function listStoryFilterTargets(story: FilterableStory): Promise<StoryFilterTargets> {
+/**
+ * For each query of the story, the filters that can change it, whether or not they have a value yet.
+ * Parameter selections count: they can swap the metric a semantic query measures.
+ */
+async function listStoryFilterTargets(
+	story: FilterableStory,
+	selections: StoryFilterSelections,
+): Promise<StoryFilterTargets> {
 	const filterIds = getStoryFiltersFromCode(story.code).map((filter) => filter.id);
-	const bindings = semanticBindingsFromCode(story.code);
+	const bindings = semanticBindingsFromCode(story.code, selections);
 	let catalog: ReturnType<CatalogLoader> | undefined;
 	const loadCatalog: CatalogLoader = () => {
 		catalog ??= story

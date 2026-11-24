@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Funnel, FunnelX, Loader2 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { StoryQuerySqlSource } from '@/contexts/story-query-sql';
 import type { StoryQueryFilterStatus } from '@/hooks/use-story-filters';
 
@@ -7,6 +8,7 @@ import { SemanticQueryDefinition } from '@/components/tool-calls/execute-semanti
 import { SqlQueryDisplay } from '@/components/tool-calls/sql-query-display';
 import { Callout } from '@/components/ui/callout';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useStoryQuerySql } from '@/contexts/story-query-sql';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 
@@ -50,6 +52,12 @@ export function StoryQueryFilterError({ error, onViewQuery }: { error: string; o
 			)}
 		</Callout>
 	);
+}
+
+/** A chart with no rows to draw still tells why the story filters failed on it. */
+export function StoryChartFilterFailure({ queryId, children }: { queryId: string; children: ReactNode }) {
+	const status = useStoryQuerySql()?.queryFilterStatuses?.[queryId];
+	return status?.state === 'failed' ? <StoryQueryFilterError error={status.error} /> : children;
 }
 
 export function StoryChartQueryView({ queryId, source }: { queryId: string; source: StoryQuerySqlSource }) {

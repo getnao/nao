@@ -29,7 +29,7 @@ const FILTER_OPEN_REGEX = /\{%\s*filter\b[^%}]*%\}/g;
 const FILTER_CLOSE_REGEX = /\{%\s*endfilter\s*%\}/g;
 const FILTER_DELIMITER_REGEX = /\{%\s*(?:filter\b([^%}]*)|(endfilter))\s*%\}/g;
 const LIKE_OPERATOR_REGEX = /\bI?LIKE\b/i;
-const FILTER_NUMBER_REGEX = /^-?\d+(\.\d+)?$/;
+const FILTER_NUMBER_REGEX = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i;
 const FILTER_BOOLEAN_REGEX = /^(true|false)$/i;
 
 const INVALID_PLACEHOLDER_HINTS: Record<string, string> = {

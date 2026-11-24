@@ -457,13 +457,20 @@ export const sharedStoryRoutes = {
 				: getFilteredStoryQueryDataByStoryId(shared.storyId, input.selections, options);
 		}),
 
-	getFilterTargets: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
-		assertStoryFiltersEnabled();
-		const shared = ctx.resource;
-		return shared.chatId
-			? getStoryFilterTargets(shared.chatId, shared.slug)
-			: getStoryFilterTargetsByStoryId(shared.storyId);
-	}),
+	getFilterTargets: shareAccessProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])).default({}),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			assertStoryFiltersEnabled();
+			const shared = ctx.resource;
+			return shared.chatId
+				? getStoryFilterTargets(shared.chatId, shared.slug, input.selections)
+				: getStoryFilterTargetsByStoryId(shared.storyId, input.selections);
+		}),
 
 	getQuerySql: shareAccessProcedure
 		.input(

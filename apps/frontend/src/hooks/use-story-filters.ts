@@ -155,7 +155,11 @@ export function useStoryFilters({
 	});
 
 	const activeQuery = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
-	const filterTargets = useStoryFilterTargets(api, filtersEnabled && filters.length > 0);
+	const parameterSelections = useMemo(
+		() => pickSelections(debouncedSelections, parameters),
+		[debouncedSelections, parameters],
+	);
+	const filterTargets = useStoryFilterTargets(api, parameterSelections, filtersEnabled && filters.length > 0);
 	const filteredQueryData = activeQuery.data as FilteredQueryDataMap | undefined;
 	const isFetching = activeQuery.isFetching;
 	const displayedSelections = useDisplayedSelections({
@@ -197,8 +201,8 @@ export function useStoryFilters({
 		],
 	);
 	const filterSummary = useMemo(
-		() => summarizeSelections(filters, debouncedSelections),
-		[filters, debouncedSelections],
+		() => summarizeSelections([...parameters, ...filters], debouncedSelections),
+		[parameters, filters, debouncedSelections],
 	);
 	const isSelectionsPending = !areSelectionsEqual(activeSelections, debouncedSelections);
 	const isFiltering = isSelectionsPending || isFetching;
@@ -282,21 +286,30 @@ function withFilteredRows(
 	return { ...baselineQueryData, ...Object.fromEntries(succeeded) };
 }
 
-function useStoryFilterTargets(api: StoryFilterApi | null | undefined, enabled: boolean): StoryFilterTargets {
+function useStoryFilterTargets(
+	api: StoryFilterApi | null | undefined,
+	selections: StoryFilterSelections,
+	enabled: boolean,
+): StoryFilterTargets {
 	const ownedQuery = useQuery({
 		...trpc.story.getFilterTargets.queryOptions({
 			chatId: api?.kind === 'owned' ? api.chatId : '',
 			storySlug: api?.kind === 'owned' ? api.storySlug : '',
+			selections,
 		}),
 		enabled: enabled && api?.kind === 'owned',
 	});
 	const sharedQuery = useQuery({
-		...trpc.storyShare.getFilterTargets.queryOptions({ storyId: api?.kind === 'shared' ? api.storyId : '' }),
+		...trpc.storyShare.getFilterTargets.queryOptions({
+			storyId: api?.kind === 'shared' ? api.storyId : '',
+			selections,
+		}),
 		enabled: enabled && api?.kind === 'shared',
 	});
 	const standaloneQuery = useQuery({
 		...trpc.story.getStandaloneFilterTargets.queryOptions({
 			storyId: api?.kind === 'standalone' ? api.storyId : '',
+			selections,
 		}),
 		enabled: enabled && api?.kind === 'standalone',
 	});
@@ -356,17 +369,25 @@ function toQueryFilterStatus(
 	return { state: 'filtered', summary: summarizeSelections(appliedFilters, selections) };
 }
 
-function summarizeSelections(filters: ParsedFilterBlock[], selections: StoryFilterSelections): string {
-	return filters
-		.filter((filter) => filter.id in selections)
-		.map((filter) => {
-			const selection = selections[filter.id];
+/** Parameters and filters in words, e.g. "Metric = revenue · Returned = false". */
+function summarizeSelections(
+	controls: (ParsedFilterBlock | ParsedParameterBlock)[],
+	selections: StoryFilterSelections,
+): string {
+	return controls
+		.filter((control) => control.id in selections)
+		.map((control) => {
+			const selection = selections[control.id];
 			const value = Array.isArray(selection)
-				? selection.join(filter.filterType === 'date_range' ? ' → ' : ', ')
+				? selection.join('filterType' in control && control.filterType === 'date_range' ? ' → ' : ', ')
 				: selection;
-			return `${filter.label} = ${value}`;
+			return `${control.label} = ${value}`;
 		})
 		.join(' · ');
+}
+
+function pickSelections(selections: StoryFilterSelections, controls: { id: string }[]): StoryFilterSelections {
+	return Object.fromEntries(controls.filter(({ id }) => id in selections).map(({ id }) => [id, selections[id]]));
 }
 
 /**

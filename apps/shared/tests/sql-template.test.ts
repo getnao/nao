@@ -69,6 +69,8 @@ describe('renderFilterSqlValue', () => {
 		expect(renderFilterSqlValue('text', "O'Reilly")).toBe("'O''Reilly'");
 		expect(renderFilterSqlValue('text', '12345', 'number')).toBe('12345');
 		expect(renderFilterSqlValue('text', '-12.5', 'number')).toBe('-12.5');
+		expect(renderFilterSqlValue('select', '1e-7', 'number')).toBe('1e-7');
+		expect(renderFilterSqlValue('text', '1e', 'number')).toBeNull();
 	});
 
 	it('ignores numeric text values that are not numbers', () => {

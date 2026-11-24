@@ -11,6 +11,7 @@ import type { displayChart } from '@nao/shared/tools';
 
 import type { ChartEditorView } from '@/components/tool-calls/display-chart-edit-dialog';
 import {
+	StoryChartFilterFailure,
 	StoryChartQueryView,
 	StoryQueryFilterBadge,
 	StoryQueryFilterError,
@@ -59,9 +60,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
-				Chart data unavailable (query: {chart.queryId})
-			</StoryEmbedFallback>
+			<StoryChartFilterFailure queryId={chart.queryId}>
+				<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
+					Chart data unavailable (query: {chart.queryId})
+				</StoryEmbedFallback>
+			</StoryChartFilterFailure>
 		);
 	}
 

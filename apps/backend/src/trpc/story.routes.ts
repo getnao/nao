@@ -1188,10 +1188,12 @@ export const storyRoutes = {
 		}),
 
 	getFilterTargets: storyEditorProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.input(
+			z.object({ chatId: z.string(), storySlug: z.string(), selections: storyFilterSelectionsInput.default({}) }),
+		)
 		.query(async ({ input }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterTargets(input.chatId, input.storySlug);
+			return getStoryFilterTargets(input.chatId, input.storySlug, input.selections);
 		}),
 
 	getQuerySql: storyEditorProcedure
@@ -1227,10 +1229,10 @@ export const storyRoutes = {
 		}),
 
 	getStandaloneFilterTargets: storyOwnerProjectProcedure
-		.input(z.object({ storyId: z.string() }))
+		.input(z.object({ storyId: z.string(), selections: storyFilterSelectionsInput.default({}) }))
 		.query(async ({ input }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterTargetsByStoryId(input.storyId);
+			return getStoryFilterTargetsByStoryId(input.storyId, input.selections);
 		}),
 
 	getStandaloneQuerySql: storyOwnerProjectProcedure
