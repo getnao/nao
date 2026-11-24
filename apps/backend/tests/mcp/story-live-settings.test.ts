@@ -1,6 +1,6 @@
 import '../../src/env';
 
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
@@ -36,6 +36,10 @@ describe('MCP live story settings', () => {
 	beforeEach(async () => {
 		await db.delete(s.story);
 		await db.delete(s.scheduledJob);
+	});
+
+	afterAll(() => {
+		db.$client.close();
 	});
 
 	it('creates a live story on its refresh schedule and shows its settings in get_story', async () => {
@@ -95,6 +99,35 @@ describe('MCP live story settings', () => {
 		expect(result.content[0].text).toContain('is saved, but its live settings were not changed');
 		const [story] = await db.select().from(s.story);
 		expect(story).toMatchObject({ title: 'Frozen', isLive: false });
+	});
+
+	it('keeps the SQL of MCP queries when a chat story goes live, so its refresh can rerun them', async () => {
+		await db.insert(s.mcpCallLog).values({
+			id: 'call-mcp',
+			projectId: 'project-1',
+			userId: 'user-1',
+			toolName: 'execute_sql',
+			success: true,
+			toolInput: { sql_query: 'SELECT 1 AS value' },
+		});
+		await db.insert(s.mcpQueryData).values({
+			queryId: 'query_mcp',
+			callLogId: 'call-mcp',
+			projectId: 'project-1',
+			columns: ['value'],
+			data: [{ value: 1 }],
+			expiresAt: new Date(Date.now() + 60_000),
+		});
+
+		await server.call('create_story', {
+			chat_id: 'chat-1',
+			title: 'MCP revenue',
+			content: '<table query_id="query_mcp" />',
+			live: WEEKLY_LIVE,
+		});
+
+		const savedQueries = await db.select().from(s.storyQuery);
+		expect(savedQueries).toMatchObject([{ queryId: 'query_mcp', sqlQuery: 'SELECT 1 AS value' }]);
 	});
 
 	it("lets nao's own agent make a story live through its internal server, for story creators only", async () => {
