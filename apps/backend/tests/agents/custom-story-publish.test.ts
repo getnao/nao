@@ -128,6 +128,26 @@ describe('publishing a custom story', () => {
 		expect(await db.select().from(s.storyVersion)).toEqual([]);
 	});
 
+	it('publishes when an image link template could be filled from the rows of a query it never shows', async () => {
+		await storyFileQueries.writeDraftFile(STORY_ID, {
+			path: 'app.jsx',
+			content: [
+				'export default () => <>',
+				'{useQueryData("query_products").data.map((row) => <Image src={`https://${row.host}/brand/${row.key}.png`} />)}',
+				'<Table query="query_totals" />',
+				'</>;',
+			].join('\n'),
+		});
+		const queryResults = new Map([
+			['query_products', { columns: ['host', 'key'], data: [{ host: 'cdn.acme.com', key: 'logo' }] }],
+			['query_totals', { columns: ['host', 'key'], data: [{ host: 'tracker.example.com', key: 'q3' }] }],
+		]);
+
+		const output = await publish(queryResults);
+
+		expect(output).toMatchObject({ success: true });
+	});
+
 	it('drops only the frozen narratives whose text was revised, so their new prose shows', async () => {
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
 		await expectPublished();

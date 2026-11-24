@@ -89,14 +89,20 @@ export function storyAppCode(app: StoryApp): string[] {
 	return app.kind === 'html' ? [app.bundle, app.pageShell] : [app.bundle];
 }
 
-/** Most links in query rows are not images, so rows only count when the code shows images. */
+/**
+ * Most links in query rows are not images, so rows only count when the code shows images. A template link is filled
+ * from every query's rows, since the scan cannot tell which query it reads: some filled links are never shown.
+ */
 export function findStoryImageSources(
 	code: string[],
 	queries: Record<string, StoryQueryResult>,
-	isWanted: (src: string) => boolean = () => true,
+	{
+		isWanted = () => true,
+		fillsTemplates = true,
+	}: { isWanted?: (src: string) => boolean; fillsTemplates?: boolean } = {},
 ): string[] {
 	const showsImages = code.some((text) => IMAGE_CALL_PATTERN.test(text));
-	const rows = showsImages ? collectRows(queries) : [];
+	const rows = showsImages && fillsTemplates ? collectRows(queries) : [];
 	const rowValues = showsImages ? collectStrings(queries) : [];
 	const candidates = [...code.flatMap((text) => linksInCode(text, rows)), ...rowValues.flatMap(linksInValue)];
 	const sources = new Set<string>();

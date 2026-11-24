@@ -55,10 +55,11 @@ export async function readStoryImagesForExport(
 		return {};
 	}
 	const isAllowed = (src: string) => isAllowedStoryImageSource(src, allowedSources);
-	const sources = findStoryImageSources(storyAppCode(app), queries, isAllowed);
+	const sources = findStoryImageSources(storyAppCode(app), queries, { isWanted: isAllowed });
 	return readEmbeddableStoryImages(sources, (batch) => readAllowedStoryImages(allowedSources, batch));
 }
 
+/** Template links are left out: filled from rows the story may never show, they would block it for images nobody sees. */
 export async function findBlockedStoryImageSources(
 	projectId: string,
 	files: string[],
@@ -67,11 +68,10 @@ export async function findBlockedStoryImageSources(
 	const allowedSources = await getAllowedStoryImageSources(projectId);
 	const isBlocked = (src: string) => !isAllowedStoryImageSource(src, allowedSources);
 	const shown = findDirectStoryImageSources(files).filter(isBlocked);
-	const named = findStoryImageSources(
-		files,
-		queries,
-		(src) => storyImageMediaTypeFromPath(src) !== null && isBlocked(src),
-	);
+	const named = findStoryImageSources(files, queries, {
+		isWanted: (src) => storyImageMediaTypeFromPath(src) !== null && isBlocked(src),
+		fillsTemplates: false,
+	});
 	return [...new Set([...shown, ...named])];
 }
 

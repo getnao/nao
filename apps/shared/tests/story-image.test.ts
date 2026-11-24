@@ -118,7 +118,7 @@ describe('findStoryImageSources', () => {
 		const links = Array.from({ length: 300 }, (_, index) => `https://docs.example.com/page-${index}`);
 		const code = [`${links.join(' ')} "gs://acme-assets/marketing/hero.png"`];
 		const isWanted = (src: string) => isAllowedStoryImageSource(src, ALLOWED);
-		expect(findStoryImageSources(code, {}, isWanted)).toEqual(['gs://acme-assets/marketing/hero.png']);
+		expect(findStoryImageSources(code, {}, { isWanted })).toEqual(['gs://acme-assets/marketing/hero.png']);
 	});
 });
 
