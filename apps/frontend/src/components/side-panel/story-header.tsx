@@ -38,6 +38,7 @@ import { StoryFolderPickerDialog, StoryMoveToFolderMenuItem } from '@/components
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryArchiveMenuItem,
 	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
@@ -370,6 +371,7 @@ export const StoryHeader = memo(function StoryHeader({
 					</>
 				)}
 				{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} versionNumber={versionNumber} />}
+				{!isReadonlyMode && storyId && <StoryArchiveMenuItem storyId={storyId} />}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

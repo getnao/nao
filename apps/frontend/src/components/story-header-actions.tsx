@@ -1,5 +1,5 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { CopyPlus, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Archive, ArchiveRestore, CopyPlus, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
@@ -12,6 +12,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useDuplicateStory } from '@/hooks/use-duplicate-story';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -50,6 +51,21 @@ export function StoryDuplicateMenuItem({ storyId, versionNumber }: { storyId: st
 		<DropdownMenuItem onSelect={() => duplicate(storyId, versionNumber)} disabled={!resolvedStory || isPending}>
 			<CopyPlus strokeWidth={2.25} />
 			<span>Duplicate</span>
+		</DropdownMenuItem>
+	);
+}
+
+export function StoryArchiveMenuItem({ storyId }: { storyId: string }) {
+	const { canToggle, isArchived, isPending, toggle } = useStoryArchiveToggle(storyId);
+
+	if (!canToggle) {
+		return null;
+	}
+
+	return (
+		<DropdownMenuItem onSelect={toggle} disabled={isPending}>
+			{isArchived ? <ArchiveRestore strokeWidth={2.25} /> : <Archive strokeWidth={2.25} />}
+			<span>{isArchived ? 'Unarchive' : 'Archive'}</span>
 		</DropdownMenuItem>
 	);
 }
@@ -202,6 +218,24 @@ function StoryFeedbackButton({ Icon, label, isActive, activeClassName, disabled,
 			<TooltipContent>{label}</TooltipContent>
 		</Tooltip>
 	);
+}
+
+function useStoryArchiveToggle(storyId: string) {
+	const queryClient = useQueryClient();
+	const { isAdmin, isViewer } = usePermissions();
+	const { data: story } = useQuery({ ...trpc.story.resolve.queryOptions({ storyId }), retry: false });
+	const { data: project } = useQuery(trpc.project.getCurrent.queryOptions());
+	const mutationOptions = { onSuccess: () => invalidateStoryArchiveCaches(queryClient) };
+	const archive = useMutation(trpc.story.archiveShared.mutationOptions(mutationOptions));
+	const unarchive = useMutation(trpc.story.unarchiveShared.mutationOptions(mutationOptions));
+	const isArchived = story?.isArchived ?? false;
+
+	return {
+		canToggle: !!story && story.projectId === project?.id && (story.isOwner || isAdmin) && !isViewer,
+		isArchived,
+		isPending: archive.isPending || unarchive.isPending,
+		toggle: () => (isArchived ? unarchive : archive).mutate({ storyId }),
+	};
 }
 
 function useStoryFavorite(storyId: string) {
