@@ -141,11 +141,11 @@ export async function refreshStoryManually(
 
 async function assertStoryCanGoLive(storyId: string): Promise<void> {
 	const story = await storyQueries.getStoryById(storyId);
-	if (!story || story.chatId) {
+	if (!story) {
 		return;
 	}
 	await saveMissingMcpQueries(story);
-	if (await hasOnlyFrozenQueries(story)) {
+	if (!story.chatId && (await hasOnlyFrozenQueries(story))) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: 'This story has no saved queries to rerun, so its data cannot be refreshed.',
@@ -156,11 +156,15 @@ async function assertStoryCanGoLive(storyId: string): Promise<void> {
 /** An MCP story saved before its SQL was kept with it can still find that SQL in its owner's MCP calls. */
 async function saveMissingMcpQueries(story: DBStory): Promise<void> {
 	const missingIds = await listQueryIdsWithoutSql(story);
-	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-	if (missingIds.size === 0 || !projectId || !story.userId) {
+	if (missingIds.size === 0) {
 		return;
 	}
-	await copyMcpQueriesToStory(story.id, missingIds, { projectId, userId: story.userId });
+	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+	const userId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
+	if (!projectId || !userId) {
+		return;
+	}
+	await copyMcpQueriesToStory(story.id, missingIds, { projectId, userId });
 }
 
 /**
