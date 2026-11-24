@@ -10,6 +10,7 @@ import { canUserAccessStory } from '../../src/queries/story.queries';
 import { getByStoryId } from '../../src/queries/story-delivery.queries';
 import type { FolderAudience, FolderViewer } from '../../src/queries/story-folder.queries';
 import {
+	ArchivedFolderError,
 	archiveFolders,
 	createFolder,
 	deleteFolderMovingContentsToParent,
@@ -277,6 +278,41 @@ describe('team folders', () => {
 
 		await moveStoryToFolder(STORY_ID, privateRoot, placement);
 		expect(await canUserAccessStory(STORY_ID, ADMIN_ID)).toBe(false);
+	});
+
+	it.each([
+		{
+			change: 'create',
+			run: (parentId: string) =>
+				createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'EMEA', parentId }),
+		},
+		{
+			change: 'move',
+			run: async (parentId: string) => {
+				const emea = await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'EMEA' });
+				await moveFolder(OWNER_ID, PROJECT_ID, emea.id, parentId);
+			},
+		},
+	])('refuses to $change a folder into a team folder archived while waiting', async ({ run }) => {
+		const sales = await createFolder({
+			ownerId: OWNER_ID,
+			projectId: PROJECT_ID,
+			name: 'Sales',
+			groupIds: [GROUP_ID],
+		});
+		let archive!: () => void;
+		const adminArchive = withProjectFolderLock(PROJECT_ID, async () => {
+			await new Promise<void>((resolve) => {
+				archive = resolve;
+			});
+			await db.update(s.storyFolder).set({ archivedAt: new Date() }).where(eq(s.storyFolder.id, sales.id));
+		});
+
+		const change = expect(run(sales.id)).rejects.toThrow(ArchivedFolderError);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		archive();
+
+		await Promise.all([adminArchive, change]);
 	});
 
 	it('refuses to nest team folders, even when both are added at once', async () => {

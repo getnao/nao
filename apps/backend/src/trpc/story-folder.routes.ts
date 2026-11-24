@@ -184,7 +184,8 @@ async function runFolderMove<T>(move: () => Promise<T>): Promise<T> {
 	} catch (err) {
 		if (
 			err instanceof storyFolderQueries.MoveFolderCycleError ||
-			err instanceof storyFolderQueries.TeamFolderError
+			err instanceof storyFolderQueries.TeamFolderError ||
+			err instanceof storyFolderQueries.ArchivedFolderError
 		) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
 		}

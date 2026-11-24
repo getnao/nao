@@ -49,6 +49,13 @@ export class TeamFolderError extends Error {
 	}
 }
 
+export class ArchivedFolderError extends Error {
+	constructor() {
+		super('Archived folders cannot hold new folders.');
+		this.name = 'ArchivedFolderError';
+	}
+}
+
 /** Who stories placed in a folder are shared with: the project, the groups of a team folder, or nobody. */
 export type FolderAudience = { kind: 'project' } | { kind: 'groups'; groupIds: string[] } | { kind: 'private' };
 
@@ -424,6 +431,7 @@ export async function createFolder(data: {
 }): Promise<DBStoryFolder> {
 	const groupIds = [...new Set(data.groupIds ?? [])];
 	return inProjectFolderTransaction(data.projectId, async (tx) => {
+		await assertParentNotArchived(data.parentId ?? null, tx);
 		const parentAudience = await resolveFolderAudience(data.parentId ?? null, tx);
 		if (groupIds.length > 0 && parentAudience.kind !== 'project') {
 			throw new TeamFolderError('Only a folder open to the entire project can hold a team folder.');
@@ -654,6 +662,7 @@ async function relocateFolder(
 	if (newParentId !== null && (await proposedParentChainContains(newParentId, id, tx))) {
 		throw new MoveFolderCycleError();
 	}
+	await assertParentNotArchived(newParentId, tx);
 
 	const newVisibility = await resolveFolderVisibility(newParentId, tx);
 	const oldFolder = await getFolderById(id, tx);
@@ -1182,6 +1191,14 @@ async function resolveFolderVisibility(folderId: string | null, executor: DBExec
 	}
 	const folder = await getFolderById(folderId, executor);
 	return folder?.visibility ?? 'public';
+}
+
+/** Folder listings resolve team groups through active ancestors only, so an active folder must not sit in an archived one. */
+async function assertParentNotArchived(parentId: string | null, executor: DBExecutor): Promise<void> {
+	const parent = parentId ? await getFolderById(parentId, executor) : null;
+	if (parent?.archivedAt != null) {
+		throw new ArchivedFolderError();
+	}
 }
 
 async function assertNotSystemFolder(folderId: string, executor: DBExecutor = db): Promise<void> {
