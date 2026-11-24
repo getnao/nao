@@ -4,7 +4,7 @@ import { providerLabel, providerLabels } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
-import { LlmAccessModeControl } from './llm-access-mode-control';
+import { LlmAccessModeSummary } from './llm-access-mode-control';
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
 import type { LlmProvider } from '@nao/shared/types';
@@ -85,7 +85,7 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 
 	return (
 		<div className='grid gap-4'>
-			{isAdmin && <LlmAccessModeControl />}
+			{isAdmin && <LlmAccessModeSummary />}
 
 			{managedCreditStatus.data?.enabled && (
 				<ProviderCard
