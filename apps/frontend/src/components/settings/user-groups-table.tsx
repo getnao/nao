@@ -174,7 +174,8 @@ function UserGroupsContent({
 				)}
 				{tab === 'users' && (
 					<ProjectUsersTable
-						canManage={!codeManaged}
+						canManage
+						groupsReadOnly={codeManaged}
 						projectUsers={projectUsers}
 						organizationUsers={organizationUsers}
 						groups={activeGroups}

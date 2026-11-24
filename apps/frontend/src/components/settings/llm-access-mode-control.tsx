@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Switch } from '@/components/ui/switch';
@@ -11,7 +12,6 @@ import { trpc } from '@/main';
 
 export function LlmAccessModeControl() {
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
 	const [confirmActivation, setConfirmActivation] = useState(false);
 	const license = useLicenseFeatures();
 	const readiness = useQuery(trpc.project.getLlmAccessReadiness.queryOptions());
@@ -26,13 +26,13 @@ export function LlmAccessModeControl() {
 					queryClient.invalidateQueries({
 						queryKey: trpc.project.listAvailableTranscribeModels.queryOptions().queryKey,
 					}),
+					queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryOptions().queryKey }),
 				]);
 			},
 		}),
 	);
 	const isLicensed = license.data?.['user-groups'] === true;
 	const isRestricted = readiness.data?.mode === 'user_group';
-	const canEnable = readiness.data?.canEnable === true;
 	const disabled = license.isLoading || readiness.isLoading || updateMode.isPending || (!isLicensed && !isRestricted);
 	const warning = readiness.data ? describeReadiness(readiness.data) : null;
 	const showWarning = warning && isRestricted;
@@ -48,7 +48,9 @@ export function LlmAccessModeControl() {
 						{!license.isLoading && !isLicensed && <UpgradeToEnterprise />}
 					</div>
 					<p className='mt-1 text-xs text-muted-foreground'>
-						When enabled, users only see models from credentials assigned to their groups.
+						{isRestricted
+							? 'Members only see models from credentials assigned to their groups. Applies to every group.'
+							: 'Off: every member can use every model. Turn on to choose models per group.'}
 					</p>
 				</div>
 				<Switch
@@ -72,36 +74,57 @@ export function LlmAccessModeControl() {
 			<ConfirmationDialog
 				open={confirmActivation}
 				onOpenChange={setConfirmActivation}
-				title={canEnable ? 'Restrict model access by user group?' : 'Set up LLM access first'}
+				title='Restrict model access by user group?'
 				description={
-					canEnable
-						? `${warning ? `${warning} ` : ''}Each user will only be able to run models assigned through their groups.`
-						: (warning ?? 'Assign an active LLM credential to a user group before enabling restrictions.')
+					readiness.data?.assignedConfigCount === 0
+						? describeAllUsersSeeding(readiness.data.ignoredProviderIds.length)
+						: `${warning ? `${warning} ` : ''}Each user will only be able to run models assigned through their groups.`
 				}
-				confirmLabel={canEnable ? 'Enable restrictions' : 'Go to Users & Groups'}
+				confirmLabel='Enable restrictions'
 				confirmVariant='default'
 				isPending={updateMode.isPending}
 				error={updateMode.error?.message}
 				preventCloseWhilePending
-				onConfirm={() => {
-					if (canEnable) {
-						updateMode.mutate({ mode: 'user_group' });
-					} else {
-						setConfirmActivation(false);
-						void navigate({
-							to: '/settings/project/user-groups',
-							search: { tab: 'groups' },
-						});
-					}
-				}}
+				onConfirm={() => updateMode.mutate({ mode: 'user_group' })}
 			/>
 		</section>
 	);
 }
 
+export function LlmAccessModeSummary() {
+	const readiness = useQuery(trpc.project.getLlmAccessReadiness.queryOptions());
+	if (!readiness.data) {
+		return null;
+	}
+	return (
+		<section className='flex flex-col gap-1 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:p-4'>
+			<span>
+				<span className='font-medium'>Model access: </span>
+				<span className='text-muted-foreground'>
+					{readiness.data.mode === 'user_group' ? 'restricted by user group' : 'every member, every model'}
+				</span>
+			</span>
+			<Button variant='secondary' size='sm' className='w-fit' asChild>
+				<Link to='/settings/project/user-groups' search={{ tab: 'groups' }}>
+					Manage in Users & Groups
+				</Link>
+			</Button>
+		</section>
+	);
+}
+
+function describeAllUsersSeeding(ignoredProviderCount: number): string {
+	const lostProviders =
+		ignoredProviderCount > 0
+			? ` Models from ${ignoredProviderCount} ${ignoredProviderCount === 1 ? 'provider' : 'providers'} not saved as project credentials will stop being available.`
+			: '';
+	return `All Users will start with every project credential, so members keep those models.${lostProviders} Then remove models from All Users to reserve them for specific groups.`;
+}
+
 function describeReadiness(readiness: {
 	mode: 'project' | 'user_group';
 	canEnable: boolean;
+	assignedConfigCount: number;
 	staleConfigIds: string[];
 	unassignedGroupIds: string[];
 	userIdsWithoutModels: string[];

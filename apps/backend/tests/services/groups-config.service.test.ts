@@ -6,15 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { GroupsConfigError, parseGroupsConfig } from '../../src/services/groups-config.service';
 
 describe('groups config', () => {
-	it('parses the documented complete example', () => {
-		const documentation = fs.readFileSync(
-			path.resolve(import.meta.dirname, '../../../../.cursor/docs/GROUPS_AS_CODE.md'),
-			'utf8',
-		);
-		const source = /## Appendix:[\s\S]*?```yaml\n([\s\S]*?)```/.exec(documentation)?.[1];
+	it('parses the complete example', () => {
+		const source = fs.readFileSync(path.resolve(import.meta.dirname, '../fixtures/groups.yaml'), 'utf8');
 
-		expect(source).toBeDefined();
-		expect(parseGroupsConfig(source!)).toMatchObject({
+		expect(parseGroupsConfig(source)).toMatchObject({
 			groups: [
 				{ configId: 'finance', name: 'Finance' },
 				{ configId: 'leadership', name: 'Leadership' },

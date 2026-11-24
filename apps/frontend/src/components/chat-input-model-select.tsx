@@ -137,7 +137,6 @@ export function ChatInputModelSelect({
 			)}
 			<span className={cn('flex min-w-0 items-center gap-2', selectedModel && '@max-xs:sr-only')}>
 				<span className='truncate'>{selectedModelName}</span>
-				{selectedModel && <ModelSourceHint model={selectedAvailableModel ?? selectedModel} />}
 			</span>
 		</>
 	);
@@ -189,15 +188,9 @@ export function ChatInputModelSelect({
 									<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
 										{selectedModelName}
 									</span>
-									{usesDefaultModel
-										? resolvedModelName && (
-												<span className='truncate text-muted-foreground'>
-													{resolvedModelName}
-												</span>
-											)
-										: selectedModel && (
-												<ModelSourceHint model={selectedAvailableModel ?? selectedModel} />
-											)}
+									{usesDefaultModel && resolvedModelName && (
+										<span className='truncate text-muted-foreground'>{resolvedModelName}</span>
+									)}
 								</span>
 							</div>
 						</SelectValue>

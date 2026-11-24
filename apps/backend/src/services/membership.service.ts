@@ -8,6 +8,7 @@ import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { cleanupContextWorktree } from './context-explorer-git.service';
 import { recordOrganizationJoinCandidate, recordProjectJoinCandidate } from './credit-grant.service';
+import { reconcileGroupsMembershipsForUser } from './groups-config-apply.service';
 import { addProjectMemberWithUserGroups } from './project-user-group-membership.service';
 
 export async function addOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
@@ -114,6 +115,7 @@ async function createOrganizationMember(member: NewOrgMember): Promise<DBOrgMemb
 async function persistOrganizationMember<T>(member: NewOrgMember, persist: () => Promise<T>): Promise<T> {
 	const created = await persist();
 	await recordOrganizationJoinCandidate(member.orgId, member.userId);
+	await reconcileGroupsMembershipsForUser(member.userId);
 	return created;
 }
 
@@ -122,6 +124,7 @@ async function createProjectMember(member: NewProjectMember, groupIds: string[] 
 		? await addProjectMemberWithUserGroups(member, groupIds)
 		: await projectQueries.addProjectMember(member);
 	await recordProjectJoinCandidate(member.projectId, member.userId);
+	await reconcileGroupsMembershipsForUser(member.userId);
 	return created;
 }
 

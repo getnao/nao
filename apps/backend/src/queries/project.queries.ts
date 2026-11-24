@@ -39,7 +39,7 @@ import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectM
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { isCloud } from '../env';
+import { env, isCloud } from '../env';
 import { getActiveProjectPaths, isSelfHostedMultiProjectEnabled } from '../services/multi-project.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
@@ -139,6 +139,30 @@ export const deleteProject = async (projectId: string): Promise<void> => {
 	await db.delete(s.project).where(eq(s.project.id, projectId)).execute();
 };
 
+export const updateProjectDeactivatedAt = async (projectId: string, deactivatedAt: Date | null): Promise<void> => {
+	await db.update(s.project).set({ deactivatedAt }).where(eq(s.project.id, projectId)).execute();
+};
+
+/** A cloud project is deactivated from the backoffice, on its own or through its organization. */
+export const isProjectDeactivated = async (projectId: string): Promise<boolean> => {
+	if (env.NAO_MODE !== 'cloud') {
+		return false;
+	}
+	const [project] = await db
+		.select({ id: s.project.id })
+		.from(s.project)
+		.leftJoin(s.organization, eq(s.organization.id, s.project.orgId))
+		.where(
+			and(
+				eq(s.project.id, projectId),
+				or(isNotNull(s.project.deactivatedAt), isNotNull(s.organization.deactivatedAt)),
+			),
+		)
+		.limit(1)
+		.execute();
+	return Boolean(project);
+};
+
 export const getProjectMember = async (projectId: string, userId: string): Promise<DBProjectMember | null> => {
 	const [member] = await db
 		.select()
@@ -186,7 +210,7 @@ export const listProjectMembershipsForUser = async (
 		.execute();
 };
 
-/** `includeInactive` also returns self-hosted projects the instance no longer serves, for cleanups. */
+/** `includeInactive` also returns deactivated projects and self-hosted ones the instance no longer serves, for cleanups. */
 export type ListUserProjectsOptions = { includeInactive?: boolean };
 
 export const listUserProjectsWithRoles = async (
@@ -205,7 +229,7 @@ export const listUserProjectsWithRoles = async (
 			and(
 				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
 				or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)),
-				includeInactive ? undefined : await selfHostedActiveProjectsFilter(),
+				includeInactive ? undefined : await activeProjectsFilter(),
 			),
 		)
 		.orderBy(asc(s.project.name))
@@ -213,11 +237,27 @@ export const listUserProjectsWithRoles = async (
 	return results;
 };
 
+async function activeProjectsFilter(): Promise<SQL | undefined> {
+	return and(notDeactivatedProjectsFilter(), await selfHostedServedProjectsFilter());
+}
+
+function notDeactivatedProjectsFilter(): SQL | undefined {
+	return and(
+		isNull(s.project.deactivatedAt),
+		notExists(
+			db
+				.select({ id: s.organization.id })
+				.from(s.organization)
+				.where(and(eq(s.organization.id, s.project.orgId), isNotNull(s.organization.deactivatedAt))),
+		),
+	);
+}
+
 /**
  * Self-hosted instances only list the projects they currently serve, so projects whose path was
  * removed, or that a lapsed multi-project license no longer covers, stay hidden.
  */
-async function selfHostedActiveProjectsFilter(): Promise<SQL | undefined> {
+async function selfHostedServedProjectsFilter(): Promise<SQL | undefined> {
 	if (isCloud) {
 		return undefined;
 	}
@@ -240,6 +280,9 @@ export const getUserRoleInProject = async (projectId: string, userId: string): P
 };
 
 export const getActualUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
+	if (await isProjectDeactivated(projectId)) {
+		return null;
+	}
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;

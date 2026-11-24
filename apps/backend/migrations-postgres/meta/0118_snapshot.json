@@ -1,5 +1,5 @@
 {
-  "id": "73a7b221-d82b-4134-81d6-7b48f4e8f1b2",
+  "id": "8f6e48e7-d906-4ebb-a6e9-d674c761bcfa",
   "prevId": "2bc91040-d2ef-4463-9c92-aa1289f1c758",
   "version": "7",
   "dialect": "postgresql",
@@ -7123,6 +7123,12 @@
           "notNull": true,
           "default": true
         },
+        "deactivated_at": {
+          "name": "deactivated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -7453,8 +7459,8 @@
           "notNull": true,
           "default": 0
         },
-        "user_groups_config_applied_at": {
-          "name": "user_groups_config_applied_at",
+        "deactivated_at": {
+          "name": "deactivated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
@@ -12297,24 +12303,6 @@
           "notNull": true,
           "default": false
         },
-        "config_id": {
-          "name": "config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "member_emails": {
-          "name": "member_emails",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "feature_grants": {
           "name": "feature_grants",
           "type": "jsonb",
@@ -12431,14 +12419,6 @@
           "columns": [
             "project_id",
             "name"
-          ]
-        },
-        "user_group_project_config_id_unique": {
-          "name": "user_group_project_config_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "project_id",
-            "config_id"
           ]
         }
       },

@@ -68,7 +68,8 @@ function UserGroupDetailPage() {
 			<h2 className='text-lg font-semibold text-foreground'>{group === 'new' ? 'New group' : group.name}</h2>
 			{readOnly && (
 				<p className='rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground'>
-					This group is managed by groups.yaml. Edit and deploy that file to make changes.
+					This group is managed by groups.yaml. Edit and deploy that file to make changes. LLM access and
+					budgets stay editable here.
 				</p>
 			)}
 			<UserGroupEditor

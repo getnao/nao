@@ -34,6 +34,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
+import { getDecisionKeysByLlmProvider } from '../services/decision.service';
 import {
 	type DefaultModelsOverview,
 	getDefaultModelsOverview,
@@ -63,6 +64,7 @@ import {
 	getAvailableModelsForUser,
 	getDefaultChatModelForUser,
 	getLlmAccessReadiness,
+	seedAllUsersLlmAccess,
 } from '../services/user-group-llm-access.service';
 import {
 	getProjectWarehouseCredentialsSummary,
@@ -340,12 +342,19 @@ export const projectRoutes = {
 				),
 				configProviders: z.array(configLlmProviderSchema),
 				envProviders: z.array(llmProviderSchema),
+				decisionKeyProviders: z.array(llmProviderSchema),
 				envBaseUrls: z.record(z.string(), z.string()),
 			}),
 		)
 		.query(async ({ ctx }) => {
 			if (!ctx.project) {
-				return { projectConfigs: [], configProviders: [], envProviders: [], envBaseUrls: {} };
+				return {
+					projectConfigs: [],
+					configProviders: [],
+					envProviders: [],
+					decisionKeyProviders: [],
+					envBaseUrls: {},
+				};
 			}
 
 			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
@@ -388,7 +397,13 @@ export const projectRoutes = {
 				(provider) => !configProviders.some((p) => p.provider === provider),
 			);
 
-			return { projectConfigs, configProviders, envProviders, envBaseUrls: getEnvBaseUrls() };
+			return {
+				projectConfigs,
+				configProviders,
+				envProviders,
+				decisionKeyProviders: [...(await getDecisionKeysByLlmProvider(ctx.project.id)).keys()],
+				envBaseUrls: getEnvBaseUrls(),
+			};
 		}),
 
 	getLlmAccessReadiness: adminProtectedProcedure.query(({ ctx }) => {
@@ -406,6 +421,9 @@ export const projectRoutes = {
 					code: 'FORBIDDEN',
 					message: 'An Enterprise user-groups license is required to configure group LLM access.',
 				});
+			}
+			if (input.mode === 'user_group') {
+				await seedAllUsersLlmAccess(ctx.project.id);
 			}
 			if (input.mode === 'user_group' && !(await getLlmAccessReadiness(ctx.project.id)).canEnable) {
 				throw new TRPCError({
@@ -468,6 +486,7 @@ export const projectRoutes = {
 				? null
 				: findConfigLlmProvider(await getProjectConfigLlm(ctx.project.id), input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
+			const decisionApiKey = (await getDecisionKeysByLlmProvider(ctx.project.id)).get(input.provider);
 
 			const hasNewCredentials = Object.values(input.credentials ?? {}).some(Boolean);
 			const hasReplacementCredentials =
@@ -499,6 +518,8 @@ export const projectRoutes = {
 				apiKey = inheritedConfig.apiKey;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
+			} else if (decisionApiKey) {
+				apiKey = decisionApiKey;
 			} else if (getProviderAuth(input.provider).apiKey !== 'required') {
 				apiKey = '';
 			} else {

@@ -8,6 +8,7 @@ import type {
 } from '@nao/shared';
 import { stringify } from 'yaml';
 
+import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getFilesContextCatalog } from './file-tree-catalog.service';
 import { ALL_USERS_GROUP_ID, assignConfigIds, toSnakeCase } from './groups-config.service';
@@ -15,9 +16,10 @@ import { ALL_USERS_GROUP_ID, assignConfigIds, toSnakeCase } from './groups-confi
 type ExportedSection = Record<string, unknown>;
 
 export async function exportGroupsConfig(projectId: string, projectPath: string): Promise<string> {
-	const [groups, overview] = await Promise.all([
+	const [groups, users, manualMemberships] = await Promise.all([
 		userGroupQueries.listUserGroups(projectId),
-		userGroupQueries.getUserGroupOverview(projectId),
+		projectQueries.listUsersWithProjectAccess(projectId),
+		userGroupQueries.listUserGroupMemberships(projectId),
 	]);
 	const allUsers = groups.find((group) => group.isDefault);
 	if (!allUsers) {
@@ -25,9 +27,9 @@ export async function exportGroupsConfig(projectId: string, projectPath: string)
 	}
 	const customGroups = groups.filter((group) => !group.isDefault);
 	const configIdsByGroupId = assignConfigIds(customGroups);
-	const emailsByUserId = new Map(overview.users.map((user) => [user.id, user.email.trim().toLowerCase()]));
+	const emailsByUserId = new Map(users.map((user) => [user.id, user.email.trim().toLowerCase()]));
 	const membershipEmails = new Map<string, Set<string>>();
-	for (const membership of overview.memberships) {
+	for (const membership of manualMemberships) {
 		const email = emailsByUserId.get(membership.userId);
 		if (email) {
 			membershipEmails.set(

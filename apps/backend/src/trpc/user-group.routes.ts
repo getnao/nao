@@ -513,7 +513,21 @@ export const userGroupRoutes = {
 			return group;
 		}),
 
-	updateLlmAccess: uiManagedGroupsAdminProcedure
+	updateBudget: groupsLockedAdminProcedure
+		.input(
+			z.object({
+				groupId: z.string().min(1),
+				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			await assertGroupBudgetEditable(ctx.project.id, input);
+			await saveGroupBudget(ctx.project.id, input.groupId, input);
+		}),
+
+	updateLlmAccess: groupsLockedAdminProcedure
 		.input(
 			z.object({
 				groupId: z.string().min(1),
@@ -731,15 +745,19 @@ async function assertCodeManagedRowPoliciesRemainValid(
 	if (!(await groupsConfigQueries.isGroupsConfigManaged(projectId))) {
 		return;
 	}
+	const current = await userGroupQueries.getProjectRowSecurity(projectId);
+	const currentTables = new Map(current.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]));
 	const tables = new Map(rowSecurity.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]));
 	for (const group of await userGroupQueries.listUserGroups(projectId)) {
 		for (const policy of group.rowPolicies.policies) {
-			const columns = tables.get(rowSecurityTableKey(policy));
+			const key = rowSecurityTableKey(policy);
+			const columns = tables.get(key);
 			const isValid =
 				columns !== undefined &&
 				(policy.access === 'full' ||
-					policy.mode === 'sql' ||
-					policy.conditions.every(({ column }) => columns.includes(column)));
+					(policy.mode === 'sql'
+						? (currentTables.get(key) ?? []).every((column) => columns.includes(column))
+						: policy.conditions.every(({ column }) => columns.includes(column))));
 			if (!isValid) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',

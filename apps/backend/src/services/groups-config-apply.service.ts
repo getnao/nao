@@ -14,6 +14,7 @@ import {
 import type { DBProject, NewProject, NewUserGroup } from '../db/abstractSchema';
 import { env, isCloud } from '../env';
 import * as groupsConfigQueries from '../queries/groups-config.queries';
+import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
@@ -122,7 +123,8 @@ export async function createProjectWithGroupsConfig(
 	actorUserId: string | null,
 ): Promise<DBProject> {
 	const projectWithId = { ...project, id: project.id ?? crypto.randomUUID() };
-	const plan = buildNewProjectWritePlan(projectWithId.id, config, actorUserId);
+	const orgMembers = project.orgId ? await orgQueries.listOrgMembersWithUsers(project.orgId) : [];
+	const plan = buildNewProjectWritePlan(projectWithId.id, config, actorUserId, orgMembers);
 	return groupsConfigQueries.createProjectWithGroupsConfig(projectWithId, plan);
 }
 
@@ -342,9 +344,11 @@ function buildNewProjectWritePlan(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
 	actorUserId: string | null,
+	orgMembers: Array<{ id: string; email: string }>,
 ): groupsConfigQueries.GroupsConfigWritePlan {
 	const allUsersId = crypto.randomUUID();
 	const idsByConfigId = new Map(config.groups.map((group) => [group.configId, crypto.randomUUID()]));
+	const usersByEmail = new Map(orgMembers.map((member) => [member.email.trim().toLowerCase(), member.id]));
 	return {
 		projectId,
 		actorUserId,
@@ -366,7 +370,7 @@ function buildNewProjectWritePlan(
 					ssoMappings: serializeUserGroupSsoMappings(desired.ssoMappings),
 					...storedSettings(desired, idsByConfigId),
 				},
-				memberUserIds: [],
+				memberUserIds: desired.memberEmails.flatMap((email) => usersByEmail.get(email) ?? []),
 				changedSsoProviders: [],
 			};
 		}),

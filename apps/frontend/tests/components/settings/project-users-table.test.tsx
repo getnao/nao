@@ -276,6 +276,26 @@ describe('ProjectUsersTable member management', () => {
 		expect(screen.queryByRole('menuitem', { name: 'Reset password' })).toBeNull();
 	});
 
+	it('keeps member management but locks group assignment when groups.yaml owns the groups', async () => {
+		stubScrollIntoView();
+		renderTable(vi.fn(), new Set(), [admin, projectUser], true);
+
+		expect(screen.queryByRole('checkbox', { name: 'Select all users' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove group Analysts' })).toBeNull();
+		openDropdownMenu(/Manage groups for Project User/);
+		expect(screen.getByRole('menuitemcheckbox', { name: 'Finance' }).getAttribute('aria-disabled')).toBe('true');
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
+		fireEvent.change(screen.getByLabelText('Emails'), { target: { value: 'person@example.com' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+
+		await waitFor(() =>
+			expect(mocks.addUser).toHaveBeenCalledWith({ members: [{ email: 'person@example.com' }], groupIds: [] }),
+		);
+	});
+
 	it('hides the reset password action in cloud mode', () => {
 		mocks.useQuery.mockReturnValue({ data: { naoMode: 'cloud' } });
 		renderTable();
@@ -532,10 +552,16 @@ function selectGroupFilter(optionName: string) {
 	fireEvent.click(screen.getByRole('option', { name: optionName }));
 }
 
-function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>(), projectUsers = [admin, projectUser]) {
+function renderTable(
+	onOpenUser = vi.fn(),
+	ssoMembershipKeys = new Set<string>(),
+	projectUsers = [admin, projectUser],
+	groupsReadOnly = false,
+) {
 	return render(
 		<ProjectUsersTable
 			canManage
+			groupsReadOnly={groupsReadOnly}
 			projectUsers={projectUsers}
 			organizationUsers={[organizationUser]}
 			groups={groups}

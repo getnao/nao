@@ -15,10 +15,7 @@ import { cleanupContextWorktree } from '../services/context-explorer-git.service
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
 import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
-import {
-	CODE_MANAGED_GROUPS_MESSAGE,
-	reconcileGroupsMembershipsForUser,
-} from '../services/groups-config-apply.service';
+import { CODE_MANAGED_GROUPS_MESSAGE } from '../services/groups-config-apply.service';
 import { addProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { addTeamMembers } from '../services/team-member';
@@ -122,7 +119,6 @@ export const userRoutes = {
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
 					await addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);
-					await reconcileGroupsMembershipsForUser(userId);
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.project.name, 'project', password, ctx.user.email),

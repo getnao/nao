@@ -39,6 +39,7 @@ import { db } from '../../src/db/db';
 import {
 	activity,
 	organization,
+	orgMember,
 	project,
 	projectMember,
 	user,
@@ -155,6 +156,23 @@ groups:
 		expect(await applyProjectGroupsFile(PROJECT_ID, projectPath, USER_ID)).toBe(true);
 	});
 
+	it('exports only manual memberships as emails before the project switches to code', async () => {
+		const ssoUserId = 'sso-user';
+		await db.insert(user).values({ id: ssoUserId, name: 'Bob', email: 'bob@example.com' });
+		await db.insert(projectMember).values({ projectId: PROJECT_ID, userId: ssoUserId, role: 'user' });
+		await db
+			.insert(userGroup)
+			.values({ id: 'ui-finance', projectId: PROJECT_ID, name: 'Finance', isDefault: false });
+		await db.insert(userGroupMember).values([
+			{ groupId: 'ui-finance', userId: USER_ID, provider: 'manual' },
+			{ groupId: 'ui-finance', userId: ssoUserId, provider: 'oidc' },
+		]);
+
+		const exported = parseGroupsConfig(await exportGroupsConfig(PROJECT_ID, projectPath));
+
+		expect(exported.groups[0].memberEmails).toEqual(['alice@example.com']);
+	});
+
 	it('archives unlisted groups and reactivates the same row when its id returns', async () => {
 		const existingId = 'existing-finance';
 		await db.insert(userGroup).values({
@@ -176,6 +194,7 @@ groups:
 
 	it('creates a new project and its configured groups atomically', async () => {
 		const newProjectId = 'new-groups-config-project';
+		await db.insert(orgMember).values({ orgId: 'groups-config-org', userId: USER_ID, role: 'user' });
 		const created = await createProjectWithGroupsConfig(
 			{
 				id: newProjectId,
@@ -189,19 +208,23 @@ groups:
     - id: all_users
     - id: finance
       name: Finance
-      list_of_emails: [pending@example.com]
+      list_of_emails: [alice@example.com, pending@example.com]
 `),
 			USER_ID,
 		);
 
 		expect(created.id).toBe(newProjectId);
-		expect(await db.select().from(userGroup).where(eq(userGroup.projectId, newProjectId))).toEqual([
+		const groups = await db.select().from(userGroup).where(eq(userGroup.projectId, newProjectId));
+		expect(groups).toEqual([
 			expect.objectContaining({ isDefault: true, configId: 'all_users' }),
 			expect.objectContaining({
 				isDefault: false,
 				configId: 'finance',
-				memberEmails: ['pending@example.com'],
+				memberEmails: ['alice@example.com', 'pending@example.com'],
 			}),
+		]);
+		expect(await db.select().from(userGroupMember).where(eq(userGroupMember.groupId, groups[1].id))).toEqual([
+			expect.objectContaining({ userId: USER_ID, provider: 'manual' }),
 		]);
 		expect(await db.select().from(activity).where(eq(activity.projectId, newProjectId))).toEqual([
 			expect.objectContaining({ type: 'user_group.config_applied', status: 'completed' }),

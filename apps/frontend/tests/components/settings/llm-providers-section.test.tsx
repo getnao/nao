@@ -24,7 +24,7 @@ vi.mock('@/main', () => ({
 	},
 }));
 vi.mock('@/components/settings/llm-access-mode-control', () => ({
-	LlmAccessModeControl: () => null,
+	LlmAccessModeSummary: () => null,
 }));
 
 describe('LlmProvidersSection', () => {

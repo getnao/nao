@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2bdfa5d9-506e-4567-91db-1d793551ae94",
+  "id": "cadcdcfa-8ff5-4e18-ae75-b29b87bd95cf",
   "prevId": "f3b83e24-6f8b-48ce-9e3a-e70fff578fa3",
   "tables": {
     "account": {
@@ -6518,6 +6518,13 @@
           "autoincrement": false,
           "default": true
         },
+        "deactivated_at": {
+          "name": "deactivated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6885,8 +6892,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "user_groups_config_applied_at": {
-          "name": "user_groups_config_applied_at",
+        "deactivated_at": {
+          "name": "deactivated_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -11469,27 +11476,6 @@
           "autoincrement": false,
           "default": false
         },
-        "config_id": {
-          "name": "config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "member_emails": {
-          "name": "member_emails",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "feature_grants": {
           "name": "feature_grants",
           "type": "text",
@@ -11580,14 +11566,6 @@
           "columns": [
             "project_id",
             "name"
-          ],
-          "isUnique": true
-        },
-        "user_group_project_config_id_unique": {
-          "name": "user_group_project_config_id_unique",
-          "columns": [
-            "project_id",
-            "config_id"
           ],
           "isUnique": true
         }

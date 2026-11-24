@@ -101,7 +101,10 @@ vi.mock('@/main', () => ({
 		},
 		project: {
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
-			getLlmAccessReadiness: { queryKey: vi.fn(() => ['llm-access-readiness']) },
+			getLlmAccessReadiness: {
+				queryKey: vi.fn(() => ['llm-access-readiness']),
+				queryOptions: vi.fn(() => ({ queryKey: ['llm-access-readiness'] })),
+			},
 			getLlmConfigs: { queryOptions: vi.fn(() => ({ queryKey: ['llm-configs'] })) },
 			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
 			removeProjectMember: { mutationOptions: vi.fn() },
@@ -163,6 +166,7 @@ vi.mock('@/main', () => ({
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
 			updateLlmAccess: { mutationOptions: vi.fn() },
+			updateBudget: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
 		},
 	},
@@ -171,6 +175,9 @@ vi.mock('@/main', () => ({
 			exportConfig: { query: vi.fn() },
 		},
 	},
+}));
+vi.mock('@/components/settings/llm-access-mode-control', () => ({
+	LlmAccessModeControl: () => null,
 }));
 vi.mock('@/components/settings/tool-call-density-slider', () => ({
 	ToolCallDensitySlider: ({
@@ -440,6 +447,9 @@ beforeEach(() => {
 	});
 	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
 		const queryKey = options?.queryKey?.[0];
+		if (queryKey === 'llm-access-readiness') {
+			return { isLoading: false, isError: false, data: { mode: 'user_group' } };
+		}
 		if (queryKey === 'effective-oidc-env-mappings' || queryKey === 'effective-microsoft-env-mappings') {
 			return { isLoading: false, isError: false, isSuccess: true, data: [], refetch: vi.fn() };
 		}

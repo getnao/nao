@@ -17,6 +17,7 @@ from nao_core.ui import UI, ask_confirm, ask_select
 
 from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
+from .decision import DecisionConfig
 from .error_handler import format_all_validation_errors, format_validation_error
 from .file_references import FileReferences, resolve_file_references, validate_project_file
 from .llm import LLMConfig
@@ -46,6 +47,7 @@ class NaoConfigError(Exception):
 # unset env('...') secret — is ignored with a warning instead of failing the run.
 OPTIONAL_SECTIONS = (
     "llm",
+    "decision",
     "slack",
     "notion",
     "confluence",
@@ -71,6 +73,9 @@ class NaoConfig(BaseModel):
     confluence: ConfluenceConfig | None = Field(default=None, description="The Confluence configuration")
     obsidian: ObsidianConfig | None = Field(default=None, description="The Obsidian configuration")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
+    decision: DecisionConfig | None = Field(
+        default=None, description="The decision (System 1) models the chat app can ask"
+    )
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
     metabase: MetabaseConfig | None = Field(default=None, description="The Metabase configuration")

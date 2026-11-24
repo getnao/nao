@@ -253,6 +253,7 @@ export function UserGroupEditor({
 	const previousGroupRef = useRef(editorGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
+	const updateBudget = useMutation(trpc.userGroup.updateBudget.mutationOptions());
 	const { mutateAsync: updateLlmAccess } = useMutation(trpc.userGroup.updateLlmAccess.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
 	const licenseFeatures = useLicenseFeatures();
@@ -578,6 +579,10 @@ export function UserGroupEditor({
 
 	const handleSave = async () => {
 		setFormError(null);
+		if (readOnly) {
+			await saveGroup();
+			return;
+		}
 		if (needsColumnSecurityMetadata && columnSecurityState !== 'ready') {
 			onTabChange('context');
 			return;
@@ -619,7 +624,10 @@ export function UserGroupEditor({
 			...(hasGroupSharedBudgetChanges ? { sharedBudgetLimitUsd: groupSharedBudgetUsd } : {}),
 		};
 		try {
-			if (existingGroup) {
+			if (readOnly && existingGroup) {
+				await updateBudget.mutateAsync({ groupId: existingGroup.id, ...budgetInput });
+				await invalidateUserGroupQueries(queryClient);
+			} else if (existingGroup) {
 				await updateGroup.mutateAsync({
 					groupId: existingGroup.id,
 					...(existingGroup.isDefault ? {} : { name }),
@@ -735,7 +743,10 @@ export function UserGroupEditor({
 						idBase='user-group-editor'
 						className='overflow-x-auto overflow-y-hidden border-b'
 					/>
-					<fieldset disabled={readOnly} className='contents'>
+					<fieldset
+						disabled={readOnly && activeTab !== 'llm-access' && activeTab !== 'budget'}
+						className='contents'
+					>
 						<TabPanel idBase='user-group-editor' tabId={activeTab} className='pt-5'>
 							{activeTab === 'features' && (
 								<UserGroupFeatures
@@ -781,6 +792,7 @@ export function UserGroupEditor({
 											? {}
 											: allUsersGroup.llmModelIdsByConfig
 									}
+									allUsersGroupId={existingGroup?.isDefault ? undefined : allUsersGroup?.id}
 									isLicensed={hasUserGroupsLicense}
 									autoSave={existingGroup !== null}
 									saveStatus={llmAccessSaveStatus}
@@ -972,37 +984,31 @@ export function UserGroupEditor({
 					</fieldset>
 				</div>
 				{formError && <p className='text-sm text-destructive'>{formError}</p>}
-				{!readOnly && (
-					<div className='flex flex-wrap justify-between gap-2'>
-						{existingGroup && !existingGroup.isDefault ? (
-							<Button
-								variant='destructive'
-								className='rounded-full'
-								onClick={() => setConfirmDelete(true)}
-							>
-								Delete group
+				<div className='flex flex-wrap justify-between gap-2'>
+					{!readOnly && existingGroup && !existingGroup.isDefault ? (
+						<Button variant='destructive' className='rounded-full' onClick={() => setConfirmDelete(true)}>
+							Delete group
+						</Button>
+					) : (
+						<span />
+					)}
+					{(readOnly ? hasGroupBudgetChanges || hasGroupSharedBudgetChanges : hasUnsavedChanges) && (
+						<div className='ml-auto flex gap-2'>
+							<Button variant='ghost' className='rounded-full border' onClick={handleCancel}>
+								Cancel
 							</Button>
-						) : (
-							<span />
-						)}
-						{hasUnsavedChanges && (
-							<div className='ml-auto flex gap-2'>
-								<Button variant='ghost' className='rounded-full border' onClick={handleCancel}>
-									Cancel
-								</Button>
-								<Button
-									variant='primary-gradient'
-									className='rounded-full'
-									onClick={handleSave}
-									disabled={!existingGroup?.isDefault && name.trim().length === 0}
-									isLoading={createGroup.isPending || updateGroup.isPending}
-								>
-									Save
-								</Button>
-							</div>
-						)}
-					</div>
-				)}
+							<Button
+								variant='primary-gradient'
+								className='rounded-full'
+								onClick={handleSave}
+								disabled={!existingGroup?.isDefault && name.trim().length === 0}
+								isLoading={createGroup.isPending || updateGroup.isPending || updateBudget.isPending}
+							>
+								Save
+							</Button>
+						</div>
+					)}
+				</div>
 			</div>
 
 			<ConfirmationDialog
