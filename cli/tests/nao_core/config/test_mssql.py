@@ -133,6 +133,12 @@ def test_service_principal_reuses_fabric_entra_id_connection_string():
     assert "PWD=my-secret" in odbc
 
 
+def test_entra_id_connection_string_trusts_server_certificate_when_enabled():
+    config = _service_principal_config(driver="ODBC Driver 18 for SQL Server", trust_server_certificate=True)
+
+    assert "TrustServerCertificate=yes" in config._to_entra_id_config().build_odbc_string()
+
+
 def test_entra_id_connect_delegates_to_fabric_connection(monkeypatch: pytest.MonkeyPatch):
     connected: list[FabricConfig] = []
     monkeypatch.setattr("nao_core.deps.require_database_backend", lambda *args, **kwargs: None)
@@ -163,16 +169,37 @@ def test_service_principal_with_tenant_injects_tenant_scoped_token(monkeypatch: 
     assert fabric_config.tenant_id is None
 
 
-def test_sql_password_connect_uses_ibis_mssql_backend(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize(
+    ("overrides", "odbc_options"),
+    [
+        pytest.param({}, {}, id="default"),
+        pytest.param(
+            {"trust_server_certificate": True}, {"TrustServerCertificate": "yes"}, id="trust_server_certificate"
+        ),
+    ],
+)
+def test_sql_password_connect_uses_ibis_mssql_backend(
+    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any], odbc_options: dict[str, str]
+):
     calls: list[dict] = []
     fake_ibis = SimpleNamespace(mssql=SimpleNamespace(connect=lambda **kwargs: calls.append(kwargs) or "connection"))
     monkeypatch.setattr("nao_core.deps.require_database_backend", lambda *args, **kwargs: None)
     monkeypatch.setitem(sys.modules, "ibis", fake_ibis)
-    config = MssqlConfig(name="onprem", host="localhost", database="db", user="sa", password="secret", driver="FreeTDS")
+    config = MssqlConfig(
+        name="onprem", host="localhost", database="db", user="sa", password="secret", driver="FreeTDS", **overrides
+    )
 
     assert config.connect() == "connection"
     assert calls == [
-        {"host": "localhost", "port": 1433, "database": "db", "user": "sa", "password": "secret", "driver": "FreeTDS"}
+        {
+            "host": "localhost",
+            "port": 1433,
+            "database": "db",
+            "user": "sa",
+            "password": "secret",
+            "driver": "FreeTDS",
+            **odbc_options,
+        }
     ]
 
 

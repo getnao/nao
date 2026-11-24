@@ -114,6 +114,10 @@ class MssqlConfig(DatabaseConfig):
         description="ODBC driver (FreeTDS on Mac/Linux, ODBC Driver 18 for SQL Server on Windows or with Entra ID)",
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'dbo' if not set)")
+    trust_server_certificate: bool = Field(
+        default=False,
+        description="Skip server certificate validation (e.g. for private endpoints whose certificate names another host)",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -194,6 +198,7 @@ class MssqlConfig(DatabaseConfig):
 
         import ibis
 
+        odbc_options = {"TrustServerCertificate": "yes"} if self.trust_server_certificate else {}
         return ibis.mssql.connect(
             host=self.host,
             port=self.port,
@@ -201,6 +206,7 @@ class MssqlConfig(DatabaseConfig):
             user=self.user,
             password=self.password,
             driver=self.driver,
+            **odbc_options,
         )
 
     def _connect_with_tenant_service_principal(self) -> BaseBackend:
@@ -225,6 +231,7 @@ class MssqlConfig(DatabaseConfig):
             client_id=self.client_id,
             client_secret=self.client_secret,
             driver=self.driver,
+            trust_server_certificate=self.trust_server_certificate,
         )
 
     def get_database_name(self) -> str:
