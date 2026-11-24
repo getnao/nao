@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
 	isReadonly: false,
 	messages: [] as UIMessage[],
 	mutate: vi.fn(),
+	submitFails: false,
+	isSubmitError: false,
 }));
 
 const hiddenCases: Array<
@@ -37,7 +39,30 @@ const hiddenCases: Array<
 
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: () => ({ data: mocks.agentSettings }),
-	useMutation: () => ({ mutate: mocks.mutate, isPending: false }),
+	useMutation: (options: {
+		onSuccess: (
+			data: unknown,
+			variables: { chatId: string; vote: 'up' | 'down' },
+			context: undefined,
+			ctx: { client: { setQueryData: () => void; invalidateQueries: () => void } },
+		) => void;
+	}) => ({
+		mutate: (variables: { chatId: string; vote: 'up' | 'down' }) => {
+			mocks.mutate(variables);
+			if (mocks.submitFails) {
+				mocks.isSubmitError = true;
+				return;
+			}
+			options.onSuccess(variables, variables, undefined, {
+				client: { setQueryData: vi.fn(), invalidateQueries: vi.fn() },
+			});
+		},
+		reset: () => {
+			mocks.isSubmitError = false;
+		},
+		isPending: false,
+		isError: mocks.isSubmitError,
+	}),
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
@@ -83,6 +108,8 @@ describe('ChatHeaderFeedback', () => {
 		mocks.isReadonly = false;
 		mocks.messages = [assistantMessage('answer-1')];
 		mocks.mutate.mockReset();
+		mocks.submitFails = false;
+		mocks.isSubmitError = false;
 	});
 
 	afterEach(cleanup);
@@ -124,6 +151,25 @@ describe('ChatHeaderFeedback', () => {
 			vote: 'up',
 			explanation: 'Useful answer',
 		});
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('keeps the dialog and explanation open with an error when submitting fails', () => {
+		mocks.submitFails = true;
+		const { rerender } = renderFeedback();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Bad conversation' }));
+		fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Wrong numbers' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+		rerender(
+			<TooltipProvider>
+				<ChatHeaderFeedback chatId='chat-1' />
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByRole('dialog')).toBeTruthy();
+		expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Wrong numbers');
+		expect(screen.getByRole('alert').textContent).toContain("Couldn't send your feedback");
 	});
 
 	it('keeps the selected vote visible and disables voting while an answer is running', () => {

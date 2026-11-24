@@ -13,22 +13,23 @@ export function ChatHeaderFeedback({ chatId }: { chatId: string }) {
 	const { isRunning } = useAgentContext();
 	const message = useAgentMessagesSelector(findLastAssistantMessageWithContent);
 	const isFeedbackRequired = useIsConversationFeedbackRequired();
-	const submitFeedback = useSubmitMessageFeedback((vote) =>
-		setCelebration((previous) => ({ vote, key: (previous?.key ?? 0) + 1 })),
-	);
+	const submitFeedback = useSubmitMessageFeedback((vote) => {
+		setCelebration((previous) => ({ vote, key: (previous?.key ?? 0) + 1 }));
+		setIsDialogOpen(false);
+	});
 
 	if (!isFeedbackRequired || !message) {
 		return null;
 	}
 
 	const openDialog = (vote: FeedbackVote) => {
+		submitFeedback.reset();
 		setDialogVote(vote);
 		setIsDialogOpen(true);
 	};
 
 	const handleSubmit = (explanation: string | undefined, vote: FeedbackVote) => {
 		submitFeedback.mutate({ chatId, messageId: message.id, vote, explanation });
-		setIsDialogOpen(false);
 	};
 
 	return (
@@ -51,6 +52,7 @@ export function ChatHeaderFeedback({ chatId }: { chatId: string }) {
 				onOpenChange={setIsDialogOpen}
 				onSubmit={handleSubmit}
 				isPending={submitFeedback.isPending}
+				error={submitFeedback.isError ? "Couldn't send your feedback. Please try again." : undefined}
 				defaultVote={dialogVote}
 				subject='conversation'
 			/>
