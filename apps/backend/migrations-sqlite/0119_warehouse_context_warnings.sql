@@ -1,1 +1,0 @@
-ALTER TABLE `warehouse_provisioning_job` ADD `warnings` text;

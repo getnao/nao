@@ -1,5 +1,5 @@
 {
-  "id": "a361950c-44f1-4d00-a8b0-cb18d1502552",
+  "id": "4779d9d3-957e-4b7a-9ad8-a70f45d22b05",
   "prevId": "8f6e48e7-d906-4ebb-a6e9-d674c761bcfa",
   "version": "7",
   "dialect": "postgresql",
@@ -7529,6 +7529,92 @@
       },
       "isRLSEnabled": false
     },
+    "public.project_decision_config": {
+      "name": "project_decision_config",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_key": {
+          "name": "api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credentials": {
+          "name": "credentials",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_url": {
+          "name": "base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "project_decision_config_project_id_project_id_fk": {
+          "name": "project_decision_config_project_id_project_id_fk",
+          "tableFrom": "project_decision_config",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "project_decision_config_project_provider": {
+          "name": "project_decision_config_project_provider",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "provider"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.project_discord_link": {
       "name": "project_discord_link",
       "schema": "",
@@ -13016,12 +13102,6 @@
         },
         "model_selection": {
           "name": "model_selection",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "warnings": {
-          "name": "warnings",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
