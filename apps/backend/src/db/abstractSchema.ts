@@ -57,6 +57,9 @@ export type NewProjectDiscordLink = typeof sqliteSchema.projectDiscordLink.$infe
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
+export type DBProjectDecisionConfig = typeof sqliteSchema.projectDecisionConfig.$inferSelect;
+export type NewProjectDecisionConfig = typeof sqliteSchema.projectDecisionConfig.$inferInsert;
+
 export type DBOrganization = typeof sqliteSchema.organization.$inferSelect;
 export type NewOrganization = typeof sqliteSchema.organization.$inferInsert;
 

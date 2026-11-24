@@ -555,6 +555,24 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],
 	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Decision models',
+		search: { tab: 'decision-models' },
+		title: 'Decision providers',
+		description: 'Connect the providers of decision (System 1) models and their API keys.',
+		keywords: ['system one', 'system 1', 'jev', 'typesafe', 'clef', 'cloudflare', 'openai', 'ollama', 'api key'],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Decision models',
+		search: { tab: 'decision-models' },
+		title: 'Decision model',
+		description: 'Pick the model decisions run on and test it.',
+		keywords: ['system one', 'system 1', 'classification', 'yes/no', 'probability', 'luna'],
+	},
 
 	// ── Project > Agent ──────────────────────────────────────
 	{

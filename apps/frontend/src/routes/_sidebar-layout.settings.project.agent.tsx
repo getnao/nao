@@ -5,6 +5,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import type { ProviderToEdit } from '@/components/settings/llm-providers-section';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 
+import { SettingsDecisionModels } from '@/components/settings/decision-models';
 import { DefaultModelsSection } from '@/components/settings/default-models-section';
 import { McpSettings } from '@/components/settings/display-mcp';
 import { SettingsExcludeColumns } from '@/components/settings/exclude-columns';
@@ -25,7 +26,7 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
-type AgentTab = 'models' | 'tools' | 'sql' | 'mcp-servers';
+type AgentTab = 'models' | 'decision-models' | 'tools' | 'sql' | 'mcp-servers';
 
 type AgentSearch = {
 	tab: AgentTab;
@@ -35,6 +36,7 @@ type AgentSearch = {
 
 const tabs: TabBarItem<AgentTab>[] = [
 	{ id: 'models', label: 'Models' },
+	{ id: 'decision-models', label: 'Decision models' },
 	{ id: 'tools', label: 'Capabilities' },
 	{ id: 'sql', label: 'SQL' },
 	{ id: 'mcp-servers', label: 'MCP servers' },
@@ -82,6 +84,7 @@ function ProjectAgentPage() {
 						onProviderToEditOpened={() => navigate({ search: { tab }, replace: true })}
 					/>
 				)}
+				{tab === 'decision-models' && <SettingsDecisionModels isAdmin={isAdmin} />}
 				{tab === 'tools' && <ToolsSettings isAdmin={isAdmin} />}
 				{tab === 'sql' && <SqlSettings isAdmin={isAdmin} />}
 				{tab === 'mcp-servers' && <McpSettings isAdmin={isAdmin} />}
@@ -146,5 +149,5 @@ function SqlSettings({ isAdmin }: { isAdmin: boolean }) {
 }
 
 function isAgentTab(value: unknown): value is AgentTab {
-	return value === 'models' || value === 'tools' || value === 'sql' || value === 'mcp-servers';
+	return tabs.some((tab) => tab.id === value);
 }
