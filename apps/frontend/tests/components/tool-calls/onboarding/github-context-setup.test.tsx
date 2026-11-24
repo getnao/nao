@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createTestQueryClient } from '../../../helpers/query-client';
 import type { GithubContextValues } from '@/components/tool-calls/onboarding/github-context-setup';
 import { GithubContextSetup } from '@/components/tool-calls/onboarding/github-context-setup';
 
@@ -58,7 +59,7 @@ describe('GithubContextSetup', () => {
 		const onValuesChange = vi.fn();
 		const onValidate = vi.fn().mockResolvedValue(undefined);
 		render(
-			<QueryClientProvider client={new QueryClient()}>
+			<QueryClientProvider client={createTestQueryClient()}>
 				<GithubHarness onValuesChange={onValuesChange} onValidate={onValidate} />
 			</QueryClientProvider>,
 		);
@@ -94,7 +95,7 @@ describe('GithubContextSetup', () => {
 		} as unknown as Window;
 		vi.spyOn(window, 'open').mockReturnValue(popup);
 		render(
-			<QueryClientProvider client={new QueryClient()}>
+			<QueryClientProvider client={createTestQueryClient()}>
 				<GithubHarness onValuesChange={vi.fn()} />
 			</QueryClientProvider>,
 		);

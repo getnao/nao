@@ -20,18 +20,22 @@ interface FileContextSetupProps {
 	disabled: boolean;
 	error: string | null;
 	onFilesChange: (files: File[]) => void;
+	onProcessingChange: (processing: boolean) => void;
 }
 
-export function FileContextSetup({ files, disabled, error, onFilesChange }: FileContextSetupProps) {
+export function FileContextSetup({ files, disabled, error, onFilesChange, onProcessingChange }: FileContextSetupProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [rejection, setRejection] = useState<string | null>(null);
 	const filesRef = useRef(files);
 	const addQueueRef = useRef(Promise.resolve());
+	const pendingAdditionsRef = useRef(0);
 
 	filesRef.current = files;
 
 	const addFiles = (candidates: File[]) => {
+		pendingAdditionsRef.current += 1;
+		onProcessingChange(pendingAdditionsRef.current > 0);
 		addQueueRef.current = addQueueRef.current.then(async () => {
 			try {
 				const currentFiles = filesRef.current;
@@ -72,6 +76,11 @@ export function FileContextSetup({ files, disabled, error, onFilesChange }: File
 						? caughtError.message
 						: 'Could not read the selected business context files.',
 				);
+			} finally {
+				pendingAdditionsRef.current -= 1;
+				if (pendingAdditionsRef.current === 0) {
+					onProcessingChange(false);
+				}
 			}
 		});
 	};

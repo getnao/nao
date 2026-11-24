@@ -70,6 +70,7 @@ export function RequestBusinessContext({
 	const [fileUploadError, setFileUploadError] = useState<string | null>(null);
 	const [skipError, setSkipError] = useState<string | null>(null);
 	const preparedFiles = useRef<File[] | null>(null);
+	const [filesProcessing, setFilesProcessing] = useState(false);
 	const validateNotion = useMutation(trpc.onboarding.validateNotionContext.mutationOptions());
 	const validateConfluence = useMutation(trpc.onboarding.validateConfluenceContext.mutationOptions());
 	const validateGithub = useMutation(trpc.onboarding.validateGithubContext.mutationOptions());
@@ -284,7 +285,10 @@ export function RequestBusinessContext({
 							validatedPages={validatedNotionPages}
 							isValidating={validateNotion.isPending}
 							isContextValidating={
-								validateNotion.isPending || validateConfluence.isPending || validateGithub.isPending
+								validateNotion.isPending ||
+								validateConfluence.isPending ||
+								validateGithub.isPending ||
+								filesProcessing
 							}
 							isStarting={isStarting}
 							canStart
@@ -331,6 +335,7 @@ export function RequestBusinessContext({
 										disabled={isStarting}
 										error={fileUploadError}
 										onFilesChange={setFiles}
+										onProcessingChange={setFilesProcessing}
 									/>
 								</>
 							}

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { deferred } from '../../../helpers/deferred';
 import { FileContextSetup } from '@/components/tool-calls/onboarding/file-context-setup';
 
 afterEach(() => {
@@ -40,7 +41,15 @@ describe('FileContextSetup', () => {
 	it('shows file fingerprint failures instead of rejecting the event handler promise', async () => {
 		const onFilesChange = vi.fn();
 		vi.spyOn(crypto.subtle, 'digest').mockRejectedValueOnce(new Error('Could not fingerprint company.txt.'));
-		render(<FileContextSetup files={[]} disabled={false} error={null} onFilesChange={onFilesChange} />);
+		render(
+			<FileContextSetup
+				files={[]}
+				disabled={false}
+				error={null}
+				onFilesChange={onFilesChange}
+				onProcessingChange={vi.fn()}
+			/>,
+		);
 		const file = new File(['Company notes'], 'company.txt', { type: 'text/plain' });
 
 		fireEvent.change(screen.getByLabelText('Upload business context files'), {
@@ -53,7 +62,15 @@ describe('FileContextSetup', () => {
 
 	it('accepts files dropped onto the source card', async () => {
 		const onFilesChange = vi.fn();
-		render(<FileContextSetup files={[]} disabled={false} error={null} onFilesChange={onFilesChange} />);
+		render(
+			<FileContextSetup
+				files={[]}
+				disabled={false}
+				error={null}
+				onFilesChange={onFilesChange}
+				onProcessingChange={vi.fn()}
+			/>,
+		);
 		const file = new File(['# Handbook'], 'handbook.md', { type: 'text/markdown' });
 
 		fireEvent.drop(screen.getByRole('heading', { name: 'Files' }).closest('section')!, {
@@ -91,6 +108,32 @@ describe('FileContextSetup', () => {
 		await waitFor(() => expect(screen.getAllByText('notes.txt')).toHaveLength(2));
 	});
 
+	it('reports processing until the selected file is ready', async () => {
+		const digest = deferred<ArrayBuffer>();
+		const onFilesChange = vi.fn();
+		const onProcessingChange = vi.fn();
+		vi.spyOn(crypto.subtle, 'digest').mockReturnValueOnce(digest.promise);
+		render(
+			<FileContextSetup
+				files={[]}
+				disabled={false}
+				error={null}
+				onFilesChange={onFilesChange}
+				onProcessingChange={onProcessingChange}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText('Upload business context files'), {
+			target: { files: [new File(['Company notes'], 'company.txt', { type: 'text/plain' })] },
+		});
+
+		expect(onProcessingChange).toHaveBeenCalledWith(true);
+		expect(onFilesChange).not.toHaveBeenCalled();
+		digest.resolve(new ArrayBuffer(32));
+		await waitFor(() => expect(onProcessingChange).toHaveBeenLastCalledWith(false));
+		expect(onFilesChange).toHaveBeenCalledOnce();
+	});
+
 	it('shows an upload failure instead of an older local rejection', async () => {
 		const onFilesChange = vi.fn();
 		render(
@@ -99,6 +142,7 @@ describe('FileContextSetup', () => {
 				disabled={false}
 				error='notes.txt is not valid UTF-8.'
 				onFilesChange={onFilesChange}
+				onProcessingChange={vi.fn()}
 			/>,
 		);
 		const file = new File(['PDF'], 'company.pdf', { type: 'application/pdf' });
@@ -115,5 +159,13 @@ describe('FileContextSetup', () => {
 
 function ControlledFileContextSetup({ error = null }: { error?: string | null }) {
 	const [files, setFiles] = useState<File[]>([]);
-	return <FileContextSetup files={files} disabled={false} error={error} onFilesChange={setFiles} />;
+	return (
+		<FileContextSetup
+			files={files}
+			disabled={false}
+			error={error}
+			onFilesChange={setFiles}
+			onProcessingChange={vi.fn()}
+		/>
+	);
 }

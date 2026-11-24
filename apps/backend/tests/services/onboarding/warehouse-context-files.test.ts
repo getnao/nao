@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,9 +23,10 @@ import {
 	restoreWarehouseContextFiles,
 	saveWarehouseContextFile,
 } from '../../../src/services/onboarding/warehouse-context-files';
+import { useTemporaryFolders } from '../../helpers/temporary-folders';
 
 describe('warehouse context files', () => {
-	const temporaryDirectories: string[] = [];
+	const createTemporaryFolder = useTemporaryFolders();
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -38,9 +38,6 @@ describe('warehouse context files', () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
-		for (const directory of temporaryDirectories.splice(0)) {
-			fs.rmSync(directory, { recursive: true, force: true });
-		}
 	});
 
 	it('stages UTF-8 Markdown outside the disposable job project', async () => {
@@ -265,10 +262,9 @@ describe('warehouse context files', () => {
 	});
 
 	function createTemporaryDirectory(): string {
-		const rootDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-context-upload-test-'));
+		const rootDirectory = createTemporaryFolder('nao-context-upload-test-');
 		const directory = path.join(rootDirectory, 'warehouse-onboarding-job');
 		fs.mkdirSync(directory);
-		temporaryDirectories.push(rootDirectory);
 		return directory;
 	}
 });
