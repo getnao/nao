@@ -74,6 +74,8 @@ import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
 	getFilteredStoryQueryDataByStoryId,
+	getStoryFilterTargets,
+	getStoryFilterTargetsByStoryId,
 	getStoryQuerySql,
 	getStoryQuerySqlByStoryId,
 } from '../services/story-filters';
@@ -1185,6 +1187,15 @@ export const storyRoutes = {
 			});
 		}),
 
+	getFilterTargets: storyEditorProcedure
+		.input(
+			z.object({ chatId: z.string(), storySlug: z.string(), selections: storyFilterSelectionsInput.default({}) }),
+		)
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getStoryFilterTargets(input.chatId, input.storySlug, input.selections);
+		}),
+
 	getQuerySql: storyEditorProcedure
 		.input(
 			z.object({
@@ -1215,6 +1226,13 @@ export const storyRoutes = {
 			return getFilteredStoryQueryDataByStoryId(input.storyId, input.selections, {
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
+		}),
+
+	getStandaloneFilterTargets: storyOwnerProjectProcedure
+		.input(z.object({ storyId: z.string(), selections: storyFilterSelectionsInput.default({}) }))
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getStoryFilterTargetsByStoryId(input.storyId, input.selections);
 		}),
 
 	getStandaloneQuerySql: storyOwnerProjectProcedure

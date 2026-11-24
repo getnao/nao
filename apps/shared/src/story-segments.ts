@@ -6,6 +6,7 @@ import {
 	STORY_FILTER_VALUE_TYPES,
 	type StoryFilterType,
 	type StoryFilterValueType,
+	TYPED_VALUE_FILTER_TYPES,
 } from './sql-template';
 import {
 	type ResolvedStoryParameters,
@@ -320,7 +321,8 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 		...(attrs.database_id && { databaseId: attrs.database_id }),
 		...(hasHardcodedOptions && { options }),
 		...(optionsQueryId && { optionsQueryId }),
-		...(filterType === 'text' && isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
+		...(TYPED_VALUE_FILTER_TYPES.includes(filterType) &&
+			isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
 		...(needsOptionsSource && attrs.depends_on && { dependsOn: attrs.depends_on }),
 		...(needsOptionsSource && attrs.allow_custom === 'true' && { allowCustom: true }),
 		...(attrs.dimension && { dimension: attrs.dimension }),

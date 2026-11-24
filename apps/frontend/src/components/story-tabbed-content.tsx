@@ -107,9 +107,19 @@ export function StoryTabbedContent({
 				? {
 						api: filterApi,
 						selections: storyFilters.filtersEnabled ? storyFilters.debouncedSelections : {},
+						filterSummary: storyFilters.filterSummary,
+						queryFilterStatuses: storyFilters.queryFilterStatuses,
+						filterTargets: storyFilters.filterTargets,
 					}
 				: null,
-		[filterApi, storyFilters.filtersEnabled, storyFilters.debouncedSelections],
+		[
+			filterApi,
+			storyFilters.filtersEnabled,
+			storyFilters.debouncedSelections,
+			storyFilters.filterSummary,
+			storyFilters.queryFilterStatuses,
+			storyFilters.filterTargets,
+		],
 	);
 
 	return (

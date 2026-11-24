@@ -1,4 +1,10 @@
-import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, STORY_FILTER_VALUE_TYPES } from './sql-template';
+import {
+	STORY_FILTER_ID_REGEX,
+	STORY_FILTER_TYPES,
+	STORY_FILTER_VALUE_TYPES,
+	type StoryFilterType,
+	TYPED_VALUE_FILTER_TYPES,
+} from './sql-template';
 import {
 	isFilterValueType,
 	parseChartAttributes,
@@ -416,8 +422,8 @@ function validateFilterExtensionAttributes(
 	if (attrs.value_type !== undefined) {
 		if (!isFilterValueType(attrs.value_type)) {
 			report(`Invalid value_type "${attrs.value_type}". Valid values: ${STORY_FILTER_VALUE_TYPES.join(', ')}.`);
-		} else if (attrs.type !== 'text') {
-			report('`value_type` only applies to type="text" filters.');
+		} else if (!TYPED_VALUE_FILTER_TYPES.includes(attrs.type as StoryFilterType)) {
+			report('`value_type` only applies to select, multi_select and text filters.');
 		}
 	}
 

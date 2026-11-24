@@ -168,7 +168,14 @@ export const ExecuteSemanticQueryToolCall = ({
 /** The input as the UI sees it, possibly still streaming: every field and array item may be missing. */
 type PartialSemanticQuery = NonNullable<ToolCallComponentProps<'execute_semantic_query'>['toolPart']['input']>;
 
-export function SemanticQueryDefinition({ query }: { query: PartialSemanticQuery }) {
+/** `isAddedWhere` flags the where conditions story filters add to the saved query. */
+export function SemanticQueryDefinition({
+	query,
+	isAddedWhere,
+}: {
+	query: PartialSemanticQuery;
+	isAddedWhere?: (index: number) => boolean;
+}) {
 	const rows: { label: string; values: string[] }[] = [
 		{ label: 'Metrics', values: definedValues(query.metrics) },
 		{ label: 'Group by', values: definedValues(query.group_by) },
@@ -187,11 +194,22 @@ export function SemanticQueryDefinition({ query }: { query: PartialSemanticQuery
 					<div key={row.label} className='contents'>
 						<dt className='text-muted-foreground'>{row.label}</dt>
 						<dd className='flex flex-wrap gap-1'>
-							{row.values.map((value) => (
-								<code key={value} className='rounded bg-muted px-1.5 py-0.5 font-mono'>
-									{value}
-								</code>
-							))}
+							{row.values.map((value, index) =>
+								row.label === 'Where' && isAddedWhere?.(index) ? (
+									<span key={value} className='inline-flex items-center gap-1.5'>
+										<code className='rounded bg-primary/15 px-1.5 py-0.5 font-mono text-foreground'>
+											{value}
+										</code>
+										<span className='rounded-full border px-1.5 text-[10px] text-muted-foreground'>
+											story filter
+										</span>
+									</span>
+								) : (
+									<code key={value} className='rounded bg-muted px-1.5 py-0.5 font-mono'>
+										{value}
+									</code>
+								),
+							)}
 						</dd>
 					</div>
 				))}

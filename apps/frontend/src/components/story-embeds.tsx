@@ -7,6 +7,7 @@ import type { ChartType } from '@nao/shared/chart-types';
 
 import { DataTableCard } from '@/components/data-table-card';
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
+import { StoryChartFilterFailure } from '@/components/side-panel/story-chart-query';
 import { StoryMapEmbedShell } from '@/components/side-panel/story-map-embed';
 import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
 import { StoryMapRender } from '@/components/story-map-embed';
@@ -122,17 +123,21 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 			return <EmbedLoading label='Loading data...' />;
 		}
 		return (
-			<EmbedPlaceholder>
-				{unavailableMessage ?? `Chart data unavailable (query: ${chart.queryId})`}
-			</EmbedPlaceholder>
+			<StoryChartFilterFailure queryId={chart.queryId}>
+				<EmbedPlaceholder>
+					{unavailableMessage ?? `Chart data unavailable (query: ${chart.queryId})`}
+				</EmbedPlaceholder>
+			</StoryChartFilterFailure>
 		);
 	}
 
 	if (displayData.length === 0) {
 		return (
-			<EmbedPlaceholder>
-				{hasActiveFilters ? 'No results match the selected filters' : 'No data to display'}
-			</EmbedPlaceholder>
+			<StoryChartFilterFailure queryId={chart.queryId}>
+				<EmbedPlaceholder>
+					{hasActiveFilters ? 'No results match the selected filters' : 'No data to display'}
+				</EmbedPlaceholder>
+			</StoryChartFilterFailure>
 		);
 	}
 
