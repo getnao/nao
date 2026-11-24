@@ -35,6 +35,7 @@ import { buildCustomStoryToolResult } from '../embed/embed-tool-result';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyUrl } from '../urls';
 import { fetchLatestStoryVersion, resolveChartChatId } from './helpers';
+import { saveMcpLiveSettings, type StoryLiveInput, toStoryLiveOutput } from './story-live-settings';
 
 const CUSTOM_STORY_DATA_RULES =
 	'Its blocks read rows by `queryId`. Attached to a chat (`chat_id` from `ask_nao`), it resolves the queries ' +
@@ -90,6 +91,7 @@ export async function createCustomStoryForMcp(
 		title: string;
 		files: StoryFileInput[] | undefined;
 		queryData: StoryQueryDataMap | undefined;
+		live: StoryLiveInput | undefined;
 	},
 	ctx: McpContext,
 ): Promise<ToolResult> {
@@ -124,9 +126,9 @@ export async function createCustomStoryForMcp(
 		await saveStandaloneQueryData(story, input.queryData, ctx);
 	}
 	if (!input.files?.length) {
-		return draftResult(story);
+		return draftResult(story, input.live);
 	}
-	return publishResult(story, ctx);
+	return publishResult(story, ctx, input.live);
 }
 
 export async function updateCustomStoryForMcp(
@@ -136,6 +138,7 @@ export async function updateCustomStoryForMcp(
 		files: StoryFileInput[];
 		deletePaths: string[];
 		queryData: StoryQueryDataMap | undefined;
+		live: StoryLiveInput | undefined;
 	},
 	ctx: McpContext,
 ): Promise<ToolResult> {
@@ -154,7 +157,7 @@ export async function updateCustomStoryForMcp(
 		if (!story.chatId) {
 			await saveStandaloneQueryData(story, input.queryData, ctx);
 		}
-		return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+		return publishResult({ ...story, title: input.title ?? story.title }, ctx, input.live);
 	});
 }
 
@@ -229,6 +232,7 @@ export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Pr
 		...storyLinks(story),
 		version: latest?.version ?? 0,
 		sourceFiles: draft.map((file) => ({ path: file.path, content: file.content })),
+		live: toStoryLiveOutput(story),
 	});
 }
 
@@ -244,30 +248,44 @@ export async function resolveCustomStory(storyId: string, ctx: McpContext): Prom
 	return storyProjectId === ctx.projectId && story.userId === ctx.userId ? story : null;
 }
 
-async function publishResult(story: DBStory, ctx: McpContext): Promise<ToolResult> {
+async function publishResult(
+	story: DBStory,
+	ctx: McpContext,
+	liveInput: StoryLiveInput | undefined,
+): Promise<ToolResult> {
 	const result = await publishCustomStoryDraft(story, ctx, {
 		source: 'user',
 		origin: 'mcp',
 		authorId: ctx.userId,
 		sourceChatId: null,
 	});
+	const live = await saveMcpLiveSettings(story, liveInput);
+	if ('error' in live) {
+		return errorResult(live.error);
+	}
 	if (result.ok) {
-		return buildCustomStoryToolResult({ ...storyLinks(story), version: result.version });
+		return buildCustomStoryToolResult({ ...storyLinks(story), version: result.version, ...live });
 	}
 	const latest = await storyQueries.getLatestVersionByStoryId(story.id);
 	return buildCustomStoryToolResult({
 		...storyLinks(story),
 		version: latest?.version ?? 0,
 		buildErrors: result.buildErrors,
+		...live,
 	});
 }
 
-async function draftResult(story: DBStory): Promise<ToolResult> {
+async function draftResult(story: DBStory, liveInput: StoryLiveInput | undefined): Promise<ToolResult> {
+	const live = await saveMcpLiveSettings(story, liveInput);
+	if ('error' in live) {
+		return errorResult(live.error);
+	}
 	const draft = await storyFileQueries.listDraftFiles(story.id);
 	return buildCustomStoryToolResult({
 		...storyLinks(story),
 		version: 0,
 		sourceFiles: draft.map((file) => ({ path: file.path, content: file.content })),
+		...live,
 	});
 }
 

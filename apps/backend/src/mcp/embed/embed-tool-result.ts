@@ -10,6 +10,7 @@ import type { McpEmbedKind } from '@nao/shared/types';
 import { z } from 'zod';
 
 import type { ToolResult } from '../logging';
+import type { StoryLiveOutput } from '../tools/story-live-settings';
 import { chatUrl } from '../urls';
 import { attachSandboxToAppPayload } from './embed-payload';
 
@@ -29,6 +30,7 @@ export type CustomStoryMcpToolPayload = {
 	version?: number;
 	buildErrors?: string[];
 	sourceFiles?: CustomStorySourceFile[];
+	live?: StoryLiveOutput;
 };
 
 const CUSTOM_STORY_FIELDS = {

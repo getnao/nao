@@ -25,7 +25,7 @@ import {
 } from '../../src/services/nao-internal-mcp';
 import type { ToolContext } from '../../src/types/tools';
 
-const AUTHOR = { projectId: 'project-1', userId: 'user-1', canManagePersonalSkills: true };
+const AUTHOR = { projectId: 'project-1', userId: 'user-1', canManagePersonalSkills: true, userGroupFeatures: [] };
 const SKILL = { name: 'weekly-orders', description: 'My Monday numbers.', shareStatus: 'private' };
 const SPECS_FOLDER = '/agent/mcps/nao__internal';
 

@@ -37,7 +37,10 @@ export async function resolveChartChatId(chatId: string | undefined, ctx: McpCon
 	return chatId;
 }
 
-export async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
+export async function resolveStory(
+	storyId: string,
+	ctx: Pick<McpContext, 'projectId' | 'userId'>,
+): Promise<UserStoryRow> {
 	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
 	if (!story) {
 		throw new Error(`Story not found: ${storyId}`);
