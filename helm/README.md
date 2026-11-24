@@ -108,6 +108,8 @@ projectsPersistence:
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `commonLabels` | `{}` | Labels added to every object and to the Pod template, never to selectors |
+| `podLabels` | `{}` | Extra labels added to the Pod template only |
 | `replicaCount` | `1` | Number of pod replicas |
 | `image.repository` | `getnao/nao` | Container image repository |
 | `image.tag` | `""` (→ appVersion) | Image tag |

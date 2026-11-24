@@ -792,6 +792,55 @@
       "when": 1795179873121,
       "tag": "0112_column_security",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1795182420403,
+      "tag": "0113_story_viewer_data_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1795189526244,
+      "tag": "0114_automation_share",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1795282002108,
+      "tag": "0115_user_group_impersonation",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1795434125939,
+      "tag": "0116_user_skill",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1795513639895,
+      "tag": "0117_group_llm_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1795516963982,
+      "tag": "0118_project_org_deactivation",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1795519219785,
+      "tag": "0119_decision_models",
+      "breakpoints": true
     }
   ]
 }

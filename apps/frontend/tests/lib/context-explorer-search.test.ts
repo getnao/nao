@@ -26,6 +26,11 @@ describe('context explorer search', () => {
 		},
 	);
 
+	it('keeps the personal skill a link opens, and ignores a malformed name', () => {
+		expect(validateContextExplorerSearch({ skill: 'weekly-orders' })).toEqual({ skill: 'weekly-orders' });
+		expect(validateContextExplorerSearch({ skill: '../weekly orders' })).toEqual({});
+	});
+
 	it('keeps a complete historical diff target and consumes its transient commits', () => {
 		const search = validateContextExplorerSearch({
 			path: '/models/revenue.sql',

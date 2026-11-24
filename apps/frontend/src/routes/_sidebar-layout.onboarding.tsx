@@ -4,6 +4,7 @@ import { ArrowRight, HelpCircle, KeyRound } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ImportedProject } from '@/components/settings/import-provider-card';
+import type { UIMessage } from '@nao/backend/chat';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
@@ -28,7 +29,7 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from '@/components/ui/dialog';
-import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { AgentProvider, useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding/onboarding-floating-slot';
 import { StartNewOnboardingProvider } from '@/contexts/onboarding/onboarding-restart';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
@@ -93,7 +94,7 @@ function OnboardingRoute() {
 }
 
 function OnboardingPage() {
-	const messages = useAgentMessages();
+	const hasMessages = useAgentMessagesSelector(hasSomeMessage);
 	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
 	const isSavedChat = Boolean(chatId && chatId !== NEW_CHAT_ID);
 	const latestWarehouseJob = useQuery({
@@ -153,7 +154,6 @@ function OnboardingPage() {
 	const actionAreaRef = useRef<HTMLDivElement>(null);
 	const githubConnectionReportedRef = useRef(false);
 	const activatedProjectIdRef = useRef<string | null>(null);
-	const hasMessages = messages.length > 0;
 	const inputAreaHeight = useHeight(inputAreaRef, [hasMessages]);
 	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step, showEnvVarsCard]);
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
@@ -511,4 +511,8 @@ function OnboardingCompleteActions({ trialActive }: { trialActive: boolean }) {
 			<p className='text-center text-sm text-muted-foreground'>This onboarding conversation is complete.</p>
 		</div>
 	);
+}
+
+function hasSomeMessage(messages: UIMessage[]): boolean {
+	return messages.length > 0;
 }

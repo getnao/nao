@@ -1,6 +1,12 @@
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
-import { ALL_MCP_ACCESS, type CustomBoundarySet, isMcpServerGranted, type McpAccess } from '@nao/shared';
+import {
+	ALL_MCP_ACCESS,
+	type CustomBoundarySet,
+	isMcpServerGranted,
+	type McpAccess,
+	NAO_INTERNAL_MCP_SERVER,
+} from '@nao/shared';
 import { writeFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
@@ -70,6 +76,8 @@ export const getTools = (
 		mcpServers?: string[] | null;
 		/** MCP servers the run's user may reach through their groups; the MCP tools are dropped when none is. */
 		mcpAccess?: McpAccess;
+		/** Whether the run's user gets tools from nao's own MCP server, which keeps the MCP tools without any other. */
+		naoInternalMcp?: boolean;
 		excludeFollowUps?: boolean;
 		/**
 		 * Restricts generated tools to this allowlist by tool name. `extraTools` are always
@@ -100,14 +108,15 @@ export const getTools = (
 ) => {
 	const customStoryAuthoring = options.customStoryAuthoring ?? isCustomStoriesEnabled();
 	const mcpAccess = options.mcpAccess ?? ALL_MCP_ACCESS;
-	const grantedServers = new Set(
-		mcpService.getConfiguredServerNames().filter((server) => isMcpServerGranted(mcpAccess, server)),
-	);
+	const reachableServers = new Set([
+		...mcpService.getConfiguredServerNames().filter((server) => isMcpServerGranted(mcpAccess, server)),
+		...(options.naoInternalMcp ? [NAO_INTERNAL_MCP_SERVER] : []),
+	]);
 	const includeMcp =
 		options.mcpEnabled !== false &&
 		(options.mcpServers == null
-			? grantedServers.size > 0
-			: options.mcpServers.some((server) => grantedServers.has(server)));
+			? reachableServers.size > 0
+			: options.mcpServers.some((server) => reachableServers.has(server)));
 	const includeCodemode = agentSettings?.experimental?.codemode !== false && isBuiltinToolKept('codemode', options);
 	const mcpTools: Record<string, Tool> = includeMcp
 		? {

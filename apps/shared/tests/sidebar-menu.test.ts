@@ -35,8 +35,16 @@ describe('resolveSidebarMenu', () => {
 			'search-chats',
 			'stories',
 			'automations',
+			'skills',
 			'context-hub',
 		]);
+	});
+
+	it('appends the skills entry hidden, so it only shows once an admin turns it on', () => {
+		const skills = resolveSidebarMenu(null).find((entry) => entry.id === 'skills');
+
+		expect(skills).toMatchObject({ type: 'built-in', hidden: true });
+		expect(resolveSidebarMenu(null).filter((entry) => entry.type === 'built-in' && entry.hidden)).toHaveLength(1);
 	});
 
 	it('reads entries saved before icons existed with the default icon', () => {

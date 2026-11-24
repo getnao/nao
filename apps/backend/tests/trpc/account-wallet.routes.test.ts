@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
 	role: 'admin',
+	isCloud: true,
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +12,13 @@ const mocks = vi.hoisted(() => ({
 	listManagedAiUsage: vi.fn(),
 	getUserOrgMembership: vi.fn(),
 	getUserOrgMembershipByProject: vi.fn(),
+}));
+
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return state.isCloud;
+	},
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -52,6 +60,7 @@ const testRouter = router({ account: accountRoutes });
 describe('account wallet activity authorization', () => {
 	beforeEach(() => {
 		state.role = 'admin';
+		state.isCloud = true;
 		vi.clearAllMocks();
 		mocks.getCreditSummary.mockResolvedValue({
 			balanceMicroUsd: 20_000_000,
@@ -127,6 +136,13 @@ describe('account wallet activity authorization', () => {
 			limit: 10,
 		});
 		expect(mocks.listManagedAiUsage).toHaveBeenCalledWith({ orgId: 'org-id' }, { cursor: undefined, limit: 10 });
+	});
+
+	it('never returns the setup grant outside cloud mode, where it is not granted', async () => {
+		state.isCloud = false;
+
+		await expect(caller().account.getOrganizationSetupCreditGrant()).resolves.toBeNull();
+		expect(mocks.getOrganizationSetupCreditGrant).not.toHaveBeenCalled();
 	});
 
 	it('uses the selected organization, as billing does, when the active project belongs to another one', async () => {

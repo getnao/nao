@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
-import type { TeamMember } from '@/components/settings/team';
+import type { AddMembersRequest, TeamMember } from '@/components/settings/team';
 import type { ProjectUserFilters } from '@/lib/project-user-filters';
 import type { UserSectionsPagination } from '@/hooks/use-paginated-user-sections';
 import type { UserGroupToken } from '@/components/settings/user-group-token-field';
@@ -209,24 +209,10 @@ function ManagedProjectUsersTable({
 		]);
 	};
 
-	const handleAdd = async (data: { email: string; name?: string; groupIds?: string[] }) => {
-		try {
-			const result = await addUser.mutateAsync({
-				email: data.email,
-				name: data.name,
-				groupIds: data.groupIds ?? [],
-			});
-			await invalidateMembers();
-			if (result.password) {
-				setCredentials({ email: data.email, password: result.password });
-			}
-			return {};
-		} catch (err: any) {
-			if (err.message === 'USER_DOES_NOT_EXIST') {
-				return { needsName: true };
-			}
-			throw err;
-		}
+	const handleAdd = async ({ members, groupIds }: AddMembersRequest) => {
+		const outcomes = await addUser.mutateAsync({ members, groupIds: groupIds ?? [] });
+		await invalidateMembers();
+		return outcomes;
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
@@ -338,7 +324,7 @@ function ManagedProjectUsersTable({
 			<AddMemberDialog
 				open={isAddOpen}
 				onOpenChange={setIsAddOpen}
-				title='Add User to Project'
+				title='Add Users to Project'
 				onSubmit={handleAdd}
 				groupOptions={groups}
 			/>

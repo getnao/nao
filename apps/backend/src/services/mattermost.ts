@@ -1072,6 +1072,7 @@ class MattermostService {
 			current.redirectUrl !== next.redirectUrl ||
 			current.modelSelection?.provider !== next.modelSelection?.provider ||
 			current.modelSelection?.modelId !== next.modelSelection?.modelId ||
+			current.modelSelection?.llmConfigId !== next.modelSelection?.llmConfigId ||
 			current.interactiveButtonsEnabled !== next.interactiveButtonsEnabled ||
 			current.callbackUrl !== next.callbackUrl
 		);

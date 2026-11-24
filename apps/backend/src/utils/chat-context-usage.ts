@@ -1,5 +1,5 @@
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
-import { type LlmProvider } from '@nao/shared/types';
+import { type LlmSelectedModel } from '@nao/shared/types';
 import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
 import { getTools } from '../agents/tools';
@@ -18,7 +18,7 @@ import { resolveContextWindow } from './llm';
 export async function getChatContextUsage(opts: {
 	chatId: string;
 	userId: string;
-	model?: { provider: LlmProvider; modelId: string };
+	model?: LlmSelectedModel;
 	projectId?: string;
 }): Promise<ContextUsage | null> {
 	const projectId = opts.projectId ?? (await chatQueries.getChatProjectId(opts.chatId));
@@ -36,9 +36,7 @@ export async function getChatContextUsage(opts: {
 	const toolTokens = await tokenCounter.estimateTools(tools);
 	return {
 		tokensUsed: messageTokens + toolTokens,
-		contextWindow: opts.model
-			? await resolveContextWindow(projectId, opts.model.provider, opts.model.modelId)
-			: null,
+		contextWindow: opts.model ? await resolveContextWindow(projectId, opts.model) : null,
 	};
 }
 

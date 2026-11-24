@@ -4,6 +4,7 @@ import {
 	extractConditionalGroupContent,
 	findRenderedRulesLines,
 	isRootRulesPath,
+	isRulesFilePath,
 	renderConditionalGroupBlocks,
 	renderConditionalGroupBlocksWithSourceLines,
 } from '../src/rules-template';
@@ -326,6 +327,24 @@ describe('isRootRulesPath', () => {
 		'rejects non-root path %s',
 		(filePath) => {
 			expect(isRootRulesPath(filePath)).toBe(false);
+		},
+	);
+});
+
+describe('isRulesFilePath', () => {
+	const rulesFile = 'repos/business_context/nao/RULES.md';
+
+	it.each(['/repos/business_context/nao/RULES.md', 'repos\\business_context\\nao\\RULES.md', '/RULES.md'])(
+		'accepts the configured rules file and the root RULES.md: %s',
+		(filePath) => {
+			expect(isRulesFilePath(filePath, rulesFile)).toBe(true);
+		},
+	);
+
+	it.each(['/repos/business_context/RULES.md', '/repos/x/../business_context/nao/RULES.md'])(
+		'rejects other paths: %s',
+		(filePath) => {
+			expect(isRulesFilePath(filePath, rulesFile)).toBe(false);
 		},
 	);
 });

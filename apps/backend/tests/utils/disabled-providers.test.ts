@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const testState = vi.hoisted(() => ({
 	dbConfig: null as Record<string, unknown> | null,
+	dbConfigs: [] as Record<string, unknown>[],
 }));
 
 vi.mock('../../src/db/db', () => ({ db: {} }));
@@ -13,12 +14,18 @@ vi.mock('../../src/queries/project.queries', () => ({
 
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigByProvider: vi.fn(async () => testState.dbConfig),
-	getProjectLlmConfigs: vi.fn(async () => []),
+	getProjectLlmConfigs: vi.fn(async () => testState.dbConfigs),
 }));
 
 import { isManagedAiEnabled } from '../../src/agents/managed-ai';
 import { __reloadEnvForTesting, env } from '../../src/env';
-import { getEnvProviders, hasEnvApiKey, isProviderDisabled, resolveProviderSettings } from '../../src/utils/llm';
+import {
+	getEnvProviders,
+	getProjectAvailableModels,
+	hasEnvApiKey,
+	isProviderDisabled,
+	resolveProviderSettings,
+} from '../../src/utils/llm';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 
 describe('DISABLED_PROVIDERS', () => {
@@ -26,6 +33,7 @@ describe('DISABLED_PROVIDERS', () => {
 
 	beforeEach(() => {
 		testState.dbConfig = null;
+		testState.dbConfigs = [];
 	});
 
 	function setDisabledProviders(value: string | undefined) {
@@ -109,11 +117,36 @@ describe('DISABLED_PROVIDERS', () => {
 	});
 
 	it('overrides credentials configured in the database', async () => {
-		testState.dbConfig = { apiKey: 'db-key', baseUrl: null, credentials: null, modelSettings: {} };
+		testState.dbConfig = {
+			provider: 'bedrock',
+			apiKey: 'db-key',
+			baseUrl: null,
+			credentials: null,
+			modelSettings: {},
+		};
 		setDisabledProviders(undefined);
 		expect(await resolveProviderSettings('project-1', 'bedrock')).not.toBeNull();
 
 		setDisabledProviders('bedrock');
 		expect(await resolveProviderSettings('project-1', 'bedrock')).toBeNull();
+	});
+
+	it('keeps disabled database credentials out of the model catalog', async () => {
+		testState.dbConfigs = [
+			{
+				id: 'config-1',
+				name: 'Bedrock',
+				provider: 'bedrock',
+				credentialSource: 'database',
+				enabledModels: ['anthropic.claude-sonnet-4-6-v1:0'],
+				customModels: [],
+				baseUrl: null,
+			},
+		];
+		setDisabledProviders('bedrock');
+
+		await expect(getProjectAvailableModels('project-1')).resolves.not.toContainEqual(
+			expect.objectContaining({ provider: 'bedrock' }),
+		);
 	});
 });

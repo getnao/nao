@@ -47,6 +47,9 @@ vi.mock('@/main', () => ({
 		storyShare: {
 			listShareableGroups: { queryOptions: () => ({ queryKey: ['groups'] }) },
 		},
+		automation: {
+			listShareCandidates: { queryOptions: () => ({ queryKey: ['automation-members'] }) },
+		},
 		userGroup: {
 			projectSharingAccess: { queryOptions: () => ({ queryKey: ['sharing-access'] }) },
 		},

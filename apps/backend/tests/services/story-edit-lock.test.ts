@@ -57,6 +57,7 @@ describe('story edit lock', () => {
 			isMine: false,
 			isYou: false,
 			byAgent: false,
+			agentChatId: null,
 			byMcp: false,
 		});
 		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toMatchObject({ isMine: true });
@@ -150,7 +151,9 @@ describe('story edit lock', () => {
 		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toMatchObject({
 			holderName: 'Editor',
 			byAgent: true,
+			agentChatId: null,
 		});
+		expect(await getStoryEditLockState(STORY_ID, EDITOR_BY_HAND)).toMatchObject({ agentChatId: EDITOR_CHAT_ID });
 
 		await releaseAgentStoryEditLocks(EDITOR_CHAT_ID);
 

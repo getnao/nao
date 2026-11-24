@@ -20,16 +20,23 @@ export function formatTestSettingsYaml({ models, attempts, threads }: TestSettin
 	return `${lines.join('\n')}\n`;
 }
 
-/** A model alone, or with the efforts picked for it, `all` when every effort it supports is. */
+/** A model alone, or with its credential and efforts, `all` when every supported effort is picked. */
 function formatModelEntry(model: TestModelSelection): string[] {
 	const name = formatYamlScalar(`${model.provider}:${model.modelId}`);
 	const supported = getModelReasoningEfforts(model.provider, model.modelId);
 	const picked = supported.filter((effort) => model.reasoningEfforts?.includes(effort));
-	if (picked.length === 0) {
+	if (picked.length === 0 && !model.llmConfigId) {
 		return [`    - ${name}`];
 	}
-	const efforts = picked.length === supported.length ? 'all' : `[${picked.join(', ')}]`;
-	return [`    - model: ${name}`, `      reasoning_efforts: ${efforts}`];
+	const lines = [`    - model: ${name}`];
+	if (model.llmConfigId) {
+		lines.push(`      llm_config_id: ${formatYamlScalar(model.llmConfigId)}`);
+	}
+	if (picked.length > 0) {
+		const efforts = picked.length === supported.length ? 'all' : `[${picked.join(', ')}]`;
+		lines.push(`      reasoning_efforts: ${efforts}`);
+	}
+	return lines;
 }
 
 /** Quotes a value that YAML would otherwise misread, such as a custom model id with `#` or `: `. */

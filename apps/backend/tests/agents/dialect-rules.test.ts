@@ -78,6 +78,20 @@ describe('dialect-aware system prompt', () => {
 		expect(section).toContain("`DATE_TRUNC(col, MONTH)` instead of `DATE_TRUNC('month', col)`");
 	});
 
+	it('omits dialect rules when warehouse SQL is disabled by an exclusive semantic layer', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				connections: [
+					{ type: 'bigquery', database: 'analytics' },
+					{ type: 'clickhouse', database: 'events' },
+				],
+				semanticLayerMode: 'exclusive',
+			}),
+		);
+		expect(markdown).not.toContain('dialect:');
+		expect(markdown).not.toContain('indexes.md');
+	});
+
 	it('does not leak BigQuery rules into other dialects', () => {
 		const tsql = sqlQueryRulesSection(renderWith([{ type: 'mssql', database: 'db' }]));
 		expect(tsql).toContain('Do not use `GROUP BY ALL`');

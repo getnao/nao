@@ -1,8 +1,18 @@
 import { MAX_PRELOADED_SKILLS, type ToolCallDensity, type UserRole } from './types';
 
-export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'automationCreation'] as const;
+export const USER_GROUP_FEATURES = [
+	'storyCreation',
+	'customStoryCreation',
+	'automationCreation',
+	'personalSkills',
+] as const;
 
 export type UserGroupFeature = (typeof USER_GROUP_FEATURES)[number];
+
+/** What a new project's All Users group grants: everything but personal skills, which an admin turns on per group. */
+export const DEFAULT_USER_GROUP_FEATURES: readonly UserGroupFeature[] = USER_GROUP_FEATURES.filter(
+	(feature) => feature !== 'personalSkills',
+);
 
 export const PROJECT_SHARING_PERMISSIONS = ['inherit', 'allowed', 'blocked'] as const;
 
@@ -82,6 +92,11 @@ export const USER_GROUP_FEATURE_DEFINITIONS: ReadonlyArray<UserGroupFeatureDefin
 		label: 'Automations',
 		description: 'Allow the user to create new automations',
 	},
+	{
+		key: 'personalSkills',
+		label: 'Personal skills',
+		description: 'Allow the user to write their own skills in the Context Hub',
+	},
 ];
 
 /** Drops the features whose prerequisite is not granted: custom stories without stories grant nothing. */
@@ -144,6 +159,25 @@ export function canRoleUseAdvancedContextExplorer(
 			return true;
 		case 'context_admin':
 			return groupsGrantAdvancedContextExplorer;
+		default:
+			return false;
+	}
+}
+
+/**
+ * Admins and context admins manage their personal skills in the Context Hub they already have; the User role only when
+ * one of its groups grants personal skills, which then opens the Context Hub to them on its skills alone.
+ */
+export function canRoleManagePersonalSkills(
+	role: UserRole | null | undefined,
+	groupsGrantPersonalSkills: boolean,
+): boolean {
+	switch (role) {
+		case 'admin':
+		case 'context_admin':
+			return true;
+		case 'user':
+			return groupsGrantPersonalSkills;
 		default:
 			return false;
 	}

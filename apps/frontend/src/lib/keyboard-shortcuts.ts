@@ -12,6 +12,7 @@ export type ShortcutId =
 	| 'keyboard-help'
 	| 'stop-generation'
 	| 'cycle-model'
+	| 'swap-steer-queue'
 	| 'go-to-file'
 	| 'close-file-tab'
 	| 'toggle-test-drawer'
@@ -87,6 +88,13 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Cycle model',
 		group: 'Chat',
 		shortcut: { shift: true, key: 'Tab' },
+	},
+	// Handled by the chat input alone: while the agent runs, it does what Enter does not (steer or queue).
+	{
+		id: 'swap-steer-queue',
+		label: 'Steer the running agent instead of queuing',
+		group: 'Chat',
+		shortcut: { mod: true, key: 'Enter' },
 	},
 	{
 		id: 'go-to-file',

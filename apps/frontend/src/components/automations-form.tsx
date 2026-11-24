@@ -1,17 +1,16 @@
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
-import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
 import { applyAutomationDraftUpdate } from '@nao/shared/automation-draft';
+import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
+import { isSameModel } from '@nao/shared/types';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { AutomationDraft, AutomationDraftUpdate } from '@nao/shared/automation-draft';
 import type { McpServerStatus } from '@nao/shared';
 import type { AutomationEventTriggers, LlmProvider, NaoEventType } from '@nao/shared/types';
 import type { FormEvent, ReactNode, Ref, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
-import GithubIcon from '@/components/icons/github-icon.svg';
-import McpIcon from '@/components/icons/model-context-protocol.svg';
-import SlackIcon from '@/components/icons/slack.svg';
+
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
 import { EmailRecipientsInput } from '@/components/email-recipients-input';
 import {
@@ -19,6 +18,9 @@ import {
 	getPromptHeightBounds,
 	useAutomationPromptHeight,
 } from '@/components/automation-prompt-resize-handle';
+import GithubIcon from '@/components/icons/github-icon.svg';
+import McpIcon from '@/components/icons/model-context-protocol.svg';
+import SlackIcon from '@/components/icons/slack.svg';
 import { McpServerIcon } from '@/components/mcp-server-icon';
 import {
 	addNaoEventTrigger,
@@ -44,11 +46,12 @@ import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { describeNaoEventTrigger, getEnabledNaoEvents, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
-import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { llmModelValue } from '@/lib/llm-model';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 type IntegrationConfig = {
@@ -112,6 +115,7 @@ export type AutomationFormValue = {
 	scheduleDescription?: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 	enabled: boolean;
 	mcpEnabled: boolean;
 	mcpServers?: string[];
@@ -138,6 +142,8 @@ type AutomationFormProps = {
 	showSubmitButton?: boolean;
 	autoSaveControls?: boolean;
 	saveShortcut?: boolean;
+	/** Shows the automation without letting the user change it; the sidebar stays interactive. */
+	readOnly?: boolean;
 	onDirtyChange?: (isDirty: boolean) => void;
 	onSubmit: (value: AutomationFormValue) => Promise<void>;
 };
@@ -166,6 +172,8 @@ type AvailableModel = {
 	modelId: string;
 	name: string;
 	baseUrl: string | null;
+	llmConfigId?: string;
+	llmConfigName?: string;
 };
 
 const defaultModelValue = 'default';
@@ -209,6 +217,7 @@ export function AutomationForm({
 	showSubmitButton = true,
 	autoSaveControls = false,
 	saveShortcut = false,
+	readOnly = false,
 	onDirtyChange,
 	onSubmit,
 }: AutomationFormProps) {
@@ -237,7 +246,7 @@ export function AutomationForm({
 					hasSidebar && '@4xl:grid-cols-[minmax(0,1fr)_340px] @6xl:grid-cols-[minmax(0,1fr)_380px]',
 				)}
 			>
-				<div className='grid content-start gap-6'>
+				<fieldset disabled={readOnly} className='grid min-w-0 content-start gap-6'>
 					<AutomationTitleField
 						value={form.value.title}
 						onChange={form.setTitle}
@@ -272,12 +281,14 @@ export function AutomationForm({
 						onPromptChange={form.handlePromptChange}
 						modelValue={form.selectedModelValue}
 						modelName={form.selectedModelName}
+						modelConfigName={form.selectedModelConfigName}
 						modelProvider={form.value.modelProvider}
 						availableModels={form.availableModels}
 						onModelChange={form.handleModelChange}
 						modelDisabled={form.controlsDisabled}
 						email={form.userEmail}
 						onInsertPromptTrigger={form.handleInsertPromptTrigger}
+						readOnly={readOnly}
 					/>
 
 					<ToolsSection
@@ -303,7 +314,7 @@ export function AutomationForm({
 							{isPending ? 'Saving...' : submitLabel}
 						</Button>
 					)}
-				</div>
+				</fieldset>
 
 				{hasSidebar && (
 					<div className='grid content-start gap-4'>
@@ -364,11 +375,16 @@ function useAutomationFormController({
 	const mcpServersQuery = useQuery(trpc.mcp.getUsableServers.queryOptions());
 	const isDirty = !areAutomationValuesEqual(value, savedValue);
 	const userEmail = session?.user?.email;
-	const selectedModelValue =
-		value.modelProvider && value.modelId ? `${value.modelProvider}:${value.modelId}` : defaultModelValue;
-	const selectedModelName =
-		availableModels.data?.find((model) => model.provider === value.modelProvider && model.modelId === value.modelId)
-			?.name ?? value.modelId;
+	const selectedModel =
+		value.modelProvider && value.modelId
+			? { provider: value.modelProvider, modelId: value.modelId, llmConfigId: value.llmConfigId }
+			: null;
+	const selectedAvailableModel = selectedModel
+		? availableModels.data?.find((model) => isSameModel(model, selectedModel))
+		: undefined;
+	const selectedModelValue = selectedModel ? llmModelValue(selectedModel) : defaultModelValue;
+	const selectedModelName = selectedAvailableModel?.name ?? value.modelId;
+	const selectedModelConfigName = selectedAvailableModel?.llmConfigName;
 	const controlsDisabled = isPending || isAutoSaving;
 	const titlePlaceholder =
 		value.prompt.trim().length > 0 ? 'A title will be generated from your prompt' : 'Untitled automation';
@@ -611,13 +627,23 @@ function useAutomationFormController({
 
 	function handleModelChange(modelValue: string) {
 		if (modelValue === defaultModelValue) {
-			handleControlValueChange({ ...value, modelProvider: undefined, modelId: undefined });
+			handleControlValueChange({
+				...value,
+				modelProvider: undefined,
+				modelId: undefined,
+				llmConfigId: undefined,
+			});
 			return;
 		}
 
-		const model = availableModels.data?.find((item) => `${item.provider}:${item.modelId}` === modelValue);
+		const model = availableModels.data?.find((item) => llmModelValue(item) === modelValue);
 		if (model) {
-			handleControlValueChange({ ...value, modelProvider: model.provider, modelId: model.modelId });
+			handleControlValueChange({
+				...value,
+				modelProvider: model.provider,
+				modelId: model.modelId,
+				llmConfigId: model.llmConfigId,
+			});
 		}
 	}
 
@@ -648,6 +674,7 @@ function useAutomationFormController({
 		promptRef,
 		scheduleOption,
 		selectedModelName,
+		selectedModelConfigName,
 		selectedModelValue,
 		setCustomCron,
 		setTitle,
@@ -982,12 +1009,14 @@ function AgentInstructionsSection({
 	onPromptChange,
 	modelValue,
 	modelName,
+	modelConfigName,
 	modelProvider,
 	availableModels,
 	onModelChange,
 	modelDisabled,
 	email,
 	onInsertPromptTrigger,
+	readOnly,
 }: {
 	promptRef: RefObject<PromptHandle | null>;
 	promptValue: string;
@@ -996,13 +1025,23 @@ function AgentInstructionsSection({
 	onPromptChange: (value: string) => void;
 	modelValue: string;
 	modelName: string | undefined;
+	modelConfigName: string | undefined;
 	modelProvider: LlmProvider | undefined;
 	availableModels: AvailableModel[] | undefined;
 	onModelChange: (modelValue: string) => void;
 	modelDisabled: boolean;
 	email?: string;
 	onInsertPromptTrigger: (trigger: string) => void;
+	readOnly: boolean;
 }) {
+	if (readOnly) {
+		return (
+			<section className='grid gap-2'>
+				<h2 className='text-sm font-medium'>Agent instructions</h2>
+				<p className='rounded-xl border bg-background/60 p-3 text-sm whitespace-pre-wrap'>{promptValue}</p>
+			</section>
+		);
+	}
 	return (
 		<section className='grid gap-2'>
 			<label className='text-sm font-medium'>Agent instructions</label>
@@ -1016,6 +1055,7 @@ function AgentInstructionsSection({
 					<AutomationModelSelect
 						value={modelValue}
 						modelName={modelName}
+						modelConfigName={modelConfigName}
 						provider={modelProvider}
 						availableModels={availableModels}
 						onChange={onModelChange}
@@ -1110,6 +1150,7 @@ function measurePromptEditorHeight(promptCard: HTMLDivElement | null): number {
 function AutomationModelSelect({
 	value,
 	modelName,
+	modelConfigName,
 	provider,
 	availableModels,
 	onChange,
@@ -1117,6 +1158,7 @@ function AutomationModelSelect({
 }: {
 	value: string;
 	modelName: string | undefined;
+	modelConfigName: string | undefined;
 	provider: LlmProvider | undefined;
 	availableModels: AvailableModel[] | undefined;
 	onChange: (modelValue: string) => void;
@@ -1139,15 +1181,17 @@ function AutomationModelSelect({
 							/>
 						)}
 						<span className='truncate'>{modelName ?? 'Default model'}</span>
+						{modelConfigName && <span className='truncate text-muted-foreground'>{modelConfigName}</span>}
 					</div>
 				</SelectValue>
 			</SelectTrigger>
 			<SelectContent align='start'>
 				<SelectItem value={defaultModelValue}>Default model</SelectItem>
 				{availableModels?.map((model) => (
-					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
+					<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 						<LlmProviderIcon provider={model.provider} baseUrl={model.baseUrl} className='size-4' />
 						{model.name}
+						{model.llmConfigName && <span className='text-muted-foreground'>{model.llmConfigName}</span>}
 					</SelectItem>
 				))}
 			</SelectContent>

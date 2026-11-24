@@ -13,6 +13,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
 import type { AutomationIntegrationResult } from '../types/automation';
+import { type AutomationRole, hasAutomationRole, resolveAutomationRoles } from './automation-share.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
 const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
@@ -25,24 +26,57 @@ export type AutomationWithSchedule = DBAutomation & {
 	scheduledJob: DBScheduledJob | null;
 };
 
-export type AutomationListItem = AutomationWithSchedule & {
+export type AutomationWithAccess = AutomationWithSchedule & { accessRole: AutomationRole };
+
+export type AutomationListItem = AutomationWithAccess & {
+	ownerName: string | null;
 	lastRunStatus: DBAutomationRun['status'] | null;
 	lastRunStartedAt: Date | null;
 };
 
+export const listProjectAutomationModelSelections = async (
+	projectId: string,
+): Promise<Array<Pick<DBAutomation, 'id' | 'userId' | 'modelProvider' | 'modelId' | 'llmConfigId'>>> => {
+	return db
+		.select({
+			id: s.automation.id,
+			userId: s.automation.userId,
+			modelProvider: s.automation.modelProvider,
+			modelId: s.automation.modelId,
+			llmConfigId: s.automation.llmConfigId,
+		})
+		.from(s.automation)
+		.where(eq(s.automation.projectId, projectId))
+		.execute();
+};
+
+/** The automations the user owns or that are shared with them. */
 export const listAutomations = async (projectId: string, userId: string): Promise<AutomationListItem[]> => {
 	await failStaleAutomationRuns();
 	const rows = await db
-		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob, ownerName: s.user.name })
 		.from(s.automation)
 		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
-		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.leftJoin(s.user, eq(s.user.id, s.automation.userId))
+		.where(eq(s.automation.projectId, projectId))
 		.orderBy(desc(s.automation.updatedAt))
 		.execute();
+	const roles = await resolveAutomationRoles(
+		projectId,
+		rows.map((row) => row.automation),
+		userId,
+	);
+
+	const visibleRows = rows.flatMap((row) => {
+		const accessRole = roles.get(row.automation.id);
+		return accessRole ? [{ ...row, accessRole }] : [];
+	});
 
 	return Promise.all(
-		rows.map(async ({ automation, scheduledJob }) => ({
+		visibleRows.map(async ({ automation, scheduledJob, ownerName, accessRole }) => ({
 			...mapAutomationWithSchedule(automation, scheduledJob),
+			accessRole,
+			ownerName,
 			...(await getLatestRunSummary(automation.id)),
 		})),
 	);
@@ -145,18 +179,22 @@ async function getLatestRunSummary(
 	};
 }
 
+/** The automation, when the user has at least the given role on it. */
 export const getAutomation = async (
 	projectId: string,
 	userId: string,
 	id: string,
-): Promise<AutomationWithSchedule | null> => {
-	const [row] = await db
-		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
-		.from(s.automation)
-		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
-		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
-		.execute();
-	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
+	minimumRole: AutomationRole,
+): Promise<AutomationWithAccess | null> => {
+	const automation = await getProjectAutomation(projectId, id);
+	if (!automation) {
+		return null;
+	}
+	const accessRole = (await resolveAutomationRoles(projectId, [automation], userId)).get(id);
+	if (!accessRole || !hasAutomationRole(accessRole, minimumRole)) {
+		return null;
+	}
+	return { ...automation, accessRole };
 };
 
 export const getProjectAutomation = async (projectId: string, id: string): Promise<AutomationWithSchedule | null> => {
@@ -206,7 +244,6 @@ export const linkAutomationJob = async (id: string, scheduledJobId: string | nul
 
 export const updateAutomation = async (
 	projectId: string,
-	userId: string,
 	id: string,
 	data: Partial<
 		Pick<
@@ -217,6 +254,7 @@ export const updateAutomation = async (
 			| 'timezone'
 			| 'modelProvider'
 			| 'modelId'
+			| 'llmConfigId'
 			| 'mcpEnabled'
 			| 'mcpServers'
 			| 'integrations'
@@ -228,7 +266,7 @@ export const updateAutomation = async (
 	const [updated] = await db
 		.update(s.automation)
 		.set(data)
-		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId)))
 		.returning()
 		.execute();
 	return updated ?? null;
@@ -293,23 +331,13 @@ async function deleteAutomationMatching(condition: SQL | undefined): Promise<voi
 	});
 }
 
-export const listAutomationRuns = async (
-	projectId: string,
-	userId: string,
-	automationId: string,
-): Promise<DBAutomationRun[]> => {
+export const listAutomationRuns = async (projectId: string, automationId: string): Promise<DBAutomationRun[]> => {
 	await failStaleAutomationRuns();
 	const rows = await db
 		.select({ run: s.automationRun })
 		.from(s.automationRun)
 		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
-		.where(
-			and(
-				eq(s.automation.id, automationId),
-				eq(s.automation.projectId, projectId),
-				eq(s.automation.userId, userId),
-			),
-		)
+		.where(and(eq(s.automation.id, automationId), eq(s.automation.projectId, projectId)))
 		.orderBy(desc(s.automationRun.startedAt))
 		.execute();
 	return rows.map((row) => row.run);
@@ -385,6 +413,10 @@ export const attachRunChat = async (runId: string, chatId: string): Promise<void
 	await db.update(s.automationRun).set({ chatId }).where(eq(s.automationRun.id, runId)).execute();
 };
 
+export const setRunLlmConfig = async (runId: string, llmConfigId: string | null): Promise<void> => {
+	await db.update(s.automationRun).set({ llmConfigId }).where(eq(s.automationRun.id, runId)).execute();
+};
+
 export const completeAutomationRun = async (
 	runId: string,
 	integrationResults: AutomationIntegrationResult[],
@@ -452,6 +484,16 @@ export const getAutomationRunForUser = async (
 		.where(
 			and(eq(s.automationRun.id, runId), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)),
 		)
+		.execute();
+	return row?.run ?? null;
+};
+
+export const getProjectAutomationRun = async (projectId: string, runId: string): Promise<DBAutomationRun | null> => {
+	const [row] = await db
+		.select({ run: s.automationRun })
+		.from(s.automationRun)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
+		.where(and(eq(s.automationRun.id, runId), eq(s.automation.projectId, projectId)))
 		.execute();
 	return row?.run ?? null;
 };

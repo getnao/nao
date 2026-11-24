@@ -1,4 +1,3 @@
-import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 
 import type { User } from '../db/abstractSchema';
@@ -6,67 +5,69 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import type { CreatedEmail } from '../types/email';
+import type { AddMemberOutcome, TeamMemberInput } from '../types/team-member';
 import { emailService } from './email';
 import { addProjectMember } from './membership.service';
 
-export interface AddMemberResult {
-	newUser: { id: string; name: string; email: string; role: string };
-	password?: string;
-}
-
-interface AddMemberOptions {
-	email: string;
-	name?: string;
+interface AddMembersOptions {
+	members: TeamMemberInput[];
 	checkExisting: (userId: string) => Promise<boolean>;
 	addMember: (userId: string) => Promise<void>;
 	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => Promise<CreatedEmail>;
 }
 
-export async function addTeamMember({
-	email,
-	name,
-	checkExisting,
-	addMember,
-	buildEmail,
-}: AddMemberOptions): Promise<AddMemberResult> {
-	const normalizedEmail = email.toLowerCase();
-	const user = await userQueries.getUser({ email: normalizedEmail });
+/** Adds each member in turn so that one failure never blocks the rest of the batch. */
+export async function addTeamMembers({ members, ...options }: AddMembersOptions): Promise<AddMemberOutcome[]> {
+	const outcomes: AddMemberOutcome[] = [];
+	for (const member of uniqueByEmail(members)) {
+		outcomes.push(await addTeamMemberSafely(member, options));
+	}
+	return outcomes;
+}
+
+async function addTeamMemberSafely(
+	member: TeamMemberInput,
+	options: Omit<AddMembersOptions, 'members'>,
+): Promise<AddMemberOutcome> {
+	try {
+		return await addTeamMember(member, options);
+	} catch (error) {
+		return { email: member.email, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+async function addTeamMember(
+	{ email, name }: TeamMemberInput,
+	{ checkExisting, addMember, buildEmail }: Omit<AddMembersOptions, 'members'>,
+): Promise<AddMemberOutcome> {
+	const user = await userQueries.getUser({ email });
 
 	if (!user) {
 		if (!name) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: 'USER_DOES_NOT_EXIST' });
+			return { email, status: 'needsName' };
 		}
-
-		const userId = crypto.randomUUID();
-		const accountId = crypto.randomUUID();
-		const password = crypto.randomUUID().slice(0, 8);
-		const hashedPassword = await hashPassword(password);
-
-		const newUser = await userQueries.createUser(
-			{ id: userId, name, email: normalizedEmail, requiresPasswordReset: true },
-			{ id: accountId, userId, accountId: userId, providerId: 'credential', password: hashedPassword },
-		);
-
+		const { user: newUser, temporaryPassword } = await createUserWithPassword(email, name);
 		await addMember(newUser.id);
-		await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
-
-		return {
-			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: env.DEFAULT_USER_ROLE },
-			password,
-		};
+		await emailService.sendEmail(newUser.email, await buildEmail(newUser, temporaryPassword));
+		return { email, status: 'added', name: newUser.name, password: temporaryPassword };
 	}
 
-	const alreadyMember = await checkExisting(user.id);
-	if (alreadyMember) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'User is already a member.' });
+	if (await checkExisting(user.id)) {
+		return { email, status: 'alreadyMember' };
 	}
 
 	await addMember(user.id);
 	await emailService.sendEmail(user.email, await buildEmail(user));
+	return { email, status: 'added', name: user.name };
+}
 
-	return {
-		newUser: { id: user.id, name: user.name, email: user.email, role: env.DEFAULT_USER_ROLE },
-	};
+function uniqueByEmail(members: TeamMemberInput[]): TeamMemberInput[] {
+	const membersByEmail = new Map<string, TeamMemberInput>();
+	for (const member of members) {
+		const email = member.email.trim().toLowerCase();
+		membersByEmail.set(email, { email, name: member.name?.trim() || undefined });
+	}
+	return [...membersByEmail.values()];
 }
 
 interface EnsureMessagingProviderUserOptions {

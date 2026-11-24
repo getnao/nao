@@ -19,7 +19,7 @@ import { HighlightBubble } from '@/components/highlight-bubble';
 import { Button } from '@/components/ui/button';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { TextShimmer } from '@/components/ui/text-shimmer';
-import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { AgentProvider, useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { FollowUpFiller, SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
@@ -61,6 +61,7 @@ export function AskBar({
 	getRequestBody,
 	onAsk,
 	onEnd,
+	onChatChange,
 	children,
 }: {
 	placeholder: string;
@@ -74,6 +75,8 @@ export function AskBar({
 	/** Creates the chat of a new question and returns its id. */
 	onAsk: (citations: CitationData[]) => Promise<string>;
 	onEnd?: () => void;
+	/** Told the chat of the open question, or null once there is none. */
+	onChatChange?: (chatId: string | null) => void;
 	/** Rendered within the agent of the question, to react to its answers. */
 	children?: ReactNode;
 }) {
@@ -100,6 +103,11 @@ export function AskBar({
 		}
 		isFocusRequested.current = true;
 	}, [request]);
+
+	useEffect(() => {
+		onChatChange?.(session.chatId);
+		return () => onChatChange?.(null);
+	}, [onChatChange, session.chatId]);
 
 	useEffect(() => {
 		if (!isFocusRequested.current || isInputHidden) {
@@ -226,9 +234,8 @@ export function PendingMessageSender({ message, onSent }: { message?: SubmittedM
 
 /** The folded panel: the agent at work, then the answers ready to read, as a pill above the input. */
 function AskStatus({ onOpen, onClose }: { onOpen: () => void; onClose: () => void }) {
-	const messages = useAgentMessages();
 	const { isRunning } = useAgentContext();
-	const questionCount = countQuestions(messages);
+	const questionCount = useAgentMessagesSelector(countQuestions);
 	if (questionCount === 0) {
 		return null;
 	}

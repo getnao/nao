@@ -57,6 +57,9 @@ export type NewProjectDiscordLink = typeof sqliteSchema.projectDiscordLink.$infe
 export type DBProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferSelect;
 export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferInsert;
 
+export type DBProjectDecisionConfig = typeof sqliteSchema.projectDecisionConfig.$inferSelect;
+export type NewProjectDecisionConfig = typeof sqliteSchema.projectDecisionConfig.$inferInsert;
+
 export type DBOrganization = typeof sqliteSchema.organization.$inferSelect;
 export type NewOrganization = typeof sqliteSchema.organization.$inferInsert;
 
@@ -125,6 +128,9 @@ export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 export type DBStoryFilterOptionsCache = typeof sqliteSchema.storyFilterOptionsCache.$inferSelect;
 
+export type DBStoryViewerDataCache = typeof sqliteSchema.storyViewerDataCache.$inferSelect;
+export type NewStoryViewerDataCache = typeof sqliteSchema.storyViewerDataCache.$inferInsert;
+
 export type DBStoryAppState = typeof sqliteSchema.storyAppState.$inferSelect;
 export type NewStoryAppState = typeof sqliteSchema.storyAppState.$inferInsert;
 
@@ -133,6 +139,9 @@ export type NewActivity = typeof sqliteSchema.activity.$inferInsert;
 export type ActivityType = DBActivity['type'];
 export type ActivityStatus = DBActivity['status'];
 export type ActivityTrigger = DBActivity['trigger'];
+
+export type DBUserSkill = typeof sqliteSchema.userSkill.$inferSelect;
+export type NewUserSkill = typeof sqliteSchema.userSkill.$inferInsert;
 
 export type DBNotification = typeof sqliteSchema.notification.$inferSelect;
 export type NewNotification = typeof sqliteSchema.notification.$inferInsert;

@@ -45,6 +45,7 @@ export interface ShareAccessPanelProps {
 	onNotifyChange: (notify: boolean) => void;
 	ownerCandidates?: ShareOwner[];
 	onChangeOwner?: (owner: ShareOwner) => void;
+	roleDescriptions?: Record<ShareRole, string>;
 }
 
 export function ShareAccessPanel(props: ShareAccessPanelProps) {
@@ -158,6 +159,7 @@ function SpecificPeopleList({
 	canManage,
 	ownerCandidates,
 	onChangeOwner,
+	roleDescriptions,
 }: ShareAccessPanelProps) {
 	const [defaultRole, setDefaultRole] = useState<ShareRole>('viewer');
 	const rows = canManage ? mergeWithGrants(candidates, draft) : draft.grants;
@@ -176,6 +178,7 @@ function SpecificPeopleList({
 							<ShareRoleSelect
 								role={defaultRole}
 								ariaLabel='Default role for the people you add'
+								descriptions={roleDescriptions}
 								onChange={setDefaultRole}
 							/>
 						</>
@@ -215,6 +218,7 @@ function SpecificPeopleList({
 								isMuted={grant === undefined}
 								isDisabled={grant === undefined}
 								canManage={canManage}
+								descriptions={roleDescriptions}
 								onChange={(role) => onDraftChange(setGrantRole(draft, row, role))}
 							/>
 						)}
@@ -236,6 +240,7 @@ function ProjectMemberList({
 	canManage,
 	ownerCandidates,
 	onChangeOwner,
+	roleDescriptions,
 }: ShareAccessPanelProps) {
 	const people = (canManage ? mergeWithGrants(candidates, draft) : draft.grants).filter((row) => row.kind === 'user');
 
@@ -250,6 +255,7 @@ function ProjectMemberList({
 						role={draft.projectRole}
 						ariaLabel='Role for everyone in the project'
 						canManage={canManage}
+						descriptions={roleDescriptions}
 						onChange={(role) => onDraftChange(setRoleForWholeProject(draft, role))}
 					/>
 				</ListHeader>
@@ -271,6 +277,7 @@ function ProjectMemberList({
 						ariaLabel={`Role for ${row.name}`}
 						isMuted={!isProjectOverride(draft, row.key)}
 						canManage={canManage}
+						descriptions={roleDescriptions}
 						onChange={(role) => onDraftChange(setProjectMemberRole(draft, row, role))}
 					/>
 				</AccessRow>
@@ -447,6 +454,7 @@ function RoleControl({
 	isMuted = false,
 	isDisabled = false,
 	canManage,
+	descriptions,
 	onChange,
 }: {
 	role: ShareRole;
@@ -454,6 +462,7 @@ function RoleControl({
 	isMuted?: boolean;
 	isDisabled?: boolean;
 	canManage: boolean;
+	descriptions?: Record<ShareRole, string>;
 	onChange: (role: ShareRole) => void;
 }) {
 	if (!canManage) {
@@ -465,6 +474,7 @@ function RoleControl({
 			ariaLabel={ariaLabel}
 			disabled={isDisabled}
 			className={cn(isMuted && 'opacity-50')}
+			descriptions={descriptions}
 			onChange={onChange}
 		/>
 	);

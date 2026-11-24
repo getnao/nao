@@ -157,6 +157,7 @@ class AgentClient:
         test_case: TestCase,
         provider: str = "openai",
         model_id: str = "gpt-4.1",
+        llm_config_id: str | None = None,
         costs: ModelCosts | None = None,
         comparison: ComparisonConfig | None = None,
         retry_auth: bool = True,
@@ -171,6 +172,9 @@ class AgentClient:
             },
             "prompt": test_case.prompt,
         }
+
+        if llm_config_id:
+            payload["model"]["llmConfigId"] = llm_config_id
 
         if reasoning_effort:
             payload["model"]["reasoningEffort"] = reasoning_effort
@@ -201,6 +205,7 @@ class AgentClient:
                     test_case,
                     provider,
                     model_id,
+                    llm_config_id=llm_config_id,
                     costs=costs,
                     comparison=comparison,
                     reasoning_effort=reasoning_effort,

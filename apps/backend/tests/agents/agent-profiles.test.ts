@@ -83,7 +83,7 @@ describe('agent profiles', () => {
 	it('keeps the published RULES.md and the user memories out of the Context Hub agent prompt', () => {
 		const profile = contextEditorAgent({
 			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
-			openPath: null,
+			shown: { type: 'overview' },
 		});
 
 		expect(profile).toMatchObject({ source: 'contextEditor', excludesUserRules: true, excludesMemories: true });
@@ -100,7 +100,7 @@ describe('agent profiles', () => {
 		try {
 			const profile = contextEditorAgent({
 				editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
-				openPath: null,
+				shown: { type: 'overview' },
 			});
 			const context = {
 				agentSettings: null,
@@ -119,7 +119,7 @@ describe('agent profiles', () => {
 	it('introduces the Context Hub agent as the context editor instead of the data analyst', () => {
 		const profile = contextEditorAgent({
 			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
-			openPath: null,
+			shown: { type: 'overview' },
 		});
 
 		const prompt = renderToMarkdown(SystemPrompt({ role: profile.role }));
@@ -132,7 +132,7 @@ describe('agent profiles', () => {
 	it('teaches only the Context Hub agent to link context files', () => {
 		const profile = contextEditorAgent({
 			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
-			openPath: null,
+			shown: { type: 'overview' },
 		});
 
 		expect(profile.promptAppendix).toContain('<context-file path="docs/glossary.md" lines="4-8">');

@@ -4,6 +4,7 @@ import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router';
 import { CommandMenu } from '@/components/command-menu';
 import { CloudBillingAccessBanner } from '@/components/cloud-billing-access-banner';
 import { GithubStarPrompt } from '@/components/github-star-prompt';
+import { GroupImpersonationBanner } from '@/components/group-impersonation';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { lucideIconQueryOptions } from '@/components/lucide-icon-by-name';
 import { PageLoader } from '@/components/page-loader';
@@ -61,6 +62,7 @@ function SidebarLayoutContent() {
 			<TrialStartedDialogController />
 			<GithubStarPrompt />
 			<div className='flex min-h-0 min-w-0 flex-1 flex-col'>
+				<GroupImpersonationBanner />
 				<CloudBillingAccessBanner />
 				<div className='flex min-h-0 min-w-0 flex-1'>
 					<Outlet />

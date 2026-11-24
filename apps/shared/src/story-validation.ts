@@ -362,10 +362,11 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 		if (needsOptionsSource) {
 			const hasHardcodedOptions = Boolean(options?.length);
 			const hasTableSource = Boolean(attrs.table && attrs.column);
-			if (!hasHardcodedOptions && !hasTableSource && !attrs.dimension) {
+			const hasOptionsQuerySource = Boolean(attrs.options_query_id);
+			if (!hasHardcodedOptions && !hasTableSource && !hasOptionsQuerySource && !attrs.dimension) {
 				errors.push({
 					message:
-						'Select filters require `options=\'["a","b"]\'`, both `table` and `column`, or a semantic layer `dimension`.',
+						'Select filters require `options=\'["a","b"]\'`, both `table` and `column`, an `options_query_id`, or a semantic layer `dimension`.',
 					line: position.line,
 					column: position.column,
 					length: fullMatch.length,

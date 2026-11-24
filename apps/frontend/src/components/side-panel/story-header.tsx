@@ -19,11 +19,15 @@ import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import type { StoryDownloadOptions } from '@/components/story-download';
-import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import type {
+	CustomStoryElementSelection,
+	CustomStoryViewModeControls,
+} from '@/components/custom-story/custom-story-view-mode';
 import type { StoryVersionEntry } from '@/components/story-version-nav';
 import {
 	CustomStoryElementSelectionToggle,
 	CustomStoryViewModeToggle,
+	ElementSelectionToggle,
 	isCustomStoryViewMode,
 } from '@/components/custom-story/custom-story-view-mode';
 import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
@@ -59,6 +63,7 @@ import { cn } from '@/lib/utils';
 interface StoryViewModeControls {
 	viewMode: StoryViewMode;
 	onViewModeChange: (mode: StoryViewMode) => void;
+	elementSelection?: CustomStoryElementSelection;
 }
 
 interface StoryHeaderBaseProps {
@@ -335,8 +340,10 @@ export const StoryHeader = memo(function StoryHeader({
 	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
 
-	const elementSelectionToggle = isCustomStoryViewModeControls(viewModeControls) && (
+	const elementSelectionToggle = isCustomStoryViewModeControls(viewModeControls) ? (
 		<CustomStoryElementSelectionToggle {...viewModeControls} />
+	) : (
+		viewModeControls.elementSelection && <ElementSelectionToggle {...viewModeControls.elementSelection} />
 	);
 
 	const actionButtons = showActionsMenu && (

@@ -6,6 +6,7 @@ import {
 	pickRequestedModel,
 	type ProjectAvailableModel,
 	RequestedModelError,
+	resolveAvailableModelSelection,
 } from '../../src/utils/llm';
 
 const available: ProjectAvailableModel[] = [
@@ -41,6 +42,39 @@ describe('pickRequestedModel', () => {
 	it('refuses an ambiguous bare id and lists the qualified candidates', () => {
 		expect(() => pickRequestedModel(available, 'shared-id')).toThrow(RequestedModelError);
 		expect(() => pickRequestedModel(available, 'shared-id')).toThrow('openai/shared-id, custom/shared-id');
+	});
+
+	it('accepts and advertises credential-qualified models', () => {
+		const credentials: ProjectAvailableModel[] = [
+			{
+				provider: 'openai',
+				modelId: 'gpt-5',
+				name: 'GPT-5',
+				baseUrl: null,
+				llmConfigId: 'config-a',
+				llmConfigName: 'Client A',
+			},
+			{
+				provider: 'openai',
+				modelId: 'gpt-5',
+				name: 'GPT-5',
+				baseUrl: null,
+				llmConfigId: 'config-b',
+				llmConfigName: 'Client B',
+			},
+		];
+
+		expect(pickRequestedModel(credentials, 'openai/gpt-5@config-b')).toEqual({
+			provider: 'openai',
+			modelId: 'gpt-5',
+			llmConfigId: 'config-b',
+		});
+		expect(() => pickRequestedModel(credentials, 'openai/gpt-5')).toThrow(
+			'openai/gpt-5@config-a, openai/gpt-5@config-b',
+		);
+		expect(describeModelInput(credentials, credentials[0])).toContain(
+			'`openai/gpt-5@config-a` (Client A) (default), `openai/gpt-5@config-b` (Client B)',
+		);
 	});
 
 	it('prefers an exact id containing a slash over the provider/model split', () => {
@@ -97,5 +131,22 @@ describe('describeModelInput', () => {
 		expect(describeModelInput([], null)).toContain('No model is configured on this project.');
 		expect(describeModelInput(null, null)).not.toContain('Available models');
 		expect(describeModelInput(null, null)).toContain('Omit to use the default');
+	});
+});
+
+describe('resolveAvailableModelSelection', () => {
+	it('hydrates a legacy pin when exactly one credential exposes its model', () => {
+		expect(
+			resolveAvailableModelSelection(
+				[
+					{
+						provider: 'openai',
+						modelId: 'gpt-5',
+						llmConfigId: 'config-a',
+					},
+				],
+				{ provider: 'openai', modelId: 'gpt-5' },
+			),
+		).toEqual({ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'config-a' });
 	});
 });

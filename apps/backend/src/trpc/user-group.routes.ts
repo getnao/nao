@@ -42,13 +42,19 @@ import {
 	type UserGroupColumnPolicies,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
+import type { LlmModelIdsByConfig } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
-import { env } from '../env';
+import type { ActivityType } from '../db/abstractSchema';
+import { env, isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
+import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import * as impersonationQueries from '../queries/user-group-impersonation.queries';
+import { logActivity } from '../services/activity';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
@@ -63,8 +69,10 @@ import {
 } from '../services/sso-user-group-mapping.service';
 import {
 	assertUserGroupManageable,
+	getActiveGroupImpersonation,
 	getAvailableUserGroupOverview,
 	listActiveUserGroups,
+	validateAssignableUserGroupIds,
 } from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,
@@ -92,6 +100,8 @@ const shareTargetsSchema = z
 	.strict();
 const skillNameSchema = z.string().trim().min(1).max(200);
 const preloadedSkillsSchema = z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS);
+const llmConfigIdsSchema = z.array(z.string().min(1)).max(200);
+const llmModelIdsByConfigSchema = z.record(z.string().min(1), z.array(z.string().trim().min(1).max(500)).max(1_000));
 const skillsAccessSchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('all') }).strict(),
 	z.object({ mode: z.literal('restricted'), skills: z.array(skillNameSchema).max(10_000) }).strict(),
@@ -277,6 +287,43 @@ const userGroupRowPoliciesSchema = z
 	})
 	.strict();
 
+async function validateLlmAccess(
+	projectId: string,
+	configIds: string[],
+	modelIdsByConfig: LlmModelIdsByConfig,
+): Promise<{ llmConfigIds: string[]; llmModelIdsByConfig: LlmModelIdsByConfig }> {
+	const uniqueIds = [...new Set(configIds)];
+	const assignedIds = new Set(uniqueIds);
+	if (Object.keys(modelIdsByConfig).some((configId) => !assignedIds.has(configId))) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Model restrictions must reference an assigned LLM credential.',
+		});
+	}
+	if (uniqueIds.length === 0) {
+		return { llmConfigIds: [], llmModelIdsByConfig: {} };
+	}
+	if (!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId }))) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'An Enterprise user-groups license is required to assign LLM credentials.',
+		});
+	}
+	const activeIds = new Set((await llmConfigQueries.getProjectLlmConfigs(projectId)).map((config) => config.id));
+	if (uniqueIds.some((configId) => !activeIds.has(configId))) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Every LLM credential must be active and belong to this project.',
+		});
+	}
+	return {
+		llmConfigIds: uniqueIds,
+		llmModelIdsByConfig: Object.fromEntries(
+			Object.entries(modelIdsByConfig).map(([configId, modelIds]) => [configId, [...new Set(modelIds)]]),
+		),
+	};
+}
+
 export const userGroupRoutes = {
 	effectiveAccess: projectProtectedProcedure.query(async ({ ctx }) => {
 		return getEffectiveUserGroupAccess(ctx.project.id, ctx.user.id, ctx.userRole);
@@ -305,6 +352,40 @@ export const userGroupRoutes = {
 			}
 			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId, role);
 		}),
+
+	impersonation: projectProtectedProcedure.query(async ({ ctx }) => {
+		const groupIds = await getActiveGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (!groupIds) {
+			return null;
+		}
+		return { groupNames: await listGroupNames(ctx.project.id, groupIds) };
+	}),
+
+	startImpersonation: projectProtectedProcedure
+		.input(z.object({ groupIds: z.array(z.string().min(1)).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			if (isCloud) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'Group impersonation is not available on nao Cloud yet.',
+				});
+			}
+			if ((await projectQueries.getActualUserRoleInProject(ctx.project.id, ctx.user.id)) !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can impersonate user groups.' });
+			}
+			const groupIds = await handleQuery(() => validateAssignableUserGroupIds(ctx.project.id, input.groupIds));
+			await impersonationQueries.startGroupImpersonation(ctx.project.id, ctx.user.id, groupIds);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await logImpersonationActivity(ctx.project.id, ctx.user.id, 'user_group.impersonation_started', groupIds);
+		}),
+
+	stopImpersonation: projectProtectedProcedure.mutation(async ({ ctx }) => {
+		const groupIds = await impersonationQueries.stopGroupImpersonation(ctx.project.id, ctx.user.id);
+		if (groupIds) {
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			await logImpersonationActivity(ctx.project.id, ctx.user.id, 'user_group.impersonation_stopped', groupIds);
+		}
+	}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
@@ -358,11 +439,13 @@ export const userGroupRoutes = {
 				requireProjectPath(ctx.project.path),
 				columnSecurity,
 			);
-			return handleQuery(() =>
+			const saved = await handleQuery(() =>
 				expectedCurrent === undefined
 					? userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity)
 					: userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity, expectedCurrent),
 			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			return saved;
 		}),
 
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -373,7 +456,9 @@ export const userGroupRoutes = {
 		const rowSecurity = normalizeProjectRowSecurity(input);
 		await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
 		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
-		return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+		const updated = await handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+		return updated;
 	}),
 
 	docsContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -403,12 +488,15 @@ export const userGroupRoutes = {
 				ssoMappings: ssoMappingsSchema.optional(),
 				columnPolicies: userGroupColumnPoliciesSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
+				llmConfigIds: llmConfigIdsSchema.default([]),
+				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertGroupBudgetEditable(ctx.project.id, input);
+			const llmAccess = await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
@@ -462,6 +550,8 @@ export const userGroupRoutes = {
 					columnPolicies,
 					shareTargets,
 					input.advancedContextExplorer,
+					llmAccess.llmConfigIds,
+					llmAccess.llmModelIdsByConfig,
 				] as const;
 				return rowPoliciesRegistry === undefined && columnPoliciesRegistry === undefined
 					? createUserGroup(...values)
@@ -491,6 +581,8 @@ export const userGroupRoutes = {
 				ssoMappings: ssoMappingsSchema.optional(),
 				columnPolicies: userGroupColumnPoliciesSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
+				llmConfigIds: llmConfigIdsSchema.optional(),
+				llmModelIdsByConfig: llmModelIdsByConfigSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
@@ -498,6 +590,16 @@ export const userGroupRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await assertGroupBudgetEditable(ctx.project.id, input);
+			const llmAccess =
+				input.llmConfigIds === undefined
+					? undefined
+					: await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig ?? {});
+			if (input.llmModelIdsByConfig !== undefined && llmAccess === undefined) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'LLM credential assignments are required with model restrictions.',
+				});
+			}
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
@@ -563,16 +665,45 @@ export const userGroupRoutes = {
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
 					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
 					...(columnPolicies === undefined ? {} : { columnPolicies, columnPoliciesRegistry }),
+					...(llmAccess === undefined ? {} : llmAccess),
 				}),
 			);
+			const changesWarehouseAccess = [rowPolicies, columnPolicies, databaseAccess, input.ssoMappings].some(
+				(change) => change !== undefined,
+			);
+			if (changesWarehouseAccess) {
+				await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
+			}
 			await saveGroupBudget(ctx.project.id, input.groupId, input);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
 		}),
 
+	updateLlmAccess: adminProtectedProcedure
+		.input(
+			z.object({
+				groupId: z.string().min(1),
+				llmConfigIds: llmConfigIdsSchema,
+				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			const llmAccess = await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig);
+			return handleQuery(() =>
+				userGroupQueries.updateUserGroupLlmAccess(
+					ctx.project.id,
+					input.groupId,
+					llmAccess.llmConfigIds,
+					llmAccess.llmModelIdsByConfig,
+				),
+			);
+		}),
+
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+		await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 		await revokeUnauthorizedProjectWideShares(ctx.project.id);
 	}),
 
@@ -589,6 +720,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
 			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 
@@ -605,6 +737,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
 			);
+			await storyViewerDataCacheQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };
@@ -612,6 +745,25 @@ export const userGroupRoutes = {
 interface GroupBudgetsInput {
 	budgetLimitUsd?: number | null;
 	sharedBudgetLimitUsd?: number | null;
+}
+
+async function listGroupNames(projectId: string, groupIds: string[]): Promise<string[]> {
+	const groups = await listActiveUserGroups(projectId);
+	return groups.filter((group) => groupIds.includes(group.id)).map((group) => group.name);
+}
+
+async function logImpersonationActivity(
+	projectId: string,
+	userId: string,
+	type: Extract<ActivityType, `user_group.impersonation_${string}`>,
+	groupIds: string[],
+): Promise<void> {
+	await logActivity({
+		projectId,
+		userId,
+		type,
+		payload: { groupIds, groupNames: await listGroupNames(projectId, groupIds) },
+	});
 }
 
 async function assertGroupBudgetEditable(projectId: string, input: GroupBudgetsInput): Promise<void> {

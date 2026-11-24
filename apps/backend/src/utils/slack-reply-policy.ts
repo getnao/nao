@@ -1,6 +1,7 @@
 import type { SlackReplyMode } from '../types/messaging-provider';
 
 interface SlackReplyPolicyMessage {
+	isMention?: boolean;
 	author: {
 		isMe: boolean | string;
 		isBot: boolean | string;
@@ -8,8 +9,8 @@ interface SlackReplyPolicyMessage {
 }
 
 export function shouldReplyToSlackThreadMessage(replyMode: SlackReplyMode, message: SlackReplyPolicyMessage): boolean {
-	if (replyMode === 'mention') {
+	if (message.author.isMe || message.author.isBot) {
 		return false;
 	}
-	return !message.author.isMe && !message.author.isBot;
+	return replyMode === 'thread' || message.isMention === true;
 }

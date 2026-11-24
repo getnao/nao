@@ -74,9 +74,11 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
 	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
 	const [hasFileChanges, setHasFileChanges] = useState(false);
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
 	const presence = useStoryEditSession({
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
+		conversationChatId: questionChatId,
 	});
 	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && presence.canEdit;
 	useCloseWhenUneditable(canEditBlocks, () => {
@@ -195,7 +197,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 						)
 					}
 				/>
-				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit />}
+				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit onChatChange={setQuestionChatId} />}
 			</div>
 
 			<CustomStoryBlockEditDialog
@@ -336,7 +338,7 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 					viewMode={viewMode}
 					app={
 						<CustomStoryBody
-							bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
+							bottomInset={isArchived ? undefined : STORY_ASK_BAR_INSET}
 							dataSource={dataSource}
 							content={content}
 							isLoading={contentQuery.isLoading}
@@ -439,7 +441,12 @@ export function SharedCustomStoryPage({
 	const download = useCustomStoryDownload(content, dataSource, renderExport);
 	const canAsk = Boolean(storyChatHeader?.storyChat?.canChat);
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
-	const presence = useStoryEditSession({ target: isSignedIn ? { storyId } : null, isEditing: false });
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
+	const presence = useStoryEditSession({
+		target: isSignedIn ? { storyId } : null,
+		isEditing: false,
+		conversationChatId: questionChatId,
+	});
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
@@ -471,7 +478,9 @@ export function SharedCustomStoryPage({
 					onAsk={canAsk ? askAboutSharedStoryElement : undefined}
 					isSelectingElements={canAsk && isSelectingElements}
 				/>
-				{storyChatHeader?.storyChat?.canChat && <StoryAskBar storyId={storyId} canEdit={canEdit} />}
+				{storyChatHeader?.storyChat?.canChat && (
+					<StoryAskBar storyId={storyId} canEdit={canEdit} onChatChange={setQuestionChatId} />
+				)}
 			</div>
 		</div>
 	);

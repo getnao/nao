@@ -14,6 +14,7 @@ import * as storyQueries from '../queries/story.queries';
 import type { StoryEditHolder } from '../queries/story-edit-lock.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
+import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache.queries';
 import { agentService } from '../services/agent';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
@@ -43,6 +44,7 @@ import {
 	requireStoryById,
 } from '../services/live-story';
 import { listShareableGroups } from '../services/project-sharing.service';
+import { listSharedStoriesForViewer } from '../services/shared-story.service';
 import {
 	appendCustomStoryBlock,
 	editCustomStoryBlock,
@@ -398,7 +400,9 @@ export const storyRoutes = {
 		}
 
 		const storyData = story.chatId
-			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+					viewerUserId: ctx.user.id,
+				})
 			: await getStandaloneStoryLiveQueryData(story.id, story.code, story.isLive, story.cacheSchedule, {
 					deferRefresh: lastRefreshFailure !== null,
 					deferFirstRefresh: true,
@@ -496,7 +500,11 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				{ deferRefresh: ctx.isChatOwner && lastRefreshFailure !== null, deferFirstRefresh: ctx.isChatOwner },
+				{
+					deferRefresh: ctx.isChatOwner && lastRefreshFailure !== null,
+					deferFirstRefresh: ctx.isChatOwner,
+					viewerUserId: ctx.isChatOwner ? ctx.user.id : undefined,
+				},
 			);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -1099,19 +1107,24 @@ export const storyRoutes = {
 
 	refreshData: cloudBillingChatStoryProcedure.input(chatStoryInput).mutation(async ({ input, ctx }) => {
 		const story = await requireStoryByChatAndSlug(input.chatId, input.storySlug);
-		return refreshStoryManually(story, {
+		const result = await refreshStoryManually(story, {
 			actorUserId: ctx.user.id,
 			billingAccessVerifiedProjectId: ctx.projectId,
 		});
+		await storyViewerDataCacheQueries.deleteStoryViewerDataCache(story.id);
+		return result;
 	}),
 
 	refreshStandaloneData: cloudBillingStoryOwnerProjectProcedure
 		.input(z.object({ storyId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
-			return refreshStoryManually(await requireStoryById(input.storyId), {
+			const story = await requireStoryById(input.storyId);
+			const result = await refreshStoryManually(story, {
 				actorUserId: ctx.user.id,
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
+			await storyViewerDataCacheQueries.deleteStoryViewerDataCache(story.id);
+			return result;
 		}),
 
 	getLiveQueryData: cloudBillingChatStoryProcedure
@@ -1263,18 +1276,7 @@ export const storyRoutes = {
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
 		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
-		const items = stories.map((story) => ({
-			...story,
-			storySlug: story.slug,
-			summary: extractStorySummary(story.code),
-			sharing: {
-				visibility: story.visibility,
-				sharedWithCount: story.sharedWithCount,
-				sharedWithGroupCount: story.sharedWithGroupCount,
-				isPinned: story.isPinned,
-			},
-		}));
-		return withKpiPreviewData(items, (story) => story.storyId);
+		return listSharedStoriesForViewer(stories, ctx.project.id, ctx.user.id);
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
@@ -1392,6 +1394,7 @@ export const storyRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
+						{ viewerUserId: ctx.isChatOwner ? ctx.user.id : undefined },
 					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -1501,7 +1504,9 @@ async function getStandaloneClassicStory(storyId: string) {
 async function getStandaloneLatestDownloadContent(story: storyQueries.UserStoryRow) {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	const storyData = story.chatId
-		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+				viewerUserId: story.userId ?? undefined,
+			})
 		: await getStandaloneStoryLiveQueryData(story.id, story.code, story.isLive, story.cacheSchedule);
 	const queryData =
 		storyData.allowsPersistedFallback && story.chatId

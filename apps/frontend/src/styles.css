@@ -406,13 +406,19 @@ code.dollar:before {
 [data-streamdown='code-block-body'] {
 	border: none;
 	border-radius: inherit;
-	padding: 0.625rem 0rem;
+	padding: 0.625rem 0.75rem;
 }
 
-/* More breathing room between the line number gutter and the code */
+/* Gutter as wide as the block's longest line number so every line keeps the same edge and gap */
 [data-streamdown='code-block-body'] code > span::before {
-	margin-right: 1.25rem;
-	padding-right: 0.5rem;
+	width: auto;
+	min-width: 2ch;
+	margin-right: 1rem;
+	padding-right: 0;
+}
+
+[data-streamdown='code-block-body'] code:has(> span:nth-child(100)) > span::before {
+	min-width: 3ch;
 }
 
 [data-streamdown='code-block'] > div:has(> [data-streamdown='code-block-actions']) {
@@ -767,35 +773,45 @@ code.dollar:before {
 	max-height: var(--prompt-max-height, none);
 }
 
-/* Mention pills: outlined chip, matching the "Share chat" button */
+/* Mention pills: coloured inline text, the icon flows with the label so both share the text baseline */
 .prompt-container .mention-pill,
 .message-container .mention-pill {
-	border: 1px solid var(--border);
-	background: var(--background);
-	font-size: 0.825rem;
-	font-weight: 470;
-	line-height: 1.2;
-	padding: 0.375rem 0.5rem;
-	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+	margin: 0;
+	padding: 0 0.125rem;
+	border-radius: 0.25rem;
+	background: transparent;
+	color: var(--primary);
+	font-weight: 500;
+	line-height: inherit;
+	transition:
+		background-color 0.15s ease,
+		outline-color 0.1s ease;
 }
 
 /* The library fades a hovered pill, which promotes it to its own layer and makes the input border redraw */
 .prompt-container .mention-pill:hover,
 .message-container .mention-pill:hover {
 	opacity: 1;
-	background: var(--accent);
+	background: color-mix(in oklch, var(--primary) 10%, transparent);
+	cursor: pointer;
 }
 
 .prompt-container .mention-pill-with-icon,
 .message-container .mention-pill-with-icon {
-	padding-left: 1.75rem;
+	padding-left: 0.125rem;
 }
 
 .prompt-container .mention-pill .mention-pill-icon,
 .message-container .mention-pill .mention-pill-icon {
-	left: 0.5rem;
-	width: 0.75rem;
-	height: 0.75rem;
+	position: relative;
+	top: auto;
+	left: auto;
+	transform: none;
+	vertical-align: middle;
+	width: 0.85em;
+	height: 0.85em;
+	margin-right: 0.2em;
+	opacity: 0.75;
 }
 
 /* The icon and the delete cross swap in place on hover, so both take the exact box of the icon */
@@ -803,18 +819,14 @@ code.dollar:before {
 .message-container .mention-pill-icon-original,
 .prompt-container .mention-pill .mention-pill-icon svg,
 .message-container .mention-pill .mention-pill-icon svg {
-	width: 0.75rem;
-	height: 0.75rem;
+	width: 0.85em;
+	height: 0.85em;
 }
 
 /* Fading the icons promotes them to their own layer, which rounds them to other pixels and makes them jump */
 .prompt-container .mention-pill-icon-original,
 .prompt-container .mention-pill-icon-delete {
 	transition: none;
-}
-
-.dark .mention-pill {
-	border-color: var(--input);
 }
 
 /* Mention menu: match select dropdown styling */
@@ -870,6 +882,26 @@ code.dollar:before {
 	direction: ltr;
 }
 
+/* Skills menu: one compact line per skill, "/name description…" */
+.prompt-container .mention-menu:has(.skill-mention-icon) {
+	min-width: min(560px, calc(100vw - 32px));
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) {
+	grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
+	grid-template-areas: 'icon label label-right';
+	column-gap: 0;
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) .mention-menu-item-icon {
+	width: auto;
+}
+
+.mention-menu .mention-menu-item:has(.skill-mention-icon) .mention-menu-item-label-right {
+	margin-left: calc(var(--spacing) * 2.5);
+	font-size: var(--text-sm);
+}
+
 .replay-nav-highlight:not([data-replay-bordered='true']) {
 	@apply rounded-xl;
 	outline: 2px solid var(--primary);
@@ -882,6 +914,17 @@ code.dollar:before {
 	outline: 2px solid var(--primary);
 	outline-offset: 2px;
 	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+/*
+ * Off-screen message groups skip rendering; the padding keeps highlight outlines inside their paint containment.
+ * Groups showing an inline popup or an expanded map opt out, since containment would clip them.
+ */
+.chat-message-groups > :not(:last-child):not(:has([data-overflows-chat-group])) {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 600px;
+	margin: -0.5rem;
+	padding: 0.5rem;
 }
 
 .chat-artifact-reveal-highlight {

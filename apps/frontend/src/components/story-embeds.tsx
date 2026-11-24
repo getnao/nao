@@ -60,7 +60,7 @@ function useLiveQueryData(queryId: string, liveQuery?: LiveQueryConfig) {
 		queryFn: () => null,
 		enabled: false,
 		...(liveQuery ? liveQuery.queryOptions(queryId) : {}),
-		...(liveQuery ? { staleTime: 0, enabled: true } : {}),
+		...(liveQuery ? { staleTime: 0, refetchOnWindowFocus: false, enabled: true } : {}),
 	});
 }
 
@@ -90,6 +90,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	isRefreshing = false,
 	isStreaming = false,
 	isDataPending = false,
+	unavailableMessage,
 }: {
 	chart: ParsedChartBlock;
 	queryData?: QueryDataMap | null;
@@ -98,6 +99,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	isRefreshing?: boolean;
 	isStreaming?: boolean;
 	isDataPending?: boolean;
+	unavailableMessage?: string;
 }) {
 	const resolvedData = useResolvedEmbedData(chart.queryId, { queryData, liveQuery });
 	const resolved = resolvedData.data;
@@ -119,7 +121,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 		if (isStreaming || isDataPending) {
 			return <EmbedLoading label='Loading data...' />;
 		}
-		return <EmbedPlaceholder>Chart data unavailable (query: {chart.queryId})</EmbedPlaceholder>;
+		return (
+			<EmbedPlaceholder>
+				{unavailableMessage ?? `Chart data unavailable (query: ${chart.queryId})`}
+			</EmbedPlaceholder>
+		);
 	}
 
 	if (displayData.length === 0) {
@@ -172,6 +178,7 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	isStreaming = false,
 	isDataPending = false,
 	allowExpand,
+	unavailableMessage,
 }: {
 	map: ParsedMapBlock;
 	queryData?: QueryDataMap | null;
@@ -181,6 +188,7 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	isStreaming?: boolean;
 	isDataPending?: boolean;
 	allowExpand?: boolean;
+	unavailableMessage?: string;
 }) {
 	const resolvedData = useResolvedEmbedData(map.queryId, { queryData, liveQuery });
 	const resolved = resolvedData.data;
@@ -200,7 +208,9 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 		if (isStreaming || isDataPending) {
 			return <EmbedLoading label='Loading data...' />;
 		}
-		return <EmbedPlaceholder>Map data unavailable (query: {map.queryId})</EmbedPlaceholder>;
+		return (
+			<EmbedPlaceholder>{unavailableMessage ?? `Map data unavailable (query: ${map.queryId})`}</EmbedPlaceholder>
+		);
 	}
 
 	if (displayData.length === 0) {
@@ -228,6 +238,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	isRefreshing = false,
 	isStreaming = false,
 	isDataPending = false,
+	unavailableMessage,
 }: {
 	table: ParsedTableBlock;
 	queryData?: QueryDataMap | null;
@@ -236,6 +247,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	isRefreshing?: boolean;
 	isStreaming?: boolean;
 	isDataPending?: boolean;
+	unavailableMessage?: string;
 }) {
 	const resolvedData = useResolvedEmbedData(table.queryId, { queryData, liveQuery });
 	const resolvedResult = resolvedData.data;
@@ -249,7 +261,11 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 		if (isStreaming || isDataPending) {
 			return <EmbedLoading label='Loading data...' />;
 		}
-		return <EmbedPlaceholder>Table data unavailable (query: {table.queryId})</EmbedPlaceholder>;
+		return (
+			<EmbedPlaceholder>
+				{unavailableMessage ?? `Table data unavailable (query: ${table.queryId})`}
+			</EmbedPlaceholder>
+		);
 	}
 
 	if (!resolvedResult.data || resolvedResult.data.length === 0) {

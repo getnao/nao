@@ -166,7 +166,17 @@ def test_sql_auth_odbc_string_contains_required_parts():
     assert "UID=myuser" in odbc
     assert "PWD=mypassword" in odbc
     assert "Encrypt=yes" in odbc
-    assert "TrustServerCertificate=no" in odbc
+
+
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        pytest.param({}, "TrustServerCertificate=no", id="validated_by_default"),
+        pytest.param({"trust_server_certificate": True}, "TrustServerCertificate=yes", id="trusted_when_enabled"),
+    ],
+)
+def test_trust_server_certificate_in_odbc_string(overrides, fragment):
+    assert fragment in _sql_config(**overrides).build_odbc_string()
 
 
 def test_sql_auth_odbc_string_has_no_authentication_key():

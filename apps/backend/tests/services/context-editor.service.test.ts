@@ -54,7 +54,7 @@ describe('Context Hub chat runs', () => {
 	it.each(['admin', 'context_admin'])('gives a %s the context editor with the open file', async (role) => {
 		mocks.getUserRoleInProject.mockResolvedValue(role);
 
-		const run = await authorize({ contextHub: { openPath: '/docs/glossary.md' } });
+		const run = await authorize({ contextHub: { shown: { type: 'file', path: '/docs/glossary.md' } } });
 
 		expect(run.profile.promptAppendix).toContain('Context Hub Editor');
 		expect(run.profile.promptAppendix).toContain('/docs/glossary.md');
@@ -63,13 +63,15 @@ describe('Context Hub chat runs', () => {
 	it('refuses a user who cannot edit the context', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 
-		await expect(authorize({ contextHub: { openPath: null } })).rejects.toThrow('admins and context admins');
+		await expect(authorize({ contextHub: { shown: { type: 'overview' } } })).rejects.toThrow(
+			'admins and context admins',
+		);
 	});
 
 	it('refuses the context editor outside a Context Hub chat', async () => {
 		mocks.getForkMetadata.mockResolvedValue({ ...CONTEXT_EDIT_CHAT, type: 'automation_edit' });
 
-		await expect(authorize({ contextHub: { openPath: null } })).rejects.toThrow('Context Hub chat');
+		await expect(authorize({ contextHub: { shown: { type: 'overview' } } })).rejects.toThrow('Context Hub chat');
 	});
 
 	it('keeps other chats away from the context editor', async () => {

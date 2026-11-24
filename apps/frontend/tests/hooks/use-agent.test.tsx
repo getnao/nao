@@ -45,7 +45,10 @@ vi.mock('@/hooks/use-chat-id', () => ({
 }));
 
 vi.mock('@/queries/use-chat-query', () => ({
-	useChatQuery: mocks.useChatQuery,
+	useChatQuery: ({ chatId, select }: { chatId?: string; select?: (chat: { messages: unknown[] }) => unknown }) => {
+		const result = mocks.useChatQuery({ chatId });
+		return select && result.data ? { ...result, data: select(result.data) } : result;
+	},
 	useSetChat: () => mocks.setChat,
 }));
 
@@ -69,9 +72,12 @@ describe('useSyncMessages', () => {
 			setMessages: vi.fn(),
 		} as unknown as AgentState;
 
-		renderHook(() => useSyncMessages({ agent }));
+		const { unmount } = renderHook(() => useSyncMessages({ agent }));
 
 		expect(mocks.useChatQuery).toHaveBeenCalledWith({ chatId: 'onboarding-chat' });
+		expect(mocks.setChat).not.toHaveBeenCalled();
+
+		unmount();
 		expect(mocks.setChat).toHaveBeenCalledWith({ chatId: 'onboarding-chat' }, expect.any(Function));
 	});
 

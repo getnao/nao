@@ -1,6 +1,10 @@
 import { codemode } from '@nao/shared/tools';
 
-import { createMcpFunctions, MCP_NAMESPACE } from '../../services/codemode/mcp-functions';
+import {
+	createMcpFunctions,
+	createNaoInternalMcpFunctions,
+	MCP_NAMESPACE,
+} from '../../services/codemode/mcp-functions';
 import {
 	type CodemodeFunction,
 	type CodemodeLimits,
@@ -91,13 +95,17 @@ async function createFunctions(
 	if (options.mcpServers === false) {
 		return [];
 	}
-	return createMcpFunctions({
-		projectId: context.projectId,
-		userId: context.userId,
-		allowedServers: options.mcpServers,
-		access: context.mcpAccess,
-		onAuthRequired,
-	});
+	const [projectFunctions, naoInternalFunctions] = await Promise.all([
+		createMcpFunctions({
+			projectId: context.projectId,
+			userId: context.userId,
+			allowedServers: options.mcpServers,
+			access: context.mcpAccess,
+			onAuthRequired,
+		}),
+		createNaoInternalMcpFunctions(context, options.mcpServers),
+	]);
+	return [...projectFunctions, ...naoInternalFunctions];
 }
 
 function toOutput(result: CodemodeResult, durationMs: number, authRequiredServer?: string): codemode.Output {

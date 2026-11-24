@@ -176,6 +176,12 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'GITLAB_REDIRECT_URI must be a valid URL' }).optional()),
 
+	CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((value) => value === 'true'),
+
 	CLOUD_GITHUB_PROJECT_ORG: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_APP_ID: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_INSTALLATION_ID: optionalNonEmptyString,
@@ -591,7 +597,7 @@ const envSchema = rawEnvSchema
 			'CLOUD_GITHUB_PROJECT_PRIVATE_KEY',
 		] as const;
 		const managedGithubIsConfigured = fields.some((field) => !!data[field]);
-		if (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured) {
+		if (data.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING || (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured)) {
 			return;
 		}
 
