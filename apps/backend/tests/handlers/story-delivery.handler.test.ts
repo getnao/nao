@@ -19,16 +19,15 @@ const mocks = vi.hoisted(() => ({
 	renderCustomStoryPdf: vi.fn(),
 	logError: vi.fn(),
 	updateJobPayload: vi.fn(),
+	getStoryShareAccess: vi.fn(),
+	addSharedStoryAllowedUsers: vi.fn(),
 }));
 
 vi.mock('../../src/queries/scheduled-job.queries', () => ({ updateJobPayload: mocks.updateJobPayload }));
 vi.mock('../../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
 vi.mock('../../src/queries/shared-story.queries', () => ({
-	getStoryShareAccess: vi.fn(async () => ({
-		allowedUserIds: [],
-		shareId: 'share-id',
-		visibility: 'organization',
-	})),
+	getStoryShareAccess: mocks.getStoryShareAccess,
+	addSharedStoryAllowedUsers: mocks.addSharedStoryAllowedUsers,
 }));
 vi.mock('../../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
@@ -100,6 +99,7 @@ const STORY = {
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.getStoryById.mockResolvedValue(STORY);
+	mocks.getStoryShareAccess.mockResolvedValue({ shareId: 'share-id', visibility: 'organization' });
 	mocks.hasRowSecurity.mockResolvedValue(false);
 	mocks.getUserRoleInProject.mockResolvedValue('viewer');
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-user-id']);
@@ -155,6 +155,21 @@ it('shares the owner refresh with unrestricted recipients and rebuilds the story
 		['restricted-1'],
 		['restricted-2'],
 	]);
+});
+
+it('grants direct access only to recipients the share does not already reach', async () => {
+	mocks.getStoryShareAccess.mockResolvedValue({
+		shareId: 'share-id',
+		visibility: 'specific',
+		allowedUserIds: ['direct-user'],
+		allowedGroupIds: ['team-group'],
+		recipientUserIds: ['direct-user', 'group-member'],
+	});
+	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['direct-user', 'group-member', 'outside-user']);
+
+	await runScheduledStoryDelivery('story-id');
+
+	expect(mocks.addSharedStoryAllowedUsers).toHaveBeenCalledWith('share-id', ['outside-user']);
 });
 
 it('sends the owner their own copy, even when their warehouse access is restricted', async () => {
