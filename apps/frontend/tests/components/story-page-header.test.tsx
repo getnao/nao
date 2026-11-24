@@ -8,15 +8,31 @@ import type { ComponentProps } from 'react';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const { favoritesQuery, movableStory, submitStoryFeedback } = vi.hoisted(() => ({
+const { favoritesQuery, resolvedStoryQuery, movableStory, submitStoryFeedback, archiveStory } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	resolvedStoryQuery: {
+		data: undefined as { isOwner: boolean; isArchived: boolean; projectId: string } | undefined,
+	},
 	movableStory: { value: undefined as { storyId: string; isOwner: boolean } | undefined },
 	submitStoryFeedback: vi.fn(),
+	archiveStory: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: () => favoritesQuery,
-	useMutation: () => ({ mutate: submitStoryFeedback, isPending: false }),
+	useQuery: ({ queryKey }: { queryKey?: string }) => {
+		if (queryKey === 'story.resolve') {
+			return resolvedStoryQuery;
+		}
+		if (queryKey === 'project.getCurrent') {
+			return { data: { id: 'project-1' } };
+		}
+		return favoritesQuery;
+	},
+	useMutation: ({ procedure }: { procedure?: string }) => ({
+		mutate: procedure ? (input: unknown) => archiveStory(procedure, input) : submitStoryFeedback,
+		isPending: false,
+	}),
+	useQueryClient: () => ({}),
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -51,9 +67,23 @@ vi.mock('@/main', () => ({
 				queryOptions: () => ({}),
 			},
 		},
+		project: {
+			getCurrent: {
+				queryOptions: () => ({ queryKey: 'project.getCurrent' }),
+			},
+		},
 		story: {
 			getCertification: {
 				queryOptions: () => ({}),
+			},
+			resolve: {
+				queryOptions: () => ({ queryKey: 'story.resolve' }),
+			},
+			archiveShared: {
+				mutationOptions: () => ({ procedure: 'archiveShared' }),
+			},
+			unarchiveShared: {
+				mutationOptions: () => ({ procedure: 'unarchiveShared' }),
 			},
 		},
 		feedback: {
@@ -106,7 +136,44 @@ describe('StoryPageHeader refresh failure banner', () => {
 describe('StoryPageHeader actions', () => {
 	beforeEach(() => {
 		favoritesQuery.data = undefined;
+		resolvedStoryQuery.data = undefined;
 		movableStory.value = undefined;
+		archiveStory.mockClear();
+	});
+
+	it.each([
+		[
+			'archives an active story',
+			{ isOwner: true, isArchived: false, projectId: 'project-1' },
+			'Archive',
+			'archiveShared',
+		],
+		[
+			'unarchives an archived story',
+			{ isOwner: true, isArchived: true, projectId: 'project-1' },
+			'Unarchive',
+			'unarchiveShared',
+		],
+	])('%s from the actions menu', (_, story, label, procedure) => {
+		resolvedStoryQuery.data = story;
+		renderPageHeader({ title: 'Revenue', storyId: 'story-1' });
+
+		openDropdownMenu('More actions');
+		fireEvent.click(screen.getByRole('menuitem', { name: label }));
+
+		expect(archiveStory).toHaveBeenCalledWith(procedure, { storyId: 'story-1' });
+	});
+
+	it.each([
+		['the user does not own the story', { isOwner: false, isArchived: true, projectId: 'project-1' }],
+		['the story belongs to another project', { isOwner: true, isArchived: true, projectId: 'project-2' }],
+	])('hides archiving when %s', (_, story) => {
+		resolvedStoryQuery.data = story;
+		renderPageHeader({ title: 'Revenue', storyId: 'story-1' });
+
+		openDropdownMenu('More actions');
+
+		expect(screen.queryByRole('menuitem', { name: /archive/i })).toBeNull();
 	});
 
 	it.each([

@@ -32,6 +32,7 @@ import { StoryChatButton } from '@/components/story-chat-button';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryArchiveMenuItem,
 	StoryCertifyMenuItem,
 	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
@@ -211,6 +212,7 @@ export function StoryPageHeader({
 								{canDuplicate && storyId && (
 									<StoryDuplicateMenuItem storyId={storyId} versionNumber={viewedVersionNumber} />
 								)}
+								{storyId && <StoryArchiveMenuItem storyId={storyId} />}
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}
