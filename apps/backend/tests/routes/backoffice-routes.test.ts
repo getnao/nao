@@ -605,7 +605,15 @@ describe('cloud backoffice routes', () => {
 		expect((await request('DELETE', `/projects/${PROJECT_ID}`)).statusCode).toBe(404);
 	});
 
+	it('refuses to delete an organization whose Stripe subscriptions cannot be cancelled', async () => {
+		const refused = await request('DELETE', `/organizations/${ORG_ID}`);
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().error).toContain('Cancel them in Stripe first');
+		expect((await get(`/organizations/${ORG_ID}`)).statusCode).toBe(200);
+	});
+
 	it('deletes an organization with its projects and keeps its users', async () => {
+		await db.delete(s.organizationBilling).where(eq(s.organizationBilling.orgId, ORG_ID));
 		const deleted = await request('DELETE', `/organizations/${ORG_ID}`);
 		expect(deleted.statusCode).toBe(204);
 		expect((await get(`/organizations/${ORG_ID}`)).statusCode).toBe(404);

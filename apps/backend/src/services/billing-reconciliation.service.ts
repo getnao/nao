@@ -74,7 +74,11 @@ async function resolveOrganizationBilling(stripeCustomerId: string, organization
 
 	const organization = await organizationQueries.getOrganizationById(organizationId);
 	if (!organization) {
-		throw new Error(`Organization "${organizationId}" was not found`);
+		logger.warn('Ignored a Stripe event of an organization that no longer exists', {
+			source: 'system',
+			context: { organizationId, stripeCustomerId },
+		});
+		return null;
 	}
 	return billingQueries.attachStripeCustomer(organization.id, stripeCustomerId);
 }

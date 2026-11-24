@@ -13,7 +13,9 @@ import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
 import { getStorage, isStorageEnabled } from './storage';
 import { projectRoot } from './storage/keys';
-import { cancelCloudSubscription } from './stripe.service';
+import { cancelOrganizationCloudSubscriptions } from './stripe.service';
+
+const MANAGED_PROJECT_SUBFOLDERS = ['worktrees', 'test-contexts', 'live-repositories'];
 
 /** Removes a project with its database rows, scheduled jobs, stored files and context folder. */
 export async function deleteProjectPermanently(projectId: string): Promise<void> {
@@ -24,7 +26,7 @@ export async function deleteProjectPermanently(projectId: string): Promise<void>
 	await deleteStoredFiles(projectId);
 	await scheduledJobQueries.deleteProjectJobs(projectId);
 	await projectQueries.deleteProject(projectId);
-	await removeManagedProjectFolder(project.path);
+	await removeManagedProjectFolders(projectId, project.path);
 }
 
 /** Removes an organization, all of its projects, and cancels its Stripe subscription. */
@@ -40,11 +42,19 @@ export async function deleteOrganizationPermanently(orgId: string): Promise<void
 	await orgQueries.deleteOrganization(orgId);
 }
 
+/** Deletion is refused when Stripe cannot be reached, so that a deleted organization is never charged again. */
 async function cancelOrganizationSubscription(orgId: string): Promise<void> {
-	const subscriptionId = (await getOrganizationBilling(orgId))?.stripeSubscriptionId;
-	if (isCloudBillingEnabled() && subscriptionId) {
-		await cancelCloudSubscription(subscriptionId, orgId);
+	const billing = await getOrganizationBilling(orgId);
+	if (!billing?.stripeCustomerId) {
+		return;
 	}
+	if (!isCloudBillingEnabled()) {
+		throw new HandlerError(
+			'CONFLICT',
+			'Cloud billing is disabled, so the Stripe subscriptions of this organization cannot be cancelled. Cancel them in Stripe first.',
+		);
+	}
+	await cancelOrganizationCloudSubscriptions(billing.stripeCustomerId, orgId);
 }
 
 async function deleteStoredFiles(projectId: string): Promise<void> {
@@ -57,22 +67,26 @@ async function deleteStoredFiles(projectId: string): Promise<void> {
 	}
 }
 
-/** Only folders nao created under the projects directory are removed, never a path an admin pointed to. */
-async function removeManagedProjectFolder(projectPath: string | null): Promise<void> {
-	if (!projectPath) {
-		return;
-	}
+/**
+ * Removes the context folder with its worktrees, test snapshots and live repository, all kept in the sibling
+ * `.nao` folder. Only folders nao created under the projects directory are removed, never a path an admin pointed to.
+ */
+async function removeManagedProjectFolders(projectId: string, projectPath: string | null): Promise<void> {
 	const projectsDirectory = path.resolve(env.NAO_PROJECTS_DIR);
-	const folder = path.resolve(projectPath);
-	if (path.dirname(folder) !== projectsDirectory) {
+	if (!projectPath || path.dirname(path.resolve(projectPath)) !== projectsDirectory) {
 		return;
 	}
-	try {
-		await fs.rm(folder, { recursive: true, force: true });
-	} catch (error) {
-		logger.error(`Failed to remove the folder of a deleted project: ${String(error)}`, {
-			source: 'system',
-			context: { projectPath },
+	const naoDirectory = path.join(projectsDirectory, '.nao');
+	const folders = [
+		path.resolve(projectPath),
+		...MANAGED_PROJECT_SUBFOLDERS.map((subfolder) => path.join(naoDirectory, subfolder, projectId)),
+	];
+	for (const folder of folders) {
+		await fs.rm(folder, { recursive: true, force: true }).catch((error: unknown) => {
+			logger.error(`Failed to remove a folder of a deleted project: ${String(error)}`, {
+				source: 'system',
+				context: { folder },
+			});
 		});
 	}
 }

@@ -510,18 +510,22 @@ export async function cancelCloudTrialPlaceholderSubscription(
 	);
 }
 
-/** Stops charging the customer of an organization that is deleted for good. */
-export async function cancelCloudSubscription(subscriptionId: string, organizationId: string): Promise<void> {
-	const subscription = await getStripeClient().subscriptions.retrieve(subscriptionId);
-	if (subscription.status === 'canceled' || subscription.status === 'incomplete_expired') {
-		return;
+/** Stops charging the customer of an organization that is deleted for good, duplicate subscriptions included. */
+export async function cancelOrganizationCloudSubscriptions(
+	stripeCustomerId: string,
+	organizationId: string,
+): Promise<void> {
+	for (const { subscription } of await listCloudSubscriptions(stripeCustomerId)) {
+		if (subscription.status === 'canceled' || subscription.status === 'incomplete_expired') {
+			continue;
+		}
+		assertCloudSubscriptionOrganization(subscription, organizationId);
+		await getStripeClient().subscriptions.cancel(
+			subscription.id,
+			{},
+			{ idempotencyKey: `cloud-organization-deletion-cancel-v1:${organizationId}:${subscription.id}` },
+		);
 	}
-	assertCloudSubscriptionOrganization(subscription, organizationId);
-	await getStripeClient().subscriptions.cancel(
-		subscription.id,
-		{},
-		{ idempotencyKey: `cloud-organization-deletion-cancel-v1:${organizationId}:${subscription.id}` },
-	);
 }
 
 export async function hasCloudDefaultPaymentMethod(stripeCustomerIdValue: string): Promise<boolean> {
