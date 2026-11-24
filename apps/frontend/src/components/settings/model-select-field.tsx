@@ -1,3 +1,4 @@
+import { isSameModel } from '@nao/shared/types';
 import { AlertTriangle } from 'lucide-react';
 import { useId } from 'react';
 import type { ReactNode } from 'react';
@@ -6,10 +7,18 @@ import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { llmModelValue, toLlmSelectedModel } from '@/lib/llm-model';
 import { cn } from '@/lib/utils';
 
-export type AvailableModel = { provider: LlmProvider; modelId: string; name: string; baseUrl: string | null };
-export type ResolvedModel = { provider: LlmProvider; modelId: string; name: string };
+export type AvailableModel = {
+	provider: LlmProvider;
+	modelId: string;
+	name: string;
+	baseUrl: string | null;
+	llmConfigId?: string;
+	llmConfigName?: string;
+};
+export type ResolvedModel = LlmSelectedModel & { name: string };
 
 /** The entry offered on top of the model list, standing for "let nao decide". */
 export interface DefaultModelOption {
@@ -54,9 +63,9 @@ export function ModelSelectField({
 			onChange(null);
 			return;
 		}
-		const model = availableModels.find((m) => modelValue(m) === nextValue);
+		const model = availableModels.find((m) => llmModelValue(m) === nextValue);
 		if (model) {
-			onChange({ provider: model.provider, modelId: model.modelId });
+			onChange(toLlmSelectedModel(model));
 		}
 	};
 
@@ -76,7 +85,11 @@ export function ModelSelectField({
 			<p id={descriptionId} className='text-xs text-muted-foreground'>
 				{description}
 			</p>
-			<Select value={value ? modelValue(value) : DEFAULT_VALUE} onValueChange={handleChange} disabled={disabled}>
+			<Select
+				value={value ? llmModelValue(value) : DEFAULT_VALUE}
+				onValueChange={handleChange}
+				disabled={disabled}
+			>
 				<SelectTrigger className='w-full' aria-labelledby={labelId} aria-describedby={descriptionId}>
 					<SelectValue>
 						{value ? (
@@ -89,6 +102,9 @@ export function ModelSelectField({
 								<span className={cn(isUnavailable && 'text-amber-600 dark:text-amber-500')}>
 									{selected?.name ?? value.modelId}
 								</span>
+								{selected?.llmConfigName && (
+									<span className='text-muted-foreground'>{selected.llmConfigName}</span>
+								)}
 							</div>
 						) : (
 							<DefaultOptionContent option={defaultOption} availableModels={availableModels} />
@@ -100,9 +116,12 @@ export function ModelSelectField({
 						<DefaultOptionContent option={defaultOption} availableModels={availableModels} />
 					</SelectItem>
 					{availableModels.map((model) => (
-						<SelectItem key={modelValue(model)} value={modelValue(model)}>
+						<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 							<LlmProviderIcon provider={model.provider} baseUrl={model.baseUrl} className='size-4' />
 							{model.name}
+							{model.llmConfigName && (
+								<span className='text-muted-foreground'>{model.llmConfigName}</span>
+							)}
 						</SelectItem>
 					))}
 				</SelectContent>
@@ -139,9 +158,5 @@ function DefaultOptionContent({
 }
 
 export function findModel(availableModels: AvailableModel[], model: LlmSelectedModel): AvailableModel | undefined {
-	return availableModels.find((m) => m.provider === model.provider && m.modelId === model.modelId);
-}
-
-function modelValue(model: { provider: string; modelId: string }): string {
-	return JSON.stringify([model.provider, model.modelId]);
+	return availableModels.find((candidate) => isSameModel(candidate, model));
 }

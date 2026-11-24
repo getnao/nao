@@ -83,8 +83,9 @@ export async function listRunsWithTestTotals(projectId: string) {
 	const runs = await testRunQueries.listRuns(projectId);
 	const rows = await testRunQueries.listTestAttemptTotals(runs.map((run) => run.id));
 	const rowsByRun = new Map<string, TestAttemptTotals[]>();
-	for (const { runId, ...row } of rows) {
-		rowsByRun.set(runId, [...(rowsByRun.get(runId) ?? []), row]);
+	for (const { runId, llmConfigId, ...row } of rows) {
+		const normalized = { ...row, ...(llmConfigId && { llmConfigId }) };
+		rowsByRun.set(runId, [...(rowsByRun.get(runId) ?? []), normalized]);
 	}
 	return runs.map((run) => ({ ...run, testTotals: summarizeRunTests(rowsByRun.get(run.id) ?? [], run.models) }));
 }
@@ -115,7 +116,9 @@ export async function getPreviousModelSummaries(
 }
 
 export async function getModelStats(projectId: string): Promise<TestModelStats[]> {
-	return testRunQueries.listRecentModelStats(projectId, new Date(Date.now() - MODEL_STATS_WINDOW_MS));
+	return (await testRunQueries.listRecentModelStats(projectId, new Date(Date.now() - MODEL_STATS_WINDOW_MS))).map(
+		({ llmConfigId, ...stats }) => ({ ...stats, ...(llmConfigId && { llmConfigId }) }),
+	);
 }
 
 /** The latest runs of a test, with an older one of them too when asked for, as when opened from a run of several tests. */

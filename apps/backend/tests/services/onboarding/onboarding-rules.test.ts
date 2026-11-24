@@ -79,11 +79,19 @@ describe('generateOnboardingRules', () => {
 			'user-1',
 		);
 
-		expect(mocks.resolveProviderModel).toHaveBeenCalledWith('model-project-1', 'nao', 'gpt-6-sol', false, {
-			userId: 'user-1',
-			projectId: 'model-project-1',
-			category: 'chat',
-			billingMode: 'unbilled',
-		});
+		expect(mocks.resolveProviderModel).toHaveBeenCalledWith(
+			'model-project-1',
+			'nao',
+			'gpt-6-sol',
+			false,
+			{
+				userId: 'user-1',
+				projectId: 'model-project-1',
+				category: 'chat',
+				billingMode: 'unbilled',
+			},
+			undefined,
+			undefined,
+		);
 	});
 });

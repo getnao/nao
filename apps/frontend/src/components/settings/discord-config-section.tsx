@@ -8,6 +8,7 @@ import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { llmModelValue } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 /** View channels, send messages (and in threads), create public threads, embed links, attach files, read history, add reactions. */
@@ -38,7 +39,10 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 		const match =
 			persisted &&
 			availableModels.find(
-				(model) => model.provider === persisted.provider && model.modelId === persisted.modelId,
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
 			);
 		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
@@ -58,6 +62,7 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 			hideAnswerLink: values.hideAnswerLink,
 			modelProvider: selectedModel?.provider,
 			modelId: selectedModel?.modelId,
+			llmConfigId: selectedModel?.llmConfigId,
 		});
 		queryClient.invalidateQueries(trpc.project.getDiscordConfig.queryOptions());
 		setIsEditing(false);
@@ -81,18 +86,25 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 		const match =
 			persisted &&
 			availableModels?.find(
-				(model) => model.provider === persisted.provider && model.modelId === persisted.modelId,
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
 			);
 		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
 	const handleModelChange = async (value: string) => {
-		const model = availableModels?.find((candidate) => `${candidate.provider}:${candidate.modelId}` === value);
+		const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 		if (!model) {
 			return;
 		}
-		await updateDiscordModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+		await updateDiscordModel.mutateAsync({
+			modelProvider: model.provider,
+			modelId: model.modelId,
+			llmConfigId: model.llmConfigId,
+		});
 		setSelectedModel(model);
 		queryClient.invalidateQueries(trpc.project.getDiscordConfig.queryOptions());
 	};
@@ -204,7 +216,7 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 					</p>
 					{hasMultipleModels ? (
 						<Select
-							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							value={selectedModel ? llmModelValue(selectedModel) : undefined}
 							onValueChange={handleModelChange}
 							disabled={updateDiscordModel.isPending}
 						>
@@ -218,22 +230,27 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 												className='size-4'
 											/>
 											{selectedModel.name}
+											{selectedModel.llmConfigName && (
+												<span className='text-muted-foreground'>
+													{selectedModel.llmConfigName}
+												</span>
+											)}
 										</div>
 									)}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{availableModels?.map((model) => (
-									<SelectItem
-										key={`${model.provider}-${model.modelId}`}
-										value={`${model.provider}:${model.modelId}`}
-									>
+									<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 										<LlmProviderIcon
 											provider={model.provider}
 											baseUrl={model.baseUrl}
 											className='size-4'
 										/>
 										{model.name}
+										{model.llmConfigName && (
+											<span className='text-muted-foreground'>{model.llmConfigName}</span>
+										)}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -247,6 +264,7 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 									className='size-4'
 								/>
 								<span>{selectedModel.name}</span>
+								{selectedModel.llmConfigName && <span>{selectedModel.llmConfigName}</span>}
 							</div>
 						)
 					)}

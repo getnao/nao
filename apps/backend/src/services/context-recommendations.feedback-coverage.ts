@@ -166,12 +166,20 @@ async function clusterFeedbacks(
 	model: LlmSelectedModel,
 	unlinked: crQueries.UnlinkedFeedback[],
 ): Promise<FeedbackCluster[]> {
-	const providerModel = await resolveProviderModel(projectId, model.provider, model.modelId, true, {
-		userId,
+	const providerModel = await resolveProviderModel(
 		projectId,
-		runId,
-		category: 'recommendation',
-	});
+		model.provider,
+		model.modelId,
+		true,
+		{
+			userId,
+			projectId,
+			runId,
+			category: 'recommendation',
+		},
+		undefined,
+		model.llmConfigId,
+	);
 	if (!providerModel) {
 		logger.warn(`Feedback coverage: could not resolve model ${model.provider}/${model.modelId}`, {
 			source: 'agent',

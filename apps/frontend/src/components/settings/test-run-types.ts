@@ -83,7 +83,7 @@ export function getTestModelColorAt(index: number): TestModelColor {
 }
 
 export function testModelKey(model: TestModel): string {
-	return [model.provider, model.modelId, model.reasoningEffort].filter(Boolean).join(':');
+	return [model.provider, model.modelId, model.llmConfigId, model.reasoningEffort].filter(Boolean).join(':');
 }
 
 /** The models of a run in a few words: the model when there is one, else how many, and whether they ran at every effort. */
@@ -95,7 +95,8 @@ export function describeTestModels(models: TestModel[]): string {
 }
 
 export function countDistinctModels(models: TestModel[]): number {
-	return new Set(models.map((model) => `${model.provider}:${model.modelId}`)).size;
+	return new Set(models.map((model) => JSON.stringify([model.provider, model.modelId, model.llmConfigId ?? null])))
+		.size;
 }
 
 /** The reasoning efforts a run set, as "high effort" or "3 efforts", or null when its models ran at their configured one. */

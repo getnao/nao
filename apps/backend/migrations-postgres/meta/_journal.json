@@ -820,6 +820,13 @@
       "when": 1795434125939,
       "tag": "0116_user_skill",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1795513639895,
+      "tag": "0117_group_llm_credentials",
+      "breakpoints": true
     }
   ]
 }

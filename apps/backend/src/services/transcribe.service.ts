@@ -7,12 +7,13 @@ import {
 	type TranscribeProvider,
 } from '../agents/transcribe.providers';
 import * as projectQueries from '../queries/project.queries';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import type { ProviderSettings } from '../types/llm';
-import { getEnvApiKey, projectEndpointSettings } from '../utils/llm';
+import { resolveProviderSettings as resolveLlmProviderSettings } from '../utils/llm';
+import { getAllowedLlmConfigIdsForUserModel } from './user-group-llm-access.service';
 
 export async function transcribeAudio(
 	projectId: string,
+	userId: string,
 	audio: string,
 	overrides?: { provider?: TranscribeProvider; modelId?: string },
 ): Promise<string> {
@@ -21,21 +22,24 @@ export async function transcribeAudio(
 	const savedModelId = agentSettings?.transcribe?.modelId;
 
 	const provider: TranscribeProvider = overrides?.provider ?? savedProvider ?? 'openai';
-	const modelId = overrides?.modelId ?? savedModelId ?? getDefaultTranscribeModelId(provider);
+	const preferredModelId = overrides?.modelId ?? savedModelId ?? getDefaultTranscribeModelId(provider);
+	const candidateModelIds = overrides?.modelId
+		? [preferredModelId]
+		: [preferredModelId, ...TRANSCRIBE_PROVIDERS[provider].models.map((model) => model.id)];
 
-	const settings = await resolveProviderSettings(projectId, provider);
-	if (!settings.apiKey) {
+	const runnable = await findRunnableTranscribeModel(projectId, userId, provider, candidateModelIds);
+	if (!runnable) {
 		throw new Error(`No API key configured for ${provider}. Add one in Settings > Models.`);
 	}
 
-	const model = createTranscribeModel(provider, settings, modelId);
+	const model = createTranscribeModel(provider, runnable.settings, runnable.modelId);
 	const audioBuffer = Buffer.from(audio, 'base64');
 
 	const result = await transcribe({ model, audio: audioBuffer });
 	return result.text;
 }
 
-export async function listAvailableTranscribeModels(projectId: string) {
+export async function listAvailableTranscribeModels(projectId: string, userId: string) {
 	const available: Record<
 		string,
 		{
@@ -45,32 +49,65 @@ export async function listAvailableTranscribeModels(projectId: string) {
 	> = {};
 
 	for (const [provider, config] of Object.entries(TRANSCRIBE_PROVIDERS)) {
-		const llmProvider = provider as 'openai';
-		const dbConfig = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, llmProvider);
-		const envKey = getEnvApiKey(llmProvider);
-		const hasKey = !!(dbConfig?.apiKey || envKey);
+		const models = [];
+		for (const model of config.models) {
+			const settings = await resolveTranscribeProviderSettings(
+				projectId,
+				userId,
+				provider as TranscribeProvider,
+				model.id,
+			);
+			if (!settings?.apiKey) {
+				continue;
+			}
+			models.push({
+				id: model.id,
+				name: model.name,
+				...(model.default && { default: model.default }),
+				...(model.pricePerMinute != null && { pricePerMinute: model.pricePerMinute }),
+			});
+		}
 
 		available[provider] = {
-			models: config.models.map((m) => ({
-				id: m.id,
-				name: m.name,
-				...(m.default && { default: m.default }),
-				...(m.pricePerMinute != null && { pricePerMinute: m.pricePerMinute }),
-			})),
-			hasKey,
+			models,
+			hasKey: models.length > 0,
 		};
 	}
 
 	return available;
 }
 
-async function resolveProviderSettings(projectId: string, provider: TranscribeProvider): Promise<ProviderSettings> {
-	const llmProvider = provider as 'openai';
-	const config = await llmConfigQueries.getProjectLlmConfigByProvider(projectId, llmProvider);
-
-	if (config) {
-		return { apiKey: config.apiKey, ...projectEndpointSettings(config.baseUrl) };
+async function findRunnableTranscribeModel(
+	projectId: string,
+	userId: string,
+	provider: TranscribeProvider,
+	modelIds: string[],
+): Promise<{ modelId: string; settings: ProviderSettings } | null> {
+	for (const modelId of new Set(modelIds)) {
+		const settings = await resolveTranscribeProviderSettings(projectId, userId, provider, modelId);
+		if (settings?.apiKey) {
+			return { modelId, settings };
+		}
 	}
+	return null;
+}
 
-	return { apiKey: getEnvApiKey(llmProvider) ?? '' };
+async function resolveTranscribeProviderSettings(
+	projectId: string,
+	userId: string,
+	provider: TranscribeProvider,
+	modelId: string,
+): Promise<ProviderSettings | null> {
+	const llmProvider = provider as 'openai';
+	const allowedConfigIds = await getAllowedLlmConfigIdsForUserModel(projectId, userId, modelId);
+	if (allowedConfigIds === null) {
+		return resolveLlmProviderSettings(projectId, llmProvider);
+	}
+	for (const configId of allowedConfigIds) {
+		const settings = await resolveLlmProviderSettings(projectId, llmProvider, configId);
+		if (settings) {
+			return settings;
+		}
+	}
+	return null;
 }

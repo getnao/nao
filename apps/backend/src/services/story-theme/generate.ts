@@ -16,15 +16,13 @@ import {
 } from '@nao/shared/story-theme-generation';
 import { deriveStoryThemeVariant } from '@nao/shared/story-theme-pair';
 import { MAX_SOURCE_IMAGES } from '@nao/shared/story-theme-source';
-import type { LlmProvider } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
 
-import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../../agents/providers';
 import { llmTelemetry } from '../../agents/telemetry';
-import * as llmConfigQueries from '../../queries/project-llm-config.queries';
 import { convertToTokenUsage } from '../../utils/ai';
-import { resolveDefaultModelSelection, resolveProviderModel } from '../../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../../utils/schedule-task';
+import { type BackgroundModel, resolveUserBackgroundModel } from '../background-model.service';
 import { documentColors, fitDocumentsToPrompt, renderDocuments, type SourceDocument } from './document';
 import { applyGuards, type GenerateResult, type GuardContext } from './guard';
 import { detectGround, type ImageSample, sampleImage, snapToImageColors } from './pixels';
@@ -60,8 +58,6 @@ export interface SourceImage {
 	data: Uint8Array;
 	mediaType: string;
 }
-
-type ResolvedModel = { provider: LlmProvider; modelId: string; model: ProviderModelResult };
 
 /** Who the generation runs for: the project's model answers, and the user is charged in llm_inference. */
 export interface GenerationScope {
@@ -519,7 +515,7 @@ async function proposeOrExplain(
 	warnings: string[],
 	{ consequence }: { consequence: string },
 ): Promise<ThemeProposal | null> {
-	let model: ResolvedModel | null;
+	let model: BackgroundModel | null;
 	try {
 		model = await resolveModel(scope);
 	} catch (error) {
@@ -866,7 +862,7 @@ function withBrief(prompt: string, { instructions, whiteLabel, recall, uploadedL
 
 async function proposeWithModel(
 	scope: GenerationScope,
-	model: ResolvedModel,
+	model: BackgroundModel,
 	prompt: string,
 	images: SourceImage[],
 ): Promise<ThemeProposal> {
@@ -888,24 +884,20 @@ async function proposeWithModel(
 		userId: scope.userId,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId,
 		...convertToTokenUsage(usage),
 	});
 	return toThemeProposal(output);
 }
 
-async function resolveModel({ projectId, userId }: GenerationScope): Promise<ResolvedModel | null> {
-	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
-	if (!provider) {
-		return null;
-	}
-	const modelId = pinned?.modelId ?? getProviderMeta(provider).summaryModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false, {
-		userId,
+function resolveModel({ projectId, userId }: GenerationScope): Promise<BackgroundModel | null> {
+	return resolveUserBackgroundModel({
 		projectId,
-		category: 'story',
+		userId,
+		defaultCategory: 'other',
+		preferredModelId: ({ provider }) => getProviderMeta(provider).summaryModelId,
+		usageContext: { userId, projectId, category: 'story' },
 	});
-	return model ? { provider, modelId, model } : null;
 }
 
 function describeError(error: unknown): string {

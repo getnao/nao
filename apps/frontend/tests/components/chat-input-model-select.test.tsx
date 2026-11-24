@@ -2,7 +2,6 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-
 import type { ReactNode } from 'react';
 import { ChatInputModelSelect } from '@/components/chat-input-model-select';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -15,9 +14,11 @@ const mocks = vi.hoisted(() => ({
 		modelId: string;
 		name: string;
 		baseUrl: null;
+		llmConfigId?: string;
+		llmConfigName?: string;
 	}[],
-	selectedModel: null as { provider: 'nao' | 'openai'; modelId: string } | null,
-	defaultModel: null as { provider: 'nao' | 'openai'; modelId: string } | null,
+	selectedModel: null as { provider: 'nao' | 'openai'; modelId: string; llmConfigId?: string } | null,
+	defaultModel: null as { provider: 'nao' | 'openai'; modelId: string; llmConfigId?: string } | null,
 	usesDefaultModel: true,
 	canCycleModels: false,
 	hasProject: false,
@@ -137,4 +138,42 @@ it('locks nao models when managed credits are exhausted', () => {
 		['Manage models', null],
 	]);
 	expect(screen.getAllByLabelText('Unavailable: nao credits exhausted')).toHaveLength(2);
+});
+
+it('selects the credential when two credentials expose the same model', () => {
+	mocks.availableModels = [
+		{
+			provider: 'openai',
+			modelId: 'gpt',
+			name: 'GPT',
+			baseUrl: null,
+			llmConfigId: 'primary',
+			llmConfigName: 'Primary',
+		},
+		{
+			provider: 'openai',
+			modelId: 'gpt',
+			name: 'GPT',
+			baseUrl: null,
+			llmConfigId: 'backup',
+			llmConfigName: 'Backup',
+		},
+	];
+	mocks.canCycleModels = true;
+
+	render(
+		<TooltipProvider>
+			<ChatInputModelSelect />
+		</TooltipProvider>,
+	);
+	fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+	const backupOption = screen.getAllByRole('option').find((option) => option.textContent?.includes('Backup'));
+	expect(backupOption).toBeTruthy();
+	fireEvent.click(backupOption!);
+
+	expect(mocks.setSelectedModel).toHaveBeenCalledWith({
+		provider: 'openai',
+		modelId: 'gpt',
+		llmConfigId: 'backup',
+	});
 });
