@@ -1,5 +1,6 @@
 import { type BackgroundModelCategory, type DefaultModelSettings, selectBackgroundModel } from '@nao/shared';
 import {
+	findSelectedModel,
 	isSameModel,
 	type LlmModelIdsByConfig,
 	type LlmProvider,
@@ -376,17 +377,8 @@ export function resolveAvailableModelSelection(
 	available: LlmSelectedModel[],
 	configured: LlmSelectedModel,
 ): LlmSelectedModel | null {
-	const exact = available.find((model) => isSameModel(model, configured));
-	if (exact) {
-		return { ...exact };
-	}
-	if (configured.llmConfigId) {
-		return null;
-	}
-	const sameModel = available.filter(
-		(model) => model.provider === configured.provider && model.modelId === configured.modelId,
-	);
-	return sameModel.length === 1 ? { ...sameModel[0] } : null;
+	const selected = findSelectedModel(available, configured);
+	return selected ? { ...selected } : null;
 }
 
 export const getProjectAvailableModels = async (

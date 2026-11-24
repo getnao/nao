@@ -301,6 +301,21 @@ export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): b
 	);
 }
 
+/** A selection saved before credentials were named has no `llmConfigId` and only matches a model a single credential serves. */
+export function findSelectedModel<T extends LlmSelectedModel>(
+	available: readonly T[],
+	selection: LlmSelectedModel,
+): T | undefined {
+	const exact = available.find((model) => isSameModel(model, selection));
+	if (exact || selection.llmConfigId) {
+		return exact;
+	}
+	const sameModel = available.filter(
+		(model) => model.provider === selection.provider && model.modelId === selection.modelId,
+	);
+	return sameModel.length === 1 ? sameModel[0] : undefined;
+}
+
 /** The model a stored result names in its own columns, under the shape of a selected model. */
 export function resultModel(result: {
 	llmProvider: LlmProvider;

@@ -1,4 +1,4 @@
-import { isSameModel } from '@nao/shared/types';
+import { findSelectedModel } from '@nao/shared/types';
 import { AlertTriangle } from 'lucide-react';
 import { useId } from 'react';
 import type { ReactNode } from 'react';
@@ -86,7 +86,7 @@ export function ModelSelectField({
 				{description}
 			</p>
 			<Select
-				value={value ? llmModelValue(value) : DEFAULT_VALUE}
+				value={selected ? llmModelValue(selected) : value ? llmModelValue(value) : DEFAULT_VALUE}
 				onValueChange={handleChange}
 				disabled={disabled}
 			>
@@ -102,9 +102,6 @@ export function ModelSelectField({
 								<span className={cn(isUnavailable && 'text-amber-600 dark:text-amber-500')}>
 									{selected?.name ?? value.modelId}
 								</span>
-								{selected?.llmConfigName && (
-									<span className='text-muted-foreground'>{selected.llmConfigName}</span>
-								)}
 							</div>
 						) : (
 							<DefaultOptionContent option={defaultOption} availableModels={availableModels} />
@@ -158,5 +155,5 @@ function DefaultOptionContent({
 }
 
 export function findModel(availableModels: AvailableModel[], model: LlmSelectedModel): AvailableModel | undefined {
-	return availableModels.find((candidate) => isSameModel(candidate, model));
+	return findSelectedModel(availableModels, model);
 }
