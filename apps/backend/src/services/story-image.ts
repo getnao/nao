@@ -4,9 +4,11 @@ import type { StoryApp, StoryQueryResult } from '@nao/shared/story-app';
 import {
 	findDirectStoryImageSources,
 	findStoryImageSources,
+	findStoryImageTemplates,
 	isAllowedStoryImageSource,
 	isStoryImageMediaType,
 	isStoryImageSourceWithin,
+	isStoryImageTemplateBlocked,
 	MAX_STORY_IMAGE_BYTES,
 	parseStoryImageSource,
 	readEmbeddableStoryImages,
@@ -59,7 +61,7 @@ export async function readStoryImagesForExport(
 	return readEmbeddableStoryImages(sources, (batch) => readAllowedStoryImages(allowedSources, batch));
 }
 
-/** Template links are left out: filled from rows the story may never show, they would block it for images nobody sees. */
+/** Template links are judged by their fixed start only: filled from every query's rows, they would block on images nobody sees. */
 export async function findBlockedStoryImageSources(
 	projectId: string,
 	files: string[],
@@ -72,7 +74,10 @@ export async function findBlockedStoryImageSources(
 		isWanted: (src) => storyImageMediaTypeFromPath(src) !== null && isBlocked(src),
 		fillsTemplates: false,
 	});
-	return [...new Set([...shown, ...named])];
+	const templates = findStoryImageTemplates(files).filter((template) =>
+		isStoryImageTemplateBlocked(template, allowedSources),
+	);
+	return [...new Set([...shown, ...named, ...templates])];
 }
 
 export function describeBlockedStoryImages(sources: string[]): string {

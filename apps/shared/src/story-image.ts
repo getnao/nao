@@ -123,6 +123,26 @@ export function findDirectStoryImageSources(code: string[]): string[] {
 	return [...new Set(sources.filter(isLiteralImageSource))];
 }
 
+/** Template links that show an image, like `gs://bucket/${row.key}.png`, whose rows are only known when the story runs. */
+export function findStoryImageTemplates(code: string[]): string[] {
+	const direct = code.flatMap((text) => [...text.matchAll(DIRECT_IMAGE_SOURCE_PATTERN)].map((match) => match[2]));
+	const named = code.flatMap(templatesInCode).filter((template) => storyImageMediaTypeFromPath(template) !== null);
+	return [...new Set([...direct, ...named])].filter((source) => source.includes('${'));
+}
+
+/** Blocked whatever its rows hold: no allowed source sits inside or around the folder its fixed start names. */
+export function isStoryImageTemplateBlocked(template: string, allowedSources: string[]): boolean {
+	const fixedStart = template.slice(0, template.indexOf('${'));
+	const folder = normalizeStoryImageAllowedSource(fixedStart.slice(0, fixedStart.lastIndexOf('/') + 1));
+	if (!folder) {
+		return false;
+	}
+	return (
+		!isStoryImageSourceWithin(folder, allowedSources) &&
+		!allowedSources.some((entry) => isStoryImageSourceWithin(entry, [folder]))
+	);
+}
+
 /** Reads the images batch by batch, keeps what loaded and stops once the export budget is spent. */
 export async function readEmbeddableStoryImages(
 	sources: string[],
@@ -183,6 +203,12 @@ function linksInCode(text: string, rows: StoryRow[]): string[] {
 			return ' ';
 		});
 	return [...quoted.filter(isLiteralImageSource), ...linksInText(unquoted)];
+}
+
+function templatesInCode(text: string): string[] {
+	return [...text.replace(LINK_ATTRIBUTE_PATTERN, ' ').matchAll(QUOTED_SOURCE_PATTERN)]
+		.filter(([, quote, source]) => quote === '`' && source.includes('${'))
+		.map(([, , source]) => source);
 }
 
 /**

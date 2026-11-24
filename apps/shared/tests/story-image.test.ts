@@ -4,6 +4,7 @@ import {
 	findStoryImageSources,
 	isAllowedStoryImageSource,
 	isStoryImageSourceWithin,
+	isStoryImageTemplateBlocked,
 	MAX_STORY_EXPORT_IMAGE_BYTES,
 	normalizeStoryImageAllowedSource,
 	readEmbeddableStoryImages,
@@ -119,6 +120,19 @@ describe('findStoryImageSources', () => {
 		const code = [`${links.join(' ')} "gs://acme-assets/marketing/hero.png"`];
 		const isWanted = (src: string) => isAllowedStoryImageSource(src, ALLOWED);
 		expect(findStoryImageSources(code, {}, { isWanted })).toEqual(['gs://acme-assets/marketing/hero.png']);
+	});
+});
+
+describe('isStoryImageTemplateBlocked', () => {
+	it.each([
+		['https://cdn.acme.com/private/${row.key}.png', true],
+		['https://cdn.acme.com/brand/${row.key}.png', false],
+		['https://cdn.acme.com/bra${row.key}.png', false],
+		['gs://acme-assets/${row.folder}/${row.key}.png', false],
+		['https://${row.host}/brand/${row.key}.png', false],
+		['gs://${row.bucket}/${row.key}.png', false],
+	])('%s → %s', (template, blocked) => {
+		expect(isStoryImageTemplateBlocked(template, ALLOWED)).toBe(blocked);
 	});
 });
 

@@ -86,6 +86,16 @@ describe('publishing a custom story', () => {
 			false,
 			'<Image alt="" src="https://images.example.com/photo/123" />',
 		],
+		[
+			'an image link template under a folder the project does not allow',
+			false,
+			'<Image src={`https://cdn.acme.com/private/${row.key}.png`} alt="" />',
+		],
+		[
+			'an image link template under an allowed folder',
+			true,
+			'<Image src={`https://cdn.acme.com/brand/${row.key}.png`} alt="" />',
+		],
 		['a link to a picture', true, '<a href="https://upload.wikimedia.org/python-logo.svg">Original</a>'],
 		['a link to a web page', true, '<p>See https://docs.example.com/guide</p>'],
 	])('with %s, publishes: %s', async (_case, published, jsx) => {
