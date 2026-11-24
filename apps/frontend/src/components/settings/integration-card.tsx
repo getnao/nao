@@ -18,12 +18,22 @@ interface IntegrationCardProps {
 export function IntegrationCard({ id, name, icon: Icon, connected, summary, connectUrl }: IntegrationCardProps) {
 	return (
 		<div className='relative flex items-start gap-4 rounded-xl border border-border bg-background p-4 transition-colors hover:bg-accent/50'>
-			<Link
-				to='/settings/project/integrations/$integrationId'
-				params={{ integrationId: id }}
-				aria-label={`Open ${name} integration settings`}
-				className='absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-			/>
+			{connectUrl && !connected ? (
+				<a
+					href={connectUrl}
+					target='_blank'
+					rel='noopener noreferrer'
+					aria-label={`Connect ${name}`}
+					className='absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+				/>
+			) : (
+				<Link
+					to='/settings/project/integrations/$integrationId'
+					params={{ integrationId: id }}
+					aria-label={`Open ${name} integration settings`}
+					className='absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+				/>
+			)}
 			<Icon className='size-8 shrink-0' />
 			<div className='min-w-0 flex-1'>
 				<div className='flex flex-wrap items-center gap-2'>

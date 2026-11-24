@@ -22,7 +22,7 @@ vi.mock('@tanstack/react-router', () => ({
 afterEach(cleanup);
 
 describe('IntegrationCard', () => {
-	it('uses the OAuth URL only for the connect action', () => {
+	it('uses the OAuth URL for both the card and connect action', () => {
 		render(
 			<IntegrationCard
 				id='slack'
@@ -38,9 +38,10 @@ describe('IntegrationCard', () => {
 		expect(connectLink.getAttribute('href')).toBe('https://nao.test/api/slack/oauth/install?projectId=project-1');
 		expect(connectLink.getAttribute('target')).toBe('_blank');
 		expect(connectLink.getAttribute('rel')).toBe('noopener noreferrer');
-		expect(screen.getByRole('link', { name: 'Open Slack integration settings' }).getAttribute('href')).toBe(
-			'/settings/project/integrations/$integrationId',
-		);
+		const cardLink = screen.getByRole('link', { name: 'Connect Slack' });
+		expect(cardLink.getAttribute('href')).toBe('https://nao.test/api/slack/oauth/install?projectId=project-1');
+		expect(cardLink.getAttribute('target')).toBe('_blank');
+		expect(cardLink.getAttribute('rel')).toBe('noopener noreferrer');
 	});
 });
 

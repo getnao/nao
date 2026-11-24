@@ -11,10 +11,7 @@ export function CloudSlackOAuth({ oauthInstallUrl }: CloudSlackOAuthProps) {
 			<div className='flex items-center gap-3'>
 				<div className='grid gap-0.5'>
 					<span className='text-sm font-medium text-foreground'>Slack</span>
-					<p className='text-xs text-muted-foreground'>
-						Bring your nao agent into your Slack workspace. <br /> Slack will ask you to choose a workspace
-						and approve nao. There are no app credentials or tokens to copy.
-					</p>
+					<p className='text-xs text-muted-foreground'>Bring your nao agent into your Slack workspace.</p>
 				</div>
 			</div>
 
