@@ -26,6 +26,7 @@ import { getProjectById, getUserRoleInProject } from '../queries/project.queries
 import { getProjectColumnSecurity, getProjectRowSecurity } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
+import { areAllDatabasesAllowListedOnly } from '../utils/nao-config';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { skillService } from './skill';
@@ -166,11 +167,10 @@ export async function flagRecipientsWithTableAccess<T extends { id: string }>(
 	const tables = project?.path ? getDatabaseContextCatalog(project.path).objects : [];
 	const databaseAccessByMember = resolveDatabaseAccessByMember(overview);
 	const databaseAccessOf = (userId: string) => databaseAccessByMember.get(userId) ?? EMPTY_DATABASE_CONTEXT_ACCESS;
-	const previousOwnerAccess = databaseAccessOf(previousOwnerId);
-	const previousOwnerTables = tables.filter((table) => isDatabaseContextTableGranted(previousOwnerAccess, table));
+	const previousOwnerTables = resolveQueryableTables(databaseAccessOf(previousOwnerId), tables, project?.path);
 	return recipients.map((recipient) => {
 		const access = databaseAccessOf(recipient.id);
-		const hasTableAccess = canQueryEveryTable(access, previousOwnerAccess, previousOwnerTables);
+		const hasTableAccess = canQueryEveryTable(access, previousOwnerTables);
 		return { ...recipient, hasTableAccess };
 	});
 }
@@ -196,19 +196,31 @@ function resolveDatabaseAccessByMember(overview: AvailableUserGroupOverview): Ma
 }
 
 /**
- * Without strict mode, grants only narrow the agent's context: SQL still reads every table, even the ones the synced
- * catalog leaves out, which a strict member can never query.
+ * The synced tables a member's SQL can read, or null when it can also read the ones the synced catalog leaves out,
+ * which a strict member can never query. Without strict mode, grants only narrow the agent's context, so SQL reads
+ * every table unless each database allows only its synced tables.
  */
+function resolveQueryableTables(
+	access: DatabaseContextAccess,
+	tables: DatabaseContextTableIdentity[],
+	projectPath: string | null | undefined,
+): DatabaseContextTableIdentity[] | null {
+	if (access.strict) {
+		return tables.filter((table) => isDatabaseContextTableGranted(access, table));
+	}
+	return projectPath && areAllDatabasesAllowListedOnly(projectPath) ? tables : null;
+}
+
 function canQueryEveryTable(
 	access: DatabaseContextAccess,
-	previousOwnerAccess: DatabaseContextAccess,
-	previousOwnerTables: DatabaseContextTableIdentity[],
+	previousOwnerTables: DatabaseContextTableIdentity[] | null,
 ): boolean {
 	if (!access.strict) {
 		return true;
 	}
 	return (
-		previousOwnerAccess.strict && previousOwnerTables.every((table) => isDatabaseContextTableGranted(access, table))
+		previousOwnerTables !== null &&
+		previousOwnerTables.every((table) => isDatabaseContextTableGranted(access, table))
 	);
 }
 

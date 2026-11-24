@@ -403,6 +403,15 @@ export function extractConfiguredDatabases(projectFolder: string): ConfiguredDat
 	});
 }
 
+/** Whether every database of nao_config.yaml sets `allow_listed_only`, so SQL can read only its synced tables. */
+export function areAllDatabasesAllowListedOnly(projectFolder: string): boolean {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !Array.isArray(config.databases) || config.databases.length === 0) {
+		return false;
+	}
+	return config.databases.every((database) => isRecord(database) && database.allow_listed_only === true);
+}
+
 /** The `semantic_layer` section of nao_config.yaml, or null when the project declares none. */
 export function extractConfiguredSemanticLayer(projectFolder: string): ConfiguredSemanticLayer | null {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');

@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { ALL_FILES_CONTEXT_ACCESS, type DatabaseContextAccess } from '@nao/shared';
+import yaml from 'js-yaml';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/services/license.service', () => ({
@@ -50,6 +54,7 @@ import {
 	resolveProjectContextAccess,
 	resolveWarehouseTableAccess,
 } from '../../src/services/user-group-context-access.service';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const catalog = {
 	syncState: 'ready' as const,
@@ -617,6 +622,7 @@ describe('warehouse Context access', () => {
 });
 
 describe('table access of transfer recipients', () => {
+	const createTemporaryFolder = useTemporaryFolders();
 	const publicSchemaAccess: DatabaseContextAccess = {
 		mode: 'restricted',
 		strict: true,
@@ -677,6 +683,40 @@ describe('table access of transfer recipients', () => {
 			flagRecipientsWithTableAccess('project-1', 'previous-owner', [{ id: 'recipient' }]),
 		).resolves.toEqual([{ id: 'recipient', hasTableAccess }]);
 	});
+
+	it.each<[string, boolean[], DatabaseContextAccess, boolean]>([
+		['every synced table', [true, true], { mode: 'all', strict: true }, true],
+		['only some synced tables', [true, true], publicSchemaAccess, false],
+		['every synced table, with one database not allow-listed', [true, false], { mode: 'all', strict: true }, false],
+	])(
+		'flags a strict recipient granted %s, when the previous owner is not strict',
+		async (_, allowListedOnly, recipientAccess, hasTableAccess) => {
+			const projectPath = createTemporaryFolder('nao-transfer-');
+			fs.writeFileSync(
+				path.join(projectPath, 'nao_config.yaml'),
+				yaml.dump({
+					databases: allowListedOnly.map((allow_listed_only, index) => ({
+						name: `database-${index}`,
+						type: 'postgres',
+						allow_listed_only,
+					})),
+				}),
+			);
+			vi.mocked(getProjectById).mockResolvedValue({ path: projectPath } as Awaited<
+				ReturnType<typeof getProjectById>
+			>);
+			vi.mocked(getAvailableUserGroupOverview).mockResolvedValue(
+				groupOverview([
+					{ id: 'finance', userId: 'previous-owner', databaseAccess: { ...ordersOnlyAccess, strict: false } },
+					{ id: 'recipient-group', userId: 'recipient', databaseAccess: recipientAccess },
+				]),
+			);
+
+			await expect(
+				flagRecipientsWithTableAccess('project-1', 'previous-owner', [{ id: 'recipient' }]),
+			).resolves.toEqual([{ id: 'recipient', hasTableAccess }]);
+		},
+	);
 
 	it('ignores the grants of a group locked on the free plan', async () => {
 		vi.mocked(getAvailableUserGroupOverview).mockResolvedValue(
