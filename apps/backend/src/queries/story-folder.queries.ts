@@ -423,12 +423,11 @@ export async function createFolder(data: {
 	groupIds?: string[];
 }): Promise<DBStoryFolder> {
 	const groupIds = [...new Set(data.groupIds ?? [])];
-	const parentAudience = await resolveFolderAudience(data.parentId ?? null);
-	if (groupIds.length > 0 && parentAudience.kind !== 'project') {
-		throw new TeamFolderError('Only a folder open to the entire project can hold a team folder.');
-	}
-
-	return db.transaction(async (tx) => {
+	return inProjectFolderTransaction(data.projectId, async (tx) => {
+		const parentAudience = await resolveFolderAudience(data.parentId ?? null, tx);
+		if (groupIds.length > 0 && parentAudience.kind !== 'project') {
+			throw new TeamFolderError('Only a folder open to the entire project can hold a team folder.');
+		}
 		const [folder] = await tx
 			.insert(s.storyFolder)
 			.values({
@@ -443,7 +442,7 @@ export async function createFolder(data: {
 			.execute();
 		await insertFolderGroups(folder.id, groupIds, tx);
 		return folder;
-	}, writeTransactionConfig);
+	});
 }
 
 export async function updateFolder(id: string, data: { name?: string }): Promise<void> {
