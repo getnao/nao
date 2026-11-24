@@ -27,7 +27,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 	const botToken = installation?.encryptedBotToken ?? settings?.slackBotToken;
 	const signingSecret = isOAuth ? env.CLOUD_SLACK_OAUTH_SIGNING_SECRET : settings?.slackSigningSecret;
 
-	if (!botToken || !signingSecret) {
+	if (!botToken) {
 		return null;
 	}
 
@@ -37,7 +37,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 			? 'socket'
 			: 'webhook';
 
-	if (!isOAuth && transportMode === 'webhook' && !settings?.slackSigningSecret) {
+	if (transportMode === 'webhook' && !signingSecret) {
 		return null;
 	}
 
@@ -48,7 +48,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 	return {
 		projectId,
 		botToken,
-		signingSecret,
+		signingSecret: signingSecret ?? '',
 		redirectUrl: env.BETTER_AUTH_URL,
 		modelSelection: toLlmSelectedModel(
 			settings?.slackllmProvider,
@@ -109,6 +109,26 @@ export const upsertProjectSlackConfig = async (data: {
 		),
 		replyMode: toSlackReplyMode(settings?.slackReplyMode),
 	};
+};
+
+export const ensureProjectSlackSettings = async (projectId: string): Promise<void> => {
+	await updateProjectSettings(
+		projectId,
+		'slackSettings',
+		(existing) =>
+			existing ?? {
+				slackBotToken: '',
+				slackSigningSecret: '',
+				slackllmProvider: '',
+				slackllmModelId: '',
+				autoCreateUsersEnabled: false,
+				autoCreateUsersDomains: [],
+				slackTransportMode: 'webhook',
+				slackAppToken: '',
+				slackReplyMode: 'thread',
+				slackDmThreadsEnabled: false,
+			},
+	);
 };
 
 /** Overwrite only the credential and transport fields, keeping the UI-managed ones. */

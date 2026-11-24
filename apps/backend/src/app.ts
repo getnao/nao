@@ -213,7 +213,7 @@ app.addHook('onResponse', (request, reply, done) => {
 		done();
 		return;
 	}
-	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
+	logger.info(`${request.method} ${requestPath} ${reply.statusCode}`, {
 		source: 'http',
 		userId: request.actorUserId,
 		context: { method: request.method, url: requestPath, statusCode: reply.statusCode, elapsed: reply.elapsedTime },

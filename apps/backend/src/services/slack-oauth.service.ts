@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import type { DBProjectSlackInstallation, NewProjectSlackInstallation } from '../db/abstractSchema';
 import { env } from '../env';
+import * as projectSlackConfigQueries from '../queries/project-slack-config.queries';
 import * as projectSlackInstallationQueries from '../queries/project-slack-installation.queries';
 import { claimOnce } from '../utils/keyed-lock';
 import { slackService } from './slack';
@@ -91,6 +92,8 @@ const slackUninstallResponseSchema = z.object({
 	error: z.string().optional(),
 });
 
+const SLACK_ALREADY_DISCONNECTED_ERRORS = new Set(['invalid_auth', 'token_revoked']);
+
 export async function installSlackWorkspace(
 	installation: NewProjectSlackInstallation,
 ): Promise<DBProjectSlackInstallation> {
@@ -102,7 +105,11 @@ export async function installSlackWorkspace(
 		throw new SlackWorkspaceAlreadyConnectedError();
 	}
 
-	return projectSlackInstallationQueries.upsertSlackInstallation(installation);
+	const savedInstallation = await projectSlackInstallationQueries.upsertSlackInstallation(installation);
+
+	await projectSlackConfigQueries.ensureProjectSlackSettings(installation.projectId);
+
+	return savedInstallation;
 }
 
 export function isSlackOAuthConfigured(): boolean {
@@ -258,9 +265,17 @@ export async function disconnectSlackWorkspace(projectId: string): Promise<void>
 	});
 	const body = await response.json().catch(() => null);
 	const parsedResponse = slackUninstallResponseSchema.safeParse(body);
-	if (!response.ok || !parsedResponse.success || !parsedResponse.data.ok) {
+	const uninstallSucceeded = response.ok && parsedResponse.success && parsedResponse.data.ok;
+	const alreadyDisconnected =
+		parsedResponse.success &&
+		!parsedResponse.data.ok &&
+		parsedResponse.data.error !== undefined &&
+		SLACK_ALREADY_DISCONNECTED_ERRORS.has(parsedResponse.data.error);
+
+	if (!uninstallSucceeded && !alreadyDisconnected) {
 		throw new Error('Slack app could not be uninstalled.');
 	}
+
 	await slackService.stopProject(projectId);
 	await projectSlackInstallationQueries.deleteSlackInstallationByProjectId(projectId);
 }

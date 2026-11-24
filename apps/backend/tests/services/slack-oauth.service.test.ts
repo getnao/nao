@@ -3,10 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	claimOnce: vi.fn(),
 	deleteByProjectId: vi.fn(),
+	ensureProjectSlackSettings: vi.fn(),
 	getByProjectId: vi.fn(),
 	getByTeamId: vi.fn(),
 	stopProject: vi.fn(),
 	upsert: vi.fn(),
+}));
+
+vi.mock('../../src/queries/project-slack-config.queries', () => ({
+	ensureProjectSlackSettings: mocks.ensureProjectSlackSettings,
 }));
 
 vi.mock('../../src/queries/project-slack-installation.queries', () => ({
@@ -176,6 +181,7 @@ describe('Slack OAuth service', () => {
 
 		await expect(installSlackWorkspace(installation)).resolves.toEqual(stored);
 		expect(mocks.upsert).toHaveBeenCalledWith(installation);
+		expect(mocks.ensureProjectSlackSettings).toHaveBeenCalledWith(PROJECT_ID);
 	});
 
 	it('uninstalls Slack before stopping and deleting the local installation', async () => {
@@ -184,6 +190,24 @@ describe('Slack OAuth service', () => {
 			'fetch',
 			vi.fn().mockResolvedValue(
 				new Response(JSON.stringify({ ok: true }), {
+					status: 200,
+					headers: { 'content-type': 'application/json' },
+				}),
+			),
+		);
+
+		await disconnectSlackWorkspace(PROJECT_ID);
+
+		expect(mocks.stopProject).toHaveBeenCalledWith(PROJECT_ID);
+		expect(mocks.deleteByProjectId).toHaveBeenCalledWith(PROJECT_ID);
+	});
+
+	it.each(['invalid_auth', 'token_revoked'])('clears the local installation when Slack reports %s', async (error) => {
+		mocks.getByProjectId.mockResolvedValue(newInstallation());
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue(
+				new Response(JSON.stringify({ ok: false, error }), {
 					status: 200,
 					headers: { 'content-type': 'application/json' },
 				}),

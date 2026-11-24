@@ -3,11 +3,14 @@ import { createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	deleteProjectSlackConfig: vi.fn(),
+	deleteSlackInstallationByTeamId: vi.fn(),
 	error: vi.fn(),
 	getProjectSlackConfig: vi.fn(),
 	getSlackInstallationByTeamId: vi.fn(),
 	getWebhooks: vi.fn(),
 	post: vi.fn(),
+	stopProject: vi.fn(),
 	warn: vi.fn(),
 }));
 
@@ -16,15 +19,17 @@ vi.mock('../../src/env', () => ({
 }));
 
 vi.mock('../../src/queries/project-slack-config.queries', () => ({
+	deleteProjectSlackConfig: mocks.deleteProjectSlackConfig,
 	getProjectSlackConfig: mocks.getProjectSlackConfig,
 }));
 
 vi.mock('../../src/queries/project-slack-installation.queries', () => ({
+	deleteSlackInstallationByTeamId: mocks.deleteSlackInstallationByTeamId,
 	getSlackInstallationByTeamId: mocks.getSlackInstallationByTeamId,
 }));
 
 vi.mock('../../src/services/slack', () => ({
-	slackService: { getWebhooks: mocks.getWebhooks },
+	slackService: { getWebhooks: mocks.getWebhooks, stopProject: mocks.stopProject },
 }));
 
 vi.mock('../../src/utils/logger', () => ({
@@ -122,6 +127,25 @@ describe('shared Slack webhook route', () => {
 		expect(response.statusCode).toBe(202);
 		expect(response.headers['x-slack-test']).toBe('yes');
 		expect(response.body).toBe('handled');
+	});
+
+	it('clears the local connection when Slack reports that the app was uninstalled', async () => {
+		const body = JSON.stringify({
+			type: 'event_callback',
+			team_id: 'T123',
+			event: { type: 'app_uninstalled' },
+		});
+		mocks.getSlackInstallationByTeamId.mockResolvedValue({ projectId: 'project-1', teamId: 'T123' });
+
+		const response = await sharedHandler()(signedRequest(body, 'application/json'), reply());
+
+		expect(mocks.stopProject).toHaveBeenCalledWith('project-1');
+		expect(mocks.deleteSlackInstallationByTeamId).toHaveBeenCalledWith('T123');
+		expect(mocks.deleteProjectSlackConfig).toHaveBeenCalledWith('project-1');
+		expect(mocks.getProjectSlackConfig).not.toHaveBeenCalled();
+		expect(mocks.getWebhooks).not.toHaveBeenCalled();
+		expect(response.statusCode).toBe(200);
+		expect(response.body).toBe('ok');
 	});
 });
 
