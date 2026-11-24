@@ -12,9 +12,11 @@ import type { UIMessage } from '@nao/backend/chat';
 import type { ImageUploadData } from '@nao/shared/attachments';
 import type { CitationData, LlmSelectedModel } from '@nao/shared/types';
 import type { DocumentAttachment } from '@/lib/attachments';
+import type { QueuedMessage } from '@/types/chat-message-queue';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { MentionOption, SelectedMention } from 'prompt-mentions';
 
+import type { Chat } from '@/queries/use-chat-query';
 import { getProjectRequestHeaders } from '@/lib/active-project';
 import {
 	checkIsAgentRunning,
@@ -41,7 +43,7 @@ import { chatActivityStore } from '@/stores/chat-activity';
 import { cancellingMessageIdStore } from '@/stores/chat-cancelling-message';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { chatInputRestoreStore } from '@/stores/chat-input-restore';
-import { messageQueueStore } from '@/stores/chat-message-queue';
+import { canSteer, messageQueueStore } from '@/stores/chat-message-queue';
 
 export type AgentMode = 'default' | 'onboarding' | 'example';
 
@@ -59,6 +61,7 @@ export interface AgentHelpers {
 	resendMessage: (args: { messageId: string }) => Promise<void | UIMessage>;
 	switchMessageVersion: (args: { messageId: string }) => Promise<void>;
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
+	steerQueuedMessage: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	/** The chat reconnects to an answer the server is still writing, and has not received any of it yet. */
@@ -88,6 +91,8 @@ export interface SendMessageArgs {
 	/** Files already uploaded to permanent storage, so the message only has to name them. */
 	documents?: DocumentAttachment[];
 	citations?: CitationData[];
+	/** While the agent runs, hands the message to it between two steps instead of queuing it. */
+	steer?: boolean;
 }
 
 /** A message as a chat input hands it over, with the context it mentions. */
@@ -130,7 +135,7 @@ export const useAgent = ({
 		setPreviousContextChatId(contextChatId);
 		setChatId(contextChatId);
 	}
-	const chat = useChatQuery({ chatId });
+	const chat = useChatQuery({ chatId, select: selectChatMessages });
 	const { data: session } = useSession();
 
 	// A null pick means "nao default": no model is sent and the server resolves the admin default.
@@ -211,6 +216,11 @@ export const useAgent = ({
 				const { title } = dataPart.data;
 				setChat({ chatId: agentId }, (prev) => (prev ? { ...prev, title } : prev));
 				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				return;
+			}
+
+			if (dataPart.type === 'data-steer') {
+				messageQueueStore.remove(agentId, dataPart.data.id);
 				return;
 			}
 
@@ -304,6 +314,7 @@ export const useAgent = ({
 						queryKey: trpc.project.listAvailableTranscribeModels.queryKey(),
 					});
 				}
+				messageQueueStore.unsteer(agentId);
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
@@ -341,15 +352,18 @@ export const useAgent = ({
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,
-		experimental_throttle: 8,
+		experimental_throttle: 50,
 	});
 	const messagesRef = useRef(messages);
 	messagesRef.current = messages;
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
+	const steerAgentMutation = useMutation(trpc.chat.steer.mutationOptions());
 	const cancelAgentMutation = useMutation(trpc.chat.cancel.mutationOptions());
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
+	const isRunningRef = useRef(isRunning);
+	isRunningRef.current = isRunning;
 
 	const refetchSavedMessages = useCallback(
 		async (chatIdToRefetch: string) => {
@@ -362,7 +376,7 @@ export const useAgent = ({
 	const isCatchingUp = useResumeRunningAnswer({
 		agent: agentInstance,
 		chatId,
-		loadedMessages: chat.data?.messages,
+		loadedMessages: chat.data,
 		status,
 		refetchSavedMessages,
 	});
@@ -495,14 +509,30 @@ export const useAgent = ({
 		[sendMessage, clearError, chatAllowanceExhausted],
 	);
 
+	/** A steer the server refuses (run ending, or running elsewhere) stays in the queue as a follow-up. */
+	const requestSteer = useCallback(
+		async ({ id, text }: QueuedMessage) => {
+			const targetChatId = chatIdRef.current;
+			const { accepted } = targetChatId
+				? await steerAgentMutation
+						.mutateAsync({ chatId: targetChatId, id, text })
+						.catch(() => ({ accepted: false }))
+				: { accepted: false };
+			if (!accepted) {
+				messageQueueStore.unsteer(targetChatId, id);
+			}
+		},
+		[steerAgentMutation.mutateAsync], // eslint-disable-line react-hooks/exhaustive-deps
+	);
+
 	const queueOrSendMessage = useCallback(
-		async ({ text, images, documents, citations }: SendMessageArgs) => {
+		async ({ text, images, documents, citations, steer }: SendMessageArgs) => {
 			const prompt = text.trim() || defaultAttachmentPrompt({ images, documents });
 			if (!prompt) {
 				return;
 			}
 
-			if (!isRunning) {
+			if (!isRunningRef.current) {
 				agentCitationStore.set(agentInstance, citations);
 				const files = attachmentsToFileUIParts({ images, documents });
 				return handleSendMessage({ text: prompt, files: files.length > 0 ? files : undefined });
@@ -511,15 +541,26 @@ export const useAgent = ({
 			const mentions = [...mentionsRef.current];
 			mentionsRef.current = [];
 
-			messageQueueStore.enqueue(chatIdRef.current, {
-				text: prompt,
-				mentions,
-				images,
-				documents,
-				citations,
+			const message = { text: prompt, mentions, images, documents, citations };
+			const queuedMessage = messageQueueStore.enqueue(chatIdRef.current, {
+				...message,
+				steer: steer && canSteer(message),
 			});
+			if (queuedMessage?.steer) {
+				await requestSteer(queuedMessage);
+			}
 		},
-		[isRunning, handleSendMessage, agentInstance],
+		[handleSendMessage, agentInstance, requestSteer],
+	);
+
+	const steerQueuedMessage = useCallback(
+		async (messageId: string) => {
+			const steeredMessage = messageQueueStore.steer(chatIdRef.current, messageId);
+			if (steeredMessage) {
+				await requestSteer(steeredMessage);
+			}
+		},
+		[requestSteer],
 	);
 
 	const submitQueuedMessageNow = useCallback(
@@ -545,7 +586,7 @@ export const useAgent = ({
 			documents: newDocuments,
 			citations,
 		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents' | 'citations'>) => {
-			if (isRunning || chatAllowanceExhausted) {
+			if (isRunningRef.current || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -572,12 +613,12 @@ export const useAgent = ({
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
+		[setMessages, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const resendMessage = useCallback(
 		async ({ messageId }: { messageId: string }) => {
-			if (isRunning || chatAllowanceExhausted) {
+			if (isRunningRef.current || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -603,20 +644,20 @@ export const useAgent = ({
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
+		[setMessages, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const switchMessageVersion = useCallback(
 		async ({ messageId }: { messageId: string }) => {
 			const targetChatId = chatIdRef.current;
-			if (!targetChatId || isRunning) {
+			if (!targetChatId || isRunningRef.current) {
 				return;
 			}
 
 			await switchMessageVersionMutation.mutateAsync({ chatId: targetChatId, messageId });
 			await queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: targetChatId }) });
 		},
-		[isRunning, switchMessageVersionMutation.mutateAsync, queryClient], // eslint-disable-line
+		[switchMessageVersionMutation.mutateAsync, queryClient], // eslint-disable-line
 	);
 
 	return useMemoObject({
@@ -629,6 +670,7 @@ export const useAgent = ({
 		resendMessage,
 		switchMessageVersion,
 		submitQueuedMessageNow,
+		steerQueuedMessage,
 		status,
 		isRunning,
 		isCatchingUp,
@@ -663,17 +705,6 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 	const chatDataRef = useRef(chat.data);
 	chatDataRef.current = chat.data;
 
-	useEffect(() => {
-		if (!agent.isRunning) {
-			return;
-		}
-		const base = chatDataRef.current;
-		setChat({ chatId }, (prev) => {
-			const src = prev ?? base;
-			return src ? { ...src, messages: agent.messages } : prev;
-		});
-	}, [setChat, agent.messages, chatId, agent.isRunning]);
-
 	const wasRunningRef = useRef(false);
 	useEffect(() => {
 		if (wasRunningRef.current && !agent.isRunning) {
@@ -685,6 +716,21 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		}
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
+
+	const committedRunRef = useRef({ chatId, messages: agent.messages, isRunning: agent.isRunning });
+	useEffect(() => {
+		committedRunRef.current = { chatId, messages: agent.messages, isRunning: agent.isRunning };
+	});
+
+	/** Saves a run's messages when its chat stops showing mid-run, so showing it again does not start from stale messages. */
+	useEffect(() => {
+		return () => {
+			const { chatId: runChatId, messages, isRunning } = committedRunRef.current;
+			if (runChatId && isRunning) {
+				setChat({ chatId: runChatId }, (prev) => (prev ? { ...prev, messages } : prev));
+			}
+		};
+	}, [chatId, setChat]);
 };
 
 /** How many mounted screens show each shared agent. */
@@ -867,3 +913,7 @@ export const useDisposeInactiveAgents = () => {
 		}
 	}, [chatId, prevChatIdRef]);
 };
+
+function selectChatMessages(chat: Chat): UIMessage[] {
+	return chat.messages;
+}

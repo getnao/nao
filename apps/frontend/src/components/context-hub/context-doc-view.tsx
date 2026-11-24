@@ -4,29 +4,23 @@ import { useBlocker, useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
+import type { ShownContextHubPage } from '@nao/backend/chat';
+import type { SkillPage } from '@/components/context-hub/context-hub-skill-page';
 import type { ContextHubView } from '@/hooks/use-context-hub-view';
 import type { ContextExplorerSearch, DocViewTestsPage } from '@/lib/context-explorer-search';
 import type { ContextHubContent } from '@/lib/context-hub';
 import { ContextHubChatPanel, useContextHubChatPanelOpen } from '@/components/context-hub/context-hub-chat-panel';
 import { ContextHubNavigator } from '@/components/context-hub/context-hub-navigator';
 import { ContextHubOverview } from '@/components/context-hub/context-hub-overview';
+import { DiscardChangesDialog } from '@/components/context-hub/discard-changes-dialog';
+import { ContextHubSkillPage, isSameSkillPage } from '@/components/context-hub/context-hub-skill-page';
 import { ContextHubTestPage, ContextHubTestSuite } from '@/components/context-hub/context-hub-tests';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
 import { ContextHubViewer } from '@/components/context-hub/context-hub-viewer';
-import { NewSkillDialog } from '@/components/context-hub/new-skill-dialog';
 import { OpenEditorChatButton } from '@/components/editor-chat-panel';
+import { NewSkillButton, NewSkillDialog, useNewSkillScope } from '@/components/personal-skills';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
@@ -34,6 +28,8 @@ import { FileExplorerWorktreeProvider } from '@/contexts/file-explorer-worktree'
 import { useRegisterOpenContextFileCallback } from '@/contexts/open-context-file-callback';
 import { useContextChanges } from '@/hooks/use-context-changes';
 import { useTestSuite } from '@/hooks/use-upstream-context';
+import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
+import { getDocViewTestsPage } from '@/lib/context-explorer-search';
 import {
 	buildContextHubContent,
 	findTableOfPath,
@@ -42,12 +38,11 @@ import {
 	matchesContextHubTable,
 	matchesContextHubTest,
 } from '@/lib/context-hub';
-import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
-import { getDocViewTestsPage } from '@/lib/context-explorer-search';
 import { trpc } from '@/main';
 
 /** What the right column shows: a table or doc page, nothing, a change picked in the Changes tab, or the tests. */
 type ViewerTarget =
+	| { type: 'skill'; page: SkillPage }
 	| { type: 'file'; path: string | null }
 	| { type: 'diff'; path: string }
 	| { type: 'tests'; runId?: string }
@@ -81,6 +76,12 @@ export function ContextDocView({
 	const diffPath = shownDiff?.requestedPath === requestedPath ? shownDiff.path : null;
 	const [pendingTarget, setPendingTarget] = useState<ViewerTarget | null>(null);
 	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
+	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
+	const isSkillsLinkOpen = contextSearch.skills === 'open';
+	const linkedSkillName = contextSearch.skill;
+	const [skillPage, setSkillPage] = useState<SkillPage | null>(
+		linkedSkillName ? { type: 'personal', name: linkedSkillName } : isSkillsLinkOpen ? { type: 'all' } : null,
+	);
 	const [isChatOpen, setIsChatOpen] = useContextHubChatPanelOpen();
 	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
 	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
@@ -107,6 +108,11 @@ export function ContextDocView({
 
 	const showTarget = (target: ViewerTarget) => {
 		setIsDirty(false);
+		if (target.type === 'skill') {
+			setSkillPage(target.page);
+			return;
+		}
+		setSkillPage(null);
 		if (target.type === 'diff') {
 			setShownDiff({ path: target.path, requestedPath });
 			return;
@@ -127,10 +133,31 @@ export function ContextDocView({
 	};
 
 	const openFile = (path: string) => requestTarget({ type: 'file', path });
+	const openSkillPage = (page: SkillPage) => requestTarget({ type: 'skill', page });
 	const openTests = (runId?: string) => requestTarget({ type: 'tests', runId });
 	const openTest = (path: string, runId?: string) => requestTarget({ type: 'test', path, runId });
 
 	useRegisterOpenContextFileCallback(openFile, [openFile]);
+
+	useEffect(() => {
+		if (isSkillsLinkOpen) {
+			setSkillPage({ type: 'all' });
+		}
+	}, [isSkillsLinkOpen]);
+
+	/** Back and Forward follow the link: leaving the skill it named closes that skill, unless another page replaced it. */
+	const previousLinkedSkillNameRef = useRef(linkedSkillName);
+	useEffect(() => {
+		const previousName = previousLinkedSkillNameRef.current;
+		previousLinkedSkillNameRef.current = linkedSkillName;
+		if (linkedSkillName) {
+			setSkillPage({ type: 'personal', name: linkedSkillName });
+		} else if (previousName) {
+			setSkillPage((current) =>
+				isSameSkillPage(current, { type: 'personal', name: previousName }) ? null : current,
+			);
+		}
+	}, [linkedSkillName]);
 
 	useEffect(() => {
 		if (unlistedRequestedPath && onSwitchView) {
@@ -141,11 +168,6 @@ export function ContextDocView({
 	const refreshChanges = async () => {
 		setShownDiff(null);
 		await invalidateExplorerQueries(queryClient);
-	};
-
-	const handleSkillCreated = async (path: string) => {
-		await invalidateExplorerQueries(queryClient);
-		requestTarget({ type: 'file', path });
 	};
 
 	const handleRepositoryChanged = () => showTarget({ type: 'file', path: null });
@@ -200,12 +222,14 @@ export function ContextDocView({
 										docs={docs}
 										tests={tests}
 										search={search}
-										selectedPath={selectedNavigatorPath}
+										selectedPath={skillPage ? null : selectedNavigatorPath}
 										onSearchChange={setSearch}
 										onOpenFile={openFile}
 										onOpenTests={() => openTests()}
 										onOpenTest={openTest}
 										onNewSkill={() => setIsNewSkillOpen(true)}
+										skillPage={skillPage}
+										onOpenSkillPage={openSkillPage}
 									/>
 								)
 							}
@@ -229,7 +253,22 @@ export function ContextDocView({
 
 					<ResizablePanel id='viewer' minSize={300}>
 						<div className='h-full bg-background'>
-							{diffPath === null && testsPage?.type === 'test' ? (
+							{skillPage ? (
+								<ContextHubSkillPage
+									page={skillPage}
+									onOpenPage={openSkillPage}
+									onDirtyChange={setIsDirty}
+									onOpenFile={openFile}
+									newSkillAction={
+										<NewSkillButton
+											scope={newSkillScope}
+											canCreateTeamSkill
+											onScopeChange={setNewSkillScope}
+											onCreate={() => setIsNewSkillOpen(true)}
+										/>
+									}
+								/>
+							) : diffPath === null && testsPage?.type === 'test' ? (
 								<ContextHubTestPage
 									key={testsPage.path}
 									testPath={testsPage.path}
@@ -265,12 +304,23 @@ export function ContextDocView({
 						</div>
 					</ResizablePanel>
 				</ResizablePanelGroup>
-				<ContextHubChatPanel openPath={openPath} isOpen={isChatOpen} onOpenChange={setIsChatOpen} />
+				<ContextHubChatPanel
+					shown={getShownPage({ skillPage, diffPath, testsPage, testRun: contextSearch.testRun, openPath })}
+					isOpen={isChatOpen}
+					onOpenChange={setIsChatOpen}
+				/>
 
 				<NewSkillDialog
 					open={isNewSkillOpen}
-					onOpenChange={setIsNewSkillOpen}
-					onCreated={(path) => void handleSkillCreated(path)}
+					scope={newSkillScope}
+					canCreateTeamSkill
+					onScopeChange={setNewSkillScope}
+					onClose={() => setIsNewSkillOpen(false)}
+					onCreated={(skill) =>
+						skill.scope === 'personal'
+							? openSkillPage({ type: 'personal', name: skill.name })
+							: openFile(skill.path)
+					}
 				/>
 				<DiscardChangesDialog
 					open={pendingTarget !== null || navigationBlocker.status === 'blocked'}
@@ -297,42 +347,7 @@ export function ContextDocView({
 	);
 }
 
-function DiscardChangesDialog({
-	open,
-	onKeepEditing,
-	onDiscard,
-}: {
-	open: boolean;
-	onKeepEditing: () => void;
-	onDiscard: () => void;
-}) {
-	return (
-		<AlertDialog open={open} onOpenChange={(nextOpen) => !nextOpen && onKeepEditing()}>
-			<AlertDialogContent>
-				<AlertDialogHeader>
-					<AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
-					<AlertDialogDescription>
-						You have edits that are not saved yet. Continuing will discard them.
-					</AlertDialogDescription>
-				</AlertDialogHeader>
-				<AlertDialogFooter>
-					<AlertDialogCancel>Keep editing</AlertDialogCancel>
-					<AlertDialogAction
-						variant='destructive'
-						onClick={(event) => {
-							event.preventDefault();
-							onDiscard();
-						}}
-					>
-						Discard changes
-					</AlertDialogAction>
-				</AlertDialogFooter>
-			</AlertDialogContent>
-		</AlertDialog>
-	);
-}
-
-function toTargetSearch(target: Exclude<ViewerTarget, { type: 'diff' }>): ContextExplorerSearch {
+function toTargetSearch(target: Exclude<ViewerTarget, { type: 'diff' | 'skill' }>): ContextExplorerSearch {
 	switch (target.type) {
 		case 'file':
 			return { path: target.path ?? undefined };
@@ -340,6 +355,46 @@ function toTargetSearch(target: Exclude<ViewerTarget, { type: 'diff' }>): Contex
 			return { tests: 'open', testRun: target.runId };
 		case 'test':
 			return { test: target.path, testRun: target.runId };
+	}
+}
+
+/** What the viewer shows, in the order it picks it, for the chat beside the hub to know what the user looks at. */
+function getShownPage({
+	skillPage,
+	diffPath,
+	testsPage,
+	testRun,
+	openPath,
+}: {
+	skillPage: SkillPage | null;
+	diffPath: string | null;
+	testsPage: DocViewTestsPage | null;
+	testRun: string | undefined;
+	openPath: string | null;
+}): ShownContextHubPage {
+	if (skillPage) {
+		return toShownSkillPage(skillPage);
+	}
+	if (diffPath) {
+		return { type: 'change', path: diffPath };
+	}
+	if (testsPage?.type === 'test') {
+		return { type: 'test', path: testsPage.path, runId: testRun ?? null };
+	}
+	if (testsPage?.type === 'suite') {
+		return { type: 'tests', runId: testRun ?? null };
+	}
+	return openPath ? { type: 'file', path: openPath } : { type: 'overview' };
+}
+
+function toShownSkillPage(page: SkillPage): ShownContextHubPage {
+	switch (page.type) {
+		case 'all':
+			return { type: 'skills' };
+		case 'personal':
+			return { type: 'personal-skill', name: page.name };
+		case 'request':
+			return { type: 'share-request', id: page.id };
 	}
 }
 

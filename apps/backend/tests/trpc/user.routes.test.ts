@@ -4,7 +4,7 @@ import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
 	addProjectMember: vi.fn(),
-	addTeamMember: vi.fn(),
+	addTeamMembers: vi.fn(),
 	capturePostHogEvent: vi.fn(),
 	dismissGithubStarPrompt: vi.fn(),
 	getUserName: vi.fn(),
@@ -65,7 +65,7 @@ vi.mock('../../src/services/posthog', () => ({
 vi.mock('../../src/services/membership.service', () => ({
 	addProjectMember: mocks.addProjectMember,
 }));
-vi.mock('../../src/services/team-member', () => ({ addTeamMember: mocks.addTeamMember }));
+vi.mock('../../src/services/team-member', () => ({ addTeamMembers: mocks.addTeamMembers }));
 vi.mock('../../src/services/user-group-availability.service', () => ({
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
 }));
@@ -186,16 +186,9 @@ describe('add user to project groups', () => {
 		mocks.getUserName.mockResolvedValue('Existing User');
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.validateAssignableUserGroupIds.mockImplementation(async (_projectId, groupIds) => groupIds);
-		mocks.addTeamMember.mockImplementation(async ({ addMember }) => {
+		mocks.addTeamMembers.mockImplementation(async ({ addMember }) => {
 			await addMember('added-user-id');
-			return {
-				newUser: {
-					id: 'added-user-id',
-					name: 'Added User',
-					email: 'added@example.com',
-					role: 'user',
-				},
-			};
+			return [{ email: 'added@example.com', status: 'added', name: 'Added User' }];
 		});
 	});
 
@@ -219,9 +212,9 @@ describe('add user to project groups', () => {
 	it('preserves unlicensed onboarding when no groups are selected', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 
-		await expect(caller.addUserToProject({ email: 'added@example.com' })).resolves.toMatchObject({
-			newUser: { id: 'added-user-id' },
-		});
+		await expect(caller.addUserToProject({ members: [{ email: 'added@example.com' }] })).resolves.toMatchObject([
+			{ status: 'added' },
+		]);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 		expect(mocks.validateAssignableUserGroupIds).not.toHaveBeenCalled();
 		expect(mocks.addProjectMember).toHaveBeenCalledWith(
@@ -235,10 +228,10 @@ describe('add user to project groups', () => {
 		mocks.hasFeature.mockResolvedValue(false);
 
 		await expect(
-			caller.addUserToProject({ email: 'added@example.com', groupIds: ['analysts'] }),
-		).resolves.toMatchObject({ newUser: { id: 'added-user-id' } });
+			caller.addUserToProject({ members: [{ email: 'added@example.com' }], groupIds: ['analysts'] }),
+		).resolves.toMatchObject([{ status: 'added' }]);
 		expect(mocks.validateAssignableUserGroupIds).toHaveBeenCalledWith('project-id', ['analysts']);
-		expect(mocks.addTeamMember).toHaveBeenCalledOnce();
+		expect(mocks.addTeamMembers).toHaveBeenCalledOnce();
 		expect(mocks.addProjectMember).toHaveBeenCalledWith(
 			{ userId: 'added-user-id', projectId: 'project-id', role: expect.any(String) },
 			['analysts'],
@@ -258,16 +251,16 @@ describe('add user to project groups', () => {
 			);
 
 			await expect(
-				caller.addUserToProject({ email: 'added@example.com', groupIds: [groupId] }),
+				caller.addUserToProject({ members: [{ email: 'added@example.com' }], groupIds: [groupId] }),
 			).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-			expect(mocks.addTeamMember).not.toHaveBeenCalled();
+			expect(mocks.addTeamMembers).not.toHaveBeenCalled();
 			expect(mocks.addProjectMember).not.toHaveBeenCalled();
 		},
 	);
 
 	it('deduplicates valid groups and adds the project and group memberships atomically', async () => {
 		await caller.addUserToProject({
-			email: 'added@example.com',
+			members: [{ email: 'added@example.com' }],
 			groupIds: ['analysts', 'analysts', 'finance'],
 		});
 

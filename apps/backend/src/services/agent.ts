@@ -1,4 +1,5 @@
 import {
+	canRoleManagePersonalSkills,
 	CITATION_MENTION_TRIGGER,
 	type CustomBoundarySet,
 	getSchemaKeyFromMentionId,
@@ -6,6 +7,7 @@ import {
 	isSkillGranted,
 	isStoryFolderMentionId,
 	isStoryReferenceMentionId,
+	NAO_INTERNAL_MCP_SERVER,
 	normalizeCitationMarkers,
 	quoteCitationTokens,
 } from '@nao/shared';
@@ -69,6 +71,7 @@ import {
 	Mention,
 	MessageCustomDataParts,
 	ShownStoryFilters,
+	SteerPart,
 	TokenCost,
 	TokenUsage,
 	UIMessage,
@@ -103,6 +106,7 @@ import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-con
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { AnchoredSteer, insertSteerMessages, splitSteeredMessages } from '../utils/steering';
 import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
@@ -116,6 +120,7 @@ import { compactionService, RunCompaction } from './compaction';
 import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
+import { hasNaoInternalMcpTools } from './nao-internal-mcp';
 import { posthog, PostHogEvent } from './posthog';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { sandboxSecretService } from './sandbox-secret.service';
@@ -149,6 +154,7 @@ import {
 	resolveUserBackgroundModelSelection,
 	resolveUserModelSelection,
 } from './user-group-llm-access.service';
+import { safeListPersonalSkillsForAgent } from './user-skill.service';
 import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
 export interface AgentRunResult {
@@ -285,10 +291,12 @@ async function _buildContextBase(opts: {
 	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
-	const [envVars, warehouseAccessToken, contextAccess] = await Promise.all([
+	const [envVars, warehouseAccessToken, contextAccess, personalSkills, role] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		getWarehouseAccessTokenForUser(opts.userId, opts.projectId),
 		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
+		safeListPersonalSkillsForAgent(opts.projectId, opts.userId),
+		projectQueries.getUserRoleInProject(opts.projectId, opts.userId),
 	]);
 	const sqlQueryTag = await buildRunSqlQueryTag({
 		projectFolder,
@@ -318,6 +326,11 @@ async function _buildContextBase(opts: {
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		preloadedSkillNames: contextAccess.preloadedSkillNames,
+		personalSkills,
+		canManagePersonalSkills: canRoleManagePersonalSkills(
+			role,
+			contextAccess.userGroupFeatures.includes('personalSkills'),
+		),
 		warehouseAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -562,6 +575,8 @@ export class AgentManager {
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
 	private _runCompaction = new RunCompaction(compactionService);
+	private _pendingSteers: SteerPart[] = [];
+	private _steers: AnchoredSteer[] = [];
 	private _streamResult?: StreamTextResult<AgentTools, OutputInterface>;
 
 	constructor(
@@ -659,13 +674,33 @@ export class AgentManager {
 			},
 		});
 
-		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
+		this._pickUpPendingSteers(steps);
+		const conversationMessages = insertSteerMessages(
+			workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages,
+			this._steers,
+		);
 		const stepMessages = this._addCache(this._pruneMessages(conversationMessages));
 		return {
 			...this._profile.stepTools?.(steps),
 			messages: stepMessages,
 			providerOptions: this._protectInternalToolResults(stepMessages),
 		};
+	}
+
+	/** Steers wait for the tools of a step to finish, then follow their results in the next step. */
+	private _pickUpPendingSteers(steps: StepResult<AgentTools>[]): void {
+		const lastToolCall = steps
+			.at(-1)
+			?.toolCalls.filter((toolCall) => toolCall && !toolCall.providerExecuted)
+			.at(-1);
+		if (!lastToolCall || this._pendingSteers.length === 0) {
+			return;
+		}
+		for (const steer of this._pendingSteers) {
+			this._steers.push({ ...steer, afterToolCallId: lastToolCall.toolCallId });
+			this._streamWriter?.write({ type: 'data-steer', data: steer });
+		}
+		this._pendingSteers = [];
 	}
 
 	private _protectInternalToolResults(history: ModelMessage[] = []): ProviderOptionsMap {
@@ -846,7 +881,9 @@ export class AgentManager {
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
 		this._runCompaction = new RunCompaction(compactionService);
-		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
+		const conversationMessages = splitSteeredMessages(
+			uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system'),
+		);
 
 		const modelMessages = await convertToModelMessages<UIMessage>(conversationMessages, {
 			tools: this._agentTools,
@@ -891,7 +928,7 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
+		const [projectMcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
@@ -901,6 +938,13 @@ export class AgentManager {
 				: Promise.resolve([]),
 			projectQueries.getCustomBoundaries(this.chat.projectId),
 		]);
+		const allowedMcpServers = this._profile.mcpServers;
+		const mcpServers = [
+			...projectMcpServers,
+			...(toolNames.includes('mcp_call') && hasNaoInternalMcpTools(this._toolContext)
+				? [NAO_INTERNAL_MCP_SERVER]
+				: []),
+		].filter((server) => !allowedMcpServers || allowedMcpServers.includes(server));
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
 				memories,
@@ -909,6 +953,7 @@ export class AgentManager {
 				configuredDatabases,
 				skills,
 				preloadedSkills,
+				personalSkills: this._toolContext.personalSkills,
 				customCharts,
 				mapBoundaries,
 				mcpServers,
@@ -1190,6 +1235,15 @@ export class AgentManager {
 		this._abortController.abort();
 	}
 
+	/** Returns false when the run cannot pick the message up anymore. */
+	steer(steer: SteerPart): boolean {
+		if (this.isStopped || !this._streamWriter) {
+			return false;
+		}
+		this._pendingSteers.push(steer);
+		return true;
+	}
+
 	get isStopped(): boolean {
 		return this._abortController.signal.aborted;
 	}
@@ -1247,11 +1301,11 @@ export class AgentManager {
 
 	private _addSkills(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
 		const skillMention = mentions?.find(
-			(m) => m.trigger === '/' && isSkillGranted(this._toolContext.skillsAccess, m.id),
+			(m) =>
+				m.trigger === '/' &&
+				(isSkillGranted(this._toolContext.skillsAccess, m.id) || this._findPersonalSkill(m.id) !== undefined),
 		);
-		const skillContent = skillMention
-			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
-			: undefined;
+		const skillContent = skillMention ? this._getMentionedSkillContent(skillMention.id) : undefined;
 		if (!skillMention || !skillContent) {
 			return messages;
 		}
@@ -1259,6 +1313,21 @@ export class AgentManager {
 		return this._transformLastUserMessageText(messages, (text) =>
 			this._expandSkillMention(text, skillMention, skill),
 		);
+	}
+
+	/** A project skill wins over a personal skill of the same name, as the skills listing does. */
+	private _getMentionedSkillContent(name: string): string | undefined {
+		if (isSkillGranted(this._toolContext.skillsAccess, name)) {
+			const projectContent = skillService.getSkillContent(this.chat.projectId, name);
+			if (projectContent) {
+				return projectContent;
+			}
+		}
+		return this._findPersonalSkill(name)?.body;
+	}
+
+	private _findPersonalSkill(name: string) {
+		return this._toolContext.personalSkills?.find((skill) => skill.name === name);
 	}
 
 	private _expandSkillMention(text: string, mention: Mention, skill: string): string {

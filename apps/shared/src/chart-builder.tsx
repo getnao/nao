@@ -1260,6 +1260,8 @@ function buildAreaChart(props: ResolvedProps) {
 	const isStacked = isStackedChartType(chartType);
 	const isPercent = isPercentStackedChartType(chartType);
 	const isLine = chartType === 'line';
+	const hasGradientFill = !isLine && !isStacked;
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
 	const zeroBaseline = !isLine;
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 	const dataKeys = renderedSeries.map((s) => s.data_key);
@@ -1272,7 +1274,7 @@ function buildAreaChart(props: ResolvedProps) {
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
-			{!isLine && (
+			{hasGradientFill && (
 				<defs>
 					{renderedSeries.map((s, i) => {
 						const color = colorFor(s.data_key, i);
@@ -1329,9 +1331,11 @@ function buildAreaChart(props: ResolvedProps) {
 				<Area
 					key={s.data_key}
 					dataKey={s.data_key}
-					type='monotone'
-					stroke={colorFor(s.data_key, i)}
-					fill={isLine ? 'none' : `url(#${gradientIdFor(i)})`}
+					type={isStacked ? 'linear' : 'monotone'}
+					stroke={isStacked ? separatorColor : colorFor(s.data_key, i)}
+					strokeWidth={isStacked ? STACK_SEPARATOR_WIDTH : undefined}
+					fill={isLine ? 'none' : isStacked ? colorFor(s.data_key, i) : `url(#${gradientIdFor(i)})`}
+					fillOpacity={isStacked ? 1 : undefined}
 					stackId={isStacked ? 'stack' : undefined}
 					dot={renderPartDot(data, s, xAxisKey)}
 					activeDot={renderPartActiveDot(s, xAxisKey)}

@@ -30,7 +30,7 @@ import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
-import { getToolName, isToolSettled } from '@/lib/ai';
+import { areToolPartsEqual, getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
 import { useAssistantMessage } from '@/contexts/assistant-message';
 
@@ -111,4 +111,8 @@ export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 			{Rendered}
 		</ToolCallProvider>
 	);
-});
+}, arePropsEqual);
+
+function arePropsEqual(previous: { toolPart: UIToolPart }, next: { toolPart: UIToolPart }): boolean {
+	return areToolPartsEqual(previous.toolPart, next.toolPart);
+}

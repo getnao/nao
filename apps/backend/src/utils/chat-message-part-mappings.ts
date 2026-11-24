@@ -94,6 +94,13 @@ export const convertUIPartToDBPart = (
 				messageId,
 				order,
 			};
+		case 'data-steer':
+			return {
+				type: 'data-steer',
+				text: part.data.text,
+				messageId,
+				order,
+			};
 		default:
 			return undefined;
 	}
@@ -152,6 +159,11 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 					summary: part.text!,
 					error: part.toolErrorText ?? undefined,
 				},
+			};
+		case 'data-steer':
+			return {
+				type: 'data-steer',
+				data: { id: part.id, text: part.text! },
 			};
 		default:
 			return undefined;

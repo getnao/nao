@@ -157,13 +157,20 @@ def _count_walked_nodes(node: Any, counted: dict[int, int]) -> int:
     return count
 
 
+def validate_project_file(file: str, field_name: str) -> str:
+    """Refuses a path of nao_config.yaml that could leave the project or name a dotfile, before the file exists."""
+    relative_file = normalize_relative_path(file, field_name)
+    if _is_hidden(PurePosixPath(relative_file)):
+        raise ValueError(f"{field_name} '{file}' is a dotfile or sits in a dot folder, which cannot be read")
+    return relative_file
+
+
 def _read_referenced_file(project_path: Path, file: str) -> Any:
     project_root = project_path.resolve()
-    relative_file = PurePosixPath(normalize_relative_path(file, FILE_REFERENCE_KEY))
-    file_path = (project_root / relative_file).resolve()
+    file_path = (project_root / validate_project_file(file, FILE_REFERENCE_KEY)).resolve()
     if not file_path.is_relative_to(project_root):
         raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' points outside the project")
-    if _is_hidden(relative_file) or _is_hidden(file_path.relative_to(project_root)):
+    if _is_hidden(file_path.relative_to(project_root)):
         raise ValueError(f"{FILE_REFERENCE_KEY} '{file}' is a dotfile or sits in a dot folder, which cannot be read")
     if not file_path.is_file():
         return _MISSING

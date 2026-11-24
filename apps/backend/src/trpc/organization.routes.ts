@@ -11,8 +11,9 @@ import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { addOrganizationMember, putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
 import { configureOrganizationSso, getOrganizationSso } from '../services/organization-sso.service';
-import { addTeamMember } from '../services/team-member';
+import { addTeamMembers } from '../services/team-member';
 import { ORG_ROLES, organizationSsoConfigInputSchema } from '../types/organization';
+import { teamMembersInputSchema } from '../types/team-member';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
@@ -129,13 +130,12 @@ export const organizationRoutes = {
 		}),
 
 	addMember: orgAdminOnlyProcedure
-		.input(z.object({ email: z.string().min(1), name: z.string().min(1).optional() }))
+		.input(z.object({ members: teamMembersInputSchema }))
 		.mutation(async ({ input, ctx }) => {
 			const orgId = ctx.org.id;
 
-			return addTeamMember({
-				email: input.email,
-				name: input.name,
+			return addTeamMembers({
+				members: input.members,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
 					await addOrganizationMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });

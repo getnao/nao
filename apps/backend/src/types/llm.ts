@@ -27,7 +27,12 @@ export const llmSelectedModelSchema = z.object({
 export const LLM_CREDENTIAL_SOURCES = ['database', 'env'] as const;
 export type LlmCredentialSource = (typeof LLM_CREDENTIAL_SOURCES)[number];
 
-export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
+export type ProviderSettings = {
+	apiKey: string;
+	baseURL?: string;
+	credentials?: Record<string, string>;
+	fetch?: typeof fetch;
+};
 
 export const customModelCostSchema = z.object({
 	inputNoCache: z.number().min(0).optional(),

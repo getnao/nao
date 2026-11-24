@@ -169,6 +169,16 @@ export const chatRoutes = {
 		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
 	}),
 
+	steer: protectedProcedure
+		.input(z.object({ chatId: z.string(), id: z.string(), text: z.string().trim().min(1) }))
+		.mutation(({ input, ctx }): { accepted: boolean } => {
+			const agent = agentService.get(input.chatId);
+			if (!agent?.checkIsUserOwner(ctx.user.id)) {
+				return { accepted: false };
+			}
+			return { accepted: agent.steer({ id: input.id, text: input.text }) };
+		}),
+
 	cancel: chatOwnerProcedure.input(z.object({ chatId: z.string() })).mutation(
 		async ({
 			input,

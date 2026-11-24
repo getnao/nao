@@ -177,15 +177,18 @@ export const resolveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
 	activeGroupIds?: ReadonlySet<string>,
+	impersonatedGroupIds?: readonly string[] | null,
 ): Promise<EffectiveUserGroupAccess> => {
 	const [groups, memberships] = await Promise.all([
 		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
-		db
-			.select({ groupId: s.userGroupMember.groupId, createdAt: s.userGroupMember.createdAt })
-			.from(s.userGroupMember)
-			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.userId, userId)))
-			.execute(),
+		impersonatedGroupIds
+			? impersonatedGroupIds.map((groupId) => ({ groupId, createdAt: new Date(0) }))
+			: db
+					.select({ groupId: s.userGroupMember.groupId, createdAt: s.userGroupMember.createdAt })
+					.from(s.userGroupMember)
+					.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+					.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.userId, userId)))
+					.execute(),
 	]);
 	const membershipDates = new Map<string, Date>();
 	for (const membership of memberships) {

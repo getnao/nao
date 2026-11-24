@@ -28,6 +28,10 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
 }));
 
+vi.mock('../../src/queries/user-group-impersonation.queries', () => ({
+	getImpersonatedGroupIds: vi.fn(async () => null),
+}));
+
 import {
 	applyCurrentUserGroupAvailability,
 	assertUserGroupManageable,
@@ -119,6 +123,7 @@ describe('user group availability service', () => {
 			'project-id',
 			'user-id',
 			new Set(['default', 'group-a', 'group-b', 'group-c']),
+			null,
 		);
 	});
 

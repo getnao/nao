@@ -6,13 +6,13 @@ import {
 	ALL_SKILLS_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	DEFAULT_USER_GROUP_FEATURES,
 	DEFAULT_USER_GROUP_NAME,
 	type DefaultModelSettings,
 	type MapSettings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
 	SYSTEM_EXAMPLE_PROJECT_ID,
-	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { SidebarMenu } from '@nao/shared/sidebar-menu';
@@ -47,6 +47,7 @@ import { isOpenProject } from '../utils/open-projects';
 import { getDefaultProjectPath } from '../utils/project-paths';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userHasPassword, userMemberStatus } from './user.queries';
+import { getImpersonatedGroupIds } from './user-group-impersonation.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -229,7 +230,16 @@ export const listUserProjects = async (userId: string, options?: ListUserProject
 	return results.map((r) => r.project);
 };
 
+/** An admin impersonating user groups acts as a regular member until they stop. */
 export const getUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
+	const role = await getActualUserRoleInProject(projectId, userId);
+	if (role === 'admin' && (await getImpersonatedGroupIds(projectId, userId))) {
+		return 'user';
+	}
+	return role;
+};
+
+export const getActualUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;
@@ -611,7 +621,12 @@ const defaultUserGroupValues = (projectId: string) => ({
 	projectId,
 	name: DEFAULT_USER_GROUP_NAME,
 	isDefault: true,
-	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY, 'inherit', true),
+	featureGrants: serializeUserGroupConfig(
+		DEFAULT_USER_GROUP_FEATURES,
+		DEFAULT_TOOL_CALL_DENSITY_POLICY,
+		'inherit',
+		true,
+	),
 	contextGrants: serializeUserGroupContextAccess({
 		databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
 		docsAccess: ALL_DOCS_CONTEXT_ACCESS,

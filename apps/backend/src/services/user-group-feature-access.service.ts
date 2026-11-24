@@ -113,6 +113,8 @@ function featureLabel(feature: UserGroupFeature): string {
 			return 'Custom story creation';
 		case 'automationCreation':
 			return 'Automation creation';
+		case 'personalSkills':
+			return 'Personal skills';
 	}
 }
 
@@ -178,6 +180,10 @@ const AGENT_FEATURE_POLICIES: Record<UserGroupFeature, AgentFeaturePolicy> = {
 		isOffered: () => env.BETA_CUSTOM_STORIES_ENABLED,
 		restrictionMessage:
 			'Custom story creation is unavailable for this user in this project. Never create a story with format "custom" and do not suggest Custom story mode; build classic stories only. If asked, explain that their group does not grant custom stories.',
+	},
+	personalSkills: {
+		isOffered: () => false,
+		restrictionMessage: 'Personal skills are unavailable for this user in this project.',
 	},
 	automationCreation: {
 		restrictionMessage:

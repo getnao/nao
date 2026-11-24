@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import yaml
-from pydantic import BaseModel, Field, PrivateAttr, ValidationError, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator, model_validator
 from rich.console import Console
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ from nao_core.ui import UI, ask_confirm, ask_select
 from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
 from .error_handler import format_all_validation_errors, format_validation_error
-from .file_references import FileReferences, resolve_file_references
+from .file_references import FileReferences, resolve_file_references, validate_project_file
 from .llm import LLMConfig
 from .mcp import McpConfig
 from .metabase import MetabaseConfig
@@ -83,6 +83,11 @@ class NaoConfig(BaseModel):
     query_tag: QueryTagConfig | None = Field(
         default=None, description="The comment added to every SQL query sent to a warehouse"
     )
+    rules_file: str | None = Field(
+        default=None,
+        description="The agent rules file, `RULES.md` by default. It can live in a synced repository, "
+        "e.g. 'repos/business_context/nao/RULES.md'",
+    )
 
     _missing_secrets: dict[str, None] = {}
     _file_references: FileReferences = PrivateAttr(default_factory=FileReferences)
@@ -99,6 +104,11 @@ class NaoConfig(BaseModel):
         if "databases" in data and isinstance(data["databases"], list):
             data["databases"] = [parse_database_config(db) if isinstance(db, dict) else db for db in data["databases"]]
         return data
+
+    @field_validator("rules_file")
+    @classmethod
+    def validate_rules_file(cls, value: str | None) -> str | None:
+        return None if value is None else validate_project_file(value, "rules_file")
 
     @model_validator(mode="after")
     def validate_repo_targets(self) -> "NaoConfig":

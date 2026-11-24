@@ -3,9 +3,9 @@ import { UPDATE_AUTOMATION_TOOL_NAME } from '@nao/shared/automation-draft';
 import type { AutomationDraftUpdate, AutomationDraftUpdateResult } from '@nao/shared/automation-draft';
 import type { UIMessage } from '@nao/backend/chat';
 
-import { useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
-import { getToolName, isToolSettled, isToolUIPart } from '@/lib/ai';
+import { getToolName, haveSameToolCallIds, isToolSettled, isToolUIPart } from '@/lib/ai';
 import { useChatQuery } from '@/queries/use-chat-query';
 
 interface SettledDraftUpdate {
@@ -33,7 +33,7 @@ export function useAutomationDraftUpdates({
 	onUpdate: (update: AutomationDraftUpdate) => void;
 }) {
 	const chatId = useChatId();
-	const messages = useAgentMessages();
+	const settledUpdates = useAgentMessagesSelector(listSettledDraftUpdates, haveSameToolCallIds);
 	const savedMessages = useChatQuery({ chatId }).data?.messages;
 	const onUpdateRef = useRef(onUpdate);
 	onUpdateRef.current = onUpdate;
@@ -45,22 +45,22 @@ export function useAutomationDraftUpdates({
 		const handledToolCallIds = handledUpdates.get(chatId);
 		if (!handledToolCallIds) {
 			if (!isResumed) {
-				handledUpdates.set(chatId, handUpdatesOver(messages, new Set(), onUpdateRef.current));
+				handledUpdates.set(chatId, handUpdatesOver(settledUpdates, new Set(), onUpdateRef.current));
 			} else if (savedMessages) {
 				handledUpdates.set(chatId, new Set(listSettledDraftUpdates(savedMessages).map(toToolCallId)));
 			}
 			return;
 		}
-		handUpdatesOver(messages, handledToolCallIds, onUpdateRef.current);
-	}, [chatId, handledUpdates, isResumed, messages, savedMessages]);
+		handUpdatesOver(settledUpdates, handledToolCallIds, onUpdateRef.current);
+	}, [chatId, handledUpdates, isResumed, settledUpdates, savedMessages]);
 }
 
 function handUpdatesOver(
-	messages: UIMessage[],
+	settledUpdates: SettledDraftUpdate[],
 	handledToolCallIds: Set<string>,
 	onUpdate: (update: AutomationDraftUpdate) => void,
 ): Set<string> {
-	for (const { toolCallId, update } of listSettledDraftUpdates(messages)) {
+	for (const { toolCallId, update } of settledUpdates) {
 		if (handledToolCallIds.has(toolCallId)) {
 			continue;
 		}

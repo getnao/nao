@@ -4,6 +4,7 @@ import { ENTERPRISE_FEATURES } from '@/routes/_sidebar-layout.settings.enterpris
 
 vi.mock('@tanstack/react-router', () => ({
 	createFileRoute: () => (options: unknown) => options,
+	lazyRouteComponent: vi.fn(),
 	redirect: vi.fn(),
 }));
 vi.mock('@/main', () => ({ queryClient: {}, trpc: {} }));

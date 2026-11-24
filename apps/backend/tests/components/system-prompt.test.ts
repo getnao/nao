@@ -630,3 +630,22 @@ describe('SystemPrompt display_map rules', () => {
 		);
 	});
 });
+
+describe('SystemPrompt personal skills', () => {
+	const personalSkills = [{ name: 'my-orders', description: 'My weekly orders.', body: 'Completed orders only.' }];
+
+	it('lists each personal skill by name and description and points to load_skill', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ personalSkills }));
+
+		expect(markdown).toContain('Personal Skills');
+		expect(markdown).toContain('**my-orders** — My weekly orders.');
+		expect(markdown).toContain('**load_skill**');
+		expect(markdown).not.toContain('Completed orders only.');
+	});
+
+	it('omits the section when the run has no load_skill tool, since personal skills have no file to read', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ personalSkills, toolNames: ['read'] }));
+
+		expect(markdown).not.toContain('Personal Skills');
+	});
+});

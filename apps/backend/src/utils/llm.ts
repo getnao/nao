@@ -17,7 +17,7 @@ import {
 	LLM_PROVIDERS,
 	type ProviderModelResult,
 } from '../agents/providers';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type {
@@ -30,6 +30,7 @@ import type {
 	ProviderSettings,
 } from '../types/llm';
 import { type ConfigLlm, type ConfigLlmProvider, findConfigLlmProvider, readProjectConfigLlm } from './nao-config-llm';
+import { fetchPublicUrl } from './safe-fetch';
 
 export { getDefaultModelId };
 
@@ -37,6 +38,19 @@ export { getDefaultModelId };
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
 	const { envVar } = getProviderMeta(provider);
 	return envVar ? process.env[envVar] : undefined;
+}
+
+/**
+ * On cloud a base URL set on a project comes from a tenant, so its requests may only reach public
+ * addresses. Base URLs from the environment are the operator's and stay unrestricted.
+ */
+export function projectEndpointSettings(
+	baseUrl: string | null | undefined,
+): Pick<ProviderSettings, 'baseURL' | 'fetch'> {
+	if (!baseUrl) {
+		return {};
+	}
+	return { baseURL: baseUrl, ...(isCloud && { fetch: fetchPublicUrl as typeof fetch }) };
 }
 
 /** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
@@ -226,11 +240,12 @@ export async function getProjectConfigLlm(projectId: string): Promise<ConfigLlm 
 /** Credentials from nao_config.yaml, topped up from the environment for whatever it leaves out. */
 function toProviderSettings(configured: ConfigLlmProvider): ProviderSettings {
 	const apiKey = configured.apiKey ?? getEnvApiKey(configured.provider) ?? '';
-	const baseURL = configured.baseUrl ?? getEnvBaseUrl(configured.provider);
+	const envBaseURL = getEnvBaseUrl(configured.provider);
 
 	return {
 		apiKey,
-		...(baseURL && { baseURL }),
+		...(envBaseURL && { baseURL: envBaseURL }),
+		...projectEndpointSettings(configured.baseUrl),
 		...(configured.credentials && { credentials: configured.credentials }),
 	};
 }
@@ -710,11 +725,12 @@ const projectConfigSource = credentialSource({
 			if (!hasEnvApiKey(provider)) {
 				return null;
 			}
-			const baseURL = config.baseUrl ?? getEnvBaseUrl(provider);
+			const envBaseURL = getEnvBaseUrl(provider);
 			return {
 				settings: {
 					apiKey: getEnvApiKey(provider) ?? '',
-					...(baseURL && { baseURL }),
+					...(envBaseURL && { baseURL: envBaseURL }),
+					...projectEndpointSettings(config.baseUrl),
 					...(config.credentials && { credentials: config.credentials }),
 				},
 				modelSettings: config.modelSettings,
@@ -722,7 +738,7 @@ const projectConfigSource = credentialSource({
 		}
 		const settings = {
 			apiKey: config.apiKey,
-			...(config.baseUrl && { baseURL: config.baseUrl }),
+			...projectEndpointSettings(config.baseUrl),
 			...(config.credentials && { credentials: config.credentials }),
 		};
 		return { settings, modelSettings: config.modelSettings };

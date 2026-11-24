@@ -71,7 +71,9 @@ const activeOrganizationRecovery = createActiveOrganizationRecovery({
 /** TRPC client for typed requests to the backend */
 export const trpcClient = createTRPCClient<TrpcRouter>({
 	links: [
-		loggerLink(),
+		loggerLink({
+			enabled: (opts) => import.meta.env.DEV || (opts.direction === 'down' && opts.result instanceof Error),
+		}),
 		activeOrganizationRecovery.link,
 		httpBatchLink({
 			url: '/api/trpc',

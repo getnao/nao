@@ -133,6 +133,7 @@ vi.mock('@/main', () => ({
 		chat: {
 			stop: { mutationOptions: () => ({}) },
 			cancel: { mutationOptions: () => ({}) },
+			steer: { mutationOptions: () => ({}) },
 			switchMessageVersion: { mutationOptions: () => ({}) },
 			get: { queryKey: () => ['chat'] },
 		},
@@ -181,7 +182,11 @@ vi.mock('@/stores/chat-message-queue', () => ({
 		enqueue: vi.fn(),
 		moveQueue: vi.fn(),
 		promoteToFront: vi.fn(),
+		remove: vi.fn(),
+		steer: vi.fn(),
+		unsteer: vi.fn(),
 	},
+	canSteer: () => true,
 }));
 
 describe('useAgent managed credit refresh', () => {

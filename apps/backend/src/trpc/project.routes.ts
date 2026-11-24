@@ -17,7 +17,7 @@ import { z } from 'zod/v4';
 
 import { getProviderAuth, isManagedProvider, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
@@ -97,7 +97,7 @@ import {
 } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
-import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
+import { assertSafeHost, parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, getProcessEnvSourcedVarNames, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
@@ -174,6 +174,19 @@ function toDiscordConfigResponse(config: discordConfigQueries.DiscordConfig) {
 		fallbackUserEmail: config.fallbackUserEmail ?? '',
 		hideAnswerLink: config.hideAnswerLink ?? false,
 	};
+}
+
+/** Refused up front so the admin hears why, before a chat would fail on the same check. */
+async function assertPublicBaseUrl(baseUrl: string): Promise<void> {
+	const { protocol, hostname } = new URL(baseUrl);
+	if (protocol !== 'https:' && protocol !== 'http:') {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The base URL must use http or https.' });
+	}
+	try {
+		await assertSafeHost(hostname);
+	} catch (error) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
+	}
 }
 
 async function resolveDiscordFallbackUser(projectId: string, email: string) {
@@ -442,6 +455,9 @@ export const projectRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			if (isManagedProvider(input.provider)) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
+			}
+			if (isCloud && input.baseUrl) {
+				await assertPublicBaseUrl(input.baseUrl);
 			}
 			const existingConfig = input.configId
 				? await llmConfigQueries.getProjectLlmConfigById(ctx.project.id, input.configId)

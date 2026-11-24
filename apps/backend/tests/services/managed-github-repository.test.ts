@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	env: {} as Record<string, string | undefined>,
+	env: {} as Record<string, string | boolean | undefined>,
 	execFile: vi.fn(),
 	execFileSync: vi.fn(),
 	createPrivateKey: vi.fn(),
@@ -96,6 +96,24 @@ describe('managed GitHub repository provisioning', () => {
 			.mockResolvedValueOnce(jsonResponse(404, { message: 'Not Found' }));
 
 		await expect(deleteManagedGithubRepository('nao-org/missing')).resolves.toBeUndefined();
+	});
+
+	it('keeps repository cleanup enabled when publishing is skipped', async () => {
+		mocks.env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING = true;
+
+		await expect(provisionManagedGithubRepository(project)).resolves.toBeNull();
+		expect(fetch).not.toHaveBeenCalled();
+
+		vi.mocked(fetch)
+			.mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }))
+			.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+		await expect(deleteManagedGithubRepository('nao-org/stale-project')).resolves.toBeUndefined();
+		expect(fetch).toHaveBeenNthCalledWith(
+			2,
+			'https://api.github.com/repos/nao-org/stale-project',
+			expect.objectContaining({ method: 'DELETE' }),
+		);
 	});
 
 	it('does nothing when managed GitHub is not configured', async () => {

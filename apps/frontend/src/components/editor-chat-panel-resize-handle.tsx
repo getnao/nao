@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react';
 
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -17,6 +17,7 @@ const panelWidthStorage = createLocalStorage<number>('nao-automation-chat-panel-
 interface PanelWidth {
 	width: number;
 	setWidth: (width: number, options?: { persist?: boolean }) => void;
+	panelRef: RefObject<HTMLElement | null>;
 }
 
 interface PanelOpenState {
@@ -29,17 +30,24 @@ type DragState = { startX: number; startWidth: number; width: number; isOpen: bo
 /** The width of the editing chat panels, remembered across pages. */
 export function useEditorChatPanelWidth(): PanelWidth {
 	const [width, setWidth] = useLocalStorage(panelWidthStorage);
-	return { width: clampPanelWidth(width), setWidth };
+	const panelRef = useRef<HTMLElement>(null);
+	return { width: clampPanelWidth(width), setWidth, panelRef };
 }
 
 /**
- * Dragging the left edge of the panel resizes it, saved once released. Dragging a closed panel's edge
+ * Dragging the left edge of the panel resizes it in place, saved once released. Dragging a closed panel's edge
  * opens it, and dragging an open panel close to nothing closes it. Once focused, the arrow keys, Home and
  * End resize it; a double click or Enter brings back its default width, or opens a closed panel.
  *
  * The drag is followed on the window: opening or closing the panel replaces the element holding this handle.
  */
-export function EditorChatPanelResizeHandle({ width, setWidth, isOpen, onOpenChange }: PanelWidth & PanelOpenState) {
+export function EditorChatPanelResizeHandle({
+	width,
+	setWidth,
+	panelRef,
+	isOpen,
+	onOpenChange,
+}: PanelWidth & PanelOpenState) {
 	const dragRef = useRef<DragState | null>(null);
 
 	const followDrag = (event: PointerEvent) => {
@@ -49,13 +57,15 @@ export function EditorChatPanelResizeHandle({ width, setWidth, isOpen, onOpenCha
 		}
 		const draggedWidth = drag.startWidth - (event.clientX - drag.startX);
 		const shouldBeOpen = draggedWidth >= COLLAPSE_THRESHOLD;
+		if (shouldBeOpen) {
+			drag.width = clampPanelWidth(draggedWidth);
+		}
 		if (shouldBeOpen !== drag.isOpen) {
 			drag.isOpen = shouldBeOpen;
 			onOpenChange(shouldBeOpen);
-		}
-		if (shouldBeOpen) {
-			drag.width = clampPanelWidth(draggedWidth);
 			setWidth(drag.width, { persist: false });
+		} else if (shouldBeOpen && panelRef.current) {
+			panelRef.current.style.width = `${drag.width}px`;
 		}
 	};
 

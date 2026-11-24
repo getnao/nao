@@ -400,7 +400,9 @@ export const storyRoutes = {
 		}
 
 		const storyData = story.chatId
-			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+					viewerUserId: ctx.user.id,
+				})
 			: await getStandaloneStoryLiveQueryData(story.id, story.code, story.isLive, story.cacheSchedule, {
 					deferRefresh: lastRefreshFailure !== null,
 					deferFirstRefresh: true,
@@ -498,7 +500,11 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				{ deferRefresh: ctx.isChatOwner && lastRefreshFailure !== null, deferFirstRefresh: ctx.isChatOwner },
+				{
+					deferRefresh: ctx.isChatOwner && lastRefreshFailure !== null,
+					deferFirstRefresh: ctx.isChatOwner,
+					viewerUserId: ctx.isChatOwner ? ctx.user.id : undefined,
+				},
 			);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -1388,6 +1394,7 @@ export const storyRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
+						{ viewerUserId: ctx.isChatOwner ? ctx.user.id : undefined },
 					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -1497,7 +1504,9 @@ async function getStandaloneClassicStory(storyId: string) {
 async function getStandaloneLatestDownloadContent(story: storyQueries.UserStoryRow) {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	const storyData = story.chatId
-		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+				viewerUserId: story.userId ?? undefined,
+			})
 		: await getStandaloneStoryLiveQueryData(story.id, story.code, story.isLive, story.cacheSchedule);
 	const queryData =
 		storyData.allowsPersistedFallback && story.chatId

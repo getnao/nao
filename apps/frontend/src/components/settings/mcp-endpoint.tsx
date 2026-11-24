@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Copy, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import type { SegmentedControlOption } from '@/components/ui/segmented-control';
@@ -15,6 +15,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { authClient } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -396,16 +397,8 @@ function ConnectionGuide({ projectName, endpointUrl }: { projectName: string; en
 	const tokenQuery = useQuery({
 		...trpc.mcpEndpoint.getBearerToken.queryOptions(),
 		enabled: needsToken,
-		staleTime: Infinity,
+		staleTime: 0,
 	});
-
-	const resolveConfig = (config: string) => {
-		if (!config.includes(TOKEN_PLACEHOLDER)) {
-			return config;
-		}
-		const token = tokenQuery.data?.token;
-		return token ? config.replaceAll(TOKEN_PLACEHOLDER, token) : config;
-	};
 
 	const goPrev = () => setActive((i) => (i === 0 ? providers.length - 1 : i - 1));
 	const goNext = () => setActive((i) => (i === providers.length - 1 ? 0 : i + 1));
@@ -452,7 +445,8 @@ function ConnectionGuide({ projectName, endpointUrl }: { projectName: string; en
 							{method.config && (
 								<ConfigBlock
 									label={method.configLabel ?? 'Config'}
-									text={resolveConfig(method.config)}
+									template={method.config}
+									token={tokenQuery.data?.token}
 								/>
 							)}
 						</div>
@@ -473,7 +467,10 @@ function StepsList({ steps }: { steps: string[] }) {
 	);
 }
 
-function ConfigBlock({ label, text }: { label: string; text: string }) {
+function ConfigBlock({ label, template, token }: { label: string; template: string; token?: string }) {
+	const segments = token ? template.split(TOKEN_PLACEHOLDER) : [template];
+	const text = segments.join(token ?? '');
+
 	return (
 		<div className='rounded-md border border-border overflow-hidden'>
 			<div className='flex items-center justify-between bg-muted/60 px-2 py-1 border-b border-border'>
@@ -481,10 +478,74 @@ function ConfigBlock({ label, text }: { label: string; text: string }) {
 				<CopyButton text={text} />
 			</div>
 			<pre className='text-xs bg-muted p-2 overflow-x-auto'>
-				<code>{text}</code>
+				<code>
+					{segments.map((segment, i) => (
+						<Fragment key={i}>
+							{i > 0 && token && <RotatableToken token={token} />}
+							{segment}
+						</Fragment>
+					))}
+				</code>
 			</pre>
 		</div>
 	);
+}
+
+function RotatableToken({ token }: { token: string }) {
+	const [confirmOpen, setConfirmOpen] = useState(false);
+	const rotateMutation = useRotateBearerToken(() => setConfirmOpen(false));
+
+	return (
+		<span className='group/token relative'>
+			{token}
+			<button
+				type='button'
+				onClick={() => setConfirmOpen(true)}
+				aria-label='Rotate token'
+				title='Rotate token'
+				className='absolute -right-7 top-1/2 -translate-y-1/2 p-0.5 pl-1.5 rounded cursor-pointer text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/token:opacity-100'
+			>
+				<RotateCw className='size-3' />
+			</button>
+			<ConfirmationDialog
+				open={confirmOpen}
+				preventCloseWhilePending
+				onOpenChange={(open) => {
+					setConfirmOpen(open);
+					rotateMutation.reset();
+				}}
+				title='Rotate bearer token?'
+				description='A new token will be generated. MCP clients using the current token will stop working until you update their config.'
+				confirmLabel='Rotate'
+				onConfirm={() => rotateMutation.mutate()}
+				isPending={rotateMutation.isPending}
+				error={rotateMutation.error?.message}
+			/>
+		</span>
+	);
+}
+
+function useRotateBearerToken(onRotated: () => void) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async () => {
+			const { data, error } = await authClient.$fetch<{ token: string }>('/rotate-session', {
+				method: 'POST',
+				body: {},
+			});
+			if (error) {
+				throw new Error(error.message ?? 'Failed to rotate the token.');
+			}
+			return data;
+		},
+		onSuccess: async (data) => {
+			const queryKey = trpc.mcpEndpoint.getBearerToken.queryOptions().queryKey;
+			await queryClient.cancelQueries({ queryKey });
+			queryClient.setQueryData(queryKey, data);
+			authClient.$store.notify('$sessionSignal');
+			onRotated();
+		},
+	});
 }
 
 /**

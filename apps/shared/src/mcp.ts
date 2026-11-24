@@ -24,6 +24,9 @@ export interface McpServerConfig {
 
 export type McpTransport = 'http' | 'stdio';
 
+/** nao's own MCP server, served in process to the agent: a project cannot declare a server with this name. */
+export const NAO_INTERNAL_MCP_SERVER = 'nao__internal';
+
 export interface McpToolSummary {
 	name: string;
 	description?: string;
@@ -61,26 +64,30 @@ export interface McpServerStatus {
 }
 
 export const mcpJsonSchema = z.object({
-	mcpServers: z.record(
-		z.string(),
-		z.object({
-			type: z.enum(['http']).optional(),
-			transport: z.enum(['streamable-http', 'sse', 'http', 'stdio']).optional(),
-			url: z
-				.string()
-				.url()
-				.optional()
-				.transform((val) => (val ? new URL(val) : undefined)),
-			headers: z.record(z.string(), z.string()).optional(),
-			oauth: z
-				.object({
-					clientId: z.string().min(1),
-					clientSecret: z.string().min(1).optional(),
-				})
-				.optional(),
-			command: z.string().optional(),
-			args: z.array(z.string()).optional(),
-			env: z.record(z.string(), z.string()).optional(),
+	mcpServers: z
+		.record(
+			z.string(),
+			z.object({
+				type: z.enum(['http']).optional(),
+				transport: z.enum(['streamable-http', 'sse', 'http', 'stdio']).optional(),
+				url: z
+					.string()
+					.url()
+					.optional()
+					.transform((val) => (val ? new URL(val) : undefined)),
+				headers: z.record(z.string(), z.string()).optional(),
+				oauth: z
+					.object({
+						clientId: z.string().min(1),
+						clientSecret: z.string().min(1).optional(),
+					})
+					.optional(),
+				command: z.string().optional(),
+				args: z.array(z.string()).optional(),
+				env: z.record(z.string(), z.string()).optional(),
+			}),
+		)
+		.refine((servers) => !(NAO_INTERNAL_MCP_SERVER in servers), {
+			message: `"${NAO_INTERNAL_MCP_SERVER}" is reserved for nao's own tools: give the server another name.`,
 		}),
-	),
 });

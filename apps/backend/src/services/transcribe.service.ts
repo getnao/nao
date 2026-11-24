@@ -7,6 +7,7 @@ import {
 	type TranscribeProvider,
 } from '../agents/transcribe.providers';
 import * as projectQueries from '../queries/project.queries';
+import type { ProviderSettings } from '../types/llm';
 import { resolveProviderSettings as resolveLlmProviderSettings } from '../utils/llm';
 import { getAllowedLlmConfigIdsForUserModel } from './user-group-llm-access.service';
 
@@ -56,7 +57,7 @@ export async function listAvailableTranscribeModels(projectId: string, userId: s
 				provider as TranscribeProvider,
 				model.id,
 			);
-			if (!settings.apiKey) {
+			if (!settings?.apiKey) {
 				continue;
 			}
 			models.push({
@@ -81,11 +82,11 @@ async function findRunnableTranscribeModel(
 	userId: string,
 	provider: TranscribeProvider,
 	modelIds: string[],
-): Promise<{ modelId: string; settings: { apiKey: string; baseURL: string | undefined } } | null> {
+): Promise<{ modelId: string; settings: ProviderSettings } | null> {
 	for (const modelId of new Set(modelIds)) {
-		const { apiKey, baseURL } = await resolveTranscribeProviderSettings(projectId, userId, provider, modelId);
-		if (apiKey) {
-			return { modelId, settings: { apiKey, baseURL } };
+		const settings = await resolveTranscribeProviderSettings(projectId, userId, provider, modelId);
+		if (settings?.apiKey) {
+			return { modelId, settings };
 		}
 	}
 	return null;
@@ -96,18 +97,17 @@ async function resolveTranscribeProviderSettings(
 	userId: string,
 	provider: TranscribeProvider,
 	modelId: string,
-): Promise<{ apiKey: string | undefined; baseURL: string | undefined }> {
+): Promise<ProviderSettings | null> {
 	const llmProvider = provider as 'openai';
 	const allowedConfigIds = await getAllowedLlmConfigIdsForUserModel(projectId, userId, modelId);
 	if (allowedConfigIds === null) {
-		const settings = await resolveLlmProviderSettings(projectId, llmProvider);
-		return { apiKey: settings?.apiKey, baseURL: settings?.baseURL };
+		return resolveLlmProviderSettings(projectId, llmProvider);
 	}
 	for (const configId of allowedConfigIds) {
 		const settings = await resolveLlmProviderSettings(projectId, llmProvider, configId);
 		if (settings) {
-			return { apiKey: settings.apiKey, baseURL: settings.baseURL };
+			return settings;
 		}
 	}
-	return { apiKey: undefined, baseURL: undefined };
+	return null;
 }

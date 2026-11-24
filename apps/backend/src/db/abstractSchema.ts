@@ -137,6 +137,9 @@ export type ActivityType = DBActivity['type'];
 export type ActivityStatus = DBActivity['status'];
 export type ActivityTrigger = DBActivity['trigger'];
 
+export type DBUserSkill = typeof sqliteSchema.userSkill.$inferSelect;
+export type NewUserSkill = typeof sqliteSchema.userSkill.$inferInsert;
+
 export type DBNotification = typeof sqliteSchema.notification.$inferSelect;
 export type NewNotification = typeof sqliteSchema.notification.$inferInsert;
 

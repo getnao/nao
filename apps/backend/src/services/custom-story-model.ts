@@ -112,10 +112,13 @@ async function createStoryModelChat(target: CustomStoryModelTarget, prompt: stri
 	return { ...chat, projectId: target.projectId, userId: target.viewerId };
 }
 
-/** Every route funnels here, so a share link or id of a classic story or another project's story is refused alike. */
+/**
+ * Every route funnels here, so a share link or id of a classic story or another project's story is refused alike.
+ * A story built in a chat has no project of its own: it belongs to its chat's project.
+ */
 async function assertCustomStoryInProject(storyId: string, projectId: string): Promise<void> {
 	const story = await storyQueries.getStoryById(storyId);
-	if (!story || story.format !== 'custom' || story.projectId !== projectId) {
+	if (!story || story.format !== 'custom' || (await storyQueries.getStoryProjectId(storyId)) !== projectId) {
 		throw new CustomStoryNotFoundError();
 	}
 }

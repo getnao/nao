@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __reloadEnvForTesting } from '../../src/env';
 import {
@@ -13,10 +16,18 @@ import { useNaoConfigProjects } from '../helpers/nao-config-project';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 
 const mocks = vi.hoisted(() => ({
+	isCloud: false,
 	getProjectById: vi.fn(),
 	getProjectLlmConfigs: vi.fn(),
 	getProjectLlmConfigById: vi.fn(),
 	getProjectLlmConfigByProvider: vi.fn(),
+}));
+
+vi.mock('../../src/env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/env')>()),
+	get isCloud() {
+		return mocks.isCloud;
+	},
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({
@@ -364,4 +375,62 @@ describe('getProjectAvailableModels', () => {
 			'acsw@azure/unlisted': 200_000,
 		});
 	});
+});
+
+describe('resolveProviderModel with a project base URL pointing at a private address', () => {
+	const captured: { url?: string; authorization?: string }[] = [];
+	const captureServer = http.createServer((request, response) => {
+		captured.push({ url: request.url, authorization: request.headers.authorization });
+		response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(chatCompletion()));
+	});
+
+	beforeAll(() => new Promise<void>((resolve) => captureServer.listen(0, '127.0.0.1', resolve)));
+	afterAll(() => new Promise<void>((resolve) => captureServer.close(() => resolve())));
+
+	beforeEach(() => {
+		captured.length = 0;
+		mocks.getProjectById.mockResolvedValue(null);
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			provider: 'openaiCompatible',
+			apiKey: 'canary-key',
+			baseUrl: `http://127.0.0.1:${(captureServer.address() as AddressInfo).port}/v1`,
+			enabledModels: ['internal-model'],
+			customModels: [{ id: 'internal-model' }],
+			modelSettings: {},
+			credentials: null,
+		});
+		return () => {
+			mocks.isCloud = false;
+			mocks.getProjectLlmConfigByProvider.mockReset();
+		};
+	});
+
+	it('is refused on cloud before any request leaves the server', async () => {
+		mocks.isCloud = true;
+
+		await expect(generateWithProjectModel()).rejects.toThrow('private address');
+		expect(captured).toEqual([]);
+	});
+
+	it('is reached on a self-hosted instance, where internal endpoints are the point', async () => {
+		await generateWithProjectModel();
+
+		expect(captured).toEqual([{ url: '/v1/chat/completions', authorization: 'Bearer canary-key' }]);
+	});
+
+	async function generateWithProjectModel() {
+		const resolved = await resolveProviderModel('project-1', 'openaiCompatible', 'internal-model');
+		return resolved!.model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] });
+	}
+
+	function chatCompletion() {
+		return {
+			id: 'chatcmpl-1',
+			object: 'chat.completion',
+			created: 0,
+			model: 'internal-model',
+			choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+	}
 });
