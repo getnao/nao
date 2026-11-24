@@ -33,6 +33,7 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryProjectId: mocks.getStoryProjectId,
 }));
 vi.mock('../../src/queries/story-folder.queries', () => ({
+	ArchivedFolderError: class extends Error {},
 	MoveFolderCycleError: class extends Error {
 		constructor() {
 			super('Moving this folder would create a cycle.');
