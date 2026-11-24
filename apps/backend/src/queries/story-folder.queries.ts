@@ -422,38 +422,50 @@ export async function rehomeUnarchivedStory(userId: string, projectId: string, s
 	await saveStoryInPrivateRoot(userId, projectId, storyId);
 }
 
-export async function createFolder(data: {
-	ownerId: string;
-	projectId: string;
-	name: string;
-	parentId?: string | null;
-	groupIds?: string[];
-}): Promise<DBStoryFolder> {
+export async function createFolder(
+	data: {
+		ownerId: string;
+		projectId: string;
+		name: string;
+		parentId?: string | null;
+		groupIds?: string[];
+	},
+	assertAllowed?: FolderChangeCheck,
+): Promise<DBStoryFolder> {
 	const groupIds = [...new Set(data.groupIds ?? [])];
-	return inProjectFolderTransaction(data.projectId, async (tx) => {
-		await assertParentNotArchived(data.parentId ?? null, tx);
-		const parentAudience = await resolveFolderAudience(data.parentId ?? null, tx);
-		if (groupIds.length > 0 && parentAudience.kind !== 'project') {
-			throw new TeamFolderError('Only a folder open to the entire project can hold a team folder.');
-		}
-		const [folder] = await tx
-			.insert(s.storyFolder)
-			.values({
-				ownerId: data.ownerId,
-				projectId: data.projectId,
-				name: data.name,
-				parentId: data.parentId ?? null,
-				visibility: parentAudience.kind === 'private' ? 'private' : 'public',
-				systemType: null,
-			})
-			.returning()
-			.execute();
-		await insertFolderGroups(folder.id, groupIds, tx);
-		return folder;
-	});
+	return inProjectFolderTransaction(
+		data.projectId,
+		async (tx) => {
+			await assertParentNotArchived(data.parentId ?? null, tx);
+			const parentAudience = await resolveFolderAudience(data.parentId ?? null, tx);
+			if (groupIds.length > 0 && parentAudience.kind !== 'project') {
+				throw new TeamFolderError('Only a folder open to the entire project can hold a team folder.');
+			}
+			const [folder] = await tx
+				.insert(s.storyFolder)
+				.values({
+					ownerId: data.ownerId,
+					projectId: data.projectId,
+					name: data.name,
+					parentId: data.parentId ?? null,
+					visibility: parentAudience.kind === 'private' ? 'private' : 'public',
+					systemType: null,
+				})
+				.returning()
+				.execute();
+			await insertFolderGroups(folder.id, groupIds, tx);
+			return folder;
+		},
+		assertAllowed,
+	);
 }
 
-export async function updateFolder(id: string, data: { name?: string }): Promise<void> {
+export async function updateFolder(
+	projectId: string,
+	id: string,
+	data: { name?: string },
+	assertAllowed?: FolderChangeCheck,
+): Promise<void> {
 	await assertNotSystemFolder(id);
 	const update: { name?: string } = {};
 	if (data.name !== undefined) {
@@ -462,50 +474,63 @@ export async function updateFolder(id: string, data: { name?: string }): Promise
 	if (Object.keys(update).length === 0) {
 		return;
 	}
-	await db.update(s.storyFolder).set(update).where(eq(s.storyFolder.id, id)).execute();
+	await inProjectFolderTransaction(
+		projectId,
+		async (tx) => {
+			await tx.update(s.storyFolder).set(update).where(eq(s.storyFolder.id, id)).execute();
+		},
+		assertAllowed,
+	);
 }
 
 /** A deleted team folder never opens its content: subfolders keep its groups, stories go back to their owners. */
-export async function deleteFolderMovingContentsToParent(folderId: string): Promise<void> {
+export async function deleteFolderMovingContentsToParent(
+	folderId: string,
+	assertAllowed?: FolderChangeCheck,
+): Promise<void> {
 	await assertNotSystemFolder(folderId);
 	const projectFolder = await getFolderById(folderId);
 	if (!projectFolder) {
 		return;
 	}
 
-	await inProjectFolderTransaction(projectFolder.projectId, async (tx) => {
-		const folder = await getFolderById(folderId, tx);
-		if (!folder) {
-			return;
-		}
-		const newParentId = folder.parentId;
-		const groupIds = await listFolderGroupIds(folderId, tx);
-		if (groupIds.length > 0) {
-			await returnStoriesToOwners(folderId, folder.projectId, tx);
-		}
+	await inProjectFolderTransaction(
+		projectFolder.projectId,
+		async (tx) => {
+			const folder = await getFolderById(folderId, tx);
+			if (!folder) {
+				return;
+			}
+			const newParentId = folder.parentId;
+			const groupIds = await listFolderGroupIds(folderId, tx);
+			if (groupIds.length > 0) {
+				await returnStoriesToOwners(folderId, folder.projectId, tx);
+			}
 
-		if (newParentId === null) {
-			await tx.delete(s.storyFolderItem).where(eq(s.storyFolderItem.folderId, folderId)).execute();
-		} else {
+			if (newParentId === null) {
+				await tx.delete(s.storyFolderItem).where(eq(s.storyFolderItem.folderId, folderId)).execute();
+			} else {
+				await tx
+					.update(s.storyFolderItem)
+					.set({ folderId: newParentId })
+					.where(eq(s.storyFolderItem.folderId, folderId))
+					.execute();
+			}
+
+			const childIds = await listChildFolderIds(folderId, tx);
 			await tx
-				.update(s.storyFolderItem)
-				.set({ folderId: newParentId })
-				.where(eq(s.storyFolderItem.folderId, folderId))
+				.update(s.storyFolder)
+				.set({ parentId: newParentId })
+				.where(eq(s.storyFolder.parentId, folderId))
 				.execute();
-		}
+			for (const childId of childIds) {
+				await insertFolderGroups(childId, groupIds, tx);
+			}
 
-		const childIds = await listChildFolderIds(folderId, tx);
-		await tx
-			.update(s.storyFolder)
-			.set({ parentId: newParentId })
-			.where(eq(s.storyFolder.parentId, folderId))
-			.execute();
-		for (const childId of childIds) {
-			await insertFolderGroups(childId, groupIds, tx);
-		}
-
-		await tx.delete(s.storyFolder).where(eq(s.storyFolder.id, folderId)).execute();
-	});
+			await tx.delete(s.storyFolder).where(eq(s.storyFolder.id, folderId)).execute();
+		},
+		assertAllowed,
+	);
 }
 
 async function returnStoriesToOwners(folderId: string, projectId: string, executor: DBExecutor): Promise<void> {

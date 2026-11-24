@@ -101,6 +101,16 @@ async function assertCanCreateTeamFolder(groupIds: string[], ctx: FolderContext)
 	await assertCanShareWith(ctx.project.id, ctx.user.id, { groupIds });
 }
 
+async function assertCanCreateFolder(parentId: string | null, groupIds: string[], ctx: FolderContext) {
+	let parent: DBStoryFolder | null = null;
+	if (parentId) {
+		parent = await assertFolderInProject(parentId, ctx, 'Parent folder');
+		await assertCanSeeFolder(parent, ctx, 'Parent folder');
+	}
+	assertCanPlaceInDestination(parent, ctx.user.id);
+	await assertCanCreateTeamFolder(groupIds, ctx);
+}
+
 async function assertStoryNotBeingEdited(storyId: string) {
 	const story = await storyQueries.getStoryById(storyId);
 	if (story?.chatId && agentService.get(story.chatId)) {
@@ -227,21 +237,17 @@ export const storyFolderRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			let parent: DBStoryFolder | null = null;
-			if (input.parentId) {
-				parent = await assertFolderInProject(input.parentId, ctx, 'Parent folder');
-				await assertCanSeeFolder(parent, ctx, 'Parent folder');
-			}
-			assertCanPlaceInDestination(parent, ctx.user.id);
-			await assertCanCreateTeamFolder(input.groupIds, ctx);
 			return runFolderMove(() =>
-				storyFolderQueries.createFolder({
-					ownerId: ctx.user.id,
-					projectId: ctx.project.id,
-					name: input.name,
-					parentId: input.parentId ?? null,
-					groupIds: input.groupIds,
-				}),
+				storyFolderQueries.createFolder(
+					{
+						ownerId: ctx.user.id,
+						projectId: ctx.project.id,
+						name: input.name,
+						parentId: input.parentId ?? null,
+						groupIds: input.groupIds,
+					},
+					() => assertCanCreateFolder(input.parentId ?? null, input.groupIds, ctx),
+				),
 			);
 		}),
 
@@ -253,17 +259,16 @@ export const storyFolderRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const folder = await assertFolderInProject(input.id, ctx);
-			await assertCanSeeFolder(folder, ctx);
-			assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-			await storyFolderQueries.updateFolder(input.id, { name: input.name });
+			await storyFolderQueries.updateFolder(ctx.project.id, input.id, { name: input.name }, () =>
+				assertCanModifyFolders([input.id], ctx),
+			);
 		}),
 
 	delete: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
-		const folder = await assertFolderInProject(input.id, ctx);
-		await assertCanSeeFolder(folder, ctx);
-		assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
-		await storyFolderQueries.deleteFolderMovingContentsToParent(input.id);
+		await assertFolderInProject(input.id, ctx);
+		await storyFolderQueries.deleteFolderMovingContentsToParent(input.id, () =>
+			assertCanModifyFolders([input.id], ctx),
+		);
 	}),
 
 	archive: canSendProcedure.input(z.object({ id: z.string() })).mutation(async ({ input, ctx }) => {
