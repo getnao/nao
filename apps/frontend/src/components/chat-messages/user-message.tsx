@@ -46,12 +46,6 @@ const messageTheme: PromptTheme = {
 	focusBoxShadow: 'none',
 	padding: '0',
 	minHeight: 'auto',
-	pill: {
-		backgroundColor: 'var(--background)',
-		color: 'var(--foreground)',
-		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
-		borderRadius: '9999px',
-	},
 };
 
 const MESSAGE_SOURCES = {

@@ -7,6 +7,7 @@ const effectiveAccess = {
 		storyCreation: true,
 		customStoryCreation: false,
 		automationCreation: false,
+		personalSkills: false,
 	},
 	toolCallDensityPolicy: {
 		defaultDensity: 'compact' as const,
@@ -19,6 +20,7 @@ const loadingSafeAccess = {
 		storyCreation: false,
 		customStoryCreation: false,
 		automationCreation: false,
+		personalSkills: false,
 	},
 	toolCallDensityPolicy: {
 		defaultDensity: 'detailed',
@@ -45,6 +47,7 @@ describe('getRenderableUserGroupAccess', () => {
 				storyCreation: true,
 				customStoryCreation: true,
 				automationCreation: false,
+				personalSkills: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',

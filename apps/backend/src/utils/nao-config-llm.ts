@@ -116,7 +116,7 @@ type RawProvider = z.infer<typeof providerSchema>;
  * sense of, so that callers fall back to the database and the environment.
  */
 export function readProjectConfigLlm(projectPath: string, extraEnv: Record<string, string> = {}): ConfigLlm | null {
-	const raw = loadLlmBlock(projectPath);
+	const raw = loadConfigBlock(projectPath, 'llm');
 	if (!raw) {
 		return null;
 	}
@@ -144,35 +144,36 @@ export function findConfigLlmProvider(config: ConfigLlm | null, provider: LlmPro
 	return config?.providers.find((candidate) => candidate.provider === provider) ?? null;
 }
 
-const rawCache = new Map<string, { mtimeMs: number; llm: unknown }>();
+const rawCache = new Map<string, { mtimeMs: number; block: unknown }>();
 
 /**
- * Parse the config file, caching by modification time so hot paths only pay a stat. A block that reads other
- * files through `from_file` is not cached, as they change without the config file changing.
+ * Read a top-level block of the config file, caching by modification time so hot paths only pay a stat. A block
+ * that reads other files through `from_file` is not cached, as they change without the config file changing.
  */
-function loadLlmBlock(projectPath: string): unknown {
+export function loadConfigBlock(projectPath: string, name: 'llm' | 'decision'): unknown {
 	const filePath = configPath(projectPath);
+	const cacheKey = `${name}:${filePath}`;
 
 	let mtimeMs: number;
 	try {
 		mtimeMs = fs.statSync(filePath).mtimeMs;
 	} catch {
-		rawCache.delete(filePath);
+		rawCache.delete(cacheKey);
 		return null;
 	}
 
-	const cached = rawCache.get(filePath);
+	const cached = rawCache.get(cacheKey);
 	if (cached?.mtimeMs === mtimeMs) {
-		return cached.llm;
+		return cached.block;
 	}
 
-	let llm: unknown = null;
+	let block: unknown = null;
 	let dependsOnOtherFiles = false;
 	try {
 		const config = yaml.load(fs.readFileSync(filePath, 'utf-8'));
-		const rawLlm = isRecord(config) ? (config.llm ?? null) : null;
-		dependsOnOtherFiles = holdsFileReference(rawLlm);
-		llm = resolveFileReferences(rawLlm, projectPath);
+		const rawBlock = isRecord(config) ? (config[name] ?? null) : null;
+		dependsOnOtherFiles = holdsFileReference(rawBlock);
+		block = resolveFileReferences(rawBlock, projectPath);
 	} catch (err) {
 		logger.warn(`Failed to parse ${filePath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',
@@ -180,11 +181,11 @@ function loadLlmBlock(projectPath: string): unknown {
 	}
 
 	if (dependsOnOtherFiles) {
-		rawCache.delete(filePath);
+		rawCache.delete(cacheKey);
 	} else {
-		rawCache.set(filePath, { mtimeMs, llm });
+		rawCache.set(cacheKey, { mtimeMs, block });
 	}
-	return llm;
+	return block;
 }
 
 /** Treat a single inline provider as the one entry of `providers`. */

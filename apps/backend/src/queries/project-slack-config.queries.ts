@@ -4,21 +4,9 @@ import { eq } from 'drizzle-orm';
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import { SlackReplyMode, SlackTransportMode } from '../types/messaging-provider';
-import { updateProjectSettings } from './project-settings.queries';
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 import * as SlackInstallationQueries from './project-slack-installation.queries';
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
-}
 
 export const getProjectSlackConfig = async (projectId: string): Promise<SlackConfig | null> => {
 	const [project, installation] = await Promise.all([
@@ -62,7 +50,11 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		botToken,
 		signingSecret,
 		redirectUrl: env.BETTER_AUTH_URL,
-		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings?.slackllmProvider,
+			settings?.slackllmModelId,
+			settings?.slackllmConfigId,
+		),
 		autoCreateUsersEnabled: settings?.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: settings?.autoCreateUsersDomains ?? [],
 		transportMode,
@@ -81,6 +73,7 @@ export const upsertProjectSlackConfig = async (data: {
 	appToken?: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 }): Promise<{
 	botToken: string;
 	signingSecret: string;
@@ -94,6 +87,7 @@ export const upsertProjectSlackConfig = async (data: {
 		slackSigningSecret: data.signingSecret,
 		slackllmProvider: data.modelProvider ?? '',
 		slackllmModelId: data.modelId ?? '',
+		slackllmConfigId: data.llmConfigId,
 		autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
 		slackTransportMode: data.transportMode,
@@ -108,7 +102,11 @@ export const upsertProjectSlackConfig = async (data: {
 		signingSecret: settings?.slackSigningSecret || '',
 		transportMode: settings?.slackTransportMode === 'socket' ? 'socket' : 'webhook',
 		appToken: settings?.slackAppToken || '',
-		modelSelection: toLlmSelectedModel(settings?.slackllmProvider, settings?.slackllmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings?.slackllmProvider,
+			settings?.slackllmModelId,
+			settings?.slackllmConfigId,
+		),
 		replyMode: toSlackReplyMode(settings?.slackReplyMode),
 	};
 };
@@ -129,6 +127,7 @@ export const applySlackTransportSettings = async (data: {
 		slackSettingsSource: 'env',
 		slackllmProvider: existing?.slackllmProvider ?? '',
 		slackllmModelId: existing?.slackllmModelId ?? '',
+		slackllmConfigId: existing?.slackllmConfigId,
 		autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
 		slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
@@ -140,12 +139,14 @@ export const updateProjectSlackModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
 	await updateProjectSettings(projectId, 'slackSettings', (existing) => ({
 		slackBotToken: existing?.slackBotToken ?? '',
 		slackSigningSecret: existing?.slackSigningSecret ?? '',
 		slackllmProvider: modelProvider ?? '',
 		slackllmModelId: modelId ?? '',
+		slackllmConfigId: llmConfigId ?? undefined,
 		autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
 		slackTransportMode: existing?.slackTransportMode ?? 'webhook',
@@ -227,7 +228,11 @@ export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
 			botToken: settings.slackBotToken,
 			signingSecret: settings.slackSigningSecret ?? '',
 			redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-			modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
+			modelSelection: toLlmSelectedModel(
+				settings.slackllmProvider,
+				settings.slackllmModelId,
+				settings.slackllmConfigId,
+			),
 			autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
 			autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
 			transportMode: 'socket',

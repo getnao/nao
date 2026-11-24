@@ -1,8 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { isSameModel } from '@nao/shared/types';
 import { useAgentContext } from '@/contexts/agent.provider';
+import { findAvailableModel, toLlmSelectedModel } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 export function useModelSelection() {
@@ -20,6 +21,19 @@ export function useModelSelection() {
 	const availableModels = hasProject ? availableModelsQuery.data : undefined;
 	const isPending = currentProjectQuery.isPending || (hasProject && availableModelsQuery.isPending);
 	const canCycleModels = (availableModels?.length ?? 0) > 1;
+
+	useEffect(() => {
+		if (
+			usesDefaultModel ||
+			!selectedModel ||
+			!availableModels ||
+			availableModels.some((model) => isSameModel(model, selectedModel))
+		) {
+			return;
+		}
+		const availableModel = findAvailableModel(availableModels, selectedModel);
+		setSelectedModel(availableModel ? toLlmSelectedModel(availableModel) : null);
+	}, [availableModels, selectedModel, setSelectedModel, usesDefaultModel]);
 
 	/** Cycles through "nao default" followed by every available model. */
 	const cycleModel = useCallback(() => {

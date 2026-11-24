@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	canRoleManagePersonalSkills,
 	canRoleSeeAdvancedSettings,
 	canRoleUseAdvancedContextExplorer,
 	DEFAULT_GROUP_SHARE_TARGETS,
@@ -49,7 +50,12 @@ describe('user group configuration', () => {
 			showAllSettings: true,
 			preloadedSkills: [],
 		});
-		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'customStoryCreation', 'automationCreation']);
+		expect(USER_GROUP_FEATURES).toEqual([
+			'storyCreation',
+			'customStoryCreation',
+			'automationCreation',
+			'personalSkills',
+		]);
 	});
 
 	it('serializes the project sharing permission', () => {
@@ -314,5 +320,18 @@ describe('canRoleUseAdvancedContextExplorer', () => {
 		{ role: null, groupsGrant: true, expected: false },
 	] as const)('gives $role the File Explorer: $expected when groups grant it: $groupsGrant', (testCase) => {
 		expect(canRoleUseAdvancedContextExplorer(testCase.role, testCase.groupsGrant)).toBe(testCase.expected);
+	});
+});
+
+describe('canRoleManagePersonalSkills', () => {
+	it.each([
+		{ role: 'admin', groupsGrant: false, expected: true },
+		{ role: 'context_admin', groupsGrant: false, expected: true },
+		{ role: 'user', groupsGrant: true, expected: true },
+		{ role: 'user', groupsGrant: false, expected: false },
+		{ role: 'viewer', groupsGrant: true, expected: false },
+		{ role: null, groupsGrant: true, expected: false },
+	] as const)('lets $role write personal skills: $expected when groups grant it: $groupsGrant', (testCase) => {
+		expect(canRoleManagePersonalSkills(testCase.role, testCase.groupsGrant)).toBe(testCase.expected);
 	});
 });

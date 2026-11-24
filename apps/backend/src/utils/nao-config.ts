@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { DEFAULT_RULES_FILE } from '@nao/shared/rules-template';
 import {
 	DEFAULT_SQL_QUERY_TAG_POSITION,
 	isSqlQueryTagPosition,
@@ -27,7 +28,7 @@ import { getTestScheduleCronError } from './cron';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
-import { resolveFileReferences } from './nao-config-references';
+import { resolveFileReferences, resolveProjectFile } from './nao-config-references';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -35,6 +36,8 @@ const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
+	/** Project-relative path of the rules file, `RULES.md` unless nao_config.yaml sets `rules_file`. */
+	rulesFile?: string;
 	semantics: boolean;
 	docs: boolean;
 	notionDocs: boolean;
@@ -44,8 +47,14 @@ export type ContextPresence = {
 const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
-const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
+const TEST_MODEL_OBJECT_FORMAT =
+	"{ model: 'provider:model_id', llm_config_id: 'credential-id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+const RULES_FILE_CACHE_MAX_ENTRIES = 100;
+const rulesFileCache = new Map<
+	string,
+	{ configSignature: string; configured: string | undefined; fileSignature: string; rulesFile: string }
+>();
 /** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
 const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
 
@@ -126,13 +135,74 @@ export function readProjectContext(projectFolder: string): {
 
 /** Returns which filesystem-backed project context is available to read. */
 export function extractContextPresence(projectFolder: string): ContextPresence {
+	const rulesFile = extractRulesFile(projectFolder);
 	return {
-		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		rules: fs.existsSync(path.join(projectFolder, rulesFile)),
+		rulesFile,
 		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
 		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
 		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
 		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
 	};
+}
+
+/**
+ * The rules file `rules_file` names, such as one of a synced repository: `repos/business_context/nao/RULES.md`.
+ * It falls back to RULES.md while that file is missing, before its repository is synced, or when it is refused.
+ * Every agent read checks it, so the result is kept until nao_config.yaml or the file it names changes.
+ */
+export function extractRulesFile(projectFolder: string): string {
+	const configSignature = getStatSignature(path.join(projectFolder, 'nao_config.yaml'));
+	const cached = rulesFileCache.get(projectFolder);
+	const configured =
+		cached?.configSignature === configSignature ? cached.configured : readRulesFileSetting(projectFolder);
+	const fileSignature =
+		typeof configured === 'string' ? getStatSignature(path.resolve(projectFolder, configured)) : '';
+	if (cached?.configSignature === configSignature && cached.fileSignature === fileSignature) {
+		return cached.rulesFile;
+	}
+
+	const rulesFile = typeof configured === 'string' ? resolveRulesFile(configured, projectFolder) : DEFAULT_RULES_FILE;
+	rulesFileCache.delete(projectFolder);
+	if (rulesFileCache.size >= RULES_FILE_CACHE_MAX_ENTRIES) {
+		rulesFileCache.delete(rulesFileCache.keys().next().value ?? projectFolder);
+	}
+	rulesFileCache.set(projectFolder, { configSignature, configured, fileSignature, rulesFile });
+	return rulesFile;
+}
+
+/** Read without its `from_file` files, so the signature of nao_config.yaml alone tells when it changes. */
+function readRulesFileSetting(projectFolder: string): string | undefined {
+	try {
+		const config = yaml.load(fs.readFileSync(path.join(projectFolder, 'nao_config.yaml'), 'utf-8'));
+		const rulesFile = isRecord(config) ? config.rules_file : undefined;
+		return typeof rulesFile === 'string' && rulesFile.trim() !== '' ? rulesFile.trim() : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function resolveRulesFile(rulesFile: string, projectFolder: string): string {
+	try {
+		const filePath = resolveProjectFile(rulesFile, projectFolder);
+		if (!fs.statSync(filePath).isFile()) {
+			throw new Error('it is not a file');
+		}
+		return path.relative(fs.realpathSync(projectFolder), filePath).split(path.sep).join('/');
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : String(err);
+		logger.warn(`Ignoring rules_file '${rulesFile}' of nao_config.yaml: ${reason}`, { source: 'system' });
+		return DEFAULT_RULES_FILE;
+	}
+}
+
+function getStatSignature(filePath: string): string {
+	try {
+		const stats = fs.statSync(filePath);
+		return `${stats.ino}:${stats.mtimeMs}:${stats.ctimeMs}:${stats.size}`;
+	} catch {
+		return 'missing';
+	}
 }
 
 function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
@@ -467,22 +537,27 @@ function parseTestModels(models: unknown, errors: string[]): TestModelSelection[
 	return parsed.length > 0 ? parsed : null;
 }
 
-/** A `provider:model_id` entry, or an object naming the model with the reasoning efforts to run it at, or `all`. */
+/** A `provider:model_id` entry, or an object naming its credential and reasoning efforts. */
 function parseTestModelEntry(entry: unknown): TestModelSelection | string {
 	const invalidEntry = `test.models has an invalid entry ${JSON.stringify(entry)}, expected`;
 	if (!isRecord(entry)) {
 		return parseTestModel(entry) ?? `${invalidEntry} ${TEST_MODEL_FORMAT}.`;
 	}
 	const model = parseTestModel(entry.model);
-	const unknownKeys = Object.keys(entry).filter((key) => key !== 'model' && key !== 'reasoning_efforts');
-	if (!model || unknownKeys.length > 0) {
+	const unknownKeys = Object.keys(entry).filter(
+		(key) => key !== 'model' && key !== 'llm_config_id' && key !== 'reasoning_efforts',
+	);
+	const llmConfigId =
+		entry.llm_config_id === undefined || entry.llm_config_id === null ? null : normalizeString(entry.llm_config_id);
+	if (!model || unknownKeys.length > 0 || (entry.llm_config_id != null && !llmConfigId)) {
 		return `${invalidEntry} ${TEST_MODEL_OBJECT_FORMAT}.`;
 	}
+	const selectedModel = llmConfigId ? { ...model, llmConfigId } : model;
 	if (entry.reasoning_efforts === undefined || entry.reasoning_efforts === null) {
-		return model;
+		return selectedModel;
 	}
-	const reasoningEfforts = parseReasoningEfforts(model, entry.reasoning_efforts);
-	return typeof reasoningEfforts === 'string' ? reasoningEfforts : { ...model, reasoningEfforts };
+	const reasoningEfforts = parseReasoningEfforts(selectedModel, entry.reasoning_efforts);
+	return typeof reasoningEfforts === 'string' ? reasoningEfforts : { ...selectedModel, reasoningEfforts };
 }
 
 function parseTestModel(model: unknown): LlmSelectedModel | null {

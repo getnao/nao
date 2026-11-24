@@ -34,7 +34,7 @@ vi.mock('@/contexts/agent.provider', () => ({
 }));
 
 vi.mock('@/contexts/side-panel', () => ({
-	useSidePanel: () => ({ open: mocks.openSidePanel, currentStorySlug: null, isVisible: false }),
+	useSidePanelActions: () => ({ open: mocks.openSidePanel }),
 }));
 
 vi.mock('@/components/side-panel/story-viewer', () => ({

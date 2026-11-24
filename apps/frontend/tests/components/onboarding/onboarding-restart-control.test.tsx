@@ -14,7 +14,7 @@ vi.mock('@/main', () => ({ trpc: {} }));
 
 vi.mock('@/contexts/agent.provider', () => ({
 	useAgentContext: () => ({ isRunning: mocks.isRunning }),
-	useAgentMessages: () => [],
+	useAgentMessagesSelector: <T,>(selector: (messages: never) => T) => selector([] as never),
 }));
 
 vi.mock('@/contexts/onboarding/onboarding-restart', () => ({

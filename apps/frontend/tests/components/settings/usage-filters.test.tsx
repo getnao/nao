@@ -73,6 +73,38 @@ describe('UsageFilters', () => {
 		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
 	});
 
+	it('filters usage by credential selection', () => {
+		const onSelectedCredentialIdsChange = vi.fn();
+		render(
+			<UsageFilters
+				provider='all'
+				onProviderChange={vi.fn()}
+				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}
+				onPeriodSelectionChange={vi.fn()}
+				savedPeriods={[]}
+				onCreateSavedPeriod={vi.fn()}
+				onUpdateSavedPeriod={vi.fn()}
+				onDeleteSavedPeriod={vi.fn()}
+				availableProviders={[]}
+				availableCredentials={[
+					{ id: 'client-a', name: 'Client A' },
+					{ id: 'client-b', name: 'Client B' },
+				]}
+				onSelectedCredentialIdsChange={onSelectedCredentialIdsChange}
+				chatFacets={undefined}
+				selectedUserNames={undefined}
+				onSelectedUserNamesChange={vi.fn()}
+				selectedSources={undefined}
+				onSelectedSourcesChange={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Credentials' }));
+		fireEvent.click(screen.getByText('Client B'));
+
+		expect(onSelectedCredentialIdsChange).toHaveBeenCalledWith(['client-a']);
+	});
+
 	it.each([
 		['usage', { showUsageControls: false }],
 		['user', { showUserControls: false }],

@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TrialOnboardingBanner } from '@/components/onboarding/trial-onboarding-banner';
 import { useSidebar } from '@/contexts/sidebar';
+import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
 import { useGroupedChats } from '@/hooks/use-grouped-chats';
@@ -70,7 +71,8 @@ export function Sidebar() {
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
-	const showContextHub = isAdmin || isContextAdmin;
+	const canManagePersonalSkills = useCanManagePersonalSkills();
+	const showContextHub = isAdmin || isContextAdmin || canManagePersonalSkills;
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;

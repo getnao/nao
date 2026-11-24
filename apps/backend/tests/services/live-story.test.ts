@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 	resolveDefaultChatModel: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
 	resolveProviderModel: vi.fn(),
+	resolveUserBackgroundModelSelection: vi.fn(),
 }));
 
 vi.mock('ai', async (importOriginal) => ({
@@ -121,8 +122,16 @@ vi.mock('../../src/services/excluded-columns.service', () => ({
 	resolveExcludedColumnEnforcement: mocks.resolveExcludedColumnEnforcement,
 }));
 
+vi.mock('../../src/services/user-group-availability.service', () => ({
+	getActiveGroupImpersonation: vi.fn(async () => null),
+}));
+
 vi.mock('../../src/services/user-group-context-access.service', () => ({
 	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
+}));
+
+vi.mock('../../src/services/user-group-llm-access.service', () => ({
+	resolveUserBackgroundModelSelection: mocks.resolveUserBackgroundModelSelection,
 }));
 
 vi.mock('../../src/utils/llm', () => ({
@@ -234,6 +243,10 @@ describe('live story SQL execution', () => {
 		});
 		mocks.getChatOwnerId.mockResolvedValue('owner-1');
 		mocks.getChatProjectId.mockResolvedValue('project-1');
+		mocks.resolveUserBackgroundModelSelection.mockImplementation(
+			async (projectId: string, _userId: string, selection: unknown) =>
+				selection ?? mocks.resolveDefaultChatModel(projectId),
+		);
 		mocks.getStoryByChatAndSlug.mockImplementation(async (_chatId, slug) => ({
 			id: 'story-1',
 			chatId: 'chat-1',
@@ -474,6 +487,8 @@ describe('live story SQL execution', () => {
 			expected.modelId,
 			true,
 			expect.objectContaining({ chatId: 'chat-1', category: 'story' }),
+			undefined,
+			undefined,
 		);
 		expect(mocks.generateText).not.toHaveBeenCalled();
 	});

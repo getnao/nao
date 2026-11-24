@@ -138,6 +138,21 @@ describe('fetchPublicUrl', () => {
 		expect(body).toBe('{"jsonrpc":"2.0"}');
 	});
 
+	it('sends a multipart body with its boundary, as an audio transcription does', async () => {
+		resolvesTo('93.184.215.14');
+		const form = new FormData();
+		form.append('model', 'whisper-1');
+
+		await fetchPublicUrl('https://llm.example.com/v1/audio/transcriptions', { method: 'POST', body: form });
+
+		const [{ options, body }] = pinned.requests;
+		const contentType = (options.headers as Record<string, string>)['content-type'];
+		const boundary = contentType.match(/^multipart\/form-data; boundary=(.+)$/)?.[1];
+		expect(boundary).toBeDefined();
+		expect(String(body)).toContain(`--${boundary}`);
+		expect(String(body)).toContain('whisper-1');
+	});
+
 	it('fails a compressed reply whose connection drops midway instead of hanging', async () => {
 		resolvesTo('93.184.215.14');
 		const compressed = gzipSync('x'.repeat(10_000));

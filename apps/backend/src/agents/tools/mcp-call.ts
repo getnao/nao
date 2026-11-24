@@ -1,7 +1,9 @@
+import { NAO_INTERNAL_MCP_SERVER } from '@nao/shared';
 import { mcpCall } from '@nao/shared/tools';
 
 import { McpArgsValidationError, mcpService } from '../../services/mcp';
 import { McpAuthRequiredError } from '../../services/mcp-oauth';
+import { callNaoInternalMcpTool } from '../../services/nao-internal-mcp';
 import { createTool } from '../../utils/tools';
 
 function buildDescription({ codemode }: { codemode: boolean }): string {
@@ -108,6 +110,10 @@ export const createMcpCallTool = (allowedServers: string[] | null, { codemode = 
 		description: buildDescription({ codemode }),
 		inputSchema: mcpCall.InputSchema,
 		execute: async ({ server, tool, arguments: args }, context) => {
+			if (server === NAO_INTERNAL_MCP_SERVER) {
+				assertServerAllowed(server, allowedServers);
+				return callNaoInternalMcpTool(context, tool, args ?? {});
+			}
 			try {
 				return await mcpService.callTool({
 					projectId: context.projectId,
@@ -135,3 +141,10 @@ export const createMcpCallTool = (allowedServers: string[] | null, { codemode = 
 		},
 		toModelOutput: ({ output }) => ({ type: 'text', value: extractText(output) }),
 	});
+
+/** Runs restricted to some servers, such as automations, reach nao's own server only when it is one of them. */
+export function assertServerAllowed(server: string, allowedServers: string[] | null): void {
+	if (allowedServers && !allowedServers.includes(server)) {
+		throw new Error(`MCP server "${server}" is not available in this context.`);
+	}
+}

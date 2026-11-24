@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
+import type { UIMessage } from '@nao/backend/chat';
 import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 import type { StorySummary } from '@/lib/story.utils';
-import { useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useOpenMentionedStory, useMentionedStories } from '@/hooks/use-mentioned-stories';
-import { collectChatArtifacts } from '@/lib/chat-artifacts';
-import { findStories } from '@/lib/story.utils';
+import { areMentionedStoriesEqual, collectChatArtifacts } from '@/lib/chat-artifacts';
+import { areStoriesEqual, findStories } from '@/lib/story.utils';
 
 type MentionedStories = {
 	conversationChatId: string | null;
@@ -35,9 +36,8 @@ export function MentionedStoriesProvider({
 	openInSidePanel: (story: { chatId: string; slug: string }) => void;
 	children: ReactNode;
 }) {
-	const messages = useAgentMessages();
-	const references = useMemo(() => collectChatArtifacts(messages).mentionedStories, [messages]);
-	const conversationStories = useMemo(() => findStories(messages), [messages]);
+	const references = useAgentMessagesSelector(selectMentionedStories, areMentionedStoriesEqual);
+	const conversationStories = useAgentMessagesSelector(findStories, areStoriesEqual);
 	const stories = useMentionedStories(chatId, references);
 	const open = useOpenMentionedStory(openInSidePanel);
 	const openConversationStory = useCallback(
@@ -53,4 +53,8 @@ export function MentionedStoriesProvider({
 
 export function useMentionedStoriesContext(): MentionedStories {
 	return useContext(MentionedStoriesContext);
+}
+
+function selectMentionedStories(messages: UIMessage[]) {
+	return collectChatArtifacts(messages).mentionedStories;
 }

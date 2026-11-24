@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -7,7 +7,7 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 import type { UIMessage } from '@nao/backend/chat';
 
 import { Button } from '@/components/ui/button';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useRestartOnboarding } from '@/contexts/onboarding/onboarding-restart';
 import { useActiveProjectId } from '@/lib/active-project';
 import { cn } from '@/lib/utils';
@@ -134,8 +134,7 @@ function RestartOnboardingControl() {
 }
 
 export function useOnboardingProgress() {
-	const messages = useAgentMessages();
-	return useMemo(() => findLatestProgress(messages), [messages]);
+	return useAgentMessagesSelector(findLatestProgress, areProgressStatesEqual);
 }
 
 export function findWarehouseJobId(messages: UIMessage[]): string | null {
@@ -274,6 +273,10 @@ function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | nu
 		}
 	}
 	return null;
+}
+
+function areProgressStatesEqual(left: OnboardingProgressState | null, right: OnboardingProgressState | null): boolean {
+	return left === right || (left?.flow === right?.flow && left?.step === right?.step);
 }
 
 export function getLatestPercentage(logs?: string | null): number | null {

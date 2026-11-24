@@ -3,6 +3,7 @@ import {
 	BUILTIN_BOUNDARY_REGION_KEY_HINTS,
 	type ChartPluginManifestEntry,
 	type CustomBoundarySet,
+	NAO_INTERNAL_MCP_SERVER,
 	STORY_REFERENCE_TAG,
 } from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
@@ -11,12 +12,14 @@ import type { SemanticLayerMode } from '@nao/shared/types';
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills, storyKitSkill } from '../../agents/skills';
 import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import { NAO_INTERNAL_MCP_DESCRIPTION } from '../../services/nao-internal-mcp';
 import type { SandboxSecretDefinition } from '../../services/sandbox-secret.service';
 import type { PreloadedSkill, Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import type { StorySummary } from '../../types/story-reference';
+import type { PersonalSkill } from '../../types/user-skill';
 import { formatCurrentDate } from '../../utils/date';
 import type { ConfiguredDatabase, ContextPresence } from '../../utils/nao-config';
 import {
@@ -43,6 +46,8 @@ type SystemPromptProps = {
 	skills?: Skill[];
 	/** Project skills injected in full; they are left out of the regular skills listing. */
 	preloadedSkills?: PreloadedSkill[];
+	/** Skills the user wrote for themselves; they have no file, so they are only reachable through load_skill. */
+	personalSkills?: PersonalSkill[];
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
@@ -88,6 +93,7 @@ export function SystemPrompt({
 	configuredDatabases = [],
 	skills = [],
 	preloadedSkills = [],
+	personalSkills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mapBoundaries = [],
@@ -113,9 +119,11 @@ export function SystemPrompt({
 	const dialectSqlQueryRules = getDialectSqlQueryRules(warehouseConnections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
 	const canAuthorCustomStories = customStoriesEnabled && hasTool('story') && hasTool('write');
-	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]).filter(
-		(skill) => skill.name !== storyKitSkill.name || canAuthorCustomStories,
-	);
+	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [
+		...skills,
+		...preloadedSkills,
+		...personalSkills,
+	]).filter((skill) => skill.name !== storyKitSkill.name || canAuthorCustomStories);
 
 	return (
 		<Block>
@@ -346,7 +354,7 @@ export function SystemPrompt({
 				</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
-				{userRules && <UserRulesSection rules={userRules} />}
+				{userRules && <UserRulesSection rules={userRules} rulesFile={contextPresence?.rulesFile} />}
 
 				{connections.length > 0 && (
 					<Block>
@@ -391,6 +399,8 @@ export function SystemPrompt({
 						))}
 					</Block>
 				)}
+
+				{hasTool('load_skill') && personalSkills.length > 0 && <PersonalSkillsBlock skills={personalSkills} />}
 
 				{hasTool('load_skill') && builtInSkills.length > 0 && <BuiltInSkillsBlock skills={builtInSkills} />}
 
@@ -449,7 +459,10 @@ function excludePreloadedSkills(skills: Skill[], preloadedSkills: PreloadedSkill
 }
 
 /** load_skill serves the project skill over a built-in one of the same name. */
-function excludeShadowedInternalSkills(internalSkills: InternalSkill[], projectSkills: Skill[]): InternalSkill[] {
+function excludeShadowedInternalSkills(
+	internalSkills: InternalSkill[],
+	projectSkills: ReadonlyArray<{ name: string }>,
+): InternalSkill[] {
 	const projectSkillNames = new Set(projectSkills.map((skill) => skill.name));
 	return internalSkills.filter((skill) => !projectSkillNames.has(skill.name));
 }
@@ -478,6 +491,25 @@ function PreloadedSkillsBlock({ skills }: { skills: PreloadedSkill[] }) {
  * Only the names and descriptions live here. A skill body is long enough that carrying every
  * one of them in every request would cost more than it buys, so the agent loads what it needs.
  */
+function PersonalSkillsBlock({ skills }: { skills: PersonalSkill[] }) {
+	return (
+		<Block>
+			<Title level={2}>Personal Skills</Title>
+			<Span>
+				The user wrote these skills for themselves; they have no file in the context. Use one when the question
+				matches its description: call <Bold>load_skill</Bold> with its name first.
+			</Span>
+			<List>
+				{skills.map((skill) => (
+					<ListItem>
+						<Bold>{skill.name}</Bold> — {skill.description.trim()}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
 function BuiltInSkillsBlock({ skills }: { skills: InternalSkill[] }) {
 	return (
 		<Block>
@@ -971,7 +1003,9 @@ function McpServersBlock({ servers, canUseCodemode }: { servers: string[]; canUs
 			</Span>
 			<List>
 				{servers.map((server) => (
-					<ListItem key={server}>{server}</ListItem>
+					<ListItem key={server}>
+						{server === NAO_INTERNAL_MCP_SERVER ? `${server}: ${NAO_INTERNAL_MCP_DESCRIPTION}` : server}
+					</ListItem>
 				))}
 			</List>
 		</Block>

@@ -3,12 +3,11 @@ import { Button } from './ui/button';
 import StoryIcon from './ui/story-icon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import type { StorySummary } from '@/lib/story.utils';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useAgentMessagesSelector, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
-import { findStories } from '@/lib/story.utils';
+import { areStoriesEqual, findStories } from '@/lib/story.utils';
 
 export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' | 'ghost' }) {
 	const agent = useOptionalAgentContext();
@@ -80,12 +79,5 @@ function StoryShortcutTooltip({ label }: { label: string }) {
 				<kbd className='text-[10px] opacity-60 font-sans'>{getShortcutLabel('toggle-story-chat')}</kbd>
 			</span>
 		</TooltipContent>
-	);
-}
-
-function areStoriesEqual(left: StorySummary[], right: StorySummary[]): boolean {
-	return (
-		left.length === right.length &&
-		left.every((story, index) => story.id === right[index]?.id && story.title === right[index]?.title)
 	);
 }

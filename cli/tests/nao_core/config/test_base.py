@@ -112,6 +112,18 @@ def test_from_file_value_is_loaded_then_saved_as_a_reference(tmp_path):
     assert saved_database["include"] == {"from_file": "tables.yml"}
 
 
+def test_rules_file_can_live_in_a_synced_repository():
+    config = NaoConfig.model_validate({"project_name": "acme", "rules_file": "./repos/business_context/RULES.md"})
+
+    assert config.rules_file == "repos/business_context/RULES.md"
+
+
+@pytest.mark.parametrize("rules_file", ["../RULES.md", "/etc/RULES.md", ".env", "repos/.git/RULES.md"])
+def test_rules_file_must_stay_a_visible_file_of_the_project(rules_file: str):
+    with pytest.raises(ValidationError, match="rules_file"):
+        NaoConfig.model_validate({"project_name": "acme", "rules_file": rules_file})
+
+
 def test_threads_must_be_positive():
     with pytest.raises(ValidationError):
         NaoConfig.model_validate({"project_name": "test-project", "threads": 0})

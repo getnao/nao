@@ -27,7 +27,10 @@ import { and, eq } from 'drizzle-orm';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { __reloadEnvForTesting } from '../../src/env';
+import { getUserOrgMembership } from '../../src/queries/organization.queries';
+import { listUserProjects } from '../../src/queries/project.queries';
 import { backofficeRoutes } from '../../src/routes/backoffice';
+import { assertProjectCloudBillingAccess } from '../../src/services/cloud-billing-access.service';
 import { cleanupContextWorktree } from '../../src/services/context-explorer-git.service';
 import { __setBundledPublicKeyForTesting } from '../../src/services/license-public-key';
 import { removeOrganizationMember } from '../../src/services/membership.service';
@@ -554,6 +557,71 @@ describe('cloud backoffice routes', () => {
 		expect(reactivated.json().deactivatedAt).toBeNull();
 	});
 
+	it('deactivates a project, hiding it and blocking its runs until it is reactivated', async () => {
+		const deactivated = await request('PATCH', `/projects/${PROJECT_ID}`, { deactivated: true });
+		expect(deactivated.statusCode).toBe(200);
+		const deactivatedAt = deactivated.json().deactivatedAt;
+		expect(deactivatedAt).toEqual(expect.any(String));
+		expect(await listUserProjects(MEMBER_ID)).toEqual([]);
+		await expect(assertProjectCloudBillingAccess(PROJECT_ID)).rejects.toThrow(
+			'This workspace has been deactivated',
+		);
+
+		const deactivatedAgain = await request('PATCH', `/projects/${PROJECT_ID}`, { deactivated: true });
+		expect(deactivatedAgain.json().deactivatedAt).toBe(deactivatedAt);
+		expect((await get(`/projects?orgId=${ORG_ID}`)).json().items[0].deactivatedAt).toBe(deactivatedAt);
+
+		const reactivated = await request('PATCH', `/projects/${PROJECT_ID}`, { deactivated: false });
+		expect(reactivated.json().deactivatedAt).toBeNull();
+		expect((await listUserProjects(MEMBER_ID)).map((project) => project.id)).toEqual([PROJECT_ID]);
+		await expect(assertProjectCloudBillingAccess(PROJECT_ID)).resolves.toBeUndefined();
+	});
+
+	it('deactivates an organization, hiding it and its projects from their members', async () => {
+		const deactivated = await request('PATCH', `/organizations/${ORG_ID}`, { deactivated: true });
+		expect(deactivated.statusCode).toBe(200);
+		expect(deactivated.json().deactivatedAt).toEqual(expect.any(String));
+		expect(await getUserOrgMembership(ADMIN_ID)).toBeNull();
+		expect(await listUserProjects(MEMBER_ID)).toEqual([]);
+		await expect(assertProjectCloudBillingAccess(PROJECT_ID)).rejects.toThrow(
+			'This workspace has been deactivated',
+		);
+
+		const reactivated = await request('PATCH', `/organizations/${ORG_ID}`, { deactivated: false });
+		expect(reactivated.json().deactivatedAt).toBeNull();
+		expect(await getUserOrgMembership(ADMIN_ID)).toMatchObject({ orgId: ORG_ID });
+	});
+
+	it('deletes a project with its scheduled jobs, and keeps a folder nao did not create', async () => {
+		await seedScheduledJobs();
+
+		const deleted = await request('DELETE', `/projects/${PROJECT_ID}`);
+		expect(deleted.statusCode).toBe(204);
+		expect((await get(`/projects/${PROJECT_ID}`)).statusCode).toBe(404);
+		expect(await db.select().from(s.chat)).toEqual([]);
+		expect((await db.select().from(s.scheduledJob)).map((job) => job.id)).toEqual(['job-other-project']);
+		await expect(fs.access(path.join(projectPath, 'nao_config.yaml'))).resolves.toBeUndefined();
+
+		expect((await request('DELETE', `/projects/${PROJECT_ID}`)).statusCode).toBe(404);
+	});
+
+	it('refuses to delete an organization whose Stripe subscriptions cannot be cancelled', async () => {
+		const refused = await request('DELETE', `/organizations/${ORG_ID}`);
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().error).toContain('Cancel them in Stripe first');
+		expect((await get(`/organizations/${ORG_ID}`)).statusCode).toBe(200);
+	});
+
+	it('deletes an organization with its projects and keeps its users', async () => {
+		await db.delete(s.organizationBilling).where(eq(s.organizationBilling.orgId, ORG_ID));
+		const deleted = await request('DELETE', `/organizations/${ORG_ID}`);
+		expect(deleted.statusCode).toBe(204);
+		expect((await get(`/organizations/${ORG_ID}`)).statusCode).toBe(404);
+		expect(await db.select().from(s.project)).toEqual([]);
+		expect(await db.select().from(s.orgMember)).toEqual([]);
+		expect((await db.select().from(s.user)).map((user) => user.id).sort()).toEqual([ADMIN_ID, MEMBER_ID]);
+	});
+
 	it('cleans up the context worktree when a direct role removes inherited context access', async () => {
 		const added = await request('PUT', `/projects/${PROJECT_ID}/members/${ADMIN_ID}`, { role: 'viewer' });
 		expect(added.statusCode).toBe(200);
@@ -730,6 +798,7 @@ async function seedOnboarding(projectPath: string) {
 }
 
 async function clearData() {
+	await db.delete(s.scheduledJob);
 	await db.delete(s.ssoProvider);
 	await db.delete(s.warehouseConnectionCheck);
 	await db.delete(s.warehouseProvisioningJob);
@@ -751,6 +820,22 @@ async function clearData() {
 	await db.delete(s.organizationBilling);
 	await db.delete(s.organization);
 	await db.delete(s.user);
+}
+
+async function seedScheduledJobs() {
+	const runAt = new Date();
+	await db.insert(s.automation).values({
+		id: 'automation-1',
+		projectId: PROJECT_ID,
+		userId: ADMIN_ID,
+		title: 'Daily digest',
+		prompt: 'Summarize yesterday',
+	});
+	await db.insert(s.scheduledJob).values([
+		{ id: 'job-project', name: 'tests.scheduled', payload: { projectId: PROJECT_ID }, runAt },
+		{ id: 'job-automation', name: 'automation.run', payload: { automationId: 'automation-1' }, runAt },
+		{ id: 'job-other-project', name: 'tests.scheduled', payload: { projectId: 'project-other' }, runAt },
+	]);
 }
 
 async function seedOtherOrganizationClaimingDomains() {
@@ -869,6 +954,7 @@ async function seedData(projectPath: string) {
 	await db.insert(s.projectLlmConfig).values({
 		id: 'llm-config-1',
 		projectId: PROJECT_ID,
+		name: 'OpenAI',
 		provider: 'openai',
 		apiKey: 'LLM_API_KEY_DO_NOT_LEAK',
 		credentials: { secret: SECRET },

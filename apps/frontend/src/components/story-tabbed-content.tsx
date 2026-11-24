@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 import type { QueryDataMap } from '@/components/story-embeds';
@@ -21,6 +21,7 @@ import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
 import { useStoryFilters } from '@/hooks/use-story-filters';
+import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { useShowStoryFilters } from '@/stores/shown-story-filters';
 
 export interface StoryEmbedRenderOptions {
@@ -66,9 +67,39 @@ export function StoryTabbedContent({
 		enabled: Boolean(filterApi),
 	});
 	useShowStoryFilters(storyId, storyFilters.activeSelections);
-	const segments = useMemo(
-		() => splitCodeIntoSegments(activeCode, storyFilters.resolvedParameters),
-		[activeCode, storyFilters.resolvedParameters],
+	const previousSegmentsRef = useRef<Segment[]>([]);
+	const segments = useMemo(() => {
+		const nextSegments = stabilizeStorySegments(
+			splitCodeIntoSegments(activeCode, storyFilters.resolvedParameters),
+			previousSegmentsRef.current,
+		);
+		previousSegmentsRef.current = nextSegments;
+		return nextSegments;
+	}, [activeCode, storyFilters.resolvedParameters]);
+	const { queryData, hasActiveFilters, isFiltering } = storyFilters;
+	const renderChartBlock = useCallback(
+		(chart: ParsedChartBlock, key: number) => (
+			<StoryBlock block={chartBlockReference(chart)}>
+				{renderChart(chart, { queryData, hasActiveFilters, isRefreshing: isFiltering, key })}
+			</StoryBlock>
+		),
+		[renderChart, queryData, hasActiveFilters, isFiltering],
+	);
+	const renderTableBlock = useCallback(
+		(table: ParsedTableBlock, key: number) => (
+			<StoryTableFrame block={tableBlockReference(table)}>
+				{renderTable(table, { queryData, hasActiveFilters, isRefreshing: isFiltering, key })}
+			</StoryTableFrame>
+		),
+		[renderTable, queryData, hasActiveFilters, isFiltering],
+	);
+	const renderMapBlock = useCallback(
+		(map: ParsedMapBlock, key: number) => (
+			<StoryMapFrame block={mapBlockReference(map)}>
+				{renderMap(map, { queryData, hasActiveFilters, isRefreshing: isFiltering, key })}
+			</StoryMapFrame>
+		),
+		[renderMap, queryData, hasActiveFilters, isFiltering],
 	);
 	const querySqlSource = useMemo(
 		() =>
@@ -108,36 +139,9 @@ export function StoryTabbedContent({
 						/>
 						<SegmentList
 							segments={segments}
-							renderChart={(chart, key) => (
-								<StoryBlock block={chartBlockReference(chart)}>
-									{renderChart(chart, {
-										queryData: storyFilters.queryData,
-										hasActiveFilters: storyFilters.hasActiveFilters,
-										isRefreshing: storyFilters.isFiltering,
-										key,
-									})}
-								</StoryBlock>
-							)}
-							renderTable={(table, key) => (
-								<StoryTableFrame block={tableBlockReference(table)}>
-									{renderTable(table, {
-										queryData: storyFilters.queryData,
-										hasActiveFilters: storyFilters.hasActiveFilters,
-										isRefreshing: storyFilters.isFiltering,
-										key,
-									})}
-								</StoryTableFrame>
-							)}
-							renderMap={(map, key) => (
-								<StoryMapFrame block={mapBlockReference(map)}>
-									{renderMap(map, {
-										queryData: storyFilters.queryData,
-										hasActiveFilters: storyFilters.hasActiveFilters,
-										isRefreshing: storyFilters.isFiltering,
-										key,
-									})}
-								</StoryMapFrame>
-							)}
+							renderChart={renderChartBlock}
+							renderTable={renderTableBlock}
+							renderMap={renderMapBlock}
 						/>
 					</div>
 					<div aria-hidden className='h-[var(--story-bottom-inset,0px)] shrink-0' />

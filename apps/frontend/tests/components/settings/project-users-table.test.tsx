@@ -146,7 +146,7 @@ const organizationUser = {
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	mocks.addUser.mockResolvedValue({ newUser: { id: 'new-user' } });
+	mocks.addUser.mockResolvedValue([{ email: 'person@example.com', status: 'added', name: 'Person' }]);
 	mocks.removeUser.mockResolvedValue(undefined);
 	mocks.resetPassword.mockResolvedValue({ password: 'generated-password' });
 	mocks.invalidateQueries.mockResolvedValue(undefined);
@@ -168,13 +168,12 @@ describe('ProjectUsersTable member management', () => {
 		openDropdownMenu(/Select user groups/);
 		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts' }));
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
-		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'person@example.com' } });
+		fireEvent.change(screen.getByLabelText('Emails'), { target: { value: 'person@example.com' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
 		await waitFor(() =>
 			expect(mocks.addUser).toHaveBeenCalledWith({
-				email: 'person@example.com',
-				name: undefined,
+				members: [{ email: 'person@example.com' }],
 				groupIds: ['analysts'],
 			}),
 		);
@@ -183,14 +182,16 @@ describe('ProjectUsersTable member management', () => {
 	});
 
 	it('shows the generated credentials when a new user is created', async () => {
-		mocks.addUser.mockResolvedValue({ newUser: { id: 'new-user' }, password: 'generated-password' });
+		mocks.addUser.mockResolvedValue([
+			{ email: 'person@example.com', status: 'added', name: 'Person', password: 'generated-password' },
+		]);
 		renderTable();
 
 		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
-		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'person@example.com' } });
+		fireEvent.change(screen.getByLabelText('Emails'), { target: { value: 'person@example.com' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
-		expect(await screen.findByText('Password: generated-password')).toBeTruthy();
+		expect(await screen.findByText('generated-password')).toBeTruthy();
 	});
 
 	it('offers member actions for other members only', () => {

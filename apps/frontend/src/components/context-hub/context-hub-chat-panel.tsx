@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
+import type { ShownContextHubPage } from '@nao/backend/chat';
 
 import type { EditorChatCopy } from '@/components/editor-chat-panel';
 import type { ContextEditorChanges } from '@/hooks/use-context-editor-changes';
@@ -8,7 +9,11 @@ import { EditorChatPanel, toPromptSuggestions, useEditorChatSession } from '@/co
 import { useContextEditorChanges } from '@/hooks/use-context-editor-changes';
 import { useContextRecommendationsEnabled } from '@/hooks/use-context-recommendations';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { invalidateExplorerQueries, invalidateRecommendationQueries } from '@/lib/context-explorer-queries';
+import {
+	invalidateExplorerQueries,
+	invalidateRecommendationQueries,
+	invalidateSkillQueries,
+} from '@/lib/context-explorer-queries';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
@@ -35,30 +40,30 @@ const CONTEXT_HUB_CHAT_COPY_WITH_RECOMMENDATIONS: EditorChatCopy = {
 	]),
 };
 
-const panelOpenStorage = createLocalStorage('nao-context-hub-chat-panel-open', true);
+export const contextHubChatPanelOpenStorage = createLocalStorage('nao-context-hub-chat-panel-open', true);
 
 export function useContextHubChatPanelOpen() {
-	return useLocalStorage(panelOpenStorage);
+	return useLocalStorage(contextHubChatPanelOpenStorage);
 }
 
-/** A chat beside the Context Hub whose agent edits context files in the user's changes, told which file is open. */
+/** A chat beside the Context Hub whose agent edits context files in the user's changes, told what the hub shows. */
 export function ContextHubChatPanel({
-	openPath,
+	shown,
 	isOpen,
 	onOpenChange,
 }: {
-	openPath: string | null;
+	shown: ShownContextHubPage;
 	isOpen: boolean;
 	onOpenChange: (isOpen: boolean) => void;
 }) {
 	const queryClient = useQueryClient();
 	const session = useContextHubChatSession();
 	const hasRecommendations = useContextRecommendationsEnabled();
-	const openPathRef = useRef(openPath);
+	const shownRef = useRef(shown);
 	useEffect(() => {
-		openPathRef.current = openPath;
-	}, [openPath]);
-	const getRequestBody = useCallback(() => ({ contextHub: { openPath: openPathRef.current } }), []);
+		shownRef.current = shown;
+	}, [shown]);
+	const getRequestBody = useCallback(() => ({ contextHub: { shown: shownRef.current } }), []);
 
 	return (
 		<EditorChatPanel
@@ -96,5 +101,6 @@ async function refreshContextHub(queryClient: QueryClient, changes: ContextEdito
 	await Promise.all([
 		changes.paths.length > 0 && invalidateExplorerQueries(queryClient),
 		changes.hasChangedRecommendations && invalidateRecommendationQueries(queryClient),
+		changes.hasChangedSkills && invalidateSkillQueries(queryClient),
 	]);
 }

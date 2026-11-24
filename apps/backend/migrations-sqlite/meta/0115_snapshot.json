@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "369160c4-7400-4588-a07b-c3e2712e0679",
+  "id": "52f01565-cfd4-4133-90ef-ac759082675b",
   "prevId": "1ce2ff31-d6a4-4233-8c81-c9468af6af58",
   "tables": {
     "account": {
@@ -7708,130 +7708,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "project_slack_installation": {
-      "name": "project_slack_installation",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "team_name": {
-          "name": "team_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "enterprise_id": {
-          "name": "enterprise_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "bot_user_id": {
-          "name": "bot_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "encrypted_bot_token": {
-          "name": "encrypted_bot_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scopes": {
-          "name": "scopes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "installed_by_user_id": {
-          "name": "installed_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "project_slack_installation_teamId_idx": {
-          "name": "project_slack_installation_teamId_idx",
-          "columns": [
-            "team_id"
-          ],
-          "isUnique": true
-        },
-        "project_slack_installation_installedByUserId_idx": {
-          "name": "project_slack_installation_installedByUserId_idx",
-          "columns": [
-            "installed_by_user_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "project_slack_installation_project_id_project_id_fk": {
-          "name": "project_slack_installation_project_id_project_id_fk",
-          "tableFrom": "project_slack_installation",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "project_slack_installation_installed_by_user_id_user_id_fk": {
-          "name": "project_slack_installation_installed_by_user_id_user_id_fk",
-          "tableFrom": "project_slack_installation",
-          "tableTo": "user",
-          "columnsFrom": [
-            "installed_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "project_story_theme": {
       "name": "project_story_theme",
       "columns": {
@@ -11607,6 +11483,80 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "user_group_impersonation": {
+      "name": "user_group_impersonation",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_ids": {
+          "name": "group_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_group_impersonation_user_id_user_id_fk": {
+          "name": "user_group_impersonation_user_id_user_id_fk",
+          "tableFrom": "user_group_impersonation",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_group_impersonation_project_id_project_id_fk": {
+          "name": "user_group_impersonation_project_id_project_id_fk",
+          "tableFrom": "user_group_impersonation",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "user_group_impersonation_user_id_project_id_pk": {
+          "columns": [
+            "user_id",
+            "project_id"
+          ],
+          "name": "user_group_impersonation_user_id_project_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
