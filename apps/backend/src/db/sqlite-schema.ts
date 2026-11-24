@@ -88,6 +88,7 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
+import type { DecisionProvider } from '../types/decision';
 import {
 	type ActiveEffort,
 	LLM_CREDENTIAL_SOURCES,
@@ -849,6 +850,31 @@ export const projectLlmConfig = sqliteTable(
 			.on(t.projectId, t.name)
 			.where(sql`${t.disabledAt} IS NULL`),
 	],
+);
+
+/** Credentials a project saved for a decision (System 1) model provider. */
+export const projectDecisionConfig = sqliteTable(
+	'project_decision_config',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<DecisionProvider>().notNull(),
+		apiKey: sqliteEncryptedText('api_key'),
+		credentials: text('credentials', { mode: 'json' }).$type<Record<string, string>>(),
+		baseUrl: text('base_url'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [unique('project_decision_config_project_provider').on(t.projectId, t.provider)],
 );
 
 export const projectProviderBudget = sqliteTable(
@@ -2051,7 +2077,7 @@ export const llmInference = sqliteTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		type: text('type', { enum: LLM_INFERENCE_TYPES }).notNull(),
-		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmProvider: text('llm_provider').$type<LlmProvider | DecisionProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
 		llmConfigId: text('llm_config_id'),
 

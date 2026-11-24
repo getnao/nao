@@ -778,6 +778,7 @@ export function UserGroupEditor({
 										? {}
 										: allUsersGroup.llmModelIdsByConfig
 								}
+								allUsersGroupId={existingGroup?.isDefault ? undefined : allUsersGroup?.id}
 								isLicensed={hasUserGroupsLicense}
 								autoSave={existingGroup !== null}
 								saveStatus={llmAccessSaveStatus}
