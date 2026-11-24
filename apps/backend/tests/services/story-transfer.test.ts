@@ -37,7 +37,7 @@ vi.mock('../../src/services/project-sharing.service', async () => {
 	return {
 		assertCanShareToProject: vi.fn(),
 		assertCanShareWith: vi.fn(),
-		listShareableMembers: projectQueries.listUsersWithProjectAccess,
+		listShareableMembers: (projectId: string) => projectQueries.listUsersWithProjectAccess(projectId),
 	};
 });
 vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
