@@ -11,7 +11,6 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 
 from nao_core.config.base import NaoConfig
 from nao_core.config.confluence import ConfluenceConfig
-from nao_core.text_files import read_text
 from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
@@ -133,7 +132,7 @@ def read_existing_versions(output_path: Path) -> dict[str, tuple[Path, int]]:
 def read_frontmatter(file_path: Path) -> dict[str, Any]:
     """Read the YAML frontmatter of a markdown file, returning an empty dict when absent."""
     try:
-        content = read_text(file_path)
+        content = file_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return {}
 

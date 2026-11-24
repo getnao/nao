@@ -19,7 +19,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from nao_core.text_files import read_text
 from nao_core.ui import UI, console
 
 MANIFEST_NAME = "native-deps.json"
@@ -106,7 +105,7 @@ def load_manifest(bin_dir: Path) -> list[NativePackage]:
         return []
 
     try:
-        entries = json.loads(read_text(manifest))
+        entries = json.loads(manifest.read_text(encoding="utf-8"))
         if not isinstance(entries, list):
             return []
         return [NativePackage(**entry) for entry in entries]
