@@ -287,6 +287,18 @@ describe('search', () => {
 		await expect(run(searchTool, { pattern: '../**' })).rejects.toThrow("'..' is not allowed");
 	});
 
+	it('refuses an absolute pattern with a relative glob that works', async () => {
+		await fs.mkdir(path.join(projectFolder, 'docs', 'guides'), { recursive: true });
+		await fs.writeFile(path.join(projectFolder, 'docs', 'guides', 'setup.md'), 'setup');
+
+		await expect(run(searchTool, { pattern: '/docs/**/*.md' })).rejects.toThrow(
+			'Use a relative glob without the leading slash, e.g. `docs/**/*.md`',
+		);
+		await expect(run(searchTool, { pattern: 'docs/**/*.md' })).resolves.toMatchObject({
+			files: [{ path: '/docs/guides/setup.md' }],
+		});
+	});
+
 	it('returns the matched path instead of its canonical symlink target', async () => {
 		const target = path.join(projectFolder, 'target.md');
 		await fs.writeFile(target, 'target');
