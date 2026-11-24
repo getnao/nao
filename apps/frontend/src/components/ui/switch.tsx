@@ -16,7 +16,7 @@ function SwitchThumb({ checked }: { checked: boolean }) {
 			/>
 			<span
 				className={cn(
-					'pointer-events-none relative block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform duration-300 ease-(--ease-spring)',
+					'pointer-events-none relative block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform motion-safe:duration-300 motion-safe:ease-(--ease-spring)',
 					checked ? 'translate-x-3' : 'translate-x-0',
 				)}
 			/>
