@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from .base import DatabaseConfig
 from .context import DatabaseContext
 from .fabric import FabricAuthMode, FabricConfig, _detect_fabric_driver
+from .ssh_tunnel import SSHTunnelConfig, connect_through_ssh_tunnel
 
 MssqlAuthMode = FabricAuthMode
 
@@ -114,6 +115,7 @@ class MssqlConfig(DatabaseConfig):
         description="ODBC driver (FreeTDS on Mac/Linux, ODBC Driver 18 for SQL Server on Windows or with Entra ID)",
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'dbo' if not set)")
+    ssh_tunnel: SSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
     @model_validator(mode="before")
     @classmethod
@@ -133,6 +135,8 @@ class MssqlConfig(DatabaseConfig):
         elif self.auth_mode == MssqlAuthMode.AZURE_SERVICE_PRINCIPAL:
             if not self.client_id or not self.client_secret:
                 raise ValueError("client_id and client_secret are required for azure_service_principal auth mode")
+        if self.ssh_tunnel is not None and self.auth_mode != MssqlAuthMode.SQL_PASSWORD:
+            raise ValueError("SSH tunnels are only supported with SQL password authentication")
         return self
 
     @classmethod
@@ -194,13 +198,22 @@ class MssqlConfig(DatabaseConfig):
 
         import ibis
 
-        return ibis.mssql.connect(
-            host=self.host,
-            port=self.port,
-            database=self.database,
-            user=self.user,
-            password=self.password,
-            driver=self.driver,
+        def connect_to_mssql(host: str, port: int) -> BaseBackend:
+            return ibis.mssql.connect(
+                host=host,
+                port=port,
+                database=self.database,
+                user=self.user,
+                password=self.password,
+                driver=self.driver,
+            )
+
+        return connect_through_ssh_tunnel(
+            self.ssh_tunnel,
+            self.host,
+            self.port,
+            connect_to_mssql,
+            "mssql",
         )
 
     def _connect_with_tenant_service_principal(self) -> BaseBackend:

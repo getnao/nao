@@ -42,6 +42,13 @@ export interface WarehouseCredentialsFormValues {
 	awsAccessKeyId: string;
 	awsSecretAccessKey: string;
 	awsSessionToken: string;
+	useSshTunnel: boolean;
+	sshHost: string;
+	sshPort: string;
+	sshUsername: string;
+	sshPrivateKey: string;
+	sshPrivateKeyPassphrase: string;
+	sshHostKey: string;
 }
 
 export function getClickHouseDefaultPort(
@@ -94,6 +101,13 @@ export function getWarehouseCredentialsDefaults(provider: SqlProvider): Warehous
 		awsAccessKeyId: '',
 		awsSecretAccessKey: '',
 		awsSessionToken: '',
+		useSshTunnel: false,
+		sshHost: '',
+		sshPort: '22',
+		sshUsername: '',
+		sshPrivateKey: '',
+		sshPrivateKeyPassphrase: '',
+		sshHostKey: '',
 	};
 }
 
@@ -165,8 +179,40 @@ export function buildWarehouseCredentials(
 				password: values.password,
 				schemaName,
 				driver: values.driver || undefined,
+				...(values.useSshTunnel
+					? {
+							sshTunnel: {
+								sshHost: values.sshHost,
+								sshPort: Number(values.sshPort),
+								sshUsername: values.sshUsername,
+								sshPrivateKey: values.sshPrivateKey,
+								sshPrivateKeyPassphrase: values.sshPrivateKeyPassphrase || undefined,
+								sshHostKey: values.sshHostKey || undefined,
+							},
+						}
+					: {}),
 			};
 		case 'mysql':
+			return {
+				host: values.host,
+				port,
+				user: values.user,
+				database,
+				password: values.password,
+				schemaName,
+				...(values.useSshTunnel
+					? {
+							sshTunnel: {
+								sshHost: values.sshHost,
+								sshPort: Number(values.sshPort),
+								sshUsername: values.sshUsername,
+								sshPrivateKey: values.sshPrivateKey,
+								sshPrivateKeyPassphrase: values.sshPrivateKeyPassphrase || undefined,
+								sshHostKey: values.sshHostKey || undefined,
+							},
+						}
+					: {}),
+			};
 		case 'postgres':
 			return {
 				host: values.host,
@@ -175,6 +221,18 @@ export function buildWarehouseCredentials(
 				database,
 				password: values.password,
 				schemaName,
+				...(values.useSshTunnel
+					? {
+							sshTunnel: {
+								sshHost: values.sshHost,
+								sshPort: Number(values.sshPort),
+								sshUsername: values.sshUsername,
+								sshPrivateKey: values.sshPrivateKey,
+								sshPrivateKeyPassphrase: values.sshPrivateKeyPassphrase || undefined,
+								sshHostKey: values.sshHostKey || undefined,
+							},
+						}
+					: {}),
 			};
 		case 'redshift':
 			return {
@@ -186,6 +244,18 @@ export function buildWarehouseCredentials(
 				schemaName,
 				authMode: 'password',
 				sslmode: 'require',
+				...(values.useSshTunnel
+					? {
+							sshTunnel: {
+								sshHost: values.sshHost,
+								sshPort: Number(values.sshPort),
+								sshUsername: values.sshUsername,
+								sshPrivateKey: values.sshPrivateKey,
+								sshPrivateKeyPassphrase: values.sshPrivateKeyPassphrase || undefined,
+								sshHostKey: values.sshHostKey || undefined,
+							},
+						}
+					: {}),
 			};
 		case 'snowflake':
 			return {

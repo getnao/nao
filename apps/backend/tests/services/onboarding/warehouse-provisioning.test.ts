@@ -450,6 +450,69 @@ describe('warehouse provisioning', () => {
 		);
 	});
 
+	it.each(['mssql', 'mysql', 'postgres', 'redshift'] as const)(
+		'lets nao Cloud reach a private %s warehouse through a public SSH bastion',
+		async (provider) => {
+			controls.isCloud = true;
+			controls.lookup.mockResolvedValue([{ address: '93.184.216.34' }]);
+			vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ valid: true })));
+			const connection = {
+				provider,
+				credentials: {
+					host: '10.0.1.5',
+					sshTunnel: { sshHost: 'bastion.example.com' },
+				},
+			};
+
+			await expect(validateWarehouseCredentials('user-1', connection)).resolves.toEqual({ valid: true });
+
+			vi.useFakeTimers();
+			await expect(
+				startWarehouseProvisioning({
+					userId: 'user-1',
+					orgId: 'org-1',
+					projectName: 'analytics',
+					...connection,
+				}),
+			).resolves.toMatchObject({ status: 'queued' });
+
+			expect(controls.lookup).toHaveBeenCalledTimes(2);
+			expect(controls.lookup).toHaveBeenCalledWith('bastion.example.com', { all: true });
+		},
+	);
+
+	it.each(['mssql', 'mysql', 'postgres', 'redshift'] as const)(
+		'refuses a private SSH bastion for %s on nao Cloud before any connection',
+		async (provider) => {
+			controls.isCloud = true;
+			const fetchMock = vi.fn();
+			vi.stubGlobal('fetch', fetchMock);
+			const connection = {
+				provider,
+				credentials: {
+					host: '10.0.1.5',
+					sshTunnel: { sshHost: '127.0.0.1' },
+				},
+			};
+
+			await expect(validateWarehouseCredentials('user-1', connection)).rejects.toMatchObject({
+				code: 'BAD_REQUEST',
+				message: expect.stringContaining('SSH bastion'),
+			});
+			await expect(
+				startWarehouseProvisioning({
+					userId: 'user-1',
+					orgId: 'org-1',
+					projectName: 'analytics',
+					...connection,
+				}),
+			).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+			expect(fetchMock).not.toHaveBeenCalled();
+			expect(warehouseJobs.size).toBe(0);
+		},
+	);
+
 	it.each([
 		{ instance: 'nao Cloud', isCloud: true, host: 'warehouse.example.com' },
 		{ instance: 'a self-hosted instance, on its private network', isCloud: false, host: '10.0.0.12' },

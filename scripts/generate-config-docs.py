@@ -32,6 +32,7 @@ from nao_core.config.databases import (  # noqa: E402
     DuckLakeConfig,
     MotherDuckConfig,
     MssqlConfig,
+    MysqlConfig,
     PostgresConfig,
     RedshiftConfig,
     SnowflakeConfig,
@@ -41,7 +42,7 @@ from nao_core.config.databases.base import (  # noqa: E402
     DatabaseAccessor,
     DatabaseConfig,
 )
-from nao_core.config.databases.redshift import RedshiftSSHTunnelConfig  # noqa: E402
+from nao_core.config.databases.ssh_tunnel import SSHTunnelConfig  # noqa: E402
 from nao_core.config.llm import (  # noqa: E402
     DEFAULT_ANNOTATION_MODELS,
     LLMConfig,
@@ -50,7 +51,7 @@ from nao_core.config.llm import (  # noqa: E402
 from nao_core.config.mcp import McpConfig  # noqa: E402
 from nao_core.config.notion import NotionConfig  # noqa: E402
 from nao_core.config.obsidian import ObsidianConfig  # noqa: E402
-from nao_core.config.repos.base import RepoConfig  # noqa: E402
+from nao_core.config.repos.base import RepoConfig, RepoTarget  # noqa: E402
 from nao_core.config.skills import SkillsConfig  # noqa: E402
 from nao_core.config.slack import SlackConfig  # noqa: E402
 
@@ -169,6 +170,7 @@ DATABASE_CONFIGS: list[tuple[str, str, type[DatabaseConfig]]] = [
     ("MotherDuck", "motherduck", MotherDuckConfig),
     ("Databricks", "databricks", DatabricksConfig),
     ("Microsoft SQL Server", "mssql", MssqlConfig),
+    ("MySQL", "mysql", MysqlConfig),
     ("Amazon Redshift", "redshift", RedshiftConfig),
     ("Trino", "trino", TrinoConfig),
     ("Amazon Athena", "athena", AthenaConfig),
@@ -207,9 +209,11 @@ def _section_databases() -> str:
         parts.append(_fields_table(config_cls, exclude=BASE_DB_FIELDS))
         parts.append("")
 
-    parts.append("### RedshiftSSHTunnelConfig\n")
-    parts.append("Nested under `ssh_tunnel` in a Redshift database entry.\n")
-    parts.append(_fields_table(RedshiftSSHTunnelConfig))
+    parts.append("### SSHTunnelConfig\n")
+    parts.append(
+        "Nested under `ssh_tunnel` in PostgreSQL, MySQL, Microsoft SQL Server, and Amazon Redshift database entries.\n"
+    )
+    parts.append(_fields_table(SSHTunnelConfig))
     parts.append("")
 
     return "\n".join(parts)
@@ -245,6 +249,9 @@ def _section_repos() -> str:
     parts: list[str] = []
     parts.append("## Repos\n")
     parts.append(_fields_table(RepoConfig))
+    parts.append("")
+    parts.append("### RepoTarget\n")
+    parts.append(_fields_table(RepoTarget))
     parts.append("")
     return "\n".join(parts)
 
@@ -466,9 +473,7 @@ def push_to_docs_repo(md_content: str, schema_json: str) -> None:
 
         _run(["git", "add", "-A"], cwd=tmp_path)
 
-        status = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"], cwd=tmp_path
-        )
+        status = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=tmp_path)
         if status.returncode == 0:
             print("Nothing to commit — docs are already up to date.")
             return

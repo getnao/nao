@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
+from .ssh_tunnel import SSHTunnelConfig, connect_through_ssh_tunnel
 
 SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
 
@@ -67,6 +68,7 @@ class MysqlConfig(DatabaseConfig):
     user: str = Field(description="Username")
     password: str = Field(description="Password")
     schema_name: str | None = Field(default=None, description="Default schema (optional)")
+    ssh_tunnel: SSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
     @classmethod
     def promptConfig(cls) -> "MysqlConfig":
@@ -100,12 +102,21 @@ class MysqlConfig(DatabaseConfig):
         require_database_backend("mysql")
         import ibis
 
-        return ibis.mysql.connect(
-            host=self.host,
-            port=self.port,
-            database=self.database,
-            user=self.user,
-            password=self.password,
+        def connect_to_mysql(host: str, port: int) -> BaseBackend:
+            return ibis.mysql.connect(
+                host=host,
+                port=port,
+                database=self.database,
+                user=self.user,
+                password=self.password,
+            )
+
+        return connect_through_ssh_tunnel(
+            self.ssh_tunnel,
+            self.host,
+            self.port,
+            connect_to_mysql,
+            "mysql",
         )
 
     def get_database_name(self) -> str:

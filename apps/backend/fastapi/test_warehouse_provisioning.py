@@ -209,6 +209,102 @@ def test_prepare_postgres_warehouse_config():
 
 
 @pytest.mark.parametrize(
+    ("provider", "credentials"),
+    [
+        (
+            "mssql",
+            {
+                "host": "mssql.internal",
+                "database": "analytics",
+                "user": "nao",
+                "password": "secret",
+            },
+        ),
+        (
+            "mysql",
+            {
+                "host": "mysql.internal",
+                "database": "analytics",
+                "user": "nao",
+                "password": "secret",
+            },
+        ),
+        (
+            "postgres",
+            {
+                "host": "postgres.internal",
+                "database": "analytics",
+                "user": "nao",
+                "password": "secret",
+            },
+        ),
+        (
+            "redshift",
+            {
+                "host": "redshift.internal",
+                "database": "analytics",
+                "user": "nao",
+                "password": "secret",
+            },
+        ),
+    ],
+)
+def test_prepare_requires_bastion_host_key(provider, credentials):
+    credentials["ssh_tunnel"] = {
+        "ssh_host": "bastion.example.com",
+        "ssh_username": "nao",
+        "ssh_private_key": "private-key-contents",
+    }
+
+    with pytest.raises(ValidationError) as error:
+        prepare_warehouse_config(provider, credentials)
+
+    assert ("ssh_tunnel", "ssh_host_key") in {
+        tuple(issue["loc"]) for issue in error.value.errors()
+    }
+
+
+def test_prepare_ssh_tunnel_credentials_round_trip(tmp_path):
+    private_key = "private-key-contents"
+    host_key = "bastion.example.com ssh-ed25519 host-key"
+    database_config, env_vars = prepare_warehouse_config(
+        provider="postgres",
+        credentials={
+            "host": "postgres.internal",
+            "database": "analytics",
+            "user": "nao",
+            "password": "secret",
+            "ssh_tunnel": {
+                "ssh_host": "bastion.example.com",
+                "ssh_username": "nao",
+                "ssh_private_key": private_key,
+                "ssh_host_key": host_key,
+            },
+        },
+    )
+
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text(
+        yaml.safe_dump(
+            {
+                "project_name": "Analytics",
+                "databases": [database_config],
+            },
+            sort_keys=False,
+        )
+    )
+
+    loaded_config = NaoConfig.load(tmp_path, extra_env=env_vars)
+    ssh_tunnel = loaded_config.databases[0].ssh_tunnel
+
+    assert ssh_tunnel is not None
+    assert ssh_tunnel.ssh_private_key == private_key
+    assert ssh_tunnel.ssh_host_key == host_key
+    assert private_key not in json.dumps(database_config)
+    assert host_key not in json.dumps(database_config)
+
+
+@pytest.mark.parametrize(
     ("provider", "message", "expected"),
     [
         ("postgres", "password authentication failed", ["user", "password"]),
@@ -351,7 +447,10 @@ def test_prepare_nested_bigquery_credentials_round_trip(tmp_path):
                 "database": "analytics",
                 "user": "nao",
                 "password": "secret",
-                "ssh_tunnel": {"ssh_private_key_path": "/root/.ssh/id_rsa"},
+                "ssh_tunnel": {
+                    "ssh_private_key_path": "/root/.ssh/id_rsa",
+                    "ssh_host_key": "bastion.example.com ssh-ed25519 host-key",
+                },
             },
             ["ssh_tunnel"],
             id="redshift-server-ssh-key",

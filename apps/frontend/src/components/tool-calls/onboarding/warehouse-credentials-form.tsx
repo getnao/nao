@@ -16,6 +16,7 @@ import { Callout } from '@/components/ui/callout';
 import { Checkbox } from '@/components/ui/checkbox';
 import { PasswordField, TextareaField, TextField } from '@/components/ui/form-fields';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 
 interface WarehouseCredentialsFormProps {
 	provider: SqlProvider;
@@ -288,6 +289,86 @@ export function WarehouseCredentialsForm({
 							hint={settings.schemaHint}
 							placeholder='public'
 						/>
+					)}
+					{(provider === 'redshift' ||
+						provider === 'postgres' ||
+						provider === 'mysql' ||
+						provider === 'mssql') && (
+						<>
+							<form.Field name='useSshTunnel'>
+								{(field) => (
+									<div className='flex items-center gap-2 sm:col-span-2'>
+										<Switch
+											id='warehouse-use-ssh-tunnel'
+											checked={field.state.value}
+											onCheckedChange={field.handleChange}
+										/>
+										<label htmlFor='warehouse-use-ssh-tunnel' className='text-sm font-medium'>
+											Connect through an SSH bastion
+										</label>
+									</div>
+								)}
+							</form.Field>
+							<form.Subscribe selector={(state) => state.values.useSshTunnel}>
+								{(enabled) =>
+									enabled && (
+										<>
+											<TextField
+												form={form}
+												name='sshHost'
+												label='Bastion Host'
+												placeholder='bastion.example.com'
+												required={true}
+											/>
+											<TextField
+												form={form}
+												name='sshPort'
+												label='Bastion Port'
+												type='number'
+												placeholder='22'
+												required={true}
+											/>
+											<TextField
+												form={form}
+												name='sshUsername'
+												label='SSH Username'
+												placeholder='nao'
+												required={true}
+											/>
+											<PasswordField
+												form={form}
+												name='sshPrivateKeyPassphrase'
+												label='Private Key Passphrase'
+												hint='(optional)'
+												placeholder='Enter your key passphrase'
+											/>
+											<div className='sm:col-span-2 [&_textarea]:max-h-40 [&_textarea]:field-sizing-fixed [&_textarea]:overflow-y-auto'>
+												<TextareaField
+													form={form}
+													name='sshPrivateKey'
+													label='SSH Private Key'
+													placeholder={
+														'-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----'
+													}
+													required={true}
+													rows={6}
+												/>
+											</div>
+											<div className='sm:col-span-2'>
+												<TextField
+													form={form}
+													name='sshHostKey'
+													label='Bastion Host Key'
+													hint="The bastion's public SSH host key"
+													placeholder='bastion.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…'
+													required={true}
+												/>
+											</div>
+										</>
+									)
+								}
+							</form.Subscribe>
+						</>
 					)}
 					{provider === 'clickhouse' && (
 						<>
