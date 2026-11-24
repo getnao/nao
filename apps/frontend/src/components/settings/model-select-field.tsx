@@ -1,3 +1,4 @@
+import { findSelectedModel } from '@nao/shared/types';
 import { AlertTriangle } from 'lucide-react';
 import { useId } from 'react';
 import type { ReactNode } from 'react';
@@ -6,7 +7,7 @@ import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SimpleTooltip } from '@/components/ui/tooltip';
-import { findAvailableModel, llmModelValue, toLlmSelectedModel } from '@/lib/llm-model';
+import { llmModelValue, toLlmSelectedModel } from '@/lib/llm-model';
 import { cn } from '@/lib/utils';
 
 export type AvailableModel = {
@@ -154,5 +155,5 @@ function DefaultOptionContent({
 }
 
 export function findModel(availableModels: AvailableModel[], model: LlmSelectedModel): AvailableModel | undefined {
-	return findAvailableModel(availableModels, model);
+	return findSelectedModel(availableModels, model);
 }
