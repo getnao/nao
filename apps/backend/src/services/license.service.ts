@@ -9,7 +9,7 @@ import {
 	getOrganizationLicenseToken,
 	getProjectOrganizationLicenseToken,
 	type OrganizationLicenseToken,
-} from '../queries/organization.queries';
+} from '../queries/organization-license.queries';
 import {
 	LICENSE_ALL_FEATURES,
 	LICENSE_FEATURES,
@@ -17,6 +17,7 @@ import {
 	type LicenseScope,
 	type NaoLicense,
 } from '../types/license';
+import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { LICENSES_BASE_URL } from './license-endpoints';
 import { getBundledPublicKey } from './license-public-key';
 
@@ -45,7 +46,7 @@ const organizationLicenseVerifications = new Map<string, Promise<NaoLicense | nu
 let publicKeyPromise: Promise<KeyObject | CryptoKey> | null = null;
 let publicKeyPem: string | null = null;
 let onlineVerdict: OnlineVerdict | null = null;
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let stopHeartbeat: (() => Promise<void>) | null = null;
 
 export function getLicense(): Promise<NaoLicense | null> {
 	if (!licensePromise) {
@@ -97,23 +98,24 @@ export function isLicenseExpired(license: NaoLicense): boolean {
  * OSS installs and offline enterprise licenses should never phone home.
  */
 export async function startLicenseHeartbeat(): Promise<void> {
-	if (heartbeatTimer || !env.NAO_LICENSE) {
+	if (stopHeartbeat || !env.NAO_LICENSE) {
 		return;
 	}
 	const license = await getLicense();
 	if (!license || license.isOffline) {
 		return;
 	}
-	void refreshLicenseOnline();
-	heartbeatTimer = setInterval(() => void refreshLicenseOnline(), ONLINE_CHECK_INTERVAL_MS);
-	heartbeatTimer.unref?.();
+	stopHeartbeat = repeatInBackground(
+		'License online check',
+		fromPromise(() => refreshLicenseOnline()),
+		ONLINE_CHECK_INTERVAL_MS,
+		{ immediately: true },
+	);
 }
 
 export function stopLicenseHeartbeat(): void {
-	if (heartbeatTimer) {
-		clearInterval(heartbeatTimer);
-		heartbeatTimer = null;
-	}
+	void stopHeartbeat?.();
+	stopHeartbeat = null;
 }
 
 export function resetLicenseCache(): void {

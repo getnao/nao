@@ -9,11 +9,14 @@ import { TextShimmer } from '../ui/text-shimmer';
 import type { ToolCallComponentProps } from '.';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useRefreshStoryChat } from '@/hooks/use-refresh-story-chat';
 import { useTimeAgo } from '@/hooks/use-time-ago';
+import { getStoryToolPartSlug } from '@/lib/story.utils';
 import { trpc } from '@/main';
 
 const STORY_ACTION_LABELS = {
@@ -33,8 +36,9 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const output = toolPart.output;
 	const chatId = output?.story_chat_id ?? contextOrUrlChatId ?? sidePanelChatId;
 	const hasAutoOpenedRef = useRef(false);
+	useRefreshStoryChat(toolPart);
 
-	const finalStorySlug = output?.id ?? input?.id;
+	const finalStorySlug = getStoryToolPartSlug(toolPart);
 	const canOpen = Boolean(chatId && finalStorySlug);
 	const isCreateAction = input?.action === 'create' && isClassicCreate(input);
 	const mountedBeforeOutputRef = useRef(toolPart.state !== 'output-available' && toolPart.state !== 'output-error');
@@ -110,7 +114,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	}
 
 	const isCustomStory = (latestStory?.format ?? output?.format ?? input.format) === 'custom';
-	const title = latestStory?.title ?? output?.title ?? input.title ?? input.id;
+	const title = latestStory?.title ?? output?.title ?? input.title ?? finalStorySlug;
 	const labels = STORY_ACTION_LABELS[input.action ?? 'create'] ?? STORY_ACTION_LABELS.create;
 	const statusLabel = isStreaming
 		? labels.pending
@@ -132,7 +136,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 
 	return (
 		<StoryCard
-			title={title ?? ''}
+			title={title ?? 'Story'}
 			isCustomStory={isCustomStory}
 			summary={summary}
 			storyId={latestStory?.storyId}
@@ -141,6 +145,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			queryData={latestStory?.queryData as QueryDataMap | null | undefined}
 			canOpen={canOpen}
 			onOpen={handleOpen}
+			actions={latestStory && <StoryMoveToFolderButton storyId={latestStory.storyId} />}
 			status={
 				<>
 					<span className='text-xs text-muted-foreground'>{statusLabel}</span>

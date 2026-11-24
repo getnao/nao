@@ -1,25 +1,26 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, HelpCircle, KeyRound } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ImportedProject } from '@/components/settings/import-provider-card';
+import type { UIMessage } from '@nao/backend/chat';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
 import {
 	findCreatedOnboardingProject,
-	findWarehouseJobId,
 	isDeployStepReached,
-	isOnboardingComplete,
 	OnboardingProgress,
-	useOnboardingProgress,
+	useOnboardingMissingEnvVars,
 	WarehouseProvisioningWarnings,
-} from '@/components/onboarding-progress';
+} from '@/components/onboarding/onboarding-progress';
+import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
-import { isStoppedStatus } from '@/components/tool-calls/warehouse-setup-progress';
+import { isStoppedStatus } from '@/components/tool-calls/onboarding/warehouse-setup-progress';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -29,15 +30,16 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from '@/components/ui/dialog';
-import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
-import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding-floating-slot';
-import { StartNewOnboardingProvider } from '@/contexts/onboarding-restart';
+import { AgentProvider, useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding/onboarding-floating-slot';
+import { StartNewOnboardingProvider } from '@/contexts/onboarding/onboarding-restart';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
 import { getOnboardingChatIdStorage } from '@/hooks/use-agent';
 import { ChatIdContext } from '@/hooks/use-chat-id';
 import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useHeight } from '@/hooks/use-height';
+import { useOnboardingCompletion } from '@/hooks/onboarding/use-onboarding-completion';
 import { usePermissions } from '@/hooks/use-permissions';
 import { setActiveProjectId } from '@/lib/active-project';
 import { NEW_CHAT_ID } from '@/lib/ai';
@@ -93,10 +95,8 @@ function OnboardingRoute() {
 }
 
 function OnboardingPage() {
-	const messages = useAgentMessages();
+	const hasMessages = useAgentMessagesSelector(hasSomeMessage);
 	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
-	const progress = useOnboardingProgress();
-	const messageWarehouseJobId = useMemo(() => findWarehouseJobId(messages), [messages]);
 	const isSavedChat = Boolean(chatId && chatId !== NEW_CHAT_ID);
 	const latestWarehouseJob = useQuery({
 		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
@@ -104,9 +104,8 @@ function OnboardingPage() {
 		}),
 		enabled: isSavedChat,
 	});
-	const warehouseJobId = latestWarehouseJob.data?.id ?? messageWarehouseJobId;
-	const warehouseJob = useWarehouseProvisioningJob(warehouseJobId);
-	const { isOrgAdmin } = usePermissions();
+	const { complete: onboardingComplete, projectIsMissing, progress, warehouseJob } = useOnboardingCompletion(chatId);
+	const { isAdmin, isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const waitingForDeployment = isDeployStepReached(progress);
@@ -133,36 +132,45 @@ function OnboardingPage() {
 		refetchOnWindowFocus: 'always',
 	});
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
+	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const billingAccess = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
 		pollWhileRestricted: true,
 	});
+	const holdForMissingSetup =
+		config.data?.cloudBillingEnabled === true &&
+		billingAccess.data?.hasAccess === false &&
+		progress?.flow !== 'github' &&
+		onboardingProject != null;
+	const missingEnvVars = useOnboardingMissingEnvVars(
+		progress,
+		onboardingProject?.id,
+		holdForMissingSetup && !waitingForDeployment,
+	);
+	const showEnvVarsCard = (missingEnvVars?.length ?? 0) > 0;
 	const search = Route.useSearch();
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const actionAreaRef = useRef<HTMLDivElement>(null);
 	const githubConnectionReportedRef = useRef(false);
 	const activatedProjectIdRef = useRef<string | null>(null);
-	const hasMessages = messages.length > 0;
 	const inputAreaHeight = useHeight(inputAreaRef, [hasMessages]);
-	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step]);
+	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step, showEnvVarsCard]);
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
 		...trpc.github.getStatus.queryOptions(),
 		enabled: githubAvailable.data === true,
 		refetchOnWindowFocus: 'always',
 	});
-	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
-	const projectIsMissing = currentProject.isSuccess && currentProject.data === null;
 	const showDeployKey =
+		!showEnvVarsCard &&
 		(progress?.flow === 'new' || progress?.flow === 'local') &&
 		(progress.step === 3 || (progress.step === 4 && projectIsMissing));
 	const showImportProviderCard =
 		progress?.flow === 'github' &&
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
-	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
-	const onboardingComplete = isOnboardingComplete(onboardingProject != null, progress, warehouseReady);
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const setupStatus = latestWarehouseJob.data?.status;
 	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
@@ -173,6 +181,14 @@ function OnboardingPage() {
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (createdProject) {
+			queryClient
+				.invalidateQueries({ queryKey: trpc.project.isCurrentSetupComplete.queryKey() })
+				.catch(console.error);
+		}
+	}, [createdProject, queryClient]);
 
 	useEffect(() => {
 		if (warehouseReady) {
@@ -205,14 +221,26 @@ function OnboardingPage() {
 
 	useEffect(() => {
 		const project = onboardingProject;
-		if (!onboardingComplete || !project || !session?.user.id || activatedProjectIdRef.current === project.id) {
+		if (
+			(!onboardingComplete && !waitingForDeployment && !holdForMissingSetup) ||
+			!project ||
+			!session?.user.id ||
+			activatedProjectIdRef.current === project.id
+		) {
 			return;
 		}
 
 		activatedProjectIdRef.current = project.id;
 		setActiveProjectId(project.id);
 		queryClient.invalidateQueries().catch(console.error);
-	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id]);
+	}, [
+		holdForMissingSetup,
+		onboardingComplete,
+		onboardingProject,
+		queryClient,
+		session?.user.id,
+		waitingForDeployment,
+	]);
 
 	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();
@@ -317,7 +345,7 @@ function OnboardingPage() {
 							) : githubAvailable.data ? (
 								<ImportProviderCard
 									providerLabel='GitHub'
-									icon={Github}
+									icon={GithubIcon}
 									connectHref='/api/github/connect?returnTo=%2Fonboarding'
 									connectTarget='github-oauth'
 									resourceNounSingular='repository'
@@ -328,14 +356,37 @@ function OnboardingPage() {
 									pickerDialogStyle={importDialogStyle}
 									Picker={GitHubRepoPicker}
 									onImported={(project) =>
-										queueOrSendMessage({
-											text: `GitHub repository imported successfully as "${project.projectName}".`,
-										}).catch(console.error)
+										queueOrSendMessage({ text: formatImportedMessage(project) }).catch(
+											console.error,
+										)
 									}
 								/>
 							) : (
 								<p className='text-sm text-muted-foreground'>
 									GitHub OAuth is not configured for this nao instance.
+								</p>
+							)}
+						</div>
+					)}
+					{showEnvVarsCard && (
+						<div
+							ref={actionAreaRef}
+							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 max-h-[50vh] w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 overflow-y-auto rounded-xl border border-violet/20 bg-background p-5 shadow-lg'
+						>
+							{isAdmin ? (
+								<EnvVarsSection
+									isAdmin
+									unstyled
+									onSaved={(savedEnvVars) =>
+										queueOrSendMessage({
+											text: formatSavedEnvVarsMessage(missingEnvVars ?? [], savedEnvVars),
+										}).catch(console.error)
+									}
+								/>
+							) : (
+								<p className='text-sm text-muted-foreground'>
+									A project admin must set these environment variables before nao can connect:{' '}
+									<span className='font-mono text-foreground'>{missingEnvVars?.join(', ')}</span>
 								</p>
 							)}
 						</div>
@@ -353,25 +404,7 @@ function OnboardingPage() {
 					<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background via-80% to-transparent pt-12'>
 						<div ref={inputAreaRef} className='pointer-events-auto bg-background'>
 							{onboardingComplete ? (
-								<div className='flex flex-col items-center gap-2 pb-4 pt-2'>
-									<p className='text-center text-sm font-medium text-violet'>
-										{trialActive
-											? 'Project created! Your free trial is active.'
-											: 'Project setup successful!'}
-									</p>
-									<Button
-										asChild
-										className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
-									>
-										<Link to='/'>
-											Start chatting
-											<ArrowRight className='size-4' />
-										</Link>
-									</Button>
-									<p className='text-center text-sm text-muted-foreground'>
-										This onboarding conversation is complete.
-									</p>
-								</div>
+								<OnboardingCompleteActions trialActive={trialActive} />
 							) : (
 								<ChatInput variant='onboarding' />
 							)}
@@ -380,51 +413,108 @@ function OnboardingPage() {
 				</>
 			) : (
 				<div className='flex flex-1 flex-col items-center justify-center gap-6 p-4'>
-					<div className='max-w-2xl space-y-2 text-center'>
-						<h1 className='font-borna text-2xl tracking-tight md:text-3xl'>Set up your nao project</h1>
-						<p className='text-sm text-muted-foreground'>
-							Tell the onboarding agent what you already have, and it will guide you from there.
-						</p>
-					</div>
-					<div className='flex w-full max-w-2xl flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3'>
-						<div className='flex items-start gap-2'>
-							<HelpCircle className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
-							<div className='flex flex-col gap-0.5'>
-								<span className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
-									Quick question
-								</span>
-								<p className='text-sm leading-relaxed'>
-									Would you like to import a project or simply connect your warehouse?
+					{onboardingComplete ? (
+						<OnboardingCompleteActions trialActive={trialActive} />
+					) : (
+						<>
+							<div className='max-w-2xl space-y-2 text-center'>
+								<h1 className='font-borna text-2xl tracking-tight md:text-3xl'>
+									Set up your nao project
+								</h1>
+								<p className='text-sm text-muted-foreground'>
+									Tell the onboarding agent what you already have, and it will guide you from there.
 								</p>
 							</div>
-						</div>
-						<div className='flex flex-wrap gap-2 pl-6'>
-							<Button
-								variant='outline'
-								size='sm'
-								disabled={isRunning}
-								onClick={() => queueOrSendMessage({ text: 'Import project' }).catch(console.error)}
-								className='h-auto min-h-7 rounded-2xl py-1'
-							>
-								Import project
-							</Button>
-							<Button
-								variant='outline'
-								size='sm'
-								disabled={isRunning}
-								onClick={() => queueOrSendMessage({ text: 'Connect warehouse' }).catch(console.error)}
-								className='h-auto min-h-7 rounded-2xl py-1'
-							>
-								Connect warehouse
-							</Button>
-						</div>
-						<p className='pl-6 text-xs text-muted-foreground'>
-							Choose an option, or type your answer below.
-						</p>
-					</div>
-					<ChatInput variant='onboarding' />
+							<div className='flex w-full max-w-2xl flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3'>
+								<div className='flex items-start gap-2'>
+									<HelpCircle className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
+									<div className='flex flex-col gap-0.5'>
+										<span className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
+											Quick question
+										</span>
+										<p className='text-sm leading-relaxed'>
+											Would you like to import a project or simply connect your warehouse?
+										</p>
+									</div>
+								</div>
+								<div className='flex flex-wrap gap-2 pl-6'>
+									<Button
+										variant='outline'
+										size='sm'
+										disabled={isRunning}
+										onClick={() =>
+											queueOrSendMessage({ text: 'Import project' }).catch(console.error)
+										}
+										className='h-auto min-h-7 rounded-2xl py-1'
+									>
+										Import project
+									</Button>
+									<Button
+										variant='outline'
+										size='sm'
+										disabled={isRunning}
+										onClick={() =>
+											queueOrSendMessage({ text: 'Connect warehouse' }).catch(console.error)
+										}
+										className='h-auto min-h-7 rounded-2xl py-1'
+									>
+										Connect warehouse
+									</Button>
+								</div>
+								<p className='pl-6 text-xs text-muted-foreground'>
+									Choose an option, or type your answer below.
+								</p>
+							</div>
+							<ChatInput variant='onboarding' />
+						</>
+					)}
 				</div>
 			)}
 		</div>
 	);
+}
+
+function formatImportedMessage(project: ImportedProject): string {
+	const imported = `GitHub repository imported successfully as "${project.projectName}".`;
+	const gaps: string[] = [];
+	if (project.missingDatabase) {
+		gaps.push('No database is configured in nao_config.yaml.');
+	}
+	if (project.missingEnvVars.length > 0) {
+		gaps.push(`Missing environment variables: ${project.missingEnvVars.join(', ')}.`);
+		gaps.push(
+			project.canEditEnvVars
+				? 'This user is a project admin and can edit the environment variables card.'
+				: 'This user is not a project admin and cannot edit the environment variables card.',
+		);
+	}
+	return gaps.length === 0 ? imported : `${imported} Onboarding is not complete yet. ${gaps.join(' ')}`;
+}
+
+function formatSavedEnvVarsMessage(missingEnvVars: string[], savedEnvVars: Record<string, string>): string {
+	const stillMissing = missingEnvVars.filter((name) => !savedEnvVars[name]?.trim());
+	return stillMissing.length === 0
+		? 'I saved all the environment variables.'
+		: `I saved the environment variables. Still missing environment variables: ${stillMissing.join(', ')}.`;
+}
+
+function OnboardingCompleteActions({ trialActive }: { trialActive: boolean }) {
+	return (
+		<div className='flex flex-col items-center gap-2 pb-4'>
+			<p className='text-center text-sm font-medium text-violet'>
+				{trialActive ? 'Project created! Your free trial is active.' : 'Project setup successful!'}
+			</p>
+			<Button asChild className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'>
+				<Link to='/'>
+					Start chatting
+					<ArrowRight className='size-4' />
+				</Link>
+			</Button>
+			<p className='text-center text-sm text-muted-foreground'>This onboarding conversation is complete.</p>
+		</div>
+	);
+}
+
+function hasSomeMessage(messages: UIMessage[]): boolean {
+	return messages.length > 0;
 }

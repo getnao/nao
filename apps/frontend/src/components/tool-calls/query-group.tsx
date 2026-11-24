@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { pluralize } from '@nao/shared';
+import { formatCount, pluralize } from '@nao/shared';
 import { ToolCall } from './index';
 import type { UIToolPart } from '@nao/backend/chat';
 import type { GroupablePart } from '@/types/ai';
@@ -10,6 +10,7 @@ import { isReasoningPart, isQueryToolPart } from '@/lib/ai';
 import { getLatestToolActivityLabel } from '@/lib/tool-activity';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
 import { MIN_TITLE_DISPLAY_MS } from '@/hooks/use-tool-group-summary-title';
+import { getToolCallIds, useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 
 interface Props {
 	parts: GroupablePart[];
@@ -27,6 +28,8 @@ export const QueryGroup = memo(({ parts, isSettled }: Props) => {
 	useEffect(() => {
 		setIsExpanded(isLoading || shouldStayOpenOnError);
 	}, [isLoading, shouldStayOpenOnError]);
+
+	useExpandOnToolCallReveal(getToolCallIds(parts), setIsExpanded);
 
 	const queryParts = useMemo(() => {
 		return parts.filter(isQueryToolPart);
@@ -99,5 +102,5 @@ const formatTotalRows = (queryParts: UIToolPart[]): string | undefined => {
 			hasOutput = true;
 		}
 	}
-	return hasOutput ? `${total.toLocaleString()} ${pluralize('row', total)}` : undefined;
+	return hasOutput ? formatCount(total, 'row') : undefined;
 };

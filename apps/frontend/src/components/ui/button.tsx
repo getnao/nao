@@ -33,6 +33,7 @@ const buttonVariants = cva(
 			size: {
 				default: 'h-9 px-4 py-2',
 				sm: "h-7 rounded-md gap-2 px-3 [&_svg:not([class*='size-'])]:size-3.5",
+				pill: "h-7 rounded-full gap-1.5 px-3 text-xs [&_svg:not([class*='size-'])]:size-3.5",
 				lg: 'h-10 rounded-md px-6',
 				icon: 'size-9',
 				'icon-xs': "size-6 [&_svg:not([class*='size-'])]:size-3.5",
@@ -95,7 +96,12 @@ function ButtonConnection({ children }: React.ComponentProps<'button'>) {
 	);
 }
 
-function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'button'> & { showStop: boolean }) {
+function ChatSendButton({
+	showStop,
+	disabled,
+	icon,
+	...props
+}: React.ComponentProps<'button'> & { showStop: boolean; icon?: React.ReactNode }) {
 	disabled = !showStop && disabled;
 
 	return (
@@ -109,7 +115,7 @@ function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'
 			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />
 			) : (
-				<ArrowUpIcon className='size-4' />
+				(icon ?? <ArrowUpIcon className='size-4' />)
 			)}
 		</Button>
 	);
@@ -119,10 +125,12 @@ function MicButton({
 	state,
 	onClick,
 	disabled,
+	className,
 }: {
 	state: 'idle' | 'recording' | 'transcribing';
 	onClick: () => void;
 	disabled?: boolean;
+	className?: string;
 }) {
 	const isRecording = state === 'recording';
 	const isTranscribing = state === 'transcribing';
@@ -133,11 +141,12 @@ function MicButton({
 			onClick={onClick}
 			disabled={disabled || isTranscribing}
 			aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-			className={`
-				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
-				disabled:pointer-events-none disabled:opacity-50
-				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent'}
-			`}
+			className={cn(
+				'inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer',
+				'disabled:pointer-events-none disabled:opacity-50',
+				isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent',
+				className,
+			)}
 		>
 			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}
 		</button>

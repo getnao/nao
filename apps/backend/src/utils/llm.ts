@@ -4,17 +4,19 @@ import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shar
 import { managedAiSource, type ManagedAiUsageContext } from '../agents/managed-ai';
 import {
 	createProviderModel,
+	getContextWindow,
 	getDefaultModelId,
 	getProviderMeta,
 	isManagedProvider,
 	LLM_PROVIDERS,
 	type ProviderModelResult,
 } from '../agents/providers';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type {
 	CustomModelMetadata,
+	ModelInferenceSettings,
 	ModelRequest,
 	ModelSettingsMap,
 	ModelSource,
@@ -22,6 +24,7 @@ import type {
 	ProviderSettings,
 } from '../types/llm';
 import { type ConfigLlm, type ConfigLlmProvider, findConfigLlmProvider, readProjectConfigLlm } from './nao-config-llm';
+import { fetchPublicUrl } from './safe-fetch';
 
 export { getDefaultModelId };
 
@@ -29,6 +32,19 @@ export { getDefaultModelId };
 export function getEnvApiKey(provider: LlmProvider): string | undefined {
 	const { envVar } = getProviderMeta(provider);
 	return envVar ? process.env[envVar] : undefined;
+}
+
+/**
+ * On cloud a base URL set on a project comes from a tenant, so its requests may only reach public
+ * addresses. Base URLs from the environment are the operator's and stay unrestricted.
+ */
+export function projectEndpointSettings(
+	baseUrl: string | null | undefined,
+): Pick<ProviderSettings, 'baseURL' | 'fetch'> {
+	if (!baseUrl) {
+		return {};
+	}
+	return { baseURL: baseUrl, ...(isCloud && { fetch: fetchPublicUrl as typeof fetch }) };
 }
 
 /** Get the base URL from environment for a provider (e.g. OPENAI_BASE_URL) */
@@ -131,6 +147,7 @@ export async function resolveProviderModel(
 	modelId: string,
 	applyUserSettings = true,
 	usageContext?: ManagedAiUsageContext,
+	inferenceOverrides?: ModelInferenceSettings,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
@@ -141,14 +158,51 @@ export async function resolveProviderModel(
 		modelId,
 		applyUserSettings,
 		usageContext,
+		inferenceOverrides,
 	};
 	for (const source of getSourcesServing(provider)) {
 		const result = await source.resolveModel(request);
 		if (result) {
-			return result;
+			const declaredContextWindow = await getDeclaredContextWindow(projectId, provider, modelId);
+			return { ...result, contextWindow: declaredContextWindow ?? result.contextWindow };
 		}
 	}
 	return null;
+}
+
+/** The context window of a model: the one the project declares for it wins over nao's catalogue. */
+export async function resolveContextWindow(projectId: string, provider: LlmProvider, modelId: string): Promise<number> {
+	return (await getDeclaredContextWindow(projectId, provider, modelId)) ?? getContextWindow(provider, modelId);
+}
+
+async function getDeclaredContextWindow(
+	projectId: string,
+	provider: LlmProvider,
+	modelId: string,
+): Promise<number | undefined> {
+	if (isManagedProvider(provider)) {
+		return undefined;
+	}
+	const declaredModels = await getProjectDeclaredModels(projectId);
+	const declared = declaredModels.find((d) => d.provider === provider)?.models.find((m) => m.id === modelId);
+	return declared?.contextWindow;
+}
+
+/** The admin's settings of a model, from the same source that would serve it. */
+export async function resolveModelInferenceSettings(
+	projectId: string,
+	provider: LlmProvider,
+	modelId: string,
+): Promise<ModelInferenceSettings> {
+	for (const source of getSourcesServing(provider)) {
+		const settings = source.resolveModelSettings
+			? await source.resolveModelSettings(projectId, provider, modelId)
+			: {};
+		if (settings) {
+			return settings;
+		}
+	}
+	return {};
 }
 
 /** Read the `llm` block of the project's nao_config.yaml, if the project has one on disk. */
@@ -163,11 +217,12 @@ export async function getProjectConfigLlm(projectId: string): Promise<ConfigLlm 
 /** Credentials from nao_config.yaml, topped up from the environment for whatever it leaves out. */
 function toProviderSettings(configured: ConfigLlmProvider): ProviderSettings {
 	const apiKey = configured.apiKey ?? getEnvApiKey(configured.provider) ?? '';
-	const baseURL = configured.baseUrl ?? getEnvBaseUrl(configured.provider);
+	const envBaseURL = getEnvBaseUrl(configured.provider);
 
 	return {
 		apiKey,
-		...(baseURL && { baseURL }),
+		...(envBaseURL && { baseURL: envBaseURL }),
+		...projectEndpointSettings(configured.baseUrl),
 		...(configured.credentials && { credentials: configured.credentials }),
 	};
 }
@@ -477,12 +532,17 @@ function credentialSource(source: CredentialSource): ModelSource {
 		async resolveSettings(projectId, provider) {
 			return (await source.findAccess(projectId, provider))?.settings ?? null;
 		},
-		async resolveModel({ projectId, provider, modelId, applyUserSettings }) {
+		async resolveModelSettings(projectId, provider, modelId) {
+			const access = await source.findAccess(projectId, provider);
+			return access ? (access.modelSettings?.[modelId] ?? {}) : null;
+		},
+		async resolveModel({ projectId, provider, modelId, applyUserSettings, inferenceOverrides }) {
 			const access = await source.findAccess(projectId, provider);
 			if (!access) {
 				return null;
 			}
-			const inferenceSettings = applyUserSettings ? access.modelSettings?.[modelId] : undefined;
+			const userSettings = applyUserSettings ? access.modelSettings?.[modelId] : undefined;
+			const inferenceSettings = inferenceOverrides ? { ...userSettings, ...inferenceOverrides } : userSettings;
 			return createProviderModel(provider, access.settings, modelId, inferenceSettings);
 		},
 	};
@@ -505,7 +565,7 @@ const projectConfigSource = credentialSource({
 		}
 		const settings = {
 			apiKey: config.apiKey,
-			...(config.baseUrl && { baseURL: config.baseUrl }),
+			...projectEndpointSettings(config.baseUrl),
 			...(config.credentials && { credentials: config.credentials }),
 		};
 		return { settings, modelSettings: config.modelSettings };

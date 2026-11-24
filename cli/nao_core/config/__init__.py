@@ -27,9 +27,10 @@ from .llm import (
 )
 from .metabase import MetabaseConfig
 from .obsidian import ObsidianConfig
+from .query_tag import QueryTagConfig, QueryTagPosition
 from .slack import SlackConfig
 from .tableau import TableauConfig
-from .test import ComparisonConfig, TestConfig
+from .test import ComparisonConfig, TestConfig, TestModelConfig
 
 __all__ = [
     "NaoConfig",
@@ -57,10 +58,13 @@ __all__ = [
     "SlackConfig",
     "MetabaseConfig",
     "TableauConfig",
+    "QueryTagConfig",
+    "QueryTagPosition",
     "ConfluenceConfig",
     "ObsidianConfig",
     "ComparisonConfig",
     "TestConfig",
+    "TestModelConfig",
     "InitError",
     "resolve_project_path",
 ]

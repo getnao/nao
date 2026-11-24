@@ -20,6 +20,7 @@ import type {
 	MessageGroup,
 } from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
+import { ONBOARDING_CARD_TOOLS } from '@/components/tool-calls/onboarding/card-tools';
 import { getStoryToolPartSlug } from '@/lib/story.utils';
 
 /** The ID used for new chats not yet persisted to the db. */
@@ -53,59 +54,13 @@ export const isToolInputStreaming = (part: ToolUIPart) => {
  * Check if the agent is actively generating content (streaming text or executing tools).
  * Returns true if any part is streaming or any tool is not yet settled.
  */
-export const checkIsLastMessageStreaming = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return isMessageStreaming(lastMessage) || isSummarizing(lastMessage);
-};
-
-const isSummarizing = ({ parts }: UIMessage) => {
-	return parts.at(-1)?.type === 'data-compactionSummaryStarted';
-};
-
-export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
-	const lastMessage = messages.at(-1);
-	if (!lastMessage) {
-		return false;
-	}
-	return lastMessage.parts.some((part) => isToolUIPart(part) && isToolExecuting(part));
-};
-
-const isToolExecuting = (part: UIToolPart) => {
-	return part.state === 'input-available' || (part.state === 'output-available' && part.preliminary === true);
-};
-
-export const isMessageStreaming = (message: UIMessage) => {
-	return message.parts.some((part) => {
-		if ('state' in part && (part.state === 'streaming' || part.state === 'input-streaming')) {
-			return true;
-		}
-	});
-};
-
 export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'status'>) => {
 	return agent.status === 'streaming' || agent.status === 'submitted';
 };
 
 /** Tools that should NOT be collapsed (important UI elements), per density setting. */
 const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName | DynamicToolName)[]> = {
-	compact: [
-		'story',
-		'display_chart',
-		'display_map',
-		'suggest_follow_ups',
-		'clarification',
-		'onboarding_agent_prompt',
-		'onboarding_command',
-		'request_warehouse_credentials',
-		'request_warehouse_selection',
-		'wait_for_warehouse_setup',
-		'retry_warehouse_setup',
-		'generate_onboarding_rules',
-		'restart_onboarding',
-	],
+	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification', ...ONBOARDING_CARD_TOOLS],
 	detailed: [
 		'story',
 		'task',
@@ -117,16 +72,9 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'display_map',
 		'suggest_follow_ups',
 		'clarification',
-		'onboarding_agent_prompt',
-		'onboarding_command',
-		'execute_python',
+		'codemode',
 		'execute_sandboxed_code',
-		'request_warehouse_credentials',
-		'request_warehouse_selection',
-		'wait_for_warehouse_setup',
-		'retry_warehouse_setup',
-		'generate_onboarding_rules',
-		'restart_onboarding',
+		...ONBOARDING_CARD_TOOLS,
 	],
 };
 
@@ -223,6 +171,35 @@ export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], rig
 };
 
 /**
+ * Keys grouped parts by their first underlying part, which stays put as later parts stream in or regroup.
+ * Tool parts use their tool call id; other parts use their rank among parts of the same type.
+ */
+export const getGroupedPartKeys = (parts: GroupedMessagePart[]): string[] => {
+	const countByType = new Map<string, number>();
+	const keyLeaf = (leaf: GroupedMessagePart): string => {
+		const toolCallId = getLeafToolCallId(leaf);
+		if (toolCallId) {
+			return toolCallId;
+		}
+		const rank = countByType.get(leaf.type) ?? 0;
+		countByType.set(leaf.type, rank + 1);
+		return `${leaf.type}-${rank}`;
+	};
+	return parts.map((part) => flattenGroupedPart(part).map(keyLeaf)[0]);
+};
+
+const flattenGroupedPart = (part: GroupedMessagePart): GroupedMessagePart[] => {
+	return isGroupPart(part) ? part.parts.flatMap(flattenGroupedPart) : [part];
+};
+
+const getLeafToolCallId = (part: GroupedMessagePart): string | undefined => {
+	if (isStoryStatusPart(part)) {
+		return part.part.toolCallId;
+	}
+	return !isGroupPart(part) && isToolUIPart(part) ? part.toolCallId : undefined;
+};
+
+/**
  * Groups consecutive collapsible parts (tools and reasoning) into 'tool-group' parts.
  * Non-collapsible tools (depending on the density setting) and other message parts are returned as-is.
  */
@@ -252,6 +229,7 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 			part.type === 'text' ||
 			part.type === 'data-compaction' ||
 			part.type === 'data-compactionSummaryStarted' ||
+			part.type === 'data-steer' ||
 			isToolUIPart(part)
 		) {
 			flushGroup();
@@ -323,23 +301,41 @@ const getReasoningParts = (part: GroupedMessagePart): ReasoningUIPart[] | null =
 
 /** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */
 const collapseSupersededStoryActions = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
-	const latestIndexBySlug = new Map<string, number>();
-	for (const [index, part] of parts.entries()) {
-		const slug = isStoryToolPart(part) ? getStoryToolPartSlug(part) : undefined;
-		if (slug) {
-			latestIndexBySlug.set(slug, index);
+	const storyKeys = getStoryKeys(parts);
+	const latestIndexByStory = new Map<string, number>();
+	for (const [index, storyKey] of storyKeys.entries()) {
+		if (storyKey) {
+			latestIndexByStory.set(storyKey, index);
 		}
 	}
 
 	return parts.map((part, index) => {
-		if (!isStoryToolPart(part)) {
-			return part;
-		}
-		const slug = getStoryToolPartSlug(part);
-		if (!slug || latestIndexBySlug.get(slug) === index) {
+		const storyKey = storyKeys[index];
+		if (!isStoryToolPart(part) || !storyKey || latestIndexByStory.get(storyKey) === index) {
 			return part;
 		}
 		return { type: 'story-status', part };
+	});
+};
+
+/**
+ * Stories of other chats may share a slug, so story calls are told apart by story id.
+ * A call that reached no story, such as a failed create, falls back on its slug.
+ */
+const getStoryKeys = (parts: GroupedMessagePart[]): (string | undefined)[] => {
+	const storyIdBySlug = new Map<string, string>();
+	for (const part of parts) {
+		if (isStoryToolPart(part) && part.output?.story_id) {
+			storyIdBySlug.set(part.output.id, part.output.story_id);
+		}
+	}
+
+	return parts.map((part) => {
+		if (!isStoryToolPart(part)) {
+			return undefined;
+		}
+		const slug = getStoryToolPartSlug(part);
+		return part.output?.story_id ?? (slug && (storyIdBySlug.get(slug) ?? slug));
 	});
 };
 
@@ -416,7 +412,7 @@ const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
 	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
 };
 
-/** The backend promotes the note Claude writes before `suggest_follow_ups` to the visible answer, which makes the note redundant. */
+/** Older messages repeat the note Claude wrote before `suggest_follow_ups` as the visible answer, which makes the note redundant. */
 const isProgressUpdateShownAsText = (part: UIMessagePart, next: UIMessagePart | undefined): boolean => {
 	return isProgressUpdatePart(part) && next?.type === 'text' && next.text.trim() === part.text.trim();
 };
@@ -435,7 +431,11 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 	return false;
 };
 
-const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
+export const haveSameToolCallIds = <T extends { toolCallId: string }>(left: T[], right: T[]): boolean => {
+	return left.length === right.length && left.every((item, index) => item.toolCallId === right[index].toolCallId);
+};
+
+export const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
 	const leftOutput = 'output' in left ? left.output : undefined;
 	const rightOutput = 'output' in right ? right.output : undefined;
 	const leftErrorText = 'errorText' in left ? left.errorText : undefined;
@@ -752,6 +752,16 @@ export function parseChatAllowanceExhaustedError(error: Error | undefined): Chat
 		return 'onboarding';
 	}
 	return null;
+}
+
+export function usesChatAllowance(hasProject: boolean, mode: string | undefined): boolean {
+	return !hasProject || mode === 'example' || mode === 'onboarding';
+}
+
+const ONBOARDING_COMPLETE_ERROR = 'Onboarding conversations are unavailable after project setup';
+
+export function isOnboardingCompleteError(error: Error | undefined): boolean {
+	return error?.message.includes(ONBOARDING_COMPLETE_ERROR) === true;
 }
 
 function parseCodedError(error: Error | undefined, code: string): string | null {

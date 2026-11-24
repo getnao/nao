@@ -7,6 +7,7 @@ import { env } from '../env';
 import { llmProviderSchema } from '../types/llm';
 import type { DiscordSettings } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
+import { updateProjectSettings } from './project-settings.queries';
 
 export const getProjectDiscordConfig = async (projectId: string): Promise<DiscordConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -61,28 +62,14 @@ export const updateProjectDiscordModel = async (
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.discordSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				discordSettings: {
-					...existing,
-					discordBotToken: existing?.discordBotToken ?? '',
-					discordApplicationId: existing?.discordApplicationId ?? '',
-					discordPublicKey: existing?.discordPublicKey ?? '',
-					discordLlmProvider: modelProvider ?? '',
-					discordLlmModelId: modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'discordSettings', (existing) => ({
+		...existing,
+		discordBotToken: existing?.discordBotToken ?? '',
+		discordApplicationId: existing?.discordApplicationId ?? '',
+		discordPublicKey: existing?.discordPublicKey ?? '',
+		discordLlmProvider: modelProvider ?? '',
+		discordLlmModelId: modelId ?? '',
+	}));
 };
 
 export const deleteProjectDiscordConfig = async (projectId: string): Promise<void> => {

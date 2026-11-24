@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import fsSync from 'node:fs';
 import path from 'node:path';
 
+import { hasUnclosedContextFileHeader } from '@nao/shared/context-file-header';
+import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import type {
 	ContextGitUnavailableReason,
 	FileContentResponse,
@@ -16,26 +18,39 @@ import { TRPCError } from '@trpc/server';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
+import type { DBContextDraftFile } from '../db/abstractSchema';
+import { isContextBranchOwnedByUser } from '../queries/context-branch-ownership.queries';
+import type { DraftOwner } from '../queries/context-draft.queries';
+import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
+import { extractRepoTargetFolders } from '../utils/nao-config';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
 	BUILT_IN_EXCLUSION_GLOBS,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
+	type NaoignoreOptions,
 	shouldExcludeEntry,
 	toRealPath,
 	toVirtualPath,
 } from '../utils/tools';
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
+import { readCurrentBranch, readDefaultBranch } from './context-explorer-git/git-guards';
+import { isProductionOnly } from './draft-context.service';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
-const MAX_SEARCH_FILES = 200;
+export const MAX_SEARCH_FILES = 200;
+export const MAX_SEARCH_PREVIEW_LENGTH = 500;
 export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
+/** Context admins manage tests here, while .naoignore keeps them away from the agent. */
+const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: [TESTS_FOLDER] };
+const EDITABLE: FileEditability = { isEditable: true, reason: null, guidance: null };
+const SYNCED_SOURCE_FOLDERS = ['repos', 'docs/notion', 'docs/confluence', 'docs/obsidian'];
 
 export interface FileEditability {
 	isEditable: boolean;
@@ -46,6 +61,8 @@ export interface FileEditability {
 export interface ContextExplorerFileAccess {
 	projectFolder: string;
 	git: ContextExplorerGitResolution;
+	/** Whose nao draft receives the edits when the project has no context repository. */
+	draftOwner: DraftOwner;
 }
 
 type RipgrepMatchEntry = {
@@ -77,14 +94,16 @@ export async function readFileContent(
 			guidance: guidanceForReason('no-repo'),
 		};
 	}
+	if (isNaoDraftAccess(access)) {
+		return readNaoDraftFileContent(filePath, access);
+	}
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
-	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
-	const readPath =
-		repo && trackedPaths.has(normalizeProjectPath(filePath))
-			? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
-			: livePath;
+	const editability =
+		(repo && (await readBranchEditability(repo, access))) ??
+		getFileEditability(filePath, livePath, access, repo, trackedPaths);
+	const readPath = getReadPath(filePath, livePath, repo, trackedPaths);
 	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
 		content: decodeTextContent(contentBuffer),
@@ -93,6 +112,28 @@ export async function readFileContent(
 		reason: editability.reason,
 		guidance: editability.guidance ?? undefined,
 	};
+}
+
+/**
+ * The start of each file, read where the explorer reads it, long enough to hold its frontmatter: a frontmatter that
+ * does not close within the first bytes is read to its end. Files that cannot be read are left out.
+ */
+export async function readFileHeads(
+	filePaths: string[],
+	access: ContextExplorerFileAccess,
+): Promise<{ path: string; content: string }[]> {
+	const draftContents = isNaoDraftAccess(access)
+		? new Map(
+				(await contextDraftQueries.listDraftFiles(access.draftOwner)).map((file) => [file.path, file.content]),
+			)
+		: new Map<string, string>();
+	const repo = availableRepo(access.git);
+	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	return filePaths.flatMap((filePath) => {
+		const draftContent = draftContents.get(normalizeProjectPath(filePath));
+		const content = draftContent ?? readHeadAt(filePath, access, repo, trackedPaths);
+		return content === null ? [] : [{ path: filePath, content }];
+	});
 }
 
 export async function writeFileContent(
@@ -108,12 +149,16 @@ export async function writeFileContent(
 	const contentBuffer = Buffer.from(content, 'utf-8');
 	validateContentBuffer(contentBuffer);
 
+	if (isNaoDraftAccess(access)) {
+		return writeNaoDraftFile(filePath, contentBuffer, expectedHash, access);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
 	const repo = access.git.repo;
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const trackedPaths = getCommittedProjectPaths(repo);
+	await assertBranchEditable(repo, access);
 	assertFileEditable(filePath, livePath, access, repo, trackedPaths);
 	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
 	const currentContent = await readValidatedFile(realPath, filePath);
@@ -147,7 +192,18 @@ export function getFileEditability(
 	if (access.git.status === 'unavailable') {
 		return unavailableGitEditability(access.git.reason, access.git.message, access.git.repo?.provider);
 	}
+	const sourceEditability = getSourceEditability(filePath, realPath, access.projectFolder);
+	if (sourceEditability) {
+		return sourceEditability;
+	}
+	if (!repo || (!trackedPaths.has(normalizeProjectPath(filePath)) && !isWorktreeDraft(filePath, realPath, repo))) {
+		return readOnly('not-tracked', guidanceForReason('not-tracked'));
+	}
+	return EDITABLE;
+}
 
+/** Files that another source produces, so editing them here would be overwritten. */
+function getSourceEditability(filePath: string, realPath: string, projectFolder: string): FileEditability | null {
 	const projectPath = normalizeProjectPath(filePath);
 	if (hasGeneratedFrontmatter(realPath)) {
 		const annotationsPath = siblingPathIfExists(filePath, realPath, 'annotations.md');
@@ -174,23 +230,197 @@ export function getFileEditability(
 			actionLabel: 'Open template',
 		});
 	}
-	if (
-		projectPath.startsWith('repos/') ||
-		projectPath.startsWith('docs/notion/') ||
-		projectPath.startsWith('docs/confluence/') ||
-		projectPath.startsWith('docs/obsidian/')
-	) {
-		return readOnly('synced-source', {
-			message: 'This path is replaced by nao sync. Change its source in nao_config.yaml.',
-			actionKind: 'file',
-			actionPath: '/nao_config.yaml',
-			actionLabel: 'Open nao_config.yaml',
+	if (isSyncedSourcePath(projectPath, projectFolder)) {
+		return readOnly('synced-source', null);
+	}
+	return null;
+}
+
+/**
+ * Creates a file that exists neither in the live context nor in the user's worktree.
+ * It lands in the worktree only, so it reaches the context through the usual commit and review flow.
+ */
+export async function createDraftFile(
+	filePath: string,
+	content: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	const contentBuffer = Buffer.from(content, 'utf-8');
+	validateContentBuffer(contentBuffer);
+	if (isNaoDraftAccess(access)) {
+		return addNaoDraftFile(filePath, contentBuffer, access);
+	}
+	if (access.git.status === 'unavailable') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
+	}
+
+	await assertBranchEditable(access.git.repo, access);
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(access.git.repo));
+	assertEditability(getSourceEditability(filePath, livePath, access.projectFolder) ?? EDITABLE);
+	assertFileDoesNotExist(livePath, filePath);
+	assertFileDoesNotExist(realPath, filePath);
+
+	try {
+		fsSync.mkdirSync(path.dirname(realPath), { recursive: true });
+		writeFileAtomically({
+			beforeRename: () => assertFileDoesNotExist(realPath, filePath),
+			content,
+			displayPath: filePath,
+			root,
+			target: realPath,
 		});
+	} catch (error) {
+		throw toFileError(error, filePath);
 	}
-	if (!repo || !trackedPaths.has(projectPath)) {
-		return readOnly('not-tracked', guidanceForReason('not-tracked'));
+
+	return { hash: hashContent(contentBuffer) };
+}
+
+function isNaoDraftAccess(access: ContextExplorerFileAccess): boolean {
+	return access.git.status === 'unavailable' && access.git.reason === 'no-repo';
+}
+
+async function readNaoDraftFileContent(
+	filePath: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileContentResponse> {
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const draftFile = await contextDraftQueries.getDraftFile(access.draftOwner, normalizeProjectPath(filePath));
+	const contentBuffer = draftFile
+		? Buffer.from(draftFile.content, 'utf-8')
+		: await readValidatedFile(livePath, filePath);
+	const editability = getNaoDraftEditability(filePath, livePath, access.projectFolder);
+	return {
+		content: decodeTextContent(contentBuffer),
+		hash: hashContent(contentBuffer),
+		isEditable: editability.isEditable,
+		reason: editability.reason,
+		guidance: editability.guidance ?? undefined,
+	};
+}
+
+/** Saving the production content again removes the file from the draft. */
+async function writeNaoDraftFile(
+	filePath: string,
+	contentBuffer: Buffer,
+	expectedHash: string,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	assertEditability(getNaoDraftEditability(filePath, livePath, access.projectFolder));
+	const projectPath = normalizeProjectPath(filePath);
+	const draftFile = await contextDraftQueries.getDraftFile(access.draftOwner, projectPath);
+	const liveContent = fsSync.existsSync(livePath) ? await readValidatedFile(livePath, filePath) : null;
+	const currentContent = draftFile ? Buffer.from(draftFile.content, 'utf-8') : liveContent;
+	if (!currentContent) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `File not found: ${filePath}` });
 	}
-	return { isEditable: true, reason: null, guidance: null };
+	assertExpectedHash(currentContent, expectedHash);
+
+	const isSaved = liveContent?.equals(contentBuffer)
+		? await removeNaoDraftFileUnlessChanged(access.draftOwner, projectPath, draftFile)
+		: await contextDraftQueries.saveDraftFile(
+				access.draftOwner,
+				{
+					path: projectPath,
+					content: contentBuffer.toString('utf-8'),
+					baseHash: liveContent ? hashContent(liveContent) : null,
+				},
+				draftFile?.content ?? null,
+			);
+	if (!isSaved) {
+		throw fileChangedError();
+	}
+	return { hash: hashContent(contentBuffer) };
+}
+
+async function removeNaoDraftFileUnlessChanged(
+	owner: DraftOwner,
+	projectPath: string,
+	draftFile: DBContextDraftFile | null,
+): Promise<boolean> {
+	return !draftFile || contextDraftQueries.deleteDraftFileIfUnchanged(owner, projectPath, draftFile.content);
+}
+
+async function addNaoDraftFile(
+	filePath: string,
+	contentBuffer: Buffer,
+	access: ContextExplorerFileAccess,
+): Promise<FileWriteResponse> {
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	assertEditability(getNaoDraftEditability(filePath, livePath, access.projectFolder));
+	assertFileDoesNotExist(livePath, filePath);
+	const added = await contextDraftQueries.addDraftFile(access.draftOwner, {
+		path: normalizeProjectPath(filePath),
+		content: contentBuffer.toString('utf-8'),
+	});
+	if (!added) {
+		throw new TRPCError({ code: 'CONFLICT', message: `A file already exists at ${filePath}.` });
+	}
+	return { hash: hashContent(contentBuffer) };
+}
+
+/** Folders `nao sync` replaces, among them the folders the repositories' targets are synced to. */
+function isSyncedSourcePath(projectPath: string, projectFolder: string): boolean {
+	return [...SYNCED_SOURCE_FOLDERS, ...extractRepoTargetFolders(projectFolder)].some((folder) =>
+		projectPath.startsWith(`${folder}/`),
+	);
+}
+
+function getNaoDraftEditability(filePath: string, livePath: string, projectFolder: string): FileEditability {
+	const sourceEditability = getSourceEditability(filePath, livePath, projectFolder);
+	if (sourceEditability) {
+		return sourceEditability;
+	}
+	if (isProductionOnly(normalizeProjectPath(filePath))) {
+		return readOnly('production-only', null);
+	}
+	return EDITABLE;
+}
+
+function getReadPath(
+	filePath: string,
+	livePath: string,
+	repo: ResolvedContextRepo | null,
+	trackedPaths: Set<string>,
+): string {
+	return repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
+		? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
+		: livePath;
+}
+
+function readHeadAt(
+	filePath: string,
+	access: ContextExplorerFileAccess,
+	repo: ResolvedContextRepo | null,
+	trackedPaths: Set<string>,
+): string | null {
+	try {
+		const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+		const readPath = getReadPath(filePath, livePath, repo, trackedPaths);
+		const head = readFileHead(readPath);
+		return head !== null && hasUnclosedContextFileHeader(head)
+			? readValidatedContextFileSync(readPath, filePath).toString('utf-8')
+			: head;
+	} catch {
+		return null;
+	}
+}
+
+/** A file the user created in their worktree that the live context does not have yet. */
+function isWorktreeDraft(filePath: string, livePath: string, repo: ResolvedContextRepo): boolean {
+	if (fsSync.existsSync(livePath)) {
+		return false;
+	}
+	const worktreePath = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath;
+	return fsSync.lstatSync(worktreePath, { throwIfNoEntry: false })?.isFile() ?? false;
+}
+
+function assertFileDoesNotExist(filePath: string, displayPath: string): void {
+	if (fsSync.lstatSync(filePath, { throwIfNoEntry: false })) {
+		throw new TRPCError({ code: 'CONFLICT', message: `A file already exists at ${displayPath}.` });
+	}
 }
 
 export function assertFileEditable(
@@ -200,7 +430,33 @@ export function assertFileEditable(
 	repo: ResolvedContextRepo | null,
 	trackedPaths: Set<string>,
 ): void {
-	const editability = getFileEditability(filePath, realPath, access, repo, trackedPaths);
+	assertEditability(getFileEditability(filePath, realPath, access, repo, trackedPaths));
+}
+
+async function assertBranchEditable(repo: ResolvedContextRepo, access: ContextExplorerFileAccess): Promise<void> {
+	const editability = await readBranchEditability(repo, access);
+	if (editability) {
+		assertEditability(editability);
+	}
+}
+
+/** A branch of another user is only shown, as its edits could not be committed to it. */
+async function readBranchEditability(
+	repo: ResolvedContextRepo,
+	access: ContextExplorerFileAccess,
+): Promise<FileEditability | null> {
+	const branch = readCurrentBranch(repo);
+	if (!branch || branch === readDefaultBranch(repo)) {
+		return null;
+	}
+	const { projectId, userId } = access.draftOwner;
+	if (await isContextBranchOwnedByUser(projectId, branch, userId)) {
+		return null;
+	}
+	return readOnly('branch-of-others', guidanceForReason('branch-of-others'));
+}
+
+function assertEditability(editability: FileEditability): void {
 	if (editability.isEditable) {
 		return;
 	}
@@ -210,12 +466,43 @@ export function assertFileEditable(
 	});
 }
 
+/**
+ * Searches the context with its `.naoignore` rules, then each exempt folder without them, so search
+ * shows the same files as the explorer tree. An exempt folder is searched from the project root and
+ * narrowed by a glob: ripgrep follows a symlink given as the search path, never one it walks into.
+ */
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
-	const args = buildSearchArguments(query, projectFolder);
-	return runContentSearch(getRipgrepPath(), args, projectFolder);
+	const exemptFolders = (EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? []).filter((folder) =>
+		fsSync.existsSync(path.join(projectFolder, folder)),
+	);
+	const [contextSearch, ...exemptFolderSearches] = await Promise.all([
+		runContentSearch(
+			getRipgrepPath(),
+			buildSearchArguments(query, projectFolder, loadNaoignorePatterns(projectFolder)),
+			projectFolder,
+		),
+		...exemptFolders.map((folder) =>
+			runContentSearch(getRipgrepPath(), buildSearchArguments(query, '.', [], folder), projectFolder),
+		),
+	]);
+	const results = [
+		...contextSearch.results.filter((result) => !isInFolders(result.path, exemptFolders)),
+		...exemptFolderSearches.flatMap((search) => search.results),
+	];
+	return {
+		results: results.slice(0, MAX_SEARCH_FILES),
+		truncated:
+			results.length > MAX_SEARCH_FILES ||
+			[contextSearch, ...exemptFolderSearches].some((search) => search.truncated),
+	};
 }
 
-function buildSearchArguments(query: string, projectFolder: string): string[] {
+function buildSearchArguments(
+	query: string,
+	searchPath: string,
+	naoignorePatterns: string[],
+	onlyFolder?: string,
+): string[] {
 	const args = [
 		'--json',
 		'--no-heading',
@@ -229,23 +516,31 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 		'--max-filesize',
 		'1M',
 		'--max-columns',
-		'500',
+		String(MAX_SEARCH_PREVIEW_LENGTH),
 		'--max-columns-preview',
 	];
+
+	if (onlyFolder) {
+		args.push('--glob', `${onlyFolder}/**`);
+	}
 
 	for (const exclusionGlob of BUILT_IN_EXCLUSION_GLOBS) {
 		args.push('--glob', exclusionGlob);
 	}
 
-	for (const ignorePattern of loadNaoignorePatterns(projectFolder)) {
+	for (const ignorePattern of naoignorePatterns) {
 		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
 		args.push('--glob', `!${cleanPattern}`);
 		args.push('--glob', `!${cleanPattern}/**`);
 	}
 
 	args.push('--regexp', query);
-	args.push('--', projectFolder);
+	args.push('--', searchPath);
 	return args;
+}
+
+function isInFolders(virtualPath: string, folders: string[]): boolean {
+	return folders.some((folder) => virtualPath === `/${folder}` || virtualPath.startsWith(`/${folder}/`));
 }
 
 function runContentSearch(
@@ -293,12 +588,12 @@ function runContentSearch(
 					return;
 				}
 
-				const filePath = entry.data.path.text;
-				if (!isWithinProjectFolder(filePath, projectFolder)) {
+				const filePath = path.resolve(projectFolder, entry.data.path.text);
+				if (!isWithinProjectFolder(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS)) {
 					return;
 				}
 
-				const virtualPath = toVirtualPath(filePath, projectFolder);
+				const virtualPath = toVirtualPath(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS);
 				const existing = results.get(virtualPath);
 				if (existing) {
 					existing.count += entry.data.submatches.length;
@@ -365,7 +660,9 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 	const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
 
 	const parentRelativePath = path.relative(projectFolder, dirPath);
-	const filtered = dirEntries.filter((entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder));
+	const filtered = dirEntries.filter(
+		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS),
+	);
 
 	const entries: FileTreeEntry[] = [];
 
@@ -390,20 +687,22 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 		}
 	}
 
-	entries.sort((a, b) => {
-		if (a.type === b.type) {
-			return a.name.localeCompare(b.name);
-		}
-		return a.type === 'directory' ? -1 : 1;
-	});
+	entries.sort(compareTreeEntries);
 
 	return entries;
+}
+
+export function compareTreeEntries(a: FileTreeEntry, b: FileTreeEntry): number {
+	if (a.type === b.type) {
+		return a.name.localeCompare(b.name);
+	}
+	return a.type === 'directory' ? -1 : 1;
 }
 
 export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root, { resolveSymlinks: false });
+		const realPath = toRealPath(virtualPath, root, { ...EXPLORER_NAOIGNORE_OPTIONS, resolveSymlinks: false });
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {
@@ -486,11 +785,15 @@ function validateExpectedHash(expectedHash: string): void {
 
 function assertExpectedHash(content: Buffer, expectedHash: string): void {
 	if (hashContent(content) !== expectedHash) {
-		throw new TRPCError({
-			code: 'CONFLICT',
-			message: 'This file changed on disk. Reload it before saving your changes.',
-		});
+		throw fileChangedError();
 	}
+}
+
+function fileChangedError(): TRPCError {
+	return new TRPCError({
+		code: 'CONFLICT',
+		message: 'This file changed on disk. Reload it before saving your changes.',
+	});
 }
 
 export function hashContent(content: Buffer): string {
@@ -498,19 +801,23 @@ export function hashContent(content: Buffer): string {
 }
 
 function hasGeneratedFrontmatter(filePath: string): boolean {
+	const prefix = readFileHead(filePath);
+	if (prefix === null || (!prefix.startsWith('---\n') && !prefix.startsWith('---\r\n'))) {
+		return false;
+	}
+	const frontmatter = prefix.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+	return frontmatter?.split(/\r?\n/).some((line) => /^type:\s*generated\s*$/.test(line.trim())) ?? false;
+}
+
+function readFileHead(filePath: string): string | null {
 	let fileDescriptor: number | null = null;
 	try {
 		fileDescriptor = fsSync.openSync(filePath, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
 		const buffer = Buffer.alloc(FRONTMATTER_READ_SIZE);
 		const bytesRead = fsSync.readSync(fileDescriptor, buffer, 0, buffer.byteLength, 0);
-		const prefix = buffer.subarray(0, bytesRead).toString('utf-8');
-		if (!prefix.startsWith('---\n') && !prefix.startsWith('---\r\n')) {
-			return false;
-		}
-		const frontmatter = prefix.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-		return frontmatter?.split(/\r?\n/).some((line) => /^type:\s*generated\s*$/.test(line.trim())) ?? false;
+		return buffer.subarray(0, bytesRead).toString('utf-8');
 	} catch {
-		return false;
+		return null;
 	} finally {
 		if (fileDescriptor !== null) {
 			fsSync.closeSync(fileDescriptor);
@@ -530,16 +837,19 @@ function unavailableGitEditability(
 	return readOnly(reason, { ...guidanceForReason(reason, provider), message });
 }
 
-function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance): FileEditability {
+function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance | null): FileEditability {
 	return { isEditable: false, reason, guidance };
 }
 
+/** Files only production may change are read-only without a note: there is nothing for the user to do about them. */
+type GuidedEditabilityReason = Exclude<FileEditabilityReason, 'production-only'>;
+
 function guidanceForReason(
-	reason: FileEditabilityReason,
+	reason: GuidedEditabilityReason,
 	provider?: ContextRepoState['provider'],
 ): FileEditabilityGuidance {
 	const providerName = getRepoProviderDisplayName(provider);
-	const guidance: Record<FileEditabilityReason, FileEditabilityGuidance> = {
+	const guidance: Record<GuidedEditabilityReason, FileEditabilityGuidance> = {
 		'github-unavailable': {
 			message: `${providerName} is not configured for this instance.`,
 			actionKind: 'route',
@@ -609,6 +919,12 @@ function guidanceForReason(
 		'not-tracked': {
 			message:
 				"This file can't be edited because it isn't in the connected repository. Add it there to make it editable.",
+			actionKind: null,
+			actionPath: null,
+			actionLabel: null,
+		},
+		'branch-of-others': {
+			message: 'This branch belongs to another user, so it is read-only here. Switch to one of yours to edit.',
 			actionKind: null,
 			actionPath: null,
 			actionLabel: null,

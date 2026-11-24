@@ -43,6 +43,11 @@ fullnameOverride: ""
 #    below — Helm does not propagate top-level values to subcharts automatically.
 commonAnnotations: {}
 
+# -- Labels added to metadata.labels of every object this chart creates,
+#    including the Pod template. Never added to selectors.
+#    Set postgresql.commonLabels too for the subchart objects.
+commonLabels: {}
+
 # -- Number of replicas
 replicaCount: 1
 
@@ -67,6 +72,9 @@ serviceAccount:
 #    Does NOT cover metadata.annotations of the Deployment itself — see
 #    commonAnnotations above for that (required by Kyverno).
 podAnnotations: {}
+
+# -- Extra labels added to the Pod template only (spec.template.metadata).
+podLabels: {}
 
 # -- Pod-level security context.
 # NOTE: supervisord inside the image starts as root (uid 0) and drops privileges
@@ -123,6 +131,10 @@ config:
   defaultUserRole: "user"
   # -- Enable "Sign in with GitHub" with the OAuth app set in secrets.githubClientId
   githubSso: false
+  # -- Base URL of a GitHub Enterprise Server instance (defaults to https://github.com)
+  githubBaseUrl: ""
+  # -- GitHub REST API URL override (defaults to api.github.com, or <githubBaseUrl>/api/v3 on Enterprise)
+  githubApiUrl: ""
   # -- Enable "Sign in with GitLab" with the OAuth app set in secrets.gitlabClientId
   gitlabSso: false
   # -- Base URL of a self-hosted GitLab instance (defaults to https://gitlab.com)
@@ -289,6 +301,7 @@ secrets:
   oidcScopes: ""                # defaults to "openid,profile,email"
   oidcAuthDomains: ""           # comma-separated email domain allowlist
   oidcPkce: ""                  # "true" (default) or "false"
+  oidcPrompt: ""                # "select_account" (default), "login", "consent", "none" or "omit"
 
   # -- Notion integration (optional)
   notionApiKey: ""

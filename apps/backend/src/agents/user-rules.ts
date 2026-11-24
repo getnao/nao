@@ -1,32 +1,36 @@
+import { getWarehouseColumnSecurityTable, type WarehouseColumnSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import { createHash } from 'crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
 import { renderRootRulesForAgent } from '../services/agent-visible-project-file.service';
+import { renderSafeTableColumns } from '../services/column-security-context.service';
 import { isDatabaseObjectAllowed, type WarehouseTableAccess } from '../services/context-access';
+import { extractRulesFile } from '../utils/nao-config';
+import { readProjectFile } from '../utils/project-file';
 
 /**
- * Reads user-defined rules from RULES.md in the project folder if it exists
+ * Reads user-defined rules from the project's rules file, RULES.md unless nao_config.yaml sets `rules_file`
  */
 export function getUserRules(
 	projectFolder: string,
 	groupAccess: UserRulesGroupAccess = { enforced: false },
 ): string | undefined {
-	const rulesPath = join(projectFolder, 'RULES.md');
+	const rulesFile = extractRulesFile(projectFolder);
 
-	if (!existsSync(rulesPath)) {
+	if (!existsSync(join(projectFolder, rulesFile))) {
 		return undefined;
 	}
 
 	try {
-		const renderedRules = renderRootRulesForAgent(readFileSync(rulesPath, 'utf-8'), groupAccess);
+		const renderedRules = renderRootRulesForAgent(readProjectFile(projectFolder, rulesFile), groupAccess);
 		if (!renderedRules) {
-			throw new Error('RULES.md could not be rendered safely');
+			throw new Error(`${rulesFile} could not be rendered safely`);
 		}
 		return renderedRules.content;
 	} catch (error) {
-		console.error('Error reading RULES.md:', error);
+		console.error(`Error reading ${rulesFile}:`, error);
 		return undefined;
 	}
 }
@@ -155,17 +159,8 @@ function readDatabaseObjectColumns(
 	projectFolder: string,
 	object: Pick<DatabaseObject, 'type' | 'database' | 'schema' | 'table'>,
 ): string[] {
-	const path = join(
-		projectFolder,
-		'databases',
-		`type=${object.type}`,
-		`database=${object.database}`,
-		`schema=${object.schema}`,
-		`table=${object.table}`,
-		'columns.md',
-	);
 	try {
-		return readFileSync(path, 'utf-8')
+		return readProjectFile(projectFolder, columnsFilePath(object))
 			.split(/\r?\n/)
 			.flatMap((line) => {
 				const name = parseGeneratedColumnName(line);
@@ -374,6 +369,7 @@ export function getTableColumnsContent(
 	projectFolder: string,
 	fqdn: string,
 	warehouseTableAccess: WarehouseTableAccess,
+	warehouseColumnSecurity: WarehouseColumnSecurity = { enforced: false },
 ): string | undefined {
 	const obj = getDatabaseObjects(projectFolder).find(
 		(object) => object.fqdn === fqdn && isDatabaseObjectAllowed(warehouseTableAccess, object),
@@ -381,20 +377,45 @@ export function getTableColumnsContent(
 	if (!obj) {
 		return undefined;
 	}
+	const columnPolicy = getWarehouseColumnSecurityTable(warehouseColumnSecurity, {
+		databaseType: obj.type,
+		database: obj.database,
+		schema: obj.schema,
+		table: obj.table,
+	});
+	if (columnPolicy?.access === 'blocked') {
+		return undefined;
+	}
 
-	const columnsPath = join(
-		projectFolder,
-		'databases',
-		`type=${obj.type}`,
-		`database=${obj.database}`,
-		`schema=${obj.schema}`,
-		`table=${obj.table}`,
-		'columns.md',
-	);
+	if (columnPolicy?.access === 'restricted') {
+		return (
+			renderSafeTableColumns(
+				projectFolder,
+				{
+					databaseType: obj.type,
+					database: obj.database,
+					schema: obj.schema,
+					table: obj.table,
+				},
+				columnPolicy.deniedColumns,
+			) ?? undefined
+		);
+	}
 
 	try {
-		return readFileSync(columnsPath, 'utf-8');
+		return readProjectFile(projectFolder, columnsFilePath(obj));
 	} catch {
 		return undefined;
 	}
+}
+
+function columnsFilePath(object: Pick<DatabaseObject, 'type' | 'database' | 'schema' | 'table'>): string {
+	return join(
+		'databases',
+		`type=${object.type}`,
+		`database=${object.database}`,
+		`schema=${object.schema}`,
+		`table=${object.table}`,
+		'columns.md',
+	);
 }

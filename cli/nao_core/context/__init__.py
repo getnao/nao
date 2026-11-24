@@ -20,6 +20,7 @@ def get_context_provider() -> ContextProvider:
         NAO_CONTEXT_GIT_URL: Git repository URL (required)
         NAO_CONTEXT_GIT_BRANCH: Branch to clone/pull (default: 'main')
         NAO_CONTEXT_GIT_TOKEN: Auth token for private repos (optional)
+        NAO_CONTEXT_GIT_SUBPATH: Directory of the nao project inside the repo (optional)
 
     Returns:
         ContextProvider instance based on configuration
@@ -34,12 +35,14 @@ def get_context_provider() -> ContextProvider:
 
         branch = os.environ.get("NAO_CONTEXT_GIT_BRANCH", "main")
         token = os.environ.get("NAO_CONTEXT_GIT_TOKEN")
+        subpath = os.environ.get("NAO_CONTEXT_GIT_SUBPATH", "").strip("/")
 
         return GitContextProvider(
             repo_url=git_url,
             target_path=target_path,
             branch=branch,
             token=token,
+            subpath=subpath or None,
         )
     elif source == "local":
         return LocalContextProvider(target_path=target_path)

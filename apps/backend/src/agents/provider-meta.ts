@@ -157,7 +157,7 @@ const OPENAI_REASONING: ModelCapabilities = {
 const BEDROCK_GEO_PREFIXED_ID = /^[a-z]+(?:-[a-z]+)?\.([a-z0-9-]+\..+)$/;
 const BEDROCK_GEO_TWIN_PREFIXES = ['us', 'global'];
 
-type KnownModel = { id: string; capabilities?: ModelCapabilities };
+type KnownModel = { id: string; contextWindow?: number; capabilities?: ModelCapabilities };
 
 /** Custom/unlisted OpenAI reasoning models: full effort surface incl. xhigh (e.g. Codex-Max variants). */
 const OPENAI_REASONING_CUSTOM: ModelCapabilities = {
@@ -373,14 +373,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'GPT 6 Luna',
 				default: true,
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
 				id: 'gpt-6-sol',
 				name: 'GPT 6 Sol',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 		],
@@ -396,35 +394,30 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'claude-fable-5',
 				name: 'Claude Fable 5',
 				contextWindow: 300_000,
-				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
 				id: 'claude-fable-5-1',
 				name: 'Claude Fable 5.1',
 				contextWindow: 300_000,
-				costPerM: { inputNoCache: 10, inputCacheRead: 0.25, inputCacheWrite: 12.5, output: 50 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
 				id: 'claude-opus-5-5',
 				name: 'Claude Opus 5.5',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
 				id: 'claude-sonnet-5-5',
 				name: 'Claude Sonnet 5.5',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
 				id: 'claude-haiku-5-5',
 				name: 'Claude Haiku 5.5',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
@@ -432,28 +425,24 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Claude Sonnet 5',
 				default: true,
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
 				id: 'claude-opus-5',
 				name: 'Claude Opus 5',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
 				capabilities: ANTHROPIC_ALWAYS_THINKING,
 			},
 			{
 				id: 'claude-opus-4-8',
 				name: 'Claude Opus 4.8',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
 				capabilities: ANTHROPIC_HIDDEN_THINKING,
 			},
 			{
 				id: 'claude-opus-4-7',
 				name: 'Claude Opus 4.7',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
 				capabilities: ANTHROPIC_HIDDEN_THINKING,
 			},
 			{
@@ -461,35 +450,30 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Claude Sonnet 4.6',
 				default: true,
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 				capabilities: ANTHROPIC_ADAPTIVE,
 			},
 			{
 				id: 'claude-sonnet-4-5',
 				name: 'Claude Sonnet 4.5',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 				capabilities: ANTHROPIC_BUDGET,
 			},
 			{
 				id: 'claude-opus-4-6',
 				name: 'Claude Opus 4.6',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
 				capabilities: ANTHROPIC_ADAPTIVE,
 			},
 			{
 				id: 'claude-opus-4-5',
 				name: 'Claude Opus 4.5',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
 				capabilities: ANTHROPIC_BUDGET,
 			},
 			{
 				id: 'claude-haiku-4-5',
 				name: 'Claude Haiku 4.5',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 1, inputCacheRead: 0.1, inputCacheWrite: 1.25, output: 5 },
 				capabilities: ANTHROPIC_BUDGET,
 			},
 		],
@@ -505,7 +489,6 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'gpt-6-astra',
 				name: 'GPT 6 Astra',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
@@ -513,14 +496,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'GPT 6 Sol',
 				default: true,
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
 				id: 'gpt-6-luna',
 				name: 'GPT 6 Luna',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
@@ -528,56 +509,48 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'GPT 5.6 Sol',
 				contextWindow: 1_050_000,
 				// GPT-5.6 is the first family to bill cache writes, at 1.25x the uncached input rate.
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 30 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
 				id: 'gpt-5.6-terra',
 				name: 'GPT 5.6 Terra',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 12 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
 				id: 'gpt-5.6-luna',
 				name: 'GPT 5.6 Luna',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 0.2, inputCacheRead: 0.02, inputCacheWrite: 0.25, output: 1.2 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
 				id: 'gpt-5.5',
 				name: 'GPT 5.5',
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 30 },
 				capabilities: OPENAI_REASONING,
 			},
 			{
 				id: 'gpt-5.4',
 				name: 'GPT 5.4',
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 2.5, inputCacheRead: 0.25, inputCacheWrite: 0, output: 15 },
 				capabilities: OPENAI_REASONING,
 			},
 			{
 				id: 'gpt-5.2',
 				name: 'GPT 5.2',
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
 				capabilities: OPENAI_REASONING,
 			},
 			{
 				id: 'gpt-5-mini',
 				name: 'GPT 5 mini',
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 0.25, inputCacheRead: 0.025, inputCacheWrite: 0, output: 2 },
 				capabilities: OPENAI_REASONING,
 			},
 			{
 				id: 'gpt-4.1',
 				name: 'GPT 4.1',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.75, inputCacheWrite: 0, output: 12 },
 				capabilities: OPENAI_SAMPLING,
 			},
 		],
@@ -594,28 +567,24 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Gemini 3.1 Pro',
 				default: true,
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 0, output: 12 },
 				capabilities: GOOGLE_LEVEL_PRO,
 			},
 			{
 				id: 'gemini-3-flash-preview',
 				name: 'Gemini 3 Flash',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.05, inputCacheWrite: 0, output: 3 },
 				capabilities: GOOGLE_LEVEL_FLASH,
 			},
 			{
 				id: 'gemini-2.5-pro',
 				name: 'Gemini 2.5 Pro',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 1.25, inputCacheRead: 0.125, inputCacheWrite: 0, output: 10 },
 				capabilities: GOOGLE_BUDGET_PRO,
 			},
 			{
 				id: 'gemini-2.5-flash',
 				name: 'Gemini 2.5 Flash',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.3, inputCacheRead: 0.03, inputCacheWrite: 0, output: 2.5 },
 				capabilities: GOOGLE_BUDGET_FLASH,
 			},
 		],
@@ -631,7 +600,6 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'mistral-large-4',
 				name: 'Mistral Large 4',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 1.36, inputCacheRead: 0.14, inputCacheWrite: 0, output: 4.18 },
 				capabilities: MISTRAL_SAMPLING,
 			},
 			{
@@ -639,21 +607,18 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Mistral Medium 3.1',
 				default: true,
 				contextWindow: 128_000,
-				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 2 },
 				capabilities: MISTRAL_SAMPLING,
 			},
 			{
 				id: 'mistral-large-latest',
 				name: 'Mistral Large 3',
 				contextWindow: 256_000,
-				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.5, inputCacheWrite: 0, output: 1.5 },
 				capabilities: MISTRAL_SAMPLING,
 			},
 			{
 				id: 'labs-leanstral-2603',
 				name: 'Leanstral',
 				contextWindow: 256_000,
-				costPerM: { inputNoCache: 0, inputCacheRead: 0, inputCacheWrite: 0, output: 0 },
 				capabilities: MISTRAL_SAMPLING,
 			},
 		],
@@ -670,28 +635,24 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Kimi K2.5',
 				default: true,
 				contextWindow: 262_144,
-				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.8, inputCacheWrite: 0, output: 2.25 },
 				capabilities: OPENROUTER_EFFORT,
 			},
 			{
 				id: 'deepseek/deepseek-v3.2',
 				name: 'DeepSeek V3.2',
 				contextWindow: 163_800,
-				costPerM: { inputNoCache: 0.26, inputCacheRead: 0.15, inputCacheWrite: 0, output: 0.4 },
 				capabilities: OPENROUTER_EFFORT,
 			},
 			{
 				id: 'anthropic/claude-sonnet-4.5',
 				name: 'Claude Sonnet 4.5 (OpenRouter)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 				capabilities: OPENROUTER_EFFORT,
 			},
 			{
 				id: 'openai/gpt-5.2',
 				name: 'GPT 5.2 (OpenRouter)',
 				contextWindow: 400_000,
-				costPerM: { inputNoCache: 1.75, inputCacheRead: 0.175, inputCacheWrite: 0, output: 14 },
 				capabilities: OPENROUTER_EFFORT,
 			},
 		],
@@ -709,28 +670,24 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'GPT-4o mini',
 				default: true,
 				contextWindow: 128_000,
-				costPerM: { inputNoCache: 0.15, inputCacheRead: 0.075, inputCacheWrite: 0, output: 0.6 },
 				capabilities: OPENAI_COMPATIBLE_CUSTOM,
 			},
 			{
 				id: 'deepseek/deepseek-chat',
 				name: 'DeepSeek Chat',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.14, inputCacheRead: 0.028, inputCacheWrite: 0, output: 0.28 },
 				capabilities: OPENAI_COMPATIBLE_CUSTOM,
 			},
 			{
 				id: 'anthropic/claude-haiku-4-5',
 				name: 'Claude Haiku 4.5 (Requesty)',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 1, inputCacheRead: 0.1, inputCacheWrite: 1.25, output: 5 },
 				capabilities: OPENAI_COMPATIBLE_CUSTOM,
 			},
 			{
 				id: 'anthropic/claude-sonnet-4-5',
 				name: 'Claude Sonnet 4.5 (Requesty)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 				capabilities: OPENAI_COMPATIBLE_CUSTOM,
 			},
 		],
@@ -785,123 +742,105 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'global.openai.gpt-6-astra',
 				name: 'GPT 6 Astra (Bedrock Global)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 10, inputCacheRead: 1, inputCacheWrite: 12.5, output: 50 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'global.openai.gpt-6.1-sol',
 				name: 'GPT 6.1 Sol (Bedrock Global)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.1, inputCacheWrite: 2.5, output: 10 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'global.openai.gpt-6-sol',
 				name: 'GPT 6 Sol (Bedrock Global)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'global.openai.gpt-6-luna',
 				name: 'GPT 6 Luna (Bedrock Global)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 0.1, inputCacheRead: 0.01, inputCacheWrite: 0.125, output: 0.5 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'us.openai.gpt-6-astra',
 				name: 'GPT 6 Astra (Bedrock US)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 11, inputCacheRead: 1.1, inputCacheWrite: 13.75, output: 55 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'us.openai.gpt-6.1-sol',
 				name: 'GPT 6.1 Sol (Bedrock US)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2.2, inputCacheRead: 0.11, inputCacheWrite: 2.75, output: 11 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'us.openai.gpt-6-sol',
 				name: 'GPT 6 Sol (Bedrock US)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2.2, inputCacheRead: 0.22, inputCacheWrite: 2.75, output: 11 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'us.openai.gpt-6-luna',
 				name: 'GPT 6 Luna (Bedrock US)',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 0.11, inputCacheRead: 0.011, inputCacheWrite: 0.1375, output: 0.55 },
 				capabilities: BEDROCK_OPENAI_REASONING,
 			},
 			{
 				id: 'global.anthropic.claude-opus-5-5',
 				name: 'Claude Opus 5.5 (Bedrock Global)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'us.anthropic.claude-opus-5-5',
 				name: 'Claude Opus 5.5 (Bedrock US)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 5, output: 20 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'global.anthropic.claude-sonnet-5-5',
 				name: 'Claude Sonnet 5.5 (Bedrock Global)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'us.anthropic.claude-sonnet-5-5',
 				name: 'Claude Sonnet 5.5 (Bedrock US)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'global.anthropic.claude-sonnet-5',
 				name: 'Claude Sonnet 5 (Bedrock Global)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'us.anthropic.claude-sonnet-5',
 				name: 'Claude Sonnet 5 (Bedrock US)',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 10 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'us.anthropic.claude-sonnet-4-6',
 				name: 'Claude Sonnet 4.6 (Bedrock US)',
 				default: true,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'eu.anthropic.claude-opus-4-6-v1',
 				name: 'Claude Opus 4.6 (Bedrock EU)',
-				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
 				capabilities: BEDROCK_ADAPTIVE,
 			},
 			{
 				id: 'deepseek.v3.2',
 				name: 'DeepSeek V3.2 (Bedrock)',
-				costPerM: { inputNoCache: 0.62, inputCacheRead: 0.62, inputCacheWrite: 0, output: 1.85 },
 				capabilities: BEDROCK_SAMPLING,
 			},
 			{
 				id: 'mistral.devstral-2-123b',
 				name: 'Mistral 2 123B (Bedrock)',
-				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 2 },
 				capabilities: BEDROCK_SAMPLING,
 			},
 		],
@@ -935,21 +874,19 @@ export const PROVIDER_META: ProviderMetaMap = {
 			],
 		},
 		envVar: 'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
-		extractorModelId: 'gemini-2.5-flash',
-		summaryModelId: 'gemini-2.5-flash',
+		extractorModelId: 'gemini-3.8-flash',
+		summaryModelId: 'gemini-3.8-flash',
 		models: [
 			{
 				id: 'claude-sonnet-4-6',
 				name: 'Claude Sonnet 4.6 (Vertex)',
 				default: true,
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
 			},
 			{
 				id: 'gemini-3-flash-preview',
 				name: 'Gemini 3 Flash (Vertex)',
 				contextWindow: 200_000,
-				costPerM: { inputNoCache: 0.5, inputCacheRead: 0.05, inputCacheWrite: 0, output: 3 },
 				capabilities: GOOGLE_LEVEL_FLASH,
 			},
 		],
@@ -1001,21 +938,18 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Qwen3.7 Plus',
 				default: true,
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 1.6 },
 				capabilities: QWEN_BUDGET,
 			},
 			{
 				id: 'qwen3.7-max',
 				name: 'Qwen3.7 Max',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 2.5, inputCacheRead: 2.5, inputCacheWrite: 0, output: 7.5 },
 				capabilities: QWEN_BUDGET,
 			},
 			{
 				id: 'qwen3.7-flash',
 				name: 'Qwen3.7 Flash',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.225, inputCacheRead: 0.225, inputCacheWrite: 0, output: 0.974 },
 				capabilities: QWEN_BUDGET,
 			},
 		],
@@ -1033,21 +967,18 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'MiniMax M3',
 				default: true,
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 0.3, inputCacheRead: 0.06, inputCacheWrite: 0, output: 1.2 },
 				capabilities: MINIMAX_SAMPLING,
 			},
 			{
 				id: 'MiniMax-M2.7',
 				name: 'MiniMax M2.7',
 				contextWindow: 204_800,
-				costPerM: { inputNoCache: 0.3, inputCacheRead: 0.06, inputCacheWrite: 0.375, output: 1.2 },
 				capabilities: MINIMAX_SAMPLING,
 			},
 			{
 				id: 'MiniMax-M2.7-highspeed',
 				name: 'MiniMax M2.7 Highspeed',
 				contextWindow: 204_800,
-				costPerM: { inputNoCache: 0.6, inputCacheRead: 0.06, inputCacheWrite: 0.375, output: 2.4 },
 				capabilities: MINIMAX_SAMPLING,
 			},
 		],
@@ -1065,28 +996,24 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Kimi K3',
 				default: true,
 				contextWindow: 1_048_576,
-				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 0, output: 15 },
 				capabilities: MOONSHOT_ADAPTIVE,
 			},
 			{
 				id: 'kimi-k2.7-code',
 				name: 'Kimi K2.7 Code',
 				contextWindow: 262_144,
-				costPerM: { inputNoCache: 0.95, inputCacheRead: 0.19, inputCacheWrite: 0, output: 4 },
 				capabilities: MOONSHOT_SAMPLING,
 			},
 			{
 				id: 'kimi-k2.6',
 				name: 'Kimi K2.6',
 				contextWindow: 262_144,
-				costPerM: { inputNoCache: 0.95, inputCacheRead: 0.16, inputCacheWrite: 0, output: 4 },
 				capabilities: MOONSHOT_SAMPLING,
 			},
 			{
 				id: 'kimi-k2.5',
 				name: 'Kimi K2.5',
 				contextWindow: 262_144,
-				costPerM: { inputNoCache: 0.6, inputCacheRead: 0.1, inputCacheWrite: 0, output: 3 },
 				capabilities: MOONSHOT_SAMPLING,
 			},
 		],
@@ -1104,14 +1031,12 @@ export const PROVIDER_META: ProviderMetaMap = {
 				name: 'Muse Spark 1.3',
 				default: true,
 				contextWindow: 1_048_576,
-				costPerM: { inputNoCache: 1.25, inputCacheRead: 0.15, inputCacheWrite: 0, output: 4.25 },
 				capabilities: META_ADAPTIVE,
 			},
 			{
 				id: 'muse-wonder-1.0',
 				name: 'Muse Wonder 1.0',
 				contextWindow: 1_048_576,
-				costPerM: { inputNoCache: 4, inputCacheRead: 0.2, inputCacheWrite: 0, output: 20 },
 				capabilities: META_ADAPTIVE,
 			},
 		],
@@ -1224,7 +1149,8 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 	}
 }
 
-function findKnownModel(provider: LlmProvider, modelId: string): KnownModel | undefined {
+/** The catalogue entry of a model, or of its Bedrock geo twin when the geo id itself is not listed. */
+export function findKnownModel(provider: LlmProvider, modelId: string): KnownModel | undefined {
 	const models: readonly KnownModel[] = getProviderMeta(provider).models;
 	const exact = models.find((m) => m.id === modelId);
 	if (exact || providerKind(provider) !== 'bedrock') {
@@ -1235,24 +1161,32 @@ function findKnownModel(provider: LlmProvider, modelId: string): KnownModel | un
 
 /**
  * Bedrock inference profiles share a model across geo prefixes (`eu.`, `apac.`, `us-gov.`...), but the
- * catalog lists only some of them. An unlisted geo id takes the capabilities of its `us.` or `global.` twin.
+ * catalog lists only some of them. An unlisted geo id takes the context window and capabilities of its `us.`
+ * or `global.` twin.
  */
 export function findBedrockGeoTwin(models: readonly KnownModel[], modelId: string): KnownModel | undefined {
+	return bedrockGeoTwinIds(modelId)
+		.map((twinId) => models.find((m) => m.id === twinId))
+		.find(Boolean);
+}
+
+/** The ids of a geo-prefixed Bedrock id's twins, in the order they are preferred. */
+export function bedrockGeoTwinIds(modelId: string): string[] {
 	const baseId = BEDROCK_GEO_PREFIXED_ID.exec(modelId)?.[1];
-	if (!baseId) {
-		return undefined;
-	}
-	for (const geo of BEDROCK_GEO_TWIN_PREFIXES) {
-		const twin = models.find((m) => m.id === `${geo}.${baseId}`);
-		if (twin) {
-			return twin;
-		}
-	}
-	return undefined;
+	return baseId ? BEDROCK_GEO_TWIN_PREFIXES.map((geo) => `${geo}.${baseId}`) : [];
 }
 
 /** Temperature upper bound when a model's capabilities don't declare one. */
 export const DEFAULT_TEMPERATURE_MAX = 2;
+
+/** The reasoning efforts a model can be asked to run at, from the lowest; none when its thinking is not set by an effort. */
+export function getModelReasoningEfforts(provider: LlmProvider, modelId: string): ActiveEffort[] {
+	const caps = getModelCapabilities(provider, modelId);
+	if (caps?.thinking !== 'adaptive') {
+		return [];
+	}
+	return (caps.effortOptions ?? EFFORT_OPTIONS).filter((effort): effort is ActiveEffort => effort !== 'off');
+}
 
 /**
  * Ordered list of editable inference-parameter controls for a model, derived from its

@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { Button } from '@/components/ui/button';
 
 interface SidePanelHeaderProps {
@@ -10,7 +10,7 @@ interface SidePanelHeaderProps {
 }
 
 export function SidePanelHeader({ title, label, actions }: SidePanelHeaderProps) {
-	const { close } = useSidePanel();
+	const { close } = useSidePanelActions();
 
 	return (
 		<div className='flex shrink-0 items-center gap-2 border-b px-4 py-2'>

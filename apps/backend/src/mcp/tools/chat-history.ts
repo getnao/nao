@@ -25,7 +25,7 @@ const SEARCH_CHATS_DESCRIPTION =
 	'to read the full conversation.';
 
 const GET_CHAT_DESCRIPTION =
-	"Read a chat of this nao project as a transcript: every message's text, the tools the agent called " +
+	"Read a chat of this nao project as a transcript: every message's text, the agent's thoughts, the tools it called " +
 	'(with their input and error), and the feedback users left (admins and context admins only).\n\n' +
 	'USE WHEN: you have a chat id (from `search_chats`, a replay link, or the user) and need to understand ' +
 	'what was asked, what nao answered, and where it failed.\n' +
@@ -74,7 +74,7 @@ const CHAT_SUMMARY_SCHEMA = z.object({
 const TOOL_CALL_SCHEMA = z.object({
 	toolName: z.string(),
 	state: z.string().describe('`output-available` on success, `output-error` on failure.'),
-	input: z.string().optional().describe('JSON input of the call, truncated when large.'),
+	input: z.string().optional().describe('JSON input of the call, truncated when large unless `full_tool_inputs`.'),
 	output: z.string().optional().describe('JSON output, truncated; only with `include_tool_outputs`.'),
 	error: z.string().optional(),
 });
@@ -85,6 +85,7 @@ const CHAT_MESSAGE_SCHEMA = z.object({
 	createdAt: z.string().nullable(),
 	source: z.string().nullable(),
 	text: z.string(),
+	thoughts: z.string().describe("The agent's reasoning for this message; empty when the model shared none."),
 	toolCalls: z.array(TOOL_CALL_SCHEMA),
 	feedback: z.object({ vote: z.enum(['up', 'down']), explanation: z.string().nullable() }).nullable(),
 });
@@ -173,6 +174,13 @@ function registerGetChat(server: McpServer, ctx: McpContext): void {
 				.optional()
 				.default(false)
 				.describe('Include the (truncated) output of every tool call. Query results are capped to a preview.'),
+			full_tool_inputs: z
+				.boolean()
+				.optional()
+				.default(false)
+				.describe(
+					'Return every tool call input in full instead of truncated, e.g. to re-run a long SQL query.',
+				),
 		},
 		outputSchema: {
 			id: z.string(),
@@ -184,10 +192,12 @@ function registerGetChat(server: McpServer, ctx: McpContext): void {
 			messages: z.array(CHAT_MESSAGE_SCHEMA),
 		},
 		errorMessage: (error) => (error instanceof Error ? error.message : 'get_chat failed. Please try again.'),
-		handler: async ({ chat_id, include_tool_outputs }) => {
+		handler: async ({ chat_id, include_tool_outputs, full_tool_inputs }) => {
 			const chatProjectId = await chatQueries.getChatProjectId(chat_id);
 			const [chat, ownerId] =
-				chatProjectId === ctx.projectId ? await chatQueries.getChat(chat_id, { includeFeedback: true }) : [];
+				chatProjectId === ctx.projectId
+					? await chatQueries.getChat(chat_id, { includeFeedback: true, queryResultPreviews: true })
+					: [];
 			if (!chat) {
 				throw new Error(`Chat ${chat_id} not found in this project.`);
 			}
@@ -201,7 +211,10 @@ function registerGetChat(server: McpServer, ctx: McpContext): void {
 				updatedAt: new Date(chat.updatedAt).toISOString(),
 				replayUrl: chatReplayUrl(chat.id),
 				messages: withQueryResultPreviewsInChat(chat).messages.map((message) =>
-					toChatMessage(message, include_tool_outputs),
+					toChatMessage(message, {
+						includeToolOutputs: include_tool_outputs,
+						fullToolInputs: full_tool_inputs,
+					}),
 				),
 			};
 			return jsonToolResult(output);
@@ -254,14 +267,20 @@ function toChatSummary(chat: ProjectChatListItem): ChatSummary {
 	};
 }
 
-function toChatMessage(message: UIMessage, includeToolOutputs: boolean): ChatMessage {
+interface ToolCallOptions {
+	includeToolOutputs: boolean;
+	fullToolInputs: boolean;
+}
+
+function toChatMessage(message: UIMessage, options: ToolCallOptions): ChatMessage {
 	return {
 		id: message.id,
 		role: message.role,
 		createdAt: message.createdAt ? new Date(message.createdAt).toISOString() : null,
 		source: message.source ?? null,
 		text: extractText(message.parts),
-		toolCalls: message.parts.filter(isToolUIPart).map((part) => toToolCall(part, includeToolOutputs)),
+		thoughts: extractThoughts(message.parts),
+		toolCalls: message.parts.filter(isToolUIPart).map((part) => toToolCall(part, options)),
 		feedback: message.feedback
 			? { vote: message.feedback.vote, explanation: message.feedback.explanation ?? null }
 			: null,
@@ -275,16 +294,24 @@ function extractText(parts: UIMessagePart[]): string {
 		.join('\n\n');
 }
 
-function toToolCall(part: Parameters<typeof getToolName>[0], includeToolOutputs: boolean): ToolCall {
+function extractThoughts(parts: UIMessagePart[]): string {
+	return parts
+		.filter((part): part is Extract<UIMessagePart, { type: 'reasoning' }> => part.type === 'reasoning')
+		.map((part) => part.text.trim())
+		.filter((thought) => thought !== '')
+		.join('\n\n');
+}
+
+function toToolCall(part: Parameters<typeof getToolName>[0], options: ToolCallOptions): ToolCall {
 	const call: ToolCall = {
 		toolName: getToolName(part),
 		state: part.state,
-		input: serializeTruncated(part.input, MAX_TOOL_INPUT_CHARS),
+		input: serializeTruncated(part.input, options.fullToolInputs ? Infinity : MAX_TOOL_INPUT_CHARS),
 	};
 	if (part.state === 'output-error') {
 		call.error = part.errorText;
 	}
-	if (includeToolOutputs && part.state === 'output-available') {
+	if (options.includeToolOutputs && part.state === 'output-available') {
 		call.output = serializeTruncated(part.output, MAX_TOOL_OUTPUT_CHARS);
 	}
 	return call;

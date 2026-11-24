@@ -12,10 +12,12 @@ import {
 	Check,
 	MessageCircleOff,
 	LockKeyhole,
+	SquarePlus,
 } from 'lucide-react';
 import { ALLOWED_IMAGE_MEDIA_TYPES, ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { toStoryReferenceMentionId } from '@nao/shared';
 import { story } from '@nao/shared/tools';
+import { isModifierPressed } from '@nao/shared/keyboard-shortcut';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import {
@@ -30,7 +32,7 @@ import {
 } from './chat-input-prompt';
 import { ChatInputAnimatedBorder } from './chat-input-animated-border';
 import { ChatInputModelSelect } from './chat-input-model-select';
-import { ChatInputMessageQueue } from './chat-input-message-queue';
+import { ChatInputMessageQueue, SteerOrQueueButton, steerOnEnterStorage } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
 import { ManagedCreditsExhausted } from './managed-credits-exhausted';
 import { ContactSupportButton } from './contact-support-dialog';
@@ -43,9 +45,11 @@ import {
 } from './ui/dropdown-menu';
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
-import type { AgentHelpers } from '@/hooks/use-agent';
+import type { CitationData } from '@nao/shared/types';
+import type { AgentHelpers, SubmittedMessage } from '@/hooks/use-agent';
 import type { ChatAllowanceExhaustedScope } from '@/lib/ai';
 import type { StoryReferences } from '@/lib/story-reference';
+import type { QueuedMessage } from '@/types/chat-message-queue';
 import { ContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 
@@ -53,7 +57,7 @@ import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { Callout } from '@/components/ui/callout';
 import { trpc } from '@/main';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { FollowUpFiller } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useAttachmentUpload } from '@/hooks/use-attachment-upload';
 import {
@@ -61,13 +65,17 @@ import {
 	parseBudgetError,
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
+	usesChatAllowance,
+	NEW_CHAT_ID,
 } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
 import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 import {
 	STORIES_ROOT_ID,
 	TABLES_ROOT_ID,
@@ -78,19 +86,31 @@ import { hasAnyStoryReference, mayCarryStories, readDroppedReferences } from '@/
 import { takePendingStoryReferences, usePendingStoryReferences } from '@/stores/story-references';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
-import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
+import { ChatPendingCitationStore, chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
+import { useChatPendingCitations } from '@/hooks/use-chat-pending-citation';
+import {
+	removeCitationTokens,
+	replacePromptText,
+	toContextMentions,
+	withCitationPillsOf,
+	writeCitedText,
+} from '@/lib/citation-mention';
+import { useCitationPills } from '@/hooks/use-citation-pills';
+import { useOpenCitation } from '@/hooks/use-open-citation';
+import { CitationPillPreview } from '@/components/citation-pill-preview';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
-import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions, SuggestionCard } from '@/components/chat-input-suggestions';
 import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
+const swapSteerQueueShortcut = getShortcut('swap-steer-queue').shortcut;
 const TRIAL_ATTACHMENT_ACCEPT = ALLOWED_IMAGE_MEDIA_TYPES.join(',');
 const TRIAL_DOCUMENTS_DISABLED_REASON = 'Documents can be attached once your project is set up. Images work now.';
 
 type ChatInputVariant = 'default' | 'onboarding';
+
+type SubmitChatMessage = (message: SubmittedMessage) => Promise<void>;
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -98,49 +118,62 @@ type ChatInputBaseProps = {
 	variant?: ChatInputVariant;
 	placeholder?: string;
 	initialText?: string;
+	initialCitations?: CitationData[];
 	onCancel?: () => void;
-	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
+	onSubmitMessage: SubmitChatMessage;
 	allowQueueing?: boolean;
+	fillsFromFollowUps?: boolean;
 	acceptsPendingStoryReferences?: boolean;
+	adminModeAvailable?: boolean;
 };
 
 type ChatInputInlineProps = {
 	className?: string;
 	initialText: string;
+	initialCitations?: CitationData[];
 	onCancel?: () => void;
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 };
 
 export function ChatInput({
 	variant = 'default',
+	placeholder,
 	acceptsPendingStoryReferences = false,
+	adminModeAvailable = true,
+	onSubmitMessage,
 }: {
 	variant?: ChatInputVariant;
+	placeholder?: string;
 	acceptsPendingStoryReferences?: boolean;
+	/** False for conversations with a dedicated agent, which admin mode would replace. */
+	adminModeAvailable?: boolean;
+	/** Takes the message in place of the agent, for a conversation that has to be created first. */
+	onSubmitMessage?: SubmitChatMessage;
 }) {
 	const promptRef = useRef<PromptHandle>(null);
 	const { queueOrSendMessage } = useAgentContext();
-
-	useRegisterSetChatInputCallback((text) => {
-		promptRef.current?.clear();
-		if (text) {
-			promptRef.current?.insertText(text);
-		}
-		requestAnimationFrame(() => promptRef.current?.focus());
-	});
 
 	return (
 		<ChatInputBase
 			promptRef={promptRef}
 			variant={variant}
-			onSubmitMessage={queueOrSendMessage}
+			placeholder={placeholder}
+			onSubmitMessage={onSubmitMessage ?? queueOrSendMessage}
 			allowQueueing
+			fillsFromFollowUps
 			acceptsPendingStoryReferences={acceptsPendingStoryReferences}
+			adminModeAvailable={adminModeAvailable}
 		/>
 	);
 }
 
-export function ChatInputInline({ className, initialText, onCancel, onSubmitMessage }: ChatInputInlineProps) {
+export function ChatInputInline({
+	className,
+	initialText,
+	initialCitations,
+	onCancel,
+	onSubmitMessage,
+}: ChatInputInlineProps) {
 	const promptRef = useRef<PromptHandle>(null);
 
 	return (
@@ -148,6 +181,7 @@ export function ChatInputInline({ className, initialText, onCancel, onSubmitMess
 			promptRef={promptRef}
 			className={className}
 			initialText={initialText}
+			initialCitations={initialCitations}
 			onCancel={onCancel}
 			onSubmitMessage={onSubmitMessage}
 		/>
@@ -160,14 +194,19 @@ function ChatInputBase({
 	variant = 'default',
 	placeholder,
 	initialText,
+	initialCitations,
 	onCancel,
 	onSubmitMessage,
 	allowQueueing,
+	fillsFromFollowUps = false,
 	acceptsPendingStoryReferences = false,
+	adminModeAvailable = true,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
 	const [managedCreditDialogOpen, setManagedCreditDialogOpen] = useState(false);
 	const [verifiedManagedCreditError, setVerifiedManagedCreditError] = useState<Error>();
+	const [ownCitationStore] = useState(() => new ChatPendingCitationStore());
+	const citationStore = allowQueueing ? chatPendingCitationStore : ownCitationStore;
 	const {
 		isRunning,
 		cancelAgent,
@@ -176,11 +215,14 @@ function ChatInputBase({
 		setAdminMode,
 		setMentions,
 		submitQueuedMessageNow,
+		steerQueuedMessage,
 		error,
 		clearError,
 		selectedModel,
 		mode,
 	} = useAgentContext();
+	const isSwapShortcutRef = useRef(false);
+	const [steerOnEnter] = useLocalStorage(steerOnEnterStorage);
 	const navigate = useNavigate();
 	const { canChatWithNaoData, isAdmin, isOrgAdmin } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
@@ -189,6 +231,7 @@ function ChatInputBase({
 		excludeCurrentChat: true,
 	});
 	const chatId = useChatId();
+	const citationScope = chatId ?? NEW_CHAT_ID;
 	const storyBeforeAgentSend = useStoryBeforeAgentSend();
 
 	const isAdminMode = canChatWithNaoData && adminMode;
@@ -238,9 +281,11 @@ function ChatInputBase({
 	const managedCreditError = parseManagedCreditsError(error);
 	const requiredBalanceMicroUsd = managedCreditError?.requiredBalanceMicroUsd;
 	const isManagedModel = selectedModel?.provider === 'nao';
+	const isExample = mode === 'example';
+	const checksManagedCredits = variant !== 'onboarding' && !isExample && isManagedModel;
 	const managedCredit = useQuery({
 		...trpc.account.getManagedCreditStatus.queryOptions(),
-		enabled: hasProject && isManagedModel,
+		enabled: hasProject && checksManagedCredits,
 		refetchInterval: requiredBalanceMicroUsd ? 5_000 : false,
 		refetchOnWindowFocus: 'always',
 	});
@@ -248,12 +293,14 @@ function ChatInputBase({
 	const currentBalanceMicroUsd = managedCredit.data?.balanceMicroUsd;
 	const hasVerifiedManagedCreditBalance = verifiedManagedCreditError === error;
 	const isManagedCreditsBlocked =
-		isManagedModel &&
+		checksManagedCredits &&
 		(managedCredit.data?.hasCredits === false ||
 			(requiredBalanceMicroUsd !== undefined &&
 				(!hasVerifiedManagedCreditBalance ||
 					!hasManagedCreditsForRequest(currentBalanceMicroUsd, requiredBalanceMicroUsd))));
-	const allowanceExhaustedScope = hasProject ? null : parseChatAllowanceExhaustedError(error);
+	const allowanceExhaustedScope = usesChatAllowance(hasProject, mode)
+		? parseChatAllowanceExhaustedError(error)
+		: null;
 	const isSendBlocked =
 		!!parseBudgetError(error) ||
 		!!allowanceExhaustedScope ||
@@ -261,7 +308,7 @@ function ChatInputBase({
 		isManagedCreditsBlocked;
 
 	useEffect(() => {
-		if (!error || !isManagedModel || requiredBalanceMicroUsd === undefined) {
+		if (!error || !checksManagedCredits || requiredBalanceMicroUsd === undefined) {
 			return;
 		}
 		let cancelled = false;
@@ -283,7 +330,7 @@ function ChatInputBase({
 		return () => {
 			cancelled = true;
 		};
-	}, [error, isManagedModel, requiredBalanceMicroUsd, refetchManagedCredit, clearError]);
+	}, [error, checksManagedCredits, requiredBalanceMicroUsd, refetchManagedCredit, clearError]);
 
 	useEffect(() => {
 		if (
@@ -303,6 +350,19 @@ function ChatInputBase({
 	const [isDragging, setIsDragging] = useState(false);
 
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
+
+	/** Writes a sent message back into the prompt, its `❝[1]` and `@[id]` tokens turned back into pills. */
+	const fillPrompt = useCallback(
+		(text: string, citations: CitationData[] = [], mentions: SelectedMention[] = []): string => {
+			promptRef.current?.clear();
+			const restoredCitations = citationStore.restore(citationScope, citations);
+			if (promptRef.current) {
+				writeCitedText(promptRef.current, text, restoredCitations, mentions);
+			}
+			return promptRef.current?.getValue() ?? removeCitationTokens(text);
+		},
+		[citationScope, citationStore, promptRef],
+	);
 
 	const queryClient = useQueryClient();
 	const currentProjectId = project.data?.id;
@@ -372,15 +432,9 @@ function ChatInputBase({
 		}
 
 		chatInputRestoreStore.clear();
-		promptRef.current?.clear();
-		promptRef.current?.insertText(chatInputRestore.text);
-		setInputText(chatInputRestore.text);
+		setInputText(fillPrompt(chatInputRestore.text, chatInputRestore.citations, chatInputRestore.mentions));
 		attachmentUpload.clearAttachments();
 		attachmentUpload.restoreDocuments(chatInputRestore.documents);
-
-		if (chatInputRestore.citation && chatId) {
-			chatPendingCitationStore.set({ ...chatInputRestore.citation, chatId });
-		}
 
 		const restoreImages = async () => {
 			const files = await Promise.all(
@@ -483,8 +537,10 @@ function ChatInputBase({
 	const submitMessage = useCallback(
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
-			const citationSnapshot = chatPendingCitationStore.getSnapshot();
-			const hasCitation = !!citationSnapshot && citationSnapshot.chatId === chatId;
+			const citationSnapshot = citationStore.getSnapshot();
+			const pendingCitations =
+				citationSnapshot && citationSnapshot.chatId === citationScope ? citationSnapshot.citations : [];
+			const hasCitation = pendingCitations.length > 0;
 
 			if (!trimmedInput && !attachmentUpload.hasAttachments && !hasCitation) {
 				if (isRunning && allowQueueing) {
@@ -506,27 +562,23 @@ function ChatInputBase({
 			}
 
 			await runGuardedAgentSend(() => {
-				const citation = hasCitation
-					? {
-							start: citationSnapshot.start,
-							end: citationSnapshot.end,
-							text: citationSnapshot.text,
-							storySlug: citationSnapshot.storySlug,
-							block: citationSnapshot.block,
-						}
-					: undefined;
+				const message = toMessageCitations(pendingCitations, trimmedInput);
+				const citations = message.citations.length > 0 ? message.citations : undefined;
 				if (hasCitation) {
-					chatPendingCitationStore.clear();
+					citationStore.clear();
 				}
 
-				setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
+				const mentions = toContextMentions(currentMentions);
+				setMentions(mentions);
 				promptRef.current?.clear();
 				setInputText('');
 
 				const { images, documents } = attachmentUpload.getPayload();
 				attachmentUpload.clearAttachments();
 
-				return onSubmitMessage({ text: trimmedInput, images, documents, citation });
+				const steer = steerOnEnter !== isSwapShortcutRef.current;
+				isSwapShortcutRef.current = false;
+				return onSubmitMessage({ text: message.text, images, documents, citations, mentions, steer });
 			});
 		},
 		[
@@ -538,9 +590,17 @@ function ChatInputBase({
 			promptRef,
 			attachmentUpload,
 			chatId,
+			citationStore,
+			citationScope,
 			runGuardedAgentSend,
 			submitQueuedMessageWithGuard,
+			steerOnEnter,
 		],
+	);
+
+	const submitTranscription = useCallback(
+		(text: string) => submitMessage(withCitationPillsOf(promptRef.current?.getValue() ?? '', text)),
+		[submitMessage, promptRef],
 	);
 
 	const {
@@ -549,29 +609,55 @@ function ChatInputBase({
 		isRecording,
 		isTranscribing,
 		analyserRef,
-	} = useTranscribe({ onTranscribed: submitMessage });
+	} = useTranscribe({ onTranscribed: submitTranscription });
 
 	useEffect(() => {
 		if (typeof initialText !== 'string') {
 			return;
 		}
-		promptRef.current?.clear();
-		promptRef.current?.insertText(initialText);
-		setInputText(initialText);
+		setInputText(fillPrompt(initialText, initialCitations));
 		promptRef.current?.focus();
-	}, [initialText, promptRef]);
+	}, [initialText, initialCitations, fillPrompt, promptRef]);
 
 	const handleSubmitMessage = async (e: FormEvent) => {
 		e.preventDefault();
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
-	const pendingCitation = useChatPendingCitation(chatId);
-	const isInputEmpty = !inputText.trim() && !attachmentUpload.hasAttachments && !pendingCitation;
+	const pendingCitations = useChatPendingCitations(citationStore, citationScope);
+	const removePendingCitation = useCallback(
+		(id: string) => citationStore.remove(citationScope, id),
+		[citationScope, citationStore],
+	);
+	const citationPills = useCitationPills({
+		promptRef,
+		containerRef: dropZoneRef,
+		citations: pendingCitations,
+		scope: citationScope,
+		onRemove: removePendingCitation,
+	});
+	const fillFromFollowUp = useCallback(
+		(text: string) => {
+			if (promptRef.current) {
+				replacePromptText(promptRef.current, text, citationPills.options);
+			}
+			requestAnimationFrame(() => promptRef.current?.focus());
+		},
+		[promptRef, citationPills.options],
+	);
+	const findPendingCitation = useCallback(
+		(id: string) => pendingCitations.find((citation) => citation.id === id),
+		[pendingCitations],
+	);
+	const openCitation = useOpenCitation();
+	const isInputEmpty = !inputText.trim() && !attachmentUpload.hasAttachments;
 
 	const skills = useQuery({ ...trpc.skill.list.queryOptions(), enabled: hasProject });
+	const canManagePersonalSkills = useCanManagePersonalSkills();
 	const databaseObjects = useQuery({ ...trpc.project.getDatabaseObjects.queryOptions(), enabled: hasProject });
 	const hasSkills = hasProject && Boolean(skills.data?.length);
+	const canCreateSkill = hasProject && canManagePersonalSkills;
+	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const hasDatabases = hasProject && Boolean(databaseObjects.data?.length);
 	const shortcutPlaceholder = buildShortcutPlaceholder({
 		hasContext: hasDatabases || storyReferenceOptions.length > 0,
@@ -580,18 +666,17 @@ function ChatInputBase({
 	});
 	const effectivePlaceholder =
 		isRunning && allowQueueing
-			? 'Add a follow-up...'
+			? 'Queue a follow-up, or steer the answer...'
 			: variant === 'onboarding'
 				? 'Tell me where you are starting from...'
 				: (placeholder ?? shortcutPlaceholder);
 
 	const handleEditQueuedMessage = useCallback(
-		(text: string) => {
-			promptRef.current?.clear();
-			promptRef.current?.insertText(text);
+		({ text, citations }: QueuedMessage) => {
+			setInputText(fillPrompt(text, citations));
 			promptRef.current?.focus();
 		},
-		[promptRef],
+		[fillPrompt, promptRef],
 	);
 
 	const openMentionMenu = useCallback(
@@ -611,6 +696,15 @@ function ChatInputBase({
 		},
 		[promptRef],
 	);
+
+	const sendWithClickModifier = (event: React.MouseEvent<HTMLButtonElement>) => {
+		isSwapShortcutRef.current = isModifierPressed(event);
+		void handleSubmitMessage(event);
+	};
+
+	const rememberSwapShortcut = (event: React.KeyboardEvent) => {
+		isSwapShortcutRef.current = matchesShortcut(event.nativeEvent, swapSteerQueueShortcut);
+	};
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
@@ -633,8 +727,8 @@ function ChatInputBase({
 					<ChatInputMessageQueue
 						onEditMessage={handleEditQueuedMessage}
 						onSubmitNow={submitQueuedMessageWithGuard}
+						onSteer={steerQueuedMessage}
 					/>
-					<SelectionCitationBanner />
 					<BudgetBanner />
 					{allowQueueing && !isAdminMode && (
 						<ChatInputSuggestions
@@ -655,15 +749,16 @@ function ChatInputBase({
 						creditOrganizationId={isOrgAdmin ? managedCredit.data?.organization?.id : undefined}
 					/>
 					<ManagedCreditsLockedComposer
-						isExample={mode === 'example'}
+						isExample={isExample}
 						onOpen={() => setManagedCreditDialogOpen(true)}
 					/>
 				</>
 			)}
 			<form
 				onSubmit={handleSubmitMessage}
+				onKeyDownCapture={rememberSwapShortcut}
 				onKeyDown={handleKeyDown}
-				className={cn('mx-auto relative', isManagedCreditsBlocked && 'hidden')}
+				className={cn('@container mx-auto relative', isManagedCreditsBlocked && 'hidden')}
 			>
 				<InputGroup
 					htmlFor='chat-input'
@@ -679,12 +774,21 @@ function ChatInputBase({
 						rejection={attachmentUpload.rejection}
 						onRemove={attachmentUpload.removeAttachment}
 					/>
+					{fillsFromFollowUps && <FollowUpFiller onFill={fillFromFollowUp} />}
+					<CitationPillPreview
+						containerRef={dropZoneRef}
+						findCitation={findPendingCitation}
+						onOpen={openCitation}
+					/>
 					<ChatPrompt
 						promptRef={promptRef}
 						placeholder={effectivePlaceholder}
 						storyCreationEnabled={storyCreationEnabled}
+						citationOptions={citationPills.options}
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
+						onMentionDeleted={citationPills.handleMentionDeleted}
+						newSkillDialog={{ isOpen: isNewSkillOpen, onOpenChange: setIsNewSkillOpen }}
 					/>
 
 					<input
@@ -700,24 +804,26 @@ function ChatInputBase({
 						{!isManagedCreditsBlocked &&
 							variant !== 'onboarding' &&
 							(!isTranscribeReady || (!isRecording && !isTranscribing)) && (
-								<ChatInputModelSelect isExample={mode === 'example'} />
+								<ChatInputModelSelect isExample={isExample} />
 							)}
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
-						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
+						<div className='flex shrink-0 items-center gap-1.5 md:gap-2 ml-auto relative'>
 							{mode !== 'onboarding' && (
 								<ChatInputPlusMenu
 									hasDatabases={hasDatabases}
 									hasStoryReferences={storyReferenceOptions.length > 0}
 									hasSkills={hasSkills}
+									canCreateSkill={canCreateSkill}
 									storyMentions={storyMentionOptions}
-									canChatWithNaoData={canChatWithNaoData}
+									canChatWithNaoData={canChatWithNaoData && adminModeAvailable}
 									isAdminMode={isAdminMode}
 									adminModeLocked={adminModeLocked}
 									isTrial={isTrial}
 									onSelectAdminMode={handleSelectAdminMode}
 									onAddAttachment={attachmentUpload.openFilePicker}
+									onCreateSkill={() => setIsNewSkillOpen(true)}
 									onAddStory={(mention) => {
 										promptRef.current?.appendMention({ id: mention.id, label: mention.label }, '#');
 									}}
@@ -733,7 +839,7 @@ function ChatInputBase({
 								</Button>
 							)}
 
-							<ContextWindowRing />
+							<ContextWindowRing className='@max-xs:hidden' />
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
 							{hasTranscribeProvider && (
@@ -741,17 +847,23 @@ function ChatInputBase({
 									state={isTranscribeReady ? transcribeState : 'idle'}
 									onClick={isTranscribeReady ? toggleRecording : showMicWarning}
 									disabled={isRunning && !allowQueueing}
+									className={isRecording || isTranscribing ? undefined : '@max-xs:hidden'}
 								/>
 							)}
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
-							{allowQueueing && isRunning ? (
-								<ChatButton
-									showStop={isInputEmpty}
-									disabled={!isInputEmpty && isSendBlocked}
-									onClick={isInputEmpty ? cancelAgent : handleSubmitMessage}
-									type='button'
+							{allowQueueing && isRunning && !isInputEmpty ? (
+								<SteerOrQueueButton
+									disabled={isSendBlocked}
+									isDraftSteerable={
+										!attachmentUpload.hasAttachments &&
+										pendingCitations.length === 0 &&
+										!promptRef.current?.getMentions().length
+									}
+									onSend={sendWithClickModifier}
 								/>
+							) : allowQueueing && isRunning ? (
+								<ChatButton showStop onClick={cancelAgent} type='button' />
 							) : (
 								<ChatButton
 									showStop={isRunning}
@@ -888,12 +1000,14 @@ function ChatInputPlusMenu({
 	hasDatabases,
 	hasStoryReferences,
 	hasSkills,
+	canCreateSkill,
 	storyMentions,
 	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
 	onSelectAdminMode,
 	onAddAttachment,
+	onCreateSkill,
 	onAddStory,
 	onOpenMentionMenu,
 	onOpenReferenceMenu,
@@ -902,6 +1016,7 @@ function ChatInputPlusMenu({
 	hasDatabases: boolean;
 	hasStoryReferences: boolean;
 	hasSkills: boolean;
+	canCreateSkill: boolean;
 	storyMentions: MentionOption[];
 	canChatWithNaoData: boolean;
 	isAdminMode: boolean;
@@ -909,23 +1024,24 @@ function ChatInputPlusMenu({
 	isTrial: boolean;
 	onSelectAdminMode: () => void;
 	onAddAttachment: () => void;
+	onCreateSkill: () => void;
 	onAddStory: (mention: MentionOption) => void;
 	onOpenMentionMenu: (trigger: string) => void;
 	onOpenReferenceMenu: (rootId: string) => void;
 	onFocusPrompt: () => void;
 }) {
-	const pendingMentionMenuRef = useRef<(() => void) | null>(null);
+	const pendingActionRef = useRef<(() => void) | null>(null);
 
-	/** The menu takes focus back while closing, so the mention menu is opened once the prompt has it again. */
-	const deferMentionMenu = (openMentionMenu: () => void) => {
-		pendingMentionMenuRef.current = openMentionMenu;
+	/** The menu takes focus back while closing, so what an item opens is opened once the menu has closed. */
+	const deferUntilClosed = (open: () => void) => {
+		pendingActionRef.current = open;
 	};
 
 	const restorePromptFocus = () => {
-		const openPendingMentionMenu = pendingMentionMenuRef.current;
-		pendingMentionMenuRef.current = null;
-		if (openPendingMentionMenu) {
-			openPendingMentionMenu();
+		const runPendingAction = pendingActionRef.current;
+		pendingActionRef.current = null;
+		if (runPendingAction) {
+			runPendingAction();
 		} else {
 			onFocusPrompt();
 		}
@@ -957,13 +1073,13 @@ function ChatInputPlusMenu({
 					<span>Attach file</span>
 				</DropdownMenuItem>
 				{hasDatabases && (
-					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenReferenceMenu(TABLES_ROOT_ID))}>
+					<DropdownMenuItem onSelect={() => deferUntilClosed(() => onOpenReferenceMenu(TABLES_ROOT_ID))}>
 						<Database className='size-4' />
 						<span>Database tables</span>
 					</DropdownMenuItem>
 				)}
 				{hasStoryReferences && (
-					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenReferenceMenu(STORIES_ROOT_ID))}>
+					<DropdownMenuItem onSelect={() => deferUntilClosed(() => onOpenReferenceMenu(STORIES_ROOT_ID))}>
 						<Library className='size-4' />
 						<span>Reference stories</span>
 					</DropdownMenuItem>
@@ -975,9 +1091,15 @@ function ChatInputPlusMenu({
 					</DropdownMenuItem>
 				))}
 				{hasSkills && (
-					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenMentionMenu(SKILL_MENTION_TRIGGER))}>
+					<DropdownMenuItem onSelect={() => deferUntilClosed(() => onOpenMentionMenu(SKILL_MENTION_TRIGGER))}>
 						<PencilRuler className='size-4' />
 						<span>Skills</span>
+					</DropdownMenuItem>
+				)}
+				{canCreateSkill && (
+					<DropdownMenuItem onSelect={() => deferUntilClosed(onCreateSkill)}>
+						<SquarePlus className='size-4' />
+						<span>Create a skill</span>
 					</DropdownMenuItem>
 				)}
 				{canChatWithNaoData && (

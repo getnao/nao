@@ -1,5 +1,6 @@
 import { isQueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart, executeSql } from '@nao/shared/tools';
+import type { NaoEventType } from '@nao/shared/types';
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, max, ne, type SQL } from 'drizzle-orm';
 
 import s, {
@@ -10,8 +11,9 @@ import s, {
 	type NewAutomation,
 	type NewAutomationRun,
 } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBTransaction } from '../db/db';
 import type { AutomationIntegrationResult } from '../types/automation';
+import { type AutomationRole, hasAutomationRole, resolveAutomationRoles } from './automation-share.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
 const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
@@ -24,24 +26,41 @@ export type AutomationWithSchedule = DBAutomation & {
 	scheduledJob: DBScheduledJob | null;
 };
 
-export type AutomationListItem = AutomationWithSchedule & {
+export type AutomationWithAccess = AutomationWithSchedule & { accessRole: AutomationRole };
+
+export type AutomationListItem = AutomationWithAccess & {
+	ownerName: string | null;
 	lastRunStatus: DBAutomationRun['status'] | null;
 	lastRunStartedAt: Date | null;
 };
 
+/** The automations the user owns or that are shared with them. */
 export const listAutomations = async (projectId: string, userId: string): Promise<AutomationListItem[]> => {
 	await failStaleAutomationRuns();
 	const rows = await db
-		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob, ownerName: s.user.name })
 		.from(s.automation)
 		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
-		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.leftJoin(s.user, eq(s.user.id, s.automation.userId))
+		.where(eq(s.automation.projectId, projectId))
 		.orderBy(desc(s.automation.updatedAt))
 		.execute();
+	const roles = await resolveAutomationRoles(
+		projectId,
+		rows.map((row) => row.automation),
+		userId,
+	);
+
+	const visibleRows = rows.flatMap((row) => {
+		const accessRole = roles.get(row.automation.id);
+		return accessRole ? [{ ...row, accessRole }] : [];
+	});
 
 	return Promise.all(
-		rows.map(async ({ automation, scheduledJob }) => ({
+		visibleRows.map(async ({ automation, scheduledJob, ownerName, accessRole }) => ({
 			...mapAutomationWithSchedule(automation, scheduledJob),
+			accessRole,
+			ownerName,
 			...(await getLatestRunSummary(automation.id)),
 		})),
 	);
@@ -51,7 +70,10 @@ export type AutomationOwner = { id: string; name: string; email: string };
 
 type LatestRunSummary = Pick<AutomationListItem, 'lastRunStatus' | 'lastRunStartedAt'>;
 
-export type ProjectAutomationSummary = Pick<DBAutomation, 'id' | 'title' | 'scheduleDescription' | 'webhookEnabled'> &
+export type ProjectAutomationSummary = Pick<
+	DBAutomation,
+	'id' | 'title' | 'scheduleDescription' | 'webhookEnabled' | 'eventTriggers'
+> &
 	Pick<AutomationWithSchedule, 'cron' | 'enabled'> &
 	LatestRunSummary & {
 		owner: AutomationOwner | null;
@@ -65,6 +87,7 @@ export const listProjectAutomations = async (projectId: string): Promise<Project
 			title: s.automation.title,
 			scheduleDescription: s.automation.scheduleDescription,
 			webhookEnabled: s.automation.webhookEnabled,
+			eventTriggers: s.automation.eventTriggers,
 			cron: s.scheduledJob.cron,
 			scheduledJobStatus: s.scheduledJob.status,
 			owner: { id: s.user.id, name: s.user.name, email: s.user.email },
@@ -140,18 +163,22 @@ async function getLatestRunSummary(
 	};
 }
 
+/** The automation, when the user has at least the given role on it. */
 export const getAutomation = async (
 	projectId: string,
 	userId: string,
 	id: string,
-): Promise<AutomationWithSchedule | null> => {
-	const [row] = await db
-		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
-		.from(s.automation)
-		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
-		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
-		.execute();
-	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
+	minimumRole: AutomationRole,
+): Promise<AutomationWithAccess | null> => {
+	const automation = await getProjectAutomation(projectId, id);
+	if (!automation) {
+		return null;
+	}
+	const accessRole = (await resolveAutomationRoles(projectId, [automation], userId)).get(id);
+	if (!accessRole || !hasAutomationRole(accessRole, minimumRole)) {
+		return null;
+	}
+	return { ...automation, accessRole };
 };
 
 export const getProjectAutomation = async (projectId: string, id: string): Promise<AutomationWithSchedule | null> => {
@@ -174,6 +201,22 @@ export const getAutomationById = async (id: string): Promise<AutomationWithSched
 	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
 };
 
+/** Event triggers are stored as JSON, so they are filtered here to stay portable across SQLite and Postgres. */
+export const listEventTriggeredAutomations = async (
+	projectId: string,
+	eventType: NaoEventType,
+): Promise<AutomationWithSchedule[]> => {
+	const rows = await db
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.where(eq(s.automation.projectId, projectId))
+		.execute();
+	return rows
+		.filter((row) => row.automation.eventTriggers[eventType]?.enabled)
+		.map((row) => mapAutomationWithSchedule(row.automation, row.scheduledJob));
+};
+
 export const createAutomation = async (data: NewAutomation): Promise<DBAutomation> => {
 	const [created] = await db.insert(s.automation).values(data).returning().execute();
 	return created;
@@ -185,7 +228,6 @@ export const linkAutomationJob = async (id: string, scheduledJobId: string | nul
 
 export const updateAutomation = async (
 	projectId: string,
-	userId: string,
 	id: string,
 	data: Partial<
 		Pick<
@@ -200,33 +242,47 @@ export const updateAutomation = async (
 			| 'mcpServers'
 			| 'integrations'
 			| 'webhookEnabled'
+			| 'eventTriggers'
 		>
 	>,
 ): Promise<DBAutomation | null> => {
 	const [updated] = await db
 		.update(s.automation)
 		.set(data)
-		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId)))
 		.returning()
 		.execute();
 	return updated ?? null;
 };
 
-export const setAutomationWebhookEnabled = async (id: string, webhookEnabled: boolean): Promise<void> => {
-	await db.update(s.automation).set({ webhookEnabled }).where(eq(s.automation.id, id)).execute();
+export const setAutomationEventTriggers = async (
+	id: string,
+	triggers: Pick<NewAutomation, 'webhookEnabled' | 'eventTriggers'>,
+): Promise<void> => {
+	await db.update(s.automation).set(triggers).where(eq(s.automation.id, id)).execute();
 };
 
 /** Also hands over the chats of past runs so the new owner can open the run history. */
 export const transferAutomationOwnership = async (id: string, newOwnerId: string): Promise<void> => {
-	await db.transaction(async (tx) => {
-		await tx.update(s.automation).set({ userId: newOwnerId }).where(eq(s.automation.id, id)).execute();
+	await db.transaction((tx) => moveAutomationsToOwner(tx, eq(s.automation.id, id), newOwnerId));
+};
 
-		const runChatIds = tx
-			.select({ chatId: s.automationRun.chatId })
-			.from(s.automationRun)
-			.where(and(eq(s.automationRun.automationId, id), isNotNull(s.automationRun.chatId)));
-		await tx.update(s.chat).set({ userId: newOwnerId }).where(inArray(s.chat.id, runChatIds)).execute();
-	});
+export const transferProjectAutomationsOfUser = async (
+	projectId: string,
+	fromUserId: string,
+	newOwnerId: string,
+): Promise<number> => {
+	const ownedByUser = and(eq(s.automation.projectId, projectId), eq(s.automation.userId, fromUserId));
+	return db.transaction((tx) => moveAutomationsToOwner(tx, ownedByUser, newOwnerId));
+};
+
+export const countProjectAutomationsOfUser = async (projectId: string, userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ count: count() })
+		.from(s.automation)
+		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.execute();
+	return row?.count ?? 0;
 };
 
 export const deleteAutomation = async (projectId: string, userId: string, id: string): Promise<void> => {
@@ -258,23 +314,13 @@ async function deleteAutomationMatching(condition: SQL | undefined): Promise<voi
 	});
 }
 
-export const listAutomationRuns = async (
-	projectId: string,
-	userId: string,
-	automationId: string,
-): Promise<DBAutomationRun[]> => {
+export const listAutomationRuns = async (projectId: string, automationId: string): Promise<DBAutomationRun[]> => {
 	await failStaleAutomationRuns();
 	const rows = await db
 		.select({ run: s.automationRun })
 		.from(s.automationRun)
 		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
-		.where(
-			and(
-				eq(s.automation.id, automationId),
-				eq(s.automation.projectId, projectId),
-				eq(s.automation.userId, userId),
-			),
-		)
+		.where(and(eq(s.automation.id, automationId), eq(s.automation.projectId, projectId)))
 		.orderBy(desc(s.automationRun.startedAt))
 		.execute();
 	return rows.map((row) => row.run);
@@ -417,6 +463,16 @@ export const getAutomationRunForUser = async (
 		.where(
 			and(eq(s.automationRun.id, runId), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)),
 		)
+		.execute();
+	return row?.run ?? null;
+};
+
+export const getProjectAutomationRun = async (projectId: string, runId: string): Promise<DBAutomationRun | null> => {
+	const [row] = await db
+		.select({ run: s.automationRun })
+		.from(s.automationRun)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
+		.where(and(eq(s.automationRun.id, runId), eq(s.automation.projectId, projectId)))
 		.execute();
 	return row?.run ?? null;
 };
@@ -692,4 +748,32 @@ function parseChartPart(
 		config: config.data,
 		data: sqlOutput.data,
 	};
+}
+
+/** The new owner also gets the chats of past runs, so they can read them. */
+async function moveAutomationsToOwner(tx: DBTransaction, where: SQL | undefined, newOwnerId: string): Promise<number> {
+	const moved = await tx
+		.update(s.automation)
+		.set({ userId: newOwnerId })
+		.where(where)
+		.returning({ id: s.automation.id })
+		.execute();
+	if (moved.length === 0) {
+		return 0;
+	}
+
+	const runChatIds = tx
+		.select({ chatId: s.automationRun.chatId })
+		.from(s.automationRun)
+		.where(
+			and(
+				inArray(
+					s.automationRun.automationId,
+					moved.map((automation) => automation.id),
+				),
+				isNotNull(s.automationRun.chatId),
+			),
+		);
+	await tx.update(s.chat).set({ userId: newOwnerId }).where(inArray(s.chat.id, runChatIds)).execute();
+	return moved.length;
 }

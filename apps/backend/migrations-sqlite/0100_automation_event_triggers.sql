@@ -1,0 +1,1 @@
+ALTER TABLE `automation` ADD `event_triggers` text DEFAULT '{}' NOT NULL;

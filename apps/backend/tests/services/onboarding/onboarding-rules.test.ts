@@ -1,0 +1,149 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+	generateText: vi.fn(),
+	getProjectById: vi.fn(),
+	resolveProviderModel: vi.fn(),
+}));
+
+vi.mock('ai', () => ({
+	generateText: mocks.generateText,
+}));
+
+vi.mock('../../../src/agents/providers', () => ({
+	disableModelReasoning: () => ({ model: 'test-model' }),
+}));
+
+vi.mock('../../../src/agents/telemetry', () => ({
+	llmTelemetry: vi.fn(),
+}));
+
+vi.mock('../../../src/queries/project.queries', () => ({
+	getProjectById: mocks.getProjectById,
+}));
+
+vi.mock('../../../src/utils/llm', () => ({
+	resolveProviderModel: mocks.resolveProviderModel,
+}));
+
+vi.mock('../../../src/utils/safe-fetch', () => ({
+	safeFetch: vi.fn(),
+}));
+
+import { generateOnboardingRules } from '../../../src/services/onboarding/onboarding-rules';
+
+let projectPath: string;
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'onboarding-rules-test-'));
+	mocks.getProjectById.mockResolvedValue({ id: 'project-1', path: projectPath });
+	mocks.resolveProviderModel.mockResolvedValue({});
+	mocks.generateText.mockResolvedValue({ text: '# Generated rules' });
+});
+
+afterEach(() => {
+	fs.rmSync(projectPath, { recursive: true, force: true });
+});
+
+describe('generateOnboardingRules', () => {
+	it('uses the write-context-rules skill and template', async () => {
+		await generateOnboardingRules(
+			'project-1',
+			{ additionalContext: 'A bicycle rental company.' },
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const systemPrompt = mocks.generateText.mock.calls[0]?.[0].system as string;
+		expect(systemPrompt).toContain('# write-context-rules');
+		expect(systemPrompt).toContain('This skill is the only one that writes to `RULES.md`.');
+		expect(systemPrompt).toContain('## Automated onboarding execution');
+		expect(systemPrompt).toContain('## RULES.md template');
+		expect(systemPrompt).toContain('## Business overview');
+		expect(systemPrompt).not.toContain('The document should:');
+		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
+	});
+
+	it('includes uploaded text files in the initial business context', async () => {
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'We rent bicycles to commuters.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('## docs/uploads/company.txt');
+		expect(userPrompt).toContain('We rent bicycles to commuters.');
+	});
+
+	it('reserves file slots for business context when database metadata reaches the file limit', async () => {
+		for (let index = 0; index < 60; index++) {
+			const tableDirectory = path.join(projectPath, 'databases', `table-${index}`);
+			fs.mkdirSync(tableDirectory, { recursive: true });
+			fs.writeFileSync(path.join(tableDirectory, 'columns.md'), `Table ${index}`);
+		}
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'Important uploaded business context.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('Important uploaded business context.');
+	});
+
+	it('reserves characters for business context when database metadata reaches the character limit', async () => {
+		const tableDirectory = path.join(projectPath, 'databases', 'table');
+		fs.mkdirSync(tableDirectory, { recursive: true });
+		fs.writeFileSync(path.join(tableDirectory, 'columns.md'), 'd'.repeat(60_000));
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'Important uploaded business context.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('Important uploaded business context.');
+	});
+
+	it('resolves managed models as unbilled usage for the onboarding user', async () => {
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'nao', modelId: 'gpt-6-sol' },
+			'model-project-1',
+			'user-1',
+		);
+
+		expect(mocks.resolveProviderModel).toHaveBeenCalledWith('model-project-1', 'nao', 'gpt-6-sol', false, {
+			userId: 'user-1',
+			projectId: 'model-project-1',
+			category: 'chat',
+			billingMode: 'unbilled',
+		});
+	});
+});

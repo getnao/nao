@@ -15,6 +15,7 @@ import type { TokenUsage } from '../types/chat';
 import type { ModelCosts, ModelSource } from '../types/llm';
 import type { ManagedAiUsageCategory, ManagedAiUsageCostSource, ManagedAiUsageStatus } from '../types/managed-ai-usage';
 import { logger } from '../utils/logger';
+import { resolveModelPrices } from './model-prices';
 import { createProviderModel, getProviderMeta } from './providers';
 
 export type ManagedAiUsageContext = {
@@ -52,14 +53,14 @@ export const managedAiSource: ModelSource = {
 		return [{ provider: 'nao', enabledModels, customModels: [], baseUrl: null }];
 	},
 
-	async resolveModel({ projectId, provider, modelId, usageContext }) {
+	async resolveModel({ projectId, provider, modelId, usageContext, inferenceOverrides }) {
 		const apiKey = env.NAO_MANAGED_OPENAI_API_KEY;
 		const resolvedModelId = LEGACY_MANAGED_MODEL_ALIASES[modelId] ?? modelId;
 		if (!isManagedAiEnabled() || !apiKey || !usageContext?.userId || !isManagedModel(provider, resolvedModelId)) {
 			return null;
 		}
 		const orgId = usageContext.orgId ?? (await projectQueries.getProjectById(projectId))?.orgId ?? undefined;
-		const result = createProviderModel(provider, { apiKey }, resolvedModelId);
+		const result = createProviderModel(provider, { apiKey }, resolvedModelId, inferenceOverrides);
 		return {
 			...result,
 			model: withManagedAiUsageMetering(result.model, provider, resolvedModelId, {
@@ -93,7 +94,7 @@ function createManagedAiUsageMiddleware(
 	context: ManagedAiUsageContext,
 	declaredCosts?: ModelCosts,
 ): LanguageModelMiddleware {
-	const rates = resolveRates('nao', modelId, declaredCosts);
+	const rates = resolveModelPrices('nao', modelId, declaredCosts);
 	return {
 		specificationVersion: 'v3',
 		wrapGenerate: async ({ doGenerate, params }) => {
@@ -335,11 +336,6 @@ async function recordManagedAiUsage(options: RecordManagedAiUsageOptions): Promi
 	}
 	const customerChargeMicroUsd = options.status === 'failed' ? 0 : (costs.total ?? 0);
 	await creditWalletService.recordManagedAiUsageAndChargeWallet(usage, customerChargeMicroUsd);
-}
-
-function resolveRates(provider: LlmProvider, modelId: string, declaredCosts?: ModelCosts): ModelCosts | undefined {
-	const builtInCosts = getProviderMeta(provider).models.find((model) => model.id === modelId)?.costPerM;
-	return builtInCosts || declaredCosts ? { ...builtInCosts, ...declaredCosts } : undefined;
 }
 
 function calculateCosts(

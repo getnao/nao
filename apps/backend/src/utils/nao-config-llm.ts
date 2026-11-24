@@ -22,7 +22,9 @@ import {
 	modelInferenceSettingsSchema,
 	type ModelSettingsMap,
 } from '../types/llm';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
+import { holdsFileReference, resolveFileReferences } from './nao-config-references';
 
 export type ConfigProviderBudget = {
 	limitUsd: number;
@@ -81,6 +83,7 @@ const modelSchema = z.object({
 	name: z.string().optional(),
 	default: z.boolean().optional(),
 	costs: costsSchema.optional(),
+	context_window: z.number().int().positive().optional(),
 	settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -143,7 +146,10 @@ export function findConfigLlmProvider(config: ConfigLlm | null, provider: LlmPro
 
 const rawCache = new Map<string, { mtimeMs: number; llm: unknown }>();
 
-/** Parse the config file, caching by modification time so hot paths only pay a stat. */
+/**
+ * Parse the config file, caching by modification time so hot paths only pay a stat. A block that reads other
+ * files through `from_file` is not cached, as they change without the config file changing.
+ */
 function loadLlmBlock(projectPath: string): unknown {
 	const filePath = configPath(projectPath);
 
@@ -161,16 +167,23 @@ function loadLlmBlock(projectPath: string): unknown {
 	}
 
 	let llm: unknown = null;
+	let dependsOnOtherFiles = false;
 	try {
 		const config = yaml.load(fs.readFileSync(filePath, 'utf-8'));
-		llm = isRecord(config) ? (config.llm ?? null) : null;
+		const rawLlm = isRecord(config) ? (config.llm ?? null) : null;
+		dependsOnOtherFiles = holdsFileReference(rawLlm);
+		llm = resolveFileReferences(rawLlm, projectPath);
 	} catch (err) {
 		logger.warn(`Failed to parse ${filePath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',
 		});
 	}
 
-	rawCache.set(filePath, { mtimeMs, llm });
+	if (dependsOnOtherFiles) {
+		rawCache.delete(filePath);
+	} else {
+		rawCache.set(filePath, { mtimeMs, llm });
+	}
 	return llm;
 }
 
@@ -253,7 +266,7 @@ function toCustomModel(model: z.infer<typeof modelSchema>): CustomModelMetadata[
 		...(model.costs.output !== undefined && { output: model.costs.output }),
 	};
 
-	if (!model.name && !costPerM) {
+	if (!model.name && !costPerM && !model.context_window) {
 		return [];
 	}
 
@@ -262,6 +275,7 @@ function toCustomModel(model: z.infer<typeof modelSchema>): CustomModelMetadata[
 			id: model.id,
 			...(model.name && { displayName: model.name }),
 			...(costPerM && Object.keys(costPerM).length > 0 && { costPerM }),
+			...(model.context_window && { contextWindow: model.context_window }),
 		},
 	];
 }
@@ -292,7 +306,7 @@ function toModelSettings(models: z.infer<typeof modelSchema>[]): ModelSettingsMa
  * the file. `aws(...)` and `k8s(...)` are resolved by the CLI only, so a value that still needs
  * them is dropped in favour of the environment.
  */
-function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
+export function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
 	if (typeof value !== 'string') {
 		return null;
 	}
@@ -303,7 +317,7 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 			resolvable = false;
 			return '';
 		}
-		return extraEnv[identifier] || process.env[identifier] || '';
+		return extraEnv[identifier] || getDeploymentEnvVar(identifier) || '';
 	});
 
 	return resolvable && resolved.trim() ? resolved : null;

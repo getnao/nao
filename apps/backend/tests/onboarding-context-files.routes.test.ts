@@ -13,7 +13,7 @@ vi.mock('../src/middleware/auth', () => ({
 	authMiddleware: mocks.authMiddleware,
 }));
 
-vi.mock('../src/services/warehouse-context-files', () => ({
+vi.mock('../src/services/onboarding/warehouse-context-files', () => ({
 	clearWarehouseContextFiles: mocks.clearWarehouseContextFiles,
 	MAX_WAREHOUSE_CONTEXT_FILE_SIZE_BYTES: 5 * 1024 * 1024,
 	saveWarehouseContextFile: mocks.saveWarehouseContextFile,

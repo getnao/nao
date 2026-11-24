@@ -6,10 +6,12 @@ import os from 'os';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { createRulesPathMatcher, renderRootRulesForAgent } from '../../services/agent-visible-project-file.service';
 import {
-	getAgentVisibleRulesView,
-	isAgentVisibleRootRulesPath,
-} from '../../services/agent-visible-project-file.service';
+	isMcpSpecsFolder,
+	isNaoInternalMcpPath,
+	listNaoInternalMcpSpecFilesUnder,
+} from '../../services/nao-internal-mcp';
 import {
 	assertProjectContextPathAllowed,
 	isProjectContextPathAllowed,
@@ -80,6 +82,7 @@ export default createTool<grep.Input, grep.Output>({
 			...targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
 			searchStories(rgPath, { ...options, max_results }, context),
 			searchStoryLibrary(rgPath, { ...options, max_results }, context),
+			searchNaoInternalMcp(rgPath, { ...options, max_results }, context),
 		]);
 
 		const totalMatches = results.reduce((total, result) => total + result.totalMatches, 0);
@@ -98,7 +101,7 @@ export default createTool<grep.Input, grep.Output>({
 
 /** Disk targets ripgrep walks; a search without a path covers the whole tree, permanent storage included. */
 const resolveTargets = (searchPath: string | undefined, context: ToolContext): SearchTarget[] => {
-	if (isStoriesPath(searchPath) || isStoryLibraryPath(searchPath)) {
+	if (isStoriesPath(searchPath) || isStoryLibraryPath(searchPath) || isNaoInternalMcpPath(searchPath)) {
 		return [];
 	}
 	if (isStoragePath(searchPath)) {
@@ -118,8 +121,8 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 	const root = searchPath
 		? resolveCanonicalProjectPath(searchPath, projectFolder)
 		: { realPath: canonicalRoot, virtualPath: '/' };
-	let cachedRulesView: SearchRulesView | null | undefined;
-	let rulesViewLoaded = false;
+	const isRulesPath = createRulesPathMatcher(projectFolder);
+	const rulesViews = new Map<string, SearchRulesView | null>();
 	if (searchPath && fs.existsSync(root.realPath)) {
 		const kind = fs.statSync(root.realPath).isDirectory() ? 'directory' : 'file';
 		assertProjectContextPathAllowed(context, searchPath, root.virtualPath, kind);
@@ -140,27 +143,29 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 		toAbsolutePath: (displayPath) => resolveCanonicalProjectPath(displayPath, projectFolder).realPath,
 		isAllowedDisplayPath: () => true,
 		getRulesView: (displayPath) => {
-			if (!isAgentVisibleRootRulesPath(displayPath)) {
+			if (!isRulesPath(displayPath)) {
 				return undefined;
 			}
-			if (!rulesViewLoaded) {
-				rulesViewLoaded = true;
-				try {
-					const canonical = resolveCanonicalProjectPath(displayPath, projectFolder);
-					const rendered = getAgentVisibleRulesView(
-						canonical.virtualPath,
-						fs.readFileSync(canonical.realPath, 'utf-8'),
-						context,
-					);
-					cachedRulesView = rendered ? toSearchRulesView(rendered) : null;
-				} catch {
-					cachedRulesView = null;
-				}
+			if (!rulesViews.has(displayPath)) {
+				rulesViews.set(displayPath, loadRulesView(displayPath, context));
 			}
-			return cachedRulesView;
+			return rulesViews.get(displayPath) ?? null;
 		},
 	};
 };
+
+function loadRulesView(displayPath: string, context: ToolContext): SearchRulesView | null {
+	try {
+		const canonical = resolveCanonicalProjectPath(displayPath, context.projectFolder);
+		const rendered = renderRootRulesForAgent(
+			fs.readFileSync(canonical.realPath, 'utf-8'),
+			context.userRulesGroupAccess,
+		);
+		return rendered ? toSearchRulesView(rendered) : null;
+	} catch {
+		return null;
+	}
+}
 
 function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string, context: ToolContext): string | null {
 	try {
@@ -212,6 +217,20 @@ const searchStoryLibrary = async (
 		matches: results.flatMap((result) => result.matches),
 		totalMatches: results.reduce((total, result) => total + result.totalMatches, 0),
 	};
+};
+
+/** The specs of nao's own server live in memory: they are searched when the path targets them or the MCP folder. */
+const searchNaoInternalMcp = async (
+	rgPath: string,
+	options: grep.Input & { max_results: number },
+	context: ToolContext,
+): Promise<TargetResult> => {
+	const searchPath = options.path;
+	if (!searchPath || !(isNaoInternalMcpPath(searchPath) || isMcpSpecsFolder(searchPath))) {
+		return { matches: [], totalMatches: 0 };
+	}
+	const files = await listNaoInternalMcpSpecFilesUnder(context, searchPath, options.glob);
+	return searchVirtualFiles(rgPath, files, options);
 };
 
 /**

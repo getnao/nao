@@ -13,7 +13,6 @@ import { z } from 'zod/v4';
 
 import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import type { ProviderModelResult } from '../agents/providers';
-import { TokenCost } from './chat';
 
 export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value === 'string' && isLlmProvider(value), {
 	message: 'Unknown LLM provider',
@@ -24,7 +23,12 @@ export const llmSelectedModelSchema = z.object({
 	modelId: z.string(),
 });
 
-export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
+export type ProviderSettings = {
+	apiKey: string;
+	baseURL?: string;
+	credentials?: Record<string, string>;
+	fetch?: typeof fetch;
+};
 
 export const customModelCostSchema = z.object({
 	inputNoCache: z.number().min(0).optional(),
@@ -37,6 +41,7 @@ export const customModelMetadataSchema = z.object({
 	id: z.string().min(1),
 	displayName: z.string().optional(),
 	costPerM: customModelCostSchema.optional(),
+	contextWindow: z.number().int().positive().optional(),
 });
 
 export type ModelCosts = z.infer<typeof customModelCostSchema>;
@@ -46,6 +51,7 @@ export const reasoningEffortSchema = z.enum(['off', 'minimal', 'low', 'medium', 
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
 /** Every effort level that is actually sent to a provider (`off` means "leave it to the model"). */
+export const activeEffortSchema = reasoningEffortSchema.exclude(['off']);
 export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
 
 /** What Claude returns in its thinking blocks: nothing, the notes written between tool calls, or everything summarized. */
@@ -110,6 +116,12 @@ export type ModelSource = {
 	readonly managed?: boolean;
 	listProviders(projectId: string): Promise<ProviderModelSource[]>;
 	resolveModel(request: ModelRequest): Promise<ProviderModelResult | null>;
+	/** The admin's settings of a model, or null when the source has no access to its provider. */
+	resolveModelSettings?(
+		projectId: string,
+		provider: LlmProvider,
+		modelId: string,
+	): Promise<ModelInferenceSettings | null>;
 	/** Credentials for calling the provider directly. A source that must wrap every call leaves it out. */
 	resolveSettings?(projectId: string, provider: LlmProvider): Promise<ProviderSettings | null>;
 };
@@ -127,6 +139,8 @@ export type ModelRequest = {
 	modelId: string;
 	applyUserSettings: boolean;
 	usageContext?: ManagedAiUsageContext;
+	/** Settings that win over the ones configured for the model, such as the reasoning effort a test runs at. */
+	inferenceOverrides?: ModelInferenceSettings;
 };
 
 /** How a model exposes "thinking"/reasoning control, if at all. */
@@ -265,7 +279,6 @@ type ProviderModel<P extends LlmProviderKind> = {
 	default?: boolean;
 	contextWindow?: number;
 	config?: ProviderConfigMap[P];
-	costPerM?: TokenCost;
 	/** Tunable inference parameters this model supports. Omit to expose no tunable parameters. */
 	capabilities?: ModelCapabilities;
 };

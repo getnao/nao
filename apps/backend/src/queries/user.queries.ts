@@ -8,6 +8,14 @@ import { takeFirstOrThrow } from '../utils/queries';
 
 export const userMemberStatus = sql<MemberStatus>`case when ${s.user.requiresPasswordReset} then 'invited' else 'active' end`;
 
+/** SSO and social users have no credential account, so an admin cannot reset their password. */
+export const userHasPassword = sql<boolean>`exists (
+	select 1 from ${s.account}
+	where ${s.account.userId} = ${s.user.id}
+	and ${s.account.providerId} = 'credential'
+	and ${s.account.password} is not null
+)`.mapWith(Boolean);
+
 export const INVITATION_TTL_DAYS = 7;
 
 export const getUser = async (identifier: { id: string } | { email: string }): Promise<User | null> => {
@@ -116,8 +124,14 @@ export const setUserMemoryEnabled = async (userId: string, memoryEnabled: boolea
 	await db.update(s.user).set({ memoryEnabled }).where(eq(s.user.id, userId)).execute();
 };
 
-export const markEmailVerified = async (userId: string): Promise<void> => {
-	await db.update(s.user).set({ emailVerified: true }).where(eq(s.user.id, userId)).execute();
+export const markEmailVerified = async (userId: string): Promise<boolean> => {
+	const [updated] = await db
+		.update(s.user)
+		.set({ emailVerified: true })
+		.where(and(eq(s.user.id, userId), eq(s.user.emailVerified, false)))
+		.returning({ id: s.user.id })
+		.execute();
+	return Boolean(updated);
 };
 
 export const countUsers = async (): Promise<number> => {

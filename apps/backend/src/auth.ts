@@ -14,7 +14,15 @@ import type { JWTPayload } from 'jose';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
-import { env, isCloud, isMcpPublicHost, MCP_PUBLIC_ORIGIN, MCP_PUBLIC_SERVER_URL, MCP_VALID_AUDIENCES } from './env';
+import {
+	env,
+	isCloud,
+	isCloudWelcomeEmailEnabled,
+	isMcpPublicHost,
+	MCP_PUBLIC_ORIGIN,
+	MCP_PUBLIC_SERVER_URL,
+	MCP_VALID_AUDIENCES,
+} from './env';
 import { rebaseOrigin } from './mcp/public-auth-metadata';
 import {
 	isAuthorizationResponse,
@@ -25,15 +33,25 @@ import {
 	rewriteRedirectIssuer,
 	sameOriginRedirectPath,
 } from './mcp/public-issuer';
+import { omitRedundantTokenExpiry } from './mcp/token-response';
 import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
 import { DEACTIVATED_ACCOUNT_MESSAGE } from './services/account-status.service';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
+import {
+	assertCloudSsoSignInAllowed,
+	augmentPluginsWithCloudSso,
+	CLOUD_SSO_SIGN_IN_PATH,
+	findCloudSsoOrganizationId,
+	getCloudSsoDisabledPaths,
+	isCloudSsoEmailTrusted,
+} from './services/cloud-sso-auth.service';
 import { activateUserJoinCandidates } from './services/credit-grant.service';
 import { emailService } from './services/email';
-import { githubOAuthConfig } from './services/github';
+import { githubApiUrl, githubNoreplyEmail, githubOAuthConfig } from './services/github';
+import { augmentPluginsWithGithubEnterprise } from './services/github-enterprise-auth.service';
 import * as gitlabService from './services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import { addOrganizationMemberIfMissing } from './services/membership.service';
@@ -42,8 +60,13 @@ import {
 	getTrustedProvidersForMicrosoft,
 } from './services/microsoft-auth.service';
 import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
+import { enqueueOnce } from './services/scheduler.service';
+import { sessionRotation } from './services/session-rotation-auth.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
+import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
+import { isDisposableEmail } from './utils/disposable-email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { memoizeUntilRejected } from './utils/memoize-until-rejected';
@@ -71,13 +94,16 @@ export const getAuth = () => defaultAuth.get();
 export const getSession = async (headers: Headers) => {
 	const auth = await getAuth();
 	const session = await auth.api.getSession({ headers });
-	if (!session?.session || !(await shouldExpireSsoSession(session.session))) {
-		return session;
+	if (!session) {
+		return null;
+	}
+	if (await shouldExpireSsoSession(session.session)) {
+		const context = await auth.$context;
+		await context.internalAdapter.deleteSession(session.session.token);
+		return null;
 	}
 
-	const context = await auth.$context;
-	await context.internalAdapter.deleteSession(session.session.token);
-	return null;
+	return { ...session, twoFactorSetupRequired: await isTwoFactorSetupRequired(session.user) };
 };
 
 export function updateAuth() {
@@ -156,7 +182,7 @@ async function createAuthInstance(baseURL: string) {
 			clientId: githubConfig.clientId,
 			clientSecret: githubConfig.clientSecret,
 			getUserInfo: async (token) => {
-				const res = await fetch('https://api.github.com/user', {
+				const res = await fetch(`${githubApiUrl()}/user`, {
 					headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },
 				});
 				if (!res.ok) {
@@ -175,7 +201,7 @@ async function createAuthInstance(baseURL: string) {
 					user: {
 						id: String(profile.id),
 						name: profile.login as string,
-						email: (profile.email ?? `${profile.login}@users.noreply.github.com`) as string,
+						email: (profile.email ?? githubNoreplyEmail(profile.login)) as string,
 						image: profile.avatar_url as string,
 						emailVerified: true,
 					},
@@ -183,6 +209,7 @@ async function createAuthInstance(baseURL: string) {
 				};
 			},
 		};
+		augmentPluginsWithGithubEnterprise(ssoPlugins);
 	}
 
 	const gitlabConfig = env.GITLAB_SSO ? gitlabService.gitlabOAuthConfig() : null;
@@ -222,6 +249,7 @@ async function createAuthInstance(baseURL: string) {
 		augmentSocialProvidersWithMicrosoft(socialProviders);
 		augmentPluginsWithOidc(ssoPlugins);
 	}
+	augmentPluginsWithCloudSso(ssoPlugins);
 
 	const trustedProviders = [
 		'google',
@@ -241,6 +269,7 @@ async function createAuthInstance(baseURL: string) {
 		plugins: [
 			bearer(),
 			jwt(),
+			sessionRotation(),
 			oauthProvider({
 				loginPage: OAUTH_LOGIN_PAGE,
 				consentPage: OAUTH_CONSENT_PAGE,
@@ -250,8 +279,10 @@ async function createAuthInstance(baseURL: string) {
 				allowUnauthenticatedClientRegistration: env.ALLOW_UNAUTHENTICATED_DCR,
 				validAudiences: MCP_VALID_AUDIENCES,
 			}),
+			twoFactorPlugin(),
 			...ssoPlugins,
 		],
+		disabledPaths: getCloudSsoDisabledPaths(),
 		trustedOrigins: baseURL ? [baseURL, ...(env.MODE === 'dev' ? ['http://localhost:3000'] : [])] : undefined,
 		emailVerification: emailVerificationEnabled
 			? {
@@ -263,6 +294,9 @@ async function createAuthInstance(baseURL: string) {
 					sendOnSignUp: true,
 					autoSignInAfterVerification: true,
 					expiresIn: 60 * 60,
+					afterEmailVerification: async (user) => {
+						await enqueueVerifiedUserWelcomeEmail(user.id);
+					},
 				}
 			: undefined,
 		emailAndPassword: {
@@ -273,8 +307,8 @@ async function createAuthInstance(baseURL: string) {
 				await emailService.sendEmail(user.email, await buildForgotPasswordEmail(user, url));
 			},
 			onPasswordReset: async ({ user }) => {
-				if (!user.emailVerified) {
-					await userQueries.markEmailVerified(user.id);
+				if (!user.emailVerified && (await userQueries.markEmailVerified(user.id))) {
+					await enqueueVerifiedUserWelcomeEmail(user.id);
 				}
 			},
 			onExistingUserSignUp: async ({ user }, request) => {
@@ -300,8 +334,20 @@ async function createAuthInstance(baseURL: string) {
 			},
 		},
 		hooks: {
+			before: createAuthMiddleware(async (ctx) => {
+				if (ctx.path === CLOUD_SSO_SIGN_IN_PATH) {
+					await assertCloudSsoSignInAllowed(ctx.body);
+				}
+			}),
 			after: createAuthMiddleware(async (ctx) => {
 				const publicIssuerResponse = await applyPublicIssuer(ctx);
+				const returned = publicIssuerResponse ?? ctx.context.returned;
+				if (ctx.path === '/oauth2/token') {
+					const portableTokenResponse = omitRedundantTokenExpiry(returned);
+					if (portableTokenResponse !== returned) {
+						return portableTokenResponse;
+					}
+				}
 				if (publicIssuerResponse !== undefined) {
 					return publicIssuerResponse;
 				}
@@ -339,6 +385,17 @@ async function createAuthInstance(baseURL: string) {
 					before: async (user, ctx) => {
 						const providerId = resolveProviderId(ctx);
 
+						if (isCloud && isDisposableEmail(user.email)) {
+							logger.warn('Blocked a signup with a disposable email', {
+								source: 'system',
+								context: { email: user.email, provider: providerId ?? 'email' },
+							});
+							throw new APIError('FORBIDDEN', {
+								message:
+									'We have encountered an error. Please contact support if the problem persists.',
+							});
+						}
+
 						if (providerId === 'google' && !isEmailDomainAllowed(user.email, googleAuthDomains)) {
 							throw new APIError('FORBIDDEN', {
 								message: 'This email domain is not authorized to access this application.',
@@ -355,6 +412,10 @@ async function createAuthInstance(baseURL: string) {
 							});
 						}
 
+						if (await isCloudSsoEmailTrusted(providerId, user.email)) {
+							return { data: { ...user, emailVerified: true } };
+						}
+
 						return true;
 					},
 					async after(user, ctx) {
@@ -362,13 +423,10 @@ async function createAuthInstance(baseURL: string) {
 
 						try {
 							if (isCloud) {
-								const matchedOrg =
-									providerId === 'google'
-										? await orgQueries.findOrganizationByEmailDomain(user.email)
-										: null;
-								if (matchedOrg) {
+								const matchedOrgId = await findOrganizationIdForNewCloudUser(user.email, providerId);
+								if (matchedOrgId) {
 									await addOrganizationMemberIfMissing({
-										orgId: matchedOrg.id,
+										orgId: matchedOrgId,
 										userId: user.id,
 										role: env.DEFAULT_USER_ROLE,
 									});
@@ -378,6 +436,7 @@ async function createAuthInstance(baseURL: string) {
 							} else {
 								await initializeSelfHostedUserAfterCreation(user.id, providerId, ssoEnabled);
 							}
+							await enqueueVerifiedUserWelcomeEmail(user.id);
 							await refreshAuthAfterInitialSelfHostedSignup();
 						} catch (err) {
 							logger.error('Failed to initialize organization after user creation', {
@@ -394,7 +453,7 @@ async function createAuthInstance(baseURL: string) {
 					before: async (user) => {
 						try {
 							const { cleanupContextWorktree } = await import('./services/context-explorer-git.service');
-							const projects = await projectQueries.listUserProjects(user.id);
+							const projects = await projectQueries.listUserProjects(user.id, { includeInactive: true });
 							for (const project of projects) {
 								if (project.path) {
 									await cleanupContextWorktree(project.id, project.path, user.id);
@@ -434,6 +493,20 @@ async function createAuthInstance(baseURL: string) {
 	});
 }
 
+async function findOrganizationIdForNewCloudUser(
+	email: string,
+	providerId: string | undefined,
+): Promise<string | null> {
+	const ssoOrganizationId = await findCloudSsoOrganizationId(providerId);
+	if (ssoOrganizationId) {
+		return ssoOrganizationId;
+	}
+	if (providerId !== 'google') {
+		return null;
+	}
+	return (await orgQueries.findOrganizationByEmailDomain(email))?.id ?? null;
+}
+
 async function emailExistingAccountOwner(
 	user: { email: string; name: string; emailVerified: boolean },
 	callbackURL: string,
@@ -454,6 +527,28 @@ async function readSignUpCallbackURL(request: Request | undefined): Promise<stri
 
 async function sendAccountExistsEmail(user: { email: string; name: string }) {
 	await emailService.sendEmail(user.email, await buildAccountExistsEmail(user, env.BETTER_AUTH_URL));
+}
+
+async function enqueueVerifiedUserWelcomeEmail(userId: string): Promise<void> {
+	if (!isCloudWelcomeEmailEnabled()) {
+		return;
+	}
+	try {
+		const user = await userQueries.getUser({ id: userId });
+		if (!user?.emailVerified || user.requiresPasswordReset) {
+			return;
+		}
+		await enqueueOnce({
+			name: CLOUD_WELCOME_EMAIL_JOB_NAME,
+			payload: { kind: 'user', userId },
+			uniqueKey: `email-cloud-welcome-user:${userId}`,
+		});
+	} catch (error) {
+		logger.error('Failed to enqueue cloud user welcome email', {
+			source: 'system',
+			context: { userId, error: serializeError(error) },
+		});
+	}
 }
 
 async function shouldDisableEmailSignUp(): Promise<boolean> {

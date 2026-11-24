@@ -33,8 +33,11 @@ export function FolderPickerDialog({
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const queryClient = useQueryClient();
 
-	const { data: tree = [] } = useQuery(trpc.storyFolder.listTree.queryOptions());
-	const { data: folderItems = [] } = useQuery(trpc.storyFolder.listItems.queryOptions());
+	const { data: tree = [], isSuccess: isTreeLoaded } = useQuery(trpc.storyFolder.listTree.queryOptions());
+	const { data: folderItems = [], isSuccess: areFolderItemsLoaded } = useQuery(
+		trpc.storyFolder.listItems.queryOptions(),
+	);
+	const isFolderDataLoaded = isTreeLoaded && areFolderItemsLoaded;
 
 	function handleMoved() {
 		invalidateStoryPlacementCaches(queryClient);
@@ -113,7 +116,7 @@ export function FolderPickerDialog({
 						variant='primary-gradient'
 						className='rounded-full'
 						onClick={handleMove}
-						disabled={isPending}
+						disabled={isPending || !isFolderDataLoaded}
 					>
 						Move here
 					</Button>
@@ -134,6 +137,9 @@ function getMovedFolderIds(target: PickerTarget): string[] {
 }
 
 function getSourceVisibilities(target: PickerTarget, tree: FolderItem[], folderItems: FolderPlacement[]): string[] {
+	if (target.type === 'story') {
+		return [getTargetVisibility(getStoryFolderId(target.storyId, folderItems), tree)];
+	}
 	if (target.type === 'folder') {
 		return [target.currentVisibility ?? 'public'];
 	}
@@ -153,7 +159,13 @@ function getStoryFolderId(storyId: string, folderItems: FolderPlacement[]): stri
 	return folderItems.find((item) => item.storyId === storyId)?.folderId ?? null;
 }
 
+const VISIBILITY_WARNING_SUBJECTS: Record<PickerTarget['type'], string> = {
+	story: 'the story',
+	folder: 'the folder and its stories',
+	selection: 'the selected items',
+};
+
 function getVisibilityWarning(target: PickerTarget, visibility: string): string {
-	const subject = target.type === 'selection' ? 'the selected items' : 'the folder and its stories';
+	const subject = VISIBILITY_WARNING_SUBJECTS[target.type];
 	return `Moving here will make ${subject} ${visibility === 'public' ? 'public' : 'private'}.`;
 }

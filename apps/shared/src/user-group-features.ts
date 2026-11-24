@@ -1,12 +1,30 @@
 import { MAX_PRELOADED_SKILLS, type ToolCallDensity, type UserRole } from './types';
 
-export const USER_GROUP_FEATURES = ['storyCreation', 'customStoryCreation', 'automationCreation'] as const;
+export const USER_GROUP_FEATURES = [
+	'storyCreation',
+	'customStoryCreation',
+	'automationCreation',
+	'personalSkills',
+] as const;
 
 export type UserGroupFeature = (typeof USER_GROUP_FEATURES)[number];
+
+/** What a new project's All Users group grants: everything but personal skills, which an admin turns on per group. */
+export const DEFAULT_USER_GROUP_FEATURES: readonly UserGroupFeature[] = USER_GROUP_FEATURES.filter(
+	(feature) => feature !== 'personalSkills',
+);
 
 export const PROJECT_SHARING_PERMISSIONS = ['inherit', 'allowed', 'blocked'] as const;
 
 export type ProjectSharingPermission = (typeof PROJECT_SHARING_PERMISSIONS)[number];
+
+/** The custom groups members of a group may share with when they cannot share with the entire project. */
+export interface GroupShareTargets {
+	includeOwnGroup: boolean;
+	groupIds: string[];
+}
+
+export const DEFAULT_GROUP_SHARE_TARGETS: GroupShareTargets = { includeOwnGroup: true, groupIds: [] };
 
 export interface ToolCallDensityPolicy {
 	defaultDensity: ToolCallDensity;
@@ -18,7 +36,9 @@ export interface UserGroupConfig {
 	toolCallDensity: ToolCallDensityPolicy;
 	showAllSettings: boolean;
 	projectSharing: ProjectSharingPermission;
+	shareTargets: GroupShareTargets;
 	preloadedSkills: string[];
+	advancedContextExplorer: boolean;
 }
 
 export type StoredUserGroupConfig =
@@ -29,7 +49,9 @@ export type StoredUserGroupConfig =
 			toolCallDensity: ToolCallDensityPolicy;
 			showAllSettings?: boolean;
 			projectSharing?: ProjectSharingPermission;
+			shareTargets?: GroupShareTargets;
 			preloadedSkills?: string[];
+			advancedContextExplorer?: boolean;
 	  };
 
 export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
@@ -69,6 +91,11 @@ export const USER_GROUP_FEATURE_DEFINITIONS: ReadonlyArray<UserGroupFeatureDefin
 		key: 'automationCreation',
 		label: 'Automations',
 		description: 'Allow the user to create new automations',
+	},
+	{
+		key: 'personalSkills',
+		label: 'Personal skills',
+		description: 'Allow the user to write their own skills in the Context Hub',
 	},
 ];
 
@@ -119,6 +146,43 @@ export function canRoleSeeAdvancedSettings(role: UserRole | null | undefined, gr
 	}
 }
 
+/**
+ * Context editors see the advanced File Explorer or the simplified Context Hub. Admins always get the File Explorer;
+ * context admins get it when one of their groups grants it, which All Users does unless an admin turns it off.
+ */
+export function canRoleUseAdvancedContextExplorer(
+	role: UserRole | null | undefined,
+	groupsGrantAdvancedContextExplorer: boolean,
+): boolean {
+	switch (role) {
+		case 'admin':
+			return true;
+		case 'context_admin':
+			return groupsGrantAdvancedContextExplorer;
+		default:
+			return false;
+	}
+}
+
+/**
+ * Admins and context admins manage their personal skills in the Context Hub they already have; the User role only when
+ * one of its groups grants personal skills, which then opens the Context Hub to them on its skills alone.
+ */
+export function canRoleManagePersonalSkills(
+	role: UserRole | null | undefined,
+	groupsGrantPersonalSkills: boolean,
+): boolean {
+	switch (role) {
+		case 'admin':
+		case 'context_admin':
+			return true;
+		case 'user':
+			return groupsGrantPersonalSkills;
+		default:
+			return false;
+	}
+}
+
 /** An explicit block on any of the user's groups wins over an explicit allow, which wins over the All Users default. */
 export function resolveProjectSharingPermission(
 	groups: ReadonlyArray<{ isDefault: boolean; projectSharing: ProjectSharingPermission }>,
@@ -155,7 +219,10 @@ export function normalizePreloadedSkills(skillNames: readonly unknown[]): string
 	return [...new Set(names)].slice(0, MAX_PRELOADED_SKILLS);
 }
 
-/** Groups saved before the setting existed keep the previous behavior: All Users shows every settings page. */
+/**
+ * Groups saved before a setting existed keep the previous behavior: All Users shows every settings page and the
+ * advanced File Explorer.
+ */
 export function parseStoredUserGroupConfig(value: unknown, isDefault = false): UserGroupConfig {
 	if (Array.isArray(value)) {
 		const legacyFeatures = value.filter((feature): feature is string => typeof feature === 'string');
@@ -166,8 +233,10 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 				canChange: legacyFeatures.includes('compact-mode'),
 			},
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: isDefault,
 			preloadedSkills: [],
+			advancedContextExplorer: isDefault,
 		};
 	}
 
@@ -176,8 +245,10 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			features: [],
 			toolCallDensity: { defaultDensity: 'detailed', canChange: false },
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: isDefault,
 			preloadedSkills: [],
+			advancedContextExplorer: isDefault,
 		};
 	}
 
@@ -193,8 +264,11 @@ export function parseStoredUserGroupConfig(value: unknown, isDefault = false): U
 			canChange: policy.canChange === true,
 		},
 		projectSharing: parseProjectSharingPermission(value.projectSharing),
+		shareTargets: normalizeGroupShareTargets(value.shareTargets),
 		showAllSettings: typeof value.showAllSettings === 'boolean' ? value.showAllSettings : isDefault,
 		preloadedSkills: Array.isArray(value.preloadedSkills) ? normalizePreloadedSkills(value.preloadedSkills) : [],
+		advancedContextExplorer:
+			typeof value.advancedContextExplorer === 'boolean' ? value.advancedContextExplorer : isDefault,
 	};
 }
 
@@ -204,6 +278,8 @@ export function serializeUserGroupConfig(
 	projectSharing: ProjectSharingPermission = 'inherit',
 	showAllSettings = false,
 	preloadedSkills: readonly string[] = [],
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer?: boolean,
 ): StoredUserGroupConfig {
 	return {
 		version: 2,
@@ -213,9 +289,32 @@ export function serializeUserGroupConfig(
 			canChange: toolCallDensity.canChange,
 		},
 		projectSharing: parseProjectSharingPermission(projectSharing),
+		shareTargets: normalizeGroupShareTargets(shareTargets),
 		showAllSettings,
 		preloadedSkills: normalizePreloadedSkills(preloadedSkills),
+		...(advancedContextExplorer === undefined ? {} : { advancedContextExplorer }),
 	};
+}
+
+export function normalizeGroupShareTargets(value: unknown): GroupShareTargets {
+	if (!isRecord(value)) {
+		return DEFAULT_GROUP_SHARE_TARGETS;
+	}
+	const groupIds = Array.isArray(value.groupIds)
+		? value.groupIds.filter((groupId): groupId is string => typeof groupId === 'string' && groupId.length > 0)
+		: [];
+	return { includeOwnGroup: value.includeOwnGroup !== false, groupIds: [...new Set(groupIds)] };
+}
+
+/** The groups a group's members may share with, restricted to the given custom groups. */
+export function resolveGroupShareTargetIds(
+	group: { id: string; shareTargets: GroupShareTargets },
+	customGroupIds: ReadonlySet<string>,
+): string[] {
+	const targetIds = group.shareTargets.includeOwnGroup
+		? [group.id, ...group.shareTargets.groupIds]
+		: group.shareTargets.groupIds;
+	return targetIds.filter((groupId) => customGroupIds.has(groupId));
 }
 
 function parseProjectSharingPermission(value: unknown): ProjectSharingPermission {

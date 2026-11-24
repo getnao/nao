@@ -10,13 +10,14 @@ The test suite is skipped when STARROCKS_HOST is not set.
 
 import os
 import uuid
-from pathlib import Path
 
 import pytest
 from rich.progress import Progress
 
 from nao_core.commands.sync.providers.databases.provider import sync_database
 from nao_core.config.databases.starrocks import DEFAULT_CATALOG, StarRocksConfig
+
+from .base import dml_statements
 
 STARROCKS_HOST = os.environ.get("STARROCKS_HOST")
 
@@ -47,14 +48,9 @@ def temp_databases():
         cursor.execute(f"CREATE DATABASE {database}")
         cursor.execute(f"CREATE DATABASE {another_database}")
 
-        sql_file = Path(__file__).parent / "dml" / "starrocks.sql"
-        sql_content = sql_file.read_text()
-
         cursor.execute(f"USE {DEFAULT_CATALOG}.{database}")
-        for statement in sql_content.split(";"):
-            statement = statement.strip()
-            if statement:
-                cursor.execute(statement)
+        for statement in dml_statements("starrocks.sql"):
+            cursor.execute(statement)
 
         cursor.execute(f"USE {DEFAULT_CATALOG}.{another_database}")
         cursor.execute("CREATE TABLE whatever (id INT NOT NULL, price DOUBLE NOT NULL)")

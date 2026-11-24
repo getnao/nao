@@ -65,6 +65,9 @@ ALLOWED_FIELDS = {
     "snowflake": {
         "database",
         "password",
+        "private_key",
+        "passphrase",
+        "token",
         "schema_name",
         "warehouse",
         "account_id",
@@ -96,7 +99,10 @@ REQUIRED_SECRET_FIELDS = {
     "databricks": ("access_token",),
     "fabric": ("client_id", "client_secret"),
     "motherduck": ("token",),
-    "snowflake": ("password",),
+}
+
+ONE_OF_REQUIRED_SECRET_FIELDS = {
+    "snowflake": ("password", "private_key", "token"),
 }
 
 PINNED_FIELDS = {
@@ -126,7 +132,7 @@ AUTH_FIELDS = {
     "mysql": ["user", "password"],
     "postgres": ["user", "password"],
     "redshift": ["user", "password"],
-    "snowflake": ["username", "password"],
+    "snowflake": ["username", "password", "private_key", "passphrase", "token"],
     "starrocks": ["user", "password"],
     "trino": ["user", "password"],
 }
@@ -164,8 +170,18 @@ def sanitize_warehouse_credentials(
         for field in REQUIRED_SECRET_FIELDS.get(provider, ())
         if not credentials.get(field)
     ]
+    one_of_secret_fields = ONE_OF_REQUIRED_SECRET_FIELDS.get(provider, ())
+    if one_of_secret_fields and not any(
+        credentials.get(field) for field in one_of_secret_fields
+    ):
+        issues += [
+            {"type": "missing", "loc": (field,), "input": None}
+            for field in one_of_secret_fields
+        ]
     driver = credentials.get("driver")
-    if driver is not None and not (isinstance(driver, str) and ODBC_DRIVER_NAME_PATTERN.fullmatch(driver)):
+    if driver is not None and not (
+        isinstance(driver, str) and ODBC_DRIVER_NAME_PATTERN.fullmatch(driver)
+    ):
         issues.append(
             {
                 "type": "value_error",
@@ -177,7 +193,21 @@ def sanitize_warehouse_credentials(
     if issues:
         raise ValidationError.from_exception_data("WarehouseCredentials", issues)
 
-    return {**credentials, **PINNED_FIELDS.get(provider, {})}
+    return {
+        **credentials,
+        **PINNED_FIELDS.get(provider, {}),
+        **derive_authentication_fields(provider, credentials),
+    }
+
+
+def derive_authentication_fields(
+    provider: str,
+    credentials: dict[str, object],
+) -> dict[str, object]:
+    """The authenticator is derived server-side so clients cannot pick interactive flows like SSO."""
+    if provider == "snowflake" and credentials.get("token"):
+        return {"authenticator": "programmatic_access_token"}
+    return {}
 
 
 def validate_warehouse_credentials(
@@ -195,14 +225,15 @@ def validate_warehouse_credentials(
     try:
         schemas = []
         for schema in config.get_schemas(connection):
-            schema_name = str(schema)
+            try:
+                tables = connection.list_tables(database=schema)
+            except Exception:
+                continue
+
             schemas.append(
                 {
-                    "schema": schema_name,
-                    "tables": sorted(
-                        (str(table) for table in connection.list_tables(database=schema)),
-                        key=str.casefold,
-                    ),
+                    "schema": str(schema),
+                    "tables": sorted(map(str, tables), key=str.casefold),
                 }
             )
         return sorted(schemas, key=lambda item: str(item["schema"]).casefold())
@@ -249,7 +280,9 @@ def validate_notion_context(
                     "Add the integration from the page's Connections menu."
                 )
             elif error.status == 429:
-                message = "Notion is rate limiting requests. Wait a moment and try again."
+                message = (
+                    "Notion is rate limiting requests. Wait a moment and try again."
+                )
             else:
                 message = f"Notion rejected one of the selected items ({error.code})."
             raise NotionContextValidationError(message) from error
@@ -282,7 +315,11 @@ def validate_confluence_context(
         )
         with ConfluenceClient(config) as client:
             return [
-                {"url": reference, "title": client.get_page(extract_page_id(reference)).title} for reference in pages
+                {
+                    "url": reference,
+                    "title": client.get_page(extract_page_id(reference)).title,
+                }
+                for reference in pages
             ]
     except httpx.HTTPStatusError as error:
         status = error.response.status_code
@@ -293,7 +330,9 @@ def validate_confluence_context(
         elif status == 404:
             message = "Confluence could not find one of the selected pages."
         elif status == 429:
-            message = "Confluence is rate limiting requests. Wait a moment and try again."
+            message = (
+                "Confluence is rate limiting requests. Wait a moment and try again."
+            )
         else:
             message = f"Confluence rejected one of the selected pages (HTTP {status})."
         raise ConfluenceContextValidationError(message) from error
@@ -305,7 +344,11 @@ def validate_confluence_context(
         raise ConfluenceContextValidationError(str(error)) from error
 
 
-def infer_warehouse_error_fields(provider: str, error: Exception) -> list[str]:
+def infer_warehouse_error_fields(
+    provider: str,
+    error: Exception,
+    credentials: dict[str, object] | None = None,
+) -> list[str]:
     message = str(error).lower()
 
     if "dataset" in message:
@@ -314,7 +357,9 @@ def infer_warehouse_error_fields(provider: str, error: Exception) -> list[str]:
         return ["schema_name"]
     if "catalog" in message:
         return ["catalog"]
-    if "database" in message and any(phrase in message for phrase in ("does not exist", "not found", "unknown")):
+    if "database" in message and any(
+        phrase in message for phrase in ("does not exist", "not found", "unknown")
+    ):
         return ["database"]
     if any(
         phrase in message
@@ -330,9 +375,11 @@ def infer_warehouse_error_fields(provider: str, error: Exception) -> list[str]:
             "401",
             "403",
             "token",
+            "private key",
+            "could not deserialize key data",
         )
     ):
-        return AUTH_FIELDS.get(provider, [])
+        return get_auth_fields(provider, credentials)
     if any(
         phrase in message
         for phrase in (
@@ -349,6 +396,21 @@ def infer_warehouse_error_fields(provider: str, error: Exception) -> list[str]:
         return ENDPOINT_FIELDS.get(provider, [])
 
     return []
+
+
+def get_auth_fields(
+    provider: str,
+    credentials: dict[str, object] | None,
+) -> list[str]:
+    """Only blame the authentication fields the user actually filled in."""
+    fields = AUTH_FIELDS.get(provider, [])
+    if credentials is None:
+        return fields
+    return [
+        field
+        for field in fields
+        if field in ("user", "username") or credentials.get(field)
+    ]
 
 
 def prepare_warehouse_config(
@@ -412,7 +474,9 @@ def replace_with_env_references(
     if value is None:
         return None
 
-    env_name = "NAO_ONBOARDING_" + "_".join(part.upper().replace("-", "_") for part in path)
+    env_name = "NAO_ONBOARDING_" + "_".join(
+        part.upper().replace("-", "_") for part in path
+    )
     if env_name in env_vars:
         raise ValueError(f"Conflicting onboarding environment variable: {env_name}")
     env_vars[env_name] = json.dumps(value)

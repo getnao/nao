@@ -9,6 +9,7 @@ export interface QueryArtifact {
 
 export interface StoryArtifact {
 	id: string;
+	slug: string;
 	title: string;
 	version: number;
 	format: StoryFormat;

@@ -1,32 +1,37 @@
 import {
-	isRootRulesPath,
+	isRulesFilePath,
 	renderConditionalGroupBlocksWithSourceLines,
 	type RenderedConditionalGroupBlocks,
 	type UserRulesGroupAccess,
 } from '@nao/shared/rules-template';
 
 import type { ToolContext } from '../types/tools';
+import { extractRulesFile } from '../utils/nao-config';
+import { renderColumnSecurityTableFile } from './column-security-context.service';
 
-export const isAgentVisibleRootRulesPath = isRootRulesPath;
+/** Tells the rules files apart, whose blocks gated by user group must be rendered before the agent reads them. */
+export function createRulesPathMatcher(projectFolder: string): (virtualPath: string) => boolean {
+	const rulesFile = extractRulesFile(projectFolder);
+	return (virtualPath) => isRulesFilePath(virtualPath, rulesFile);
+}
 
 export function renderProjectTextForAgent(
 	virtualPath: string,
 	source: string,
-	context: Pick<ToolContext, 'userRulesGroupAccess'>,
+	context: Pick<ToolContext, 'projectFolder' | 'userRulesGroupAccess' | 'warehouseColumnSecurity'>,
 ): string | null {
-	const rulesView = getAgentVisibleRulesView(virtualPath, source, context);
-	return rulesView === undefined ? source : (rulesView?.content ?? null);
-}
-
-export function getAgentVisibleRulesView(
-	virtualPath: string,
-	source: string,
-	context: Pick<ToolContext, 'userRulesGroupAccess'>,
-): RenderedConditionalGroupBlocks | null | undefined {
-	if (!isRootRulesPath(virtualPath)) {
-		return undefined;
+	const columnSecurityView = renderColumnSecurityTableFile(
+		context.projectFolder,
+		virtualPath,
+		context.warehouseColumnSecurity,
+	);
+	if (columnSecurityView !== undefined) {
+		return columnSecurityView;
 	}
-	return renderRootRulesForAgent(source, context.userRulesGroupAccess);
+	if (!createRulesPathMatcher(context.projectFolder)(virtualPath)) {
+		return source;
+	}
+	return renderRootRulesForAgent(source, context.userRulesGroupAccess)?.content ?? null;
 }
 
 export function renderRootRulesForAgent(

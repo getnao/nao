@@ -12,12 +12,20 @@ import {
 } from '@/components/story-embeds';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
-import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
+import {
+	chartBlockReference,
+	mapBlockReference,
+	StoryBlock,
+	StoryMapFrame,
+	StoryTableFrame,
+	tableBlockReference,
+} from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
+import { useShowStoryFilters } from '@/stores/shown-story-filters';
 
 interface StoryPreviewProps {
 	code: string;
@@ -25,6 +33,7 @@ interface StoryPreviewProps {
 	cacheSchedule: string | null;
 	queryData: QueryDataMap | null;
 	chatId: string;
+	storyId: string | null;
 	storySlug: string;
 	versionKey?: string | number;
 	filtersEnabled?: boolean;
@@ -40,6 +49,7 @@ export const StoryPreview = memo(function StoryPreview({
 	cacheSchedule,
 	queryData,
 	chatId,
+	storyId,
 	storySlug,
 	versionKey,
 	filtersEnabled = true,
@@ -49,11 +59,6 @@ export const StoryPreview = memo(function StoryPreview({
 	theme,
 }: StoryPreviewProps) {
 	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
-	const segments = useMemo(() => {
-		const nextSegments = stabilizeStorySegments(splitCodeIntoSegments(code), previousSegmentsRef.current);
-		previousSegmentsRef.current = nextSegments;
-		return nextSegments;
-	}, [code]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
 	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
 	const storyFilters = useStoryFilters({
@@ -62,13 +67,25 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	useShowStoryFilters(storyId, storyFilters.activeSelections);
+	const segments = useMemo(() => {
+		const nextSegments = stabilizeStorySegments(
+			splitCodeIntoSegments(code, storyFilters.resolvedParameters),
+			previousSegmentsRef.current,
+		);
+		previousSegmentsRef.current = nextSegments;
+		return nextSegments;
+	}, [code, storyFilters.resolvedParameters]);
 
 	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
 		() =>
 			isNoCacheMode
-				? { queryOptions: (queryId) => trpc.story.getLiveQueryData.queryOptions({ chatId, queryId }) }
+				? {
+						queryOptions: (queryId) =>
+							trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug }),
+					}
 				: undefined,
-		[isNoCacheMode, chatId],
+		[isNoCacheMode, chatId, storySlug],
 	);
 
 	const effectiveQueryData = storyFilters.queryData;
@@ -87,7 +104,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => (
-			<StoryBlock>
+			<StoryBlock block={chartBlockReference(chart)}>
 				<LiveChartEmbed
 					chart={chart}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -112,7 +129,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderTable = useCallback(
 		(table: ParsedTableBlock) => (
-			<StoryTableFrame>
+			<StoryTableFrame block={tableBlockReference(table)}>
 				<LiveTableEmbed
 					table={table}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -137,7 +154,7 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderMap = useCallback(
 		(map: ParsedMapBlock) => (
-			<StoryMapFrame>
+			<StoryMapFrame block={mapBlockReference(map)}>
 				<LiveMapEmbed
 					map={map}
 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
@@ -163,9 +180,11 @@ export const StoryPreview = memo(function StoryPreview({
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
-				<div data-story-content className='p-6 flex flex-col gap-4'>
+				<div data-story-content data-story-chat-id={chatId} className='p-6 flex flex-col gap-4'>
 					<StoryFilterBar
 						filters={storyFilters.filters}
+						parameters={storyFilters.parameters}
+						skippedFilters={storyFilters.skippedFilters}
 						selections={storyFilters.selections}
 						onSelectionChange={storyFilters.setSelection}
 						onClear={storyFilters.clearSelections}

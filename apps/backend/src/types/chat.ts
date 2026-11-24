@@ -1,5 +1,12 @@
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
-import { type CitationData, type LlmProvider } from '@nao/shared/types';
+import { automationDraftSchema } from '@nao/shared/automation-draft';
+import { STORY_BLOCK_PART_KINDS } from '@nao/shared/story-parts';
+import {
+	type CitationData,
+	type LlmProvider,
+	MAX_CITATION_TEXT_LENGTH,
+	MAX_CITATIONS_PER_MESSAGE,
+} from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -11,11 +18,21 @@ import {
 import z from 'zod/v4';
 
 import { getTools, uiToolset } from '../agents/tools';
+import type { onboardingTools } from '../agents/tools/onboarding';
 import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
 export interface ForkMetadata {
-	type: 'chat' | 'chat_selection' | 'chat_question' | 'story' | 'story_selection' | 'story_question';
+	type:
+		| 'chat'
+		| 'chat_selection'
+		| 'chat_question'
+		| 'story'
+		| 'story_selection'
+		| 'story_question'
+		| 'automation_edit'
+		| 'context_edit'
+		| 'story_model';
 	id: string;
 	title: string;
 	authorName: string;
@@ -64,10 +81,15 @@ export const MESSAGE_SOURCES = [
 	'discord',
 	'whatsapp',
 	'web',
+	'automationEditor',
+	'contextEditor',
+	'automation',
 	'mcp',
 	'contextRecommendations',
 	'admin',
 	'onboarding',
+	'test',
+	'storyModel',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
@@ -76,7 +98,7 @@ export type UIMessage = UIGenericMessage<unknown, MessageCustomDataParts, UITool
 	feedback?: MessageFeedback;
 	source?: MessageSource;
 	isForked?: boolean;
-	citation?: CitationData;
+	citations?: CitationData[];
 	stopReason?: StopReason;
 	/** Provider that generated an assistant message. */
 	llmProvider?: LlmProvider;
@@ -108,7 +130,14 @@ export type MessageCustomDataParts = {
 	compactionSummaryStarted: null;
 	/** Sent when the conversation compaction summary is finished */
 	compaction: CompactionPart;
+	/** A message the user sent while the agent was running, picked up between two steps */
+	steer: SteerPart;
 };
+
+export interface SteerPart {
+	id: string;
+	text: string;
+}
 
 export interface CompactionPart {
 	/** The summary of the compaction */
@@ -158,7 +187,8 @@ export type ContextUsage = {
 	contextWindow: number | null;
 };
 
-export type AgentTools = Awaited<ReturnType<typeof getTools>>;
+/** The onboarding profile passes its tools to `getTools` as extra tools. */
+export type AgentTools = Awaited<ReturnType<typeof getTools>> & Partial<typeof onboardingTools>;
 
 /**
  * Agent Request Types
@@ -187,12 +217,31 @@ export const AgentRequestImageSchema = z.object({
  */
 const AgentRequestDocumentPathSchema = z.string().min(1).max(1024);
 
-const CitationDataSchema = z.object({
+export const CitationDataSchema = z.object({
 	start: z.number(),
 	end: z.number(),
-	text: z.string(),
+	text: z.string().max(MAX_CITATION_TEXT_LENGTH),
 	storySlug: z.string().optional(),
-	block: z.object({ kind: z.string(), title: z.string().optional(), queryId: z.string().optional() }).optional(),
+	storyChatId: z.string().optional(),
+	block: z
+		.object({
+			kind: z.string(),
+			title: z.string().optional(),
+			queryId: z.string().optional(),
+			occurrence: z.number().int().positive().optional(),
+			lines: z.object({ start: z.number().int(), end: z.number().int() }).optional(),
+			part: z
+				.object({
+					kind: z.enum(STORY_BLOCK_PART_KINDS),
+					label: z.string().max(200).optional(),
+					series: z.string().max(200).optional(),
+					category: z.string().max(200).optional(),
+					value: z.string().max(200).optional(),
+				})
+				.optional(),
+		})
+		.optional(),
+	intent: z.enum(['ask', 'edit']).optional(),
 });
 
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
@@ -200,10 +249,32 @@ export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
 	images: z.array(AgentRequestImageSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
 	documents: z.array(AgentRequestDocumentPathSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
-	citation: CitationDataSchema.optional(),
+	citations: z.array(CitationDataSchema).max(MAX_CITATIONS_PER_MESSAGE).optional(),
 });
 
+const ShownStoryFiltersSchema = z.object({
+	storyId: z.string().max(100),
+	selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+});
+export type ShownStoryFilters = z.infer<typeof ShownStoryFiltersSchema>;
+
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
+const contextPathSchema = z.string().max(2_000);
+const testRunIdSchema = z.string().max(100).nullable();
+
+/** What the Context Hub shows beside its chat: a context file, a change, the tests, or a skill with no file. */
+export const shownContextHubPageSchema = z.discriminatedUnion('type', [
+	z.object({ type: z.literal('overview') }),
+	z.object({ type: z.literal('file'), path: contextPathSchema }),
+	z.object({ type: z.literal('change'), path: contextPathSchema }),
+	z.object({ type: z.literal('tests'), runId: testRunIdSchema }),
+	z.object({ type: z.literal('test'), path: contextPathSchema, runId: testRunIdSchema }),
+	z.object({ type: z.literal('skills') }),
+	z.object({ type: z.literal('personal-skill'), name: z.string().max(64) }),
+	z.object({ type: z.literal('share-request'), id: z.string().max(100) }),
+]);
+export type ShownContextHubPage = z.infer<typeof shownContextHubPageSchema>;
+
 export const AgentRequestSchema = z.object({
 	message: AgentRequestUserMessageSchema,
 	chatId: z.string().optional(),
@@ -214,4 +285,15 @@ export const AgentRequestSchema = z.object({
 	/** When true, the message runs in admin mode: it queries nao's own usage database instead of the warehouse. */
 	adminMode: z.boolean().optional(),
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
+	/** The automation open beside an automation editing chat, as it stands in its form. */
+	automationDraft: automationDraftSchema.optional(),
+	/** Sent by the chat beside the Context Hub, with what the hub shows the user. */
+	contextHub: z.object({ shown: shownContextHubPageSchema.default({ type: 'overview' }) }).optional(),
+	/** The story on screen beside the chat or above a quick question, with the filters it is shown with. */
+	storyFilters: ShownStoryFiltersSchema.optional(),
 });
+
+export interface StoryOriginTurn {
+	role: 'user' | 'assistant';
+	text: string;
+}

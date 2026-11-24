@@ -19,6 +19,7 @@ export type McpChartEmbedStoredConfig = {
 	yAxisRightMax?: displayChart.ChartInput['y_axis_right_max'];
 	yAxisRightLabel?: displayChart.ChartInput['y_axis_right_label'];
 	title: string;
+	showLegend?: displayChart.ChartInput['show_legend'];
 };
 
 export type McpChartAppPayload = {

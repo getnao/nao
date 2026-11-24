@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { prepareRestrictedStoryCode } from '@nao/shared/story-viewer-restrictions';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
@@ -10,6 +11,7 @@ import { SharedStoryHeader } from '@/components/shared-story-header';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { STORY_ASK_BAR_INSET_STYLE, StoryAskBar } from '@/components/story-ask-bar';
+import { StoryElementPicker } from '@/components/story-element-picker';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
@@ -22,9 +24,15 @@ import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
+import { useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
-import { requestAskAboutSelection } from '@/stores/ask-bar';
+import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
+
+const RESTRICTED_STORY_MESSAGE = "Some content in this story isn't available with your current data access.";
+const RESTRICTED_DATA_MESSAGE = 'Data unavailable with your current access.';
 
 export function SharedStoryPage({ storyId }: { storyId: string }) {
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
@@ -37,7 +45,8 @@ export function SharedStoryPage({ storyId }: { storyId: string }) {
 function SharedCustomStory({ storyId }: { storyId: string }) {
 	const { data: session } = useSession();
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
-	const isOwner = useResolvedStory(storyId).data?.isOwner === true;
+	const resolvedStory = useResolvedStory(storyId).data;
+	const access = { isOwner: resolvedStory?.isOwner === true, canEdit: resolvedStory?.canEdit === true };
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -54,7 +63,7 @@ function SharedCustomStory({ storyId }: { storyId: string }) {
 			authorName={story.authorName}
 			isLive={story.isLive}
 			canRefresh={story.canRefresh}
-			storyChatHeader={toStoryChatHeader(storyId, story, isOwner)}
+			storyChatHeader={toStoryChatHeader(storyId, story, access)}
 		/>
 	);
 }
@@ -64,6 +73,12 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const queryClient = useQueryClient();
 
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
+	const presence = useStoryEditSession({
+		target: session?.user?.id ? { storyId } : null,
+		isEditing: false,
+		conversationChatId: questionChatId,
+	});
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -89,9 +104,14 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 		refresh: handleRefresh,
 	});
 
-	const isOwner = useResolvedStory(storyId).data?.isOwner === true;
-	const storyChatHeader = toStoryChatHeader(storyId, story, isOwner);
+	const resolvedStory = useResolvedStory(storyId).data;
+	const isOwner = resolvedStory?.isOwner === true;
+	const storyChatHeader = toStoryChatHeader(storyId, story, {
+		isOwner,
+		canEdit: resolvedStory?.canEdit === true,
+	});
 	const canAsk = storyChatHeader.storyChat?.canChat === true;
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -143,7 +163,13 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 					onRefresh={handleRefresh}
 					storyId={session?.user?.id && story.userRole ? storyId : null}
 					download={{ chatId: story.chatId!, storySlug: story.slug, shareSource, isOwner: false }}
+					elementSelection={
+						canAsk
+							? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+							: undefined
+					}
 				/>
+				<StoryEditPresenceBanner presence={presence} />
 
 				<SelectionProvider key={storyId}>
 					{canAsk && <HighlightBubble onAsk={requestAskAboutSelection} />}
@@ -157,18 +183,30 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 								queryData={queryData}
 								theme={storyTheme}
 								preview={
-									<SharedStoryContent
-										code={editor.code}
-										queryData={queryData}
-										theme={storyTheme}
-										storyId={storyId}
-										cacheSchedule={story.cacheSchedule}
-										isDataPending={isQueryDataPending}
-										isViewingLatest={editor.versionNav.isViewingLatest}
-									/>
+									<StoryElementPicker
+										isPicking={canAsk && isSelectingElements}
+										storySlug={story.slug}
+										onPick={(ask) => requestAskAboutElement(ask)}
+									>
+										<SharedStoryContent
+											code={editor.code}
+											queryData={queryData}
+											theme={storyTheme}
+											storyId={storyId}
+											cacheSchedule={story.cacheSchedule}
+											isDataPending={isQueryDataPending}
+											isViewingLatest={editor.versionNav.isViewingLatest}
+										/>
+									</StoryElementPicker>
 								}
 							/>
-							{canAsk && <StoryAskBar storyId={storyId} isOwner={isOwner} />}
+							{canAsk && (
+								<StoryAskBar
+									storyId={storyId}
+									canEdit={resolvedStory?.canEdit === true}
+									onChatChange={setQuestionChatId}
+								/>
+							)}
 						</div>
 
 						{sidePanel.content && (
@@ -205,6 +243,7 @@ function SharedStoryContent({
 	isDataPending: boolean;
 	isViewingLatest: boolean;
 }) {
+	const restrictedContent = useMemo(() => prepareRestrictedStoryCode(code), [code]);
 	const isNoCacheMode = cacheSchedule === 'no-cache';
 	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
 	const filterApi = useMemo(() => ({ kind: 'shared' as const, storyId }), [storyId]);
@@ -237,9 +276,14 @@ function SharedStoryContent({
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[chart.queryId]
+						? RESTRICTED_DATA_MESSAGE
+						: undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	const renderTable = useCallback(
@@ -258,9 +302,14 @@ function SharedStoryContent({
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[table.queryId]
+						? RESTRICTED_DATA_MESSAGE
+						: undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	const renderMap = useCallback(
@@ -280,15 +329,27 @@ function SharedStoryContent({
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
 				allowExpand
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[map.queryId] ? RESTRICTED_DATA_MESSAGE : undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	return (
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
+			{restrictedContent.hasRestrictedContent && (
+				<div
+					className='mx-4 mt-4 flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground'
+					role='status'
+				>
+					<span>{RESTRICTED_STORY_MESSAGE}</span>
+				</div>
+			)}
 			<StoryTabbedContent
-				code={code}
+				code={restrictedContent.code}
+				storyId={storyId}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
 				theme={theme}
@@ -304,10 +365,10 @@ function SharedStoryContent({
 function toStoryChatHeader(
 	storyId: string,
 	story: { userRole: string | null; canFork: boolean; isArchived: boolean },
-	isOwner: boolean,
+	access: { isOwner: boolean; canEdit: boolean },
 ): Pick<StoryPageHeaderProps, 'storyChat' | 'canDuplicate'> {
 	return {
-		storyChat: { storyId, isOwner, canChat: story.userRole !== 'viewer' && !story.isArchived },
+		storyChat: { storyId, ...access, canChat: story.userRole !== 'viewer' && !story.isArchived },
 		canDuplicate: story.canFork && !story.isArchived,
 	};
 }

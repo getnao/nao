@@ -1,3 +1,4 @@
+import type { ShareRole } from '@nao/shared/types';
 import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 
@@ -7,24 +8,71 @@ import { ForgotPassword } from '../components/email/forgot-password';
 import { NotificationEmail } from '../components/email/notification-email';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
+import { TrialStarted } from '../components/email/trial-started';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { VerifyEmail } from '../components/email/verify-email';
+import { Welcome } from '../components/email/welcome';
 import { env } from '../env';
+import { CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
+import type { NotificationTable } from '../types/notification';
 import { type EmailBranding, resolveEmailBranding } from './email-branding';
 
-export async function buildSharedItemEmail(
+const DOCS_URL = 'https://docs.getnao.io';
+const SLACK_URL = 'https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ';
+
+export async function buildWelcomeEmail(user: { name: string }): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`Welcome to ${branding.appName} Cloud`,
+		Welcome({
+			userName: user.name,
+			appUrl: env.BETTER_AUTH_URL,
+			docsUrl: DOCS_URL,
+			slackUrl: SLACK_URL,
+			branding,
+		}),
+		branding,
+	);
+}
+
+export async function buildTrialStartedEmail(
 	user: { name: string },
-	sharerName: string,
-	itemLabel: string,
-	itemTitle: string,
-	itemUrl: string,
-	unsubscribeUrl?: string,
+	creditAmountMicroUsd: number,
+	trialEndsAt: Date,
+	userJoinCreditAmountMicroUsd?: number,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
 	return createEmail(
-		`${sharerName} shared "${itemTitle}" with you on ${branding.appName}`,
-		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl, branding }),
+		`Your ${branding.appName} Cloud trial and credits are ready`,
+		TrialStarted({
+			userName: user.name,
+			appUrl: env.BETTER_AUTH_URL,
+			docsUrl: DOCS_URL,
+			slackUrl: SLACK_URL,
+			creditAmount: formatCreditAmount(creditAmountMicroUsd),
+			userJoinCreditAmount:
+				userJoinCreditAmountMicroUsd === undefined
+					? undefined
+					: formatCreditAmount(userJoinCreditAmountMicroUsd),
+			trialDays: CLOUD_BILLING_TRIAL_DAYS,
+			trialEndDate: new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trialEndsAt),
+			branding,
+		}),
+		branding,
+	);
+}
+
+export async function buildSharedItemEmail(
+	user: { name: string },
+	share: { sharerName: string; itemLabel: string; itemTitle: string; itemUrl: string; role?: ShareRole },
+	unsubscribeUrl?: string,
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	const rights = share.role === 'editor' ? ' with edit rights' : '';
+	return createEmail(
+		`${share.sharerName} shared "${share.itemTitle}" with you${rights} on ${branding.appName}`,
+		SharedItemEmail({ userName: user.name, ...share, unsubscribeUrl, branding }),
 		branding,
 	);
 }
@@ -102,11 +150,22 @@ export async function buildNotificationEmail(
 	attachments?: EmailAttachment[],
 	unsubscribeUrl?: string,
 	bodyHtml?: string,
+	table?: NotificationTable,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
 	return createEmail(
 		`${title} — ${branding.appName}`,
-		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl, branding }),
+		NotificationEmail({
+			userName: user.name,
+			title,
+			body,
+			bodyHtml,
+			table,
+			linkUrl,
+			ctaLabel,
+			unsubscribeUrl,
+			branding,
+		}),
 		branding,
 		attachments ?? [],
 	);
@@ -147,4 +206,13 @@ function createEmail(
 	const html = `<!DOCTYPE html>${renderToString(element)}`;
 	const attachments = [...(branding.logo ? [branding.logo] : []), ...extraAttachments];
 	return attachments.length > 0 ? { subject, html, attachments } : { subject, html };
+}
+
+function formatCreditAmount(amountMicroUsd: number): string {
+	return new Intl.NumberFormat('en-US', {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: amountMicroUsd % 1_000_000 === 0 ? 0 : 2,
+		maximumFractionDigits: 2,
+	}).format(amountMicroUsd / 1_000_000);
 }

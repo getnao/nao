@@ -4,9 +4,13 @@ import { getToolName, isToolUIPart } from 'ai';
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
 import { buildImageUrl } from './image';
+import { toQueryPartColumns } from './query-result-preview';
 import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from './tools';
 
 const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
+
+/** Stored calls to a renamed tool load under its current name, so the model only ever sees tools it can call. */
+const RENAMED_TOOLS = new Map([['read_query_result', 'page_query_result']]);
 
 /**
  * Converts a list of UI message parts to a list of database message parts.
@@ -23,16 +27,18 @@ export const convertUIPartToDBPart = (
 	order: number,
 ): NewMessagePart | undefined => {
 	if (isToolUIPart(part)) {
+		const toolName = getToolName(part);
 		return {
 			messageId,
 			order,
-			toolName: getToolName(part),
+			toolName,
 			type: part.type,
 			toolCallId: part.toolCallId,
 			toolState: part.state,
 			toolInput: part.input,
 			toolRawInput: (part as any).rawInput,
 			toolOutput: part.output,
+			...toQueryPartColumns(toolName, part.output),
 			toolErrorText: part.errorText,
 			toolApprovalApproved: part.approval?.approved,
 			toolApprovalReason: part.approval?.reason,
@@ -85,6 +91,13 @@ export const convertUIPartToDBPart = (
 				type: 'data-compaction',
 				text: part.data.summary,
 				toolErrorText: part.data.error,
+				messageId,
+				order,
+			};
+		case 'data-steer':
+			return {
+				type: 'data-steer',
+				text: part.data.text,
 				messageId,
 				order,
 			};
@@ -147,6 +160,11 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 					error: part.toolErrorText ?? undefined,
 				},
 			};
+		case 'data-steer':
+			return {
+				type: 'data-steer',
+				data: { id: part.id, text: part.text! },
+			};
 		default:
 			return undefined;
 	}
@@ -157,16 +175,18 @@ const isToolDBPart = (part: DBMessagePart): part is DBMessagePart & { type: UITo
 };
 
 const convertDBToolPartToUIPart = (part: DBMessagePart & { type: UIToolPart['type'] }): UIToolPart => {
+	const renamedTool = RENAMED_TOOLS.get(part.toolName!);
+	const toolName = renamedTool ?? part.toolName!;
 	const toolPart = {
-		type: part.type,
-		toolName: part.toolName!,
+		type: renamedTool && part.type !== 'dynamic-tool' ? `tool-${renamedTool}` : part.type,
+		toolName,
 		toolCallId: part.toolCallId!,
 		state: part.toolState as any,
 		input: part.toolInput as any,
 		rawInput: part.toolRawInput as any,
 		output: part.toolOutput as any,
 		errorText: part.toolErrorText as any,
-		providerExecuted: PROVIDER_EXECUTED_TOOLS.has(part.toolName!),
+		providerExecuted: PROVIDER_EXECUTED_TOOLS.has(toolName),
 		approval: part.toolApprovalId
 			? {
 					id: part.toolApprovalId!,

@@ -39,6 +39,7 @@ BIGQUERY_CREDENTIALS_JSON = {
     "client_email": "nao@nao-analytics.iam.gserviceaccount.com",
     "token_uri": "https://oauth2.googleapis.com/token",
 }
+SNOWFLAKE_PRIVATE_KEY = "-----BEGIN ENCRYPTED PRIVATE KEY-----\nprivate-key\n-----END ENCRYPTED PRIVATE KEY-----\n"
 
 SCALAR_WAREHOUSE_CASES = [
     pytest.param(
@@ -135,6 +136,27 @@ SCALAR_WAREHOUSE_CASES = [
         id="snowflake",
     ),
     pytest.param(
+        "snowflake",
+        {
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "private_key": SNOWFLAKE_PRIVATE_KEY,
+            "passphrase": "key-passphrase",
+        },
+        id="snowflake-key-pair",
+    ),
+    pytest.param(
+        "snowflake",
+        {
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "token": "programmatic-access-token",
+        },
+        id="snowflake-programmatic-access-token",
+    ),
+    pytest.param(
         "starrocks",
         {
             "host": "starrocks.example.com",
@@ -215,7 +237,9 @@ def test_validate_warehouse_credentials_returns_sorted_inventory(monkeypatch):
     config = Mock()
     config.connect.return_value = connection
     config.get_schemas.return_value = ["sales", "public"]
-    monkeypatch.setattr("warehouse_provisioning.parse_database_config", lambda _: config)
+    monkeypatch.setattr(
+        "warehouse_provisioning.parse_database_config", lambda _: config
+    )
 
     result = validate_warehouse_credentials(
         POSTGRES_REQUEST["provider"],
@@ -230,25 +254,33 @@ def test_validate_warehouse_credentials_returns_sorted_inventory(monkeypatch):
     connection.disconnect.assert_called_once_with()
 
 
-def test_validate_warehouse_credentials_fails_incomplete_discovery(monkeypatch):
+def test_validate_warehouse_credentials_skips_inaccessible_schemas(monkeypatch):
+    def list_tables(database):
+        if database == "restricted":
+            raise RuntimeError("table discovery failed")
+        return ["users"]
+
     connection = Mock()
-    connection.list_tables.side_effect = RuntimeError("table discovery failed")
+    connection.list_tables.side_effect = list_tables
     config = Mock()
     config.connect.return_value = connection
-    config.get_schemas.return_value = ["public"]
-    monkeypatch.setattr("warehouse_provisioning.parse_database_config", lambda _: config)
+    config.get_schemas.return_value = ["restricted", "public"]
+    monkeypatch.setattr(
+        "warehouse_provisioning.parse_database_config", lambda _: config
+    )
 
-    with pytest.raises(RuntimeError, match="table discovery failed"):
-        validate_warehouse_credentials(
-            POSTGRES_REQUEST["provider"],
-            POSTGRES_REQUEST["credentials"],
-        )
+    assert validate_warehouse_credentials(
+        POSTGRES_REQUEST["provider"],
+        POSTGRES_REQUEST["credentials"],
+    ) == [{"schema": "public", "tables": ["users"]}]
 
     connection.disconnect.assert_called_once_with()
 
 
 def test_validate_notion_context_returns_accessible_pages(monkeypatch):
-    notion_provider = importlib.import_module("nao_core.commands.sync.providers.notion.provider")
+    notion_provider = importlib.import_module(
+        "nao_core.commands.sync.providers.notion.provider"
+    )
     client = Mock()
     page_id = "a" * 32
     database_id = "b" * 32
@@ -290,7 +322,9 @@ def test_validate_notion_context_returns_accessible_pages(monkeypatch):
 
 
 def test_validate_confluence_context_returns_accessible_pages(monkeypatch):
-    confluence_client = importlib.import_module("nao_core.commands.sync.providers.confluence.client")
+    confluence_client = importlib.import_module(
+        "nao_core.commands.sync.providers.confluence.client"
+    )
     client_class = MagicMock()
     client = client_class.return_value.__enter__.return_value
     client.get_page.side_effect = lambda page_id: Mock(title=f"Page {page_id}")
@@ -309,6 +343,38 @@ def test_validate_confluence_context_returns_accessible_pages(monkeypatch):
         {"url": "456", "title": "Page 456"},
     ]
     assert [entry.args[0] for entry in client.get_page.call_args_list] == ["123", "456"]
+
+
+@pytest.mark.parametrize(
+    ("credentials", "expected"),
+    [
+        pytest.param(
+            {"username": "nao", "password": "secret"},
+            ["username", "password"],
+            id="password",
+        ),
+        pytest.param(
+            {
+                "username": "nao",
+                "private_key": SNOWFLAKE_PRIVATE_KEY,
+                "passphrase": "pass",
+            },
+            ["username", "private_key", "passphrase"],
+            id="key-pair",
+        ),
+        pytest.param(
+            {"username": "nao", "token": "programmatic-access-token"},
+            ["username", "token"],
+            id="programmatic-access-token",
+        ),
+    ],
+)
+def test_infer_snowflake_error_fields_from_the_chosen_authentication(
+    credentials, expected
+):
+    error = ValueError("Incorrect username or password was specified.")
+
+    assert infer_warehouse_error_fields("snowflake", error, credentials) == expected
 
 
 @pytest.mark.parametrize(("provider", "credentials"), SCALAR_WAREHOUSE_CASES)
@@ -415,6 +481,33 @@ def test_prepare_nested_bigquery_credentials_round_trip(tmp_path):
             id="redshift-server-ssh-key",
         ),
         pytest.param(
+            "snowflake",
+            {"username": "nao", "account_id": "xy12345.us-east-1"},
+            ["password", "private_key", "token"],
+            id="snowflake-missing-authentication",
+        ),
+        pytest.param(
+            "snowflake",
+            {
+                "username": "nao",
+                "account_id": "xy12345.us-east-1",
+                "private_key_path": "/root/.ssh/rsa_key.p8",
+            },
+            ["password", "private_key", "private_key_path", "token"],
+            id="snowflake-server-private-key-file",
+        ),
+        pytest.param(
+            "snowflake",
+            {
+                "username": "nao",
+                "account_id": "xy12345.us-east-1",
+                "authenticator": "externalbrowser",
+                "password": "secret",
+            },
+            ["authenticator"],
+            id="snowflake-client-authenticator",
+        ),
+        pytest.param(
             "mssql",
             {
                 "host": "mssql.example.com",
@@ -427,7 +520,9 @@ def test_prepare_nested_bigquery_credentials_round_trip(tmp_path):
         ),
     ],
 )
-def test_prepare_rejects_server_side_credentials(provider, credentials, expected_fields):
+def test_prepare_rejects_server_side_credentials(
+    provider, credentials, expected_fields
+):
     with pytest.raises(ValidationError) as error:
         prepare_warehouse_config(provider=provider, credentials=credentials)
 
@@ -448,6 +543,51 @@ def test_prepare_pins_server_independent_auth_mode():
 
     assert env_vars["NAO_ONBOARDING_REDSHIFT_AUTH_MODE"] == json.dumps("password")
     assert "auth_mode" in database_config
+
+
+def test_prepare_snowflake_programmatic_access_token_sets_authenticator():
+    database_config, env_vars = prepare_warehouse_config(
+        provider="snowflake",
+        credentials={
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "token": "programmatic-access-token",
+        },
+    )
+
+    assert (
+        database_config["authenticator"]
+        == "${{ env('NAO_ONBOARDING_SNOWFLAKE_AUTHENTICATOR') }}"
+    )
+    assert env_vars["NAO_ONBOARDING_SNOWFLAKE_AUTHENTICATOR"] == json.dumps(
+        "programmatic_access_token"
+    )
+    assert "programmatic-access-token" not in json.dumps(database_config)
+
+
+def test_prepare_snowflake_private_key_round_trip(tmp_path):
+    database_config, env_vars = prepare_warehouse_config(
+        provider="snowflake",
+        credentials={
+            "username": "nao",
+            "account_id": "xy12345.us-east-1",
+            "database": "analytics",
+            "private_key": SNOWFLAKE_PRIVATE_KEY,
+        },
+    )
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text(
+        yaml.safe_dump(
+            {"project_name": "Analytics", "databases": [database_config]},
+            sort_keys=False,
+        )
+    )
+
+    loaded_config = NaoConfig.load(tmp_path, extra_env=env_vars)
+
+    assert loaded_config.databases[0].private_key == SNOWFLAKE_PRIVATE_KEY
+    assert loaded_config.databases[0].authenticator is None
 
 
 def test_validate_warehouse_endpoint_rejects_ambient_credentials():
@@ -486,7 +626,9 @@ def test_prepare_warehouse_endpoint_requires_internal_secret():
 def test_validate_warehouse_endpoint_accepts_working_credentials(monkeypatch):
     monkeypatch.setattr(
         "main.validate_warehouse_credentials",
-        lambda provider, credentials: [{"schema": "public", "tables": ["customers", "orders"]}],
+        lambda provider, credentials: [
+            {"schema": "public", "tables": ["customers", "orders"]}
+        ],
     )
 
     response = TestClient(app, headers=INTERNAL_HEADERS).post(
@@ -542,7 +684,11 @@ def test_validate_notion_endpoint_returns_accessible_pages(monkeypatch):
 def test_validate_notion_endpoint_returns_actionable_error(monkeypatch):
     monkeypatch.setattr(
         "main.validate_notion_context",
-        Mock(side_effect=NotionContextValidationError("Notion rejected the integration token.")),
+        Mock(
+            side_effect=NotionContextValidationError(
+                "Notion rejected the integration token."
+            )
+        ),
     )
 
     response = TestClient(app, headers=INTERNAL_HEADERS).post(
@@ -557,7 +703,9 @@ def test_validate_notion_endpoint_returns_actionable_error(monkeypatch):
 def test_validate_confluence_endpoint_returns_accessible_pages(monkeypatch):
     monkeypatch.setattr(
         "main.validate_confluence_context",
-        lambda base_url, email, api_token, pages: [{"url": pages[0], "title": "Company handbook"}],
+        lambda base_url, email, api_token, pages: [
+            {"url": pages[0], "title": "Company handbook"}
+        ],
     )
 
     response = TestClient(app, headers=INTERNAL_HEADERS).post(
@@ -580,7 +728,11 @@ def test_validate_confluence_endpoint_returns_accessible_pages(monkeypatch):
 def test_validate_confluence_endpoint_returns_actionable_error(monkeypatch):
     monkeypatch.setattr(
         "main.validate_confluence_context",
-        Mock(side_effect=ConfluenceContextValidationError("Confluence rejected the email or API token.")),
+        Mock(
+            side_effect=ConfluenceContextValidationError(
+                "Confluence rejected the email or API token."
+            )
+        ),
     )
 
     response = TestClient(app, headers=INTERNAL_HEADERS).post(
@@ -606,7 +758,9 @@ def test_prepare_warehouse_endpoint_returns_postgres_config():
     assert response.status_code == 200
     body = response.json()
     assert body["database_config"]["type"] == "postgres"
-    assert body["database_config"]["host"] == "${{ env('NAO_ONBOARDING_POSTGRES_HOST') }}"
+    assert (
+        body["database_config"]["host"] == "${{ env('NAO_ONBOARDING_POSTGRES_HOST') }}"
+    )
     assert body["env_vars"]["NAO_ONBOARDING_POSTGRES_PASSWORD"] == json.dumps("secret")
     assert "secret" not in json.dumps(body["database_config"])
 

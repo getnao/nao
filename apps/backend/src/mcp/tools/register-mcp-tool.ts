@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
+
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from 'ai';
 import type { AnyZodObject, ZodTypeAny } from 'zod/v3';
 
 import { logger } from '../../utils/logger';
-import { type LoggedToolHandler, type McpContext, type ToolResult, withLogging } from '../logging';
+import { type LoggedToolHandler, type McpContext, type ToolHandler, type ToolResult, withLogging } from '../logging';
 import { runAgentTool } from './run-agent-tool';
 
 export interface RegisterMcpToolOptions {
@@ -35,17 +37,20 @@ export interface WrapAgentToolOptions<TAgentInput, TOutput, TMcpInput = TAgentIn
 export function registerMcpTool(server: McpServer, ctx: McpContext, opts: RegisterMcpToolOptions): void {
 	server.registerTool(
 		opts.name,
-		{
-			title: opts.title,
-			description: opts.description,
-			inputSchema: toMcpSchema(opts.inputSchema),
-			outputSchema: toMcpSchema(opts.outputSchema),
-			_meta: opts._meta,
-		},
-		buildMcpHandler(opts.name, ctx, opts.handler, {
-			errorMessage: opts.errorMessage,
-		}) as Parameters<McpServer['registerTool']>[2],
+		toToolConfig(opts),
+		withLogging(opts.name, ctx, buildMcpHandler(opts, ctx)) as Parameters<McpServer['registerTool']>[2],
 	);
+}
+
+/** Registers a tool on a server nao runs in process for its own agent: no endpoint call log, same error results. */
+export function registerInternalMcpTool(
+	server: McpServer,
+	ctx: Pick<McpContext, 'userId'>,
+	opts: RegisterMcpToolOptions,
+): void {
+	const handler = buildMcpHandler(opts, ctx);
+	const callHandler: ToolHandler<unknown> = (input, extra) => handler(input, extra, randomUUID());
+	server.registerTool(opts.name, toToolConfig(opts), callHandler as Parameters<McpServer['registerTool']>[2]);
 }
 
 export function jsonToolResult<T extends Record<string, unknown>>(output: T): ToolResult {
@@ -102,29 +107,33 @@ function isZodSchema(schema: unknown): schema is ZodTypeAny {
 	return typeof schema === 'object' && schema !== null && typeof (schema as ZodTypeAny).safeParse === 'function';
 }
 
-function buildMcpHandler(
-	name: string,
-	ctx: McpContext,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	fn: LoggedToolHandler<any>,
-	opts?: { errorMessage?: (error: unknown) => string },
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): LoggedToolHandler<any> {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const handler: LoggedToolHandler<any> = async (input, extra, callLogId) => {
+function toToolConfig(opts: RegisterMcpToolOptions) {
+	return {
+		title: opts.title,
+		description: opts.description,
+		inputSchema: toMcpSchema(opts.inputSchema),
+		outputSchema: toMcpSchema(opts.outputSchema),
+		_meta: opts._meta,
+	};
+}
+
+/** A failing tool answers with an error result rather than throwing, so the client sees why. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildMcpHandler(opts: RegisterMcpToolOptions, ctx: Pick<McpContext, 'userId'>): LoggedToolHandler<any> {
+	const name = opts.name;
+	return async (input, extra, callLogId) => {
 		try {
-			return await fn(input, extra, callLogId);
+			return await opts.handler(input, extra, callLogId);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			logger.error(`MCP ${name} error: ${message}`, {
 				source: 'tool',
 				context: { userId: ctx.userId, hasInput: input !== undefined },
 			});
-			const text = opts?.errorMessage ? opts.errorMessage(error) : `${name} failed. Please try again.`;
+			const text = opts.errorMessage ? opts.errorMessage(error) : `${name} failed. Please try again.`;
 			return { content: [{ type: 'text' as const, text }], isError: true };
 		}
 	};
-	return withLogging(name, ctx, handler);
 }
 
 function toMcpSchema(schema: unknown): AnyZodObject | undefined {

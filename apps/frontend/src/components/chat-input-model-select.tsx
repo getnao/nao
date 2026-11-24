@@ -1,7 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { providerLabel, providerName } from '@nao/shared/types';
+import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
 
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import type { KeyboardEvent } from 'react';
@@ -9,10 +9,11 @@ import type { KeyboardEvent } from 'react';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
+import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
+import { cn } from '@/lib/utils';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
@@ -51,7 +52,7 @@ export function ChatInputModelSelect({
 		if (usesDefaultModel || !availableModels || availableModels.length === 0) {
 			return;
 		}
-		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
+		if (!selectedModel || !availableModels.some((model) => isSameModel(model, selectedModel))) {
 			setSelectedModel(null);
 		}
 	}, [usesDefaultModel, availableModels, selectedModel, setSelectedModel]);
@@ -117,10 +118,10 @@ export function ChatInputModelSelect({
 		return (
 			<Link
 				to='/settings/project/models'
-				className='flex items-center gap-1.5 text-sm text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 transition-colors'
+				className='flex min-w-0 items-center gap-1.5 text-sm text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 transition-colors'
 			>
-				<TriangleAlert className='size-3.5' />
-				<span>Configure a model</span>
+				<TriangleAlert className='size-3.5 shrink-0' />
+				<span className='truncate'>Configure a model</span>
 			</Link>
 		);
 	}
@@ -131,25 +132,29 @@ export function ChatInputModelSelect({
 				<LlmProviderIcon
 					provider={selectedModel.provider}
 					baseUrl={selectedAvailableModel?.baseUrl}
-					className='size-4'
+					className='size-4 shrink-0'
 				/>
 			)}
-			<span>{selectedModelName}</span>
-			{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			<span className={cn('flex min-w-0 items-center gap-2', selectedModel && '@max-xs:sr-only')}>
+				<span className='truncate'>{selectedModelName}</span>
+				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			</span>
 		</>
 	);
 
 	if (!canCycleModels) {
 		if (!isAdmin) {
 			return (
-				<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>{singleModel}</div>
+				<div className='flex min-w-0 items-center gap-2 text-sm font-normal text-muted-foreground'>
+					{singleModel}
+				</div>
 			);
 		}
 
 		return (
 			<Link
 				to='/settings/project/models'
-				className='flex items-center gap-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors'
+				className='flex min-w-0 items-center gap-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors'
 			>
 				{singleModel}
 			</Link>
@@ -162,12 +167,12 @@ export function ChatInputModelSelect({
 				<TooltipTrigger asChild>
 					<SelectTrigger
 						variant='ghost'
-						className='p-0 gap-1 text-sm'
+						className='p-0 gap-1 text-sm min-w-0'
 						size='sm'
 						onKeyDown={handleCycleModelShortcut}
 					>
 						<SelectValue>
-							<div className='flex items-center gap-2'>
+							<div className='flex min-w-0 items-center gap-2'>
 								{selectedModel && (
 									<LlmProviderIcon
 										provider={selectedModel.provider}
@@ -175,12 +180,23 @@ export function ChatInputModelSelect({
 										className='size-4'
 									/>
 								)}
-								<span className='leading-none'>{selectedModelName}</span>
-								{usesDefaultModel
-									? resolvedModelName && (
-											<span className='text-muted-foreground'>{resolvedModelName}</span>
-										)
-									: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+								<span
+									className={cn(
+										'flex min-w-0 items-center gap-2',
+										selectedModel && '@max-xs:sr-only',
+									)}
+								>
+									<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
+										{selectedModelName}
+									</span>
+									{usesDefaultModel
+										? resolvedModelName && (
+												<span className='truncate text-muted-foreground'>
+													{resolvedModelName}
+												</span>
+											)
+										: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+								</span>
 							</div>
 						</SelectValue>
 					</SelectTrigger>
@@ -239,11 +255,11 @@ export function ChatInputModelSelect({
 function ExampleModel() {
 	return (
 		<Select value={EXAMPLE_MODEL_VALUE}>
-			<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm' aria-label='Model'>
+			<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm min-w-0' size='sm' aria-label='Model'>
 				<SelectValue>
 					<div className='flex items-center gap-2'>
 						<LlmProviderIcon provider='nao' className='size-4' />
-						<span className='leading-none'>{EXAMPLE_MODEL_NAME}</span>
+						<span className='leading-none @max-xs:sr-only'>{EXAMPLE_MODEL_NAME}</span>
 					</div>
 				</SelectValue>
 			</SelectTrigger>
@@ -295,7 +311,7 @@ function NamedProviderHint({ provider }: { provider: LlmProvider }) {
 	if (!name) {
 		return null;
 	}
-	return <span className='text-muted-foreground'>{providerLabel(provider)}</span>;
+	return <span className='truncate text-muted-foreground'>{providerLabel(provider)}</span>;
 }
 
 function ManagedCreditsLock() {

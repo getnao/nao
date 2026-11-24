@@ -1,9 +1,11 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Mail, Send, Slack, Wand2 } from 'lucide-react';
+import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2, Mail, Send, Wand2 } from 'lucide-react';
 import type { NotificationChannel, RecipientMode } from '@nao/shared/types';
+import type { LiveStoryTarget } from './hooks/use-story-viewer-live-settings';
 
+import SlackIcon from '@/components/icons/slack.svg';
 import { MemberPicker } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,8 +27,7 @@ export interface StoryDeliveryStatus {
 }
 
 interface StoryDeliverySectionProps {
-	chatId: string;
-	storySlug: string;
+	story: LiveStoryTarget;
 	open: boolean;
 	refreshCron: string | null;
 	onStatusChange: (status: StoryDeliveryStatus) => void;
@@ -50,21 +51,15 @@ const SCHEDULE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliverySectionProps>(
-	function StoryDeliverySection({ chatId, storySlug, open, refreshCron, onStatusChange }, ref) {
-		const queryClient = useQueryClient();
+	function StoryDeliverySection({ story, open, refreshCron, onStatusChange }, ref) {
 		const { data: session } = useSession();
 		const currentUserId = session?.user?.id ?? null;
-		const delivery = useQuery({ ...trpc.story.getDelivery.queryOptions({ chatId, storySlug }), enabled: open });
-		const recipientsQuery = useQuery({
-			...trpc.story.listDeliveryRecipients.queryOptions({ chatId, storySlug }),
-			enabled: open,
-		});
 		const slackConfigQuery = useQuery({
 			...trpc.project.getSlackConfig.queryOptions(),
 			enabled: open,
 		});
 		const shareQuery = useQuery({
-			...trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }),
+			...trpc.storyShare.getSharedStoryInfo.queryOptions(story),
 			enabled: open,
 		});
 		const isShared = shareQuery.data?.isShared === true;
@@ -86,9 +81,9 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		const [slackEnabled, setSlackEnabled] = useState(false);
 		const [search, setSearch] = useState('');
 
-		const recipientGroupsQuery = useQuery({
-			...trpc.story.listDeliveryRecipientGroups.queryOptions({ chatId, storySlug }),
-			enabled: open && recipientMode === 'specific',
+		const { delivery, recipientsQuery, recipientGroupsQuery, updateDelivery } = useStoryDelivery(story, {
+			open,
+			loadGroups: recipientMode === 'specific',
 		});
 
 		// Seed the form from server state only once per dialog open. Re-syncing on every
@@ -119,21 +114,6 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			setEmailEnabled(delivery.data.channels.includes('email'));
 			setSlackEnabled(delivery.data.channels.includes('slack'));
 		}, [open, delivery.data]); // eslint-disable-line react-hooks/exhaustive-deps
-
-		const updateDelivery = useMutation(
-			trpc.story.updateDelivery.mutationOptions({
-				onSuccess: () => {
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.getDelivery.queryKey({ chatId, storySlug }),
-					});
-					// Enabling delivery can auto-share the story, so keep sharing state in sync.
-					queryClient.invalidateQueries({
-						queryKey: trpc.storyShare.getSharedStoryInfo.queryKey({ chatId, storySlug }),
-					});
-					queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-				},
-			}),
-		);
 
 		const cronNlpMutation = useMutation(
 			trpc.story.parseCronFromText.mutationOptions({
@@ -285,9 +265,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 					if (!dirty) {
 						return;
 					}
-					await updateDelivery.mutateAsync({
-						chatId,
-						storySlug,
+					await updateDelivery({
 						enabled,
 						cron: enabled ? resolvedCron : null,
 						scheduleDescription: enabled ? resolvedScheduleDescription : null,
@@ -300,8 +278,6 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			}),
 			[
 				dirty,
-				chatId,
-				storySlug,
 				enabled,
 				resolvedCron,
 				resolvedScheduleDescription,
@@ -380,7 +356,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 								/>
 								{isSlackConfigured ? (
 									<ChannelCard
-										icon={<Slack className='size-4' />}
+										icon={<SlackIcon className='size-4' />}
 										label='Slack'
 										active={slackEnabled}
 										onClick={() => setSlackEnabled((v) => !v)}
@@ -389,7 +365,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 									<SimpleTooltip content='Connect Slack in your project settings to deliver stories to Slack.'>
 										<span className='flex-1 cursor-not-allowed'>
 											<ChannelCard
-												icon={<Slack className='size-4' />}
+												icon={<SlackIcon className='size-4' />}
 												label='Slack'
 												active={false}
 												disabled
@@ -451,6 +427,71 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		);
 	},
 );
+
+function useStoryDelivery(story: LiveStoryTarget, { open, loadGroups }: { open: boolean; loadGroups: boolean }) {
+	const queryClient = useQueryClient();
+	const chatStory = 'storyId' in story ? null : story;
+	const standaloneStory = 'storyId' in story ? story : null;
+	const chatDelivery = useQuery({
+		...trpc.story.getDelivery.queryOptions(chatStory ?? skipToken),
+		enabled: open,
+	});
+	const standaloneDelivery = useQuery({
+		...trpc.story.getStandaloneDelivery.queryOptions(standaloneStory ?? skipToken),
+		enabled: open,
+	});
+	const chatRecipients = useQuery({
+		...trpc.story.listDeliveryRecipients.queryOptions(chatStory ?? skipToken),
+		enabled: open,
+	});
+	const standaloneRecipients = useQuery({
+		...trpc.story.listStandaloneDeliveryRecipients.queryOptions(standaloneStory ?? skipToken),
+		enabled: open,
+	});
+	const chatRecipientGroups = useQuery({
+		...trpc.story.listDeliveryRecipientGroups.queryOptions(chatStory ?? skipToken),
+		enabled: open && loadGroups,
+	});
+	const standaloneRecipientGroups = useQuery({
+		...trpc.story.listStandaloneDeliveryRecipientGroups.queryOptions(standaloneStory ?? skipToken),
+		enabled: open && loadGroups,
+	});
+
+	const invalidateDelivery = () => {
+		queryClient.invalidateQueries({
+			queryKey:
+				'storyId' in story
+					? trpc.story.getStandaloneDelivery.queryKey(story)
+					: trpc.story.getDelivery.queryKey(story),
+		});
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.getSharedStoryInfo.queryKey(story) });
+		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
+	};
+	const updateChatDelivery = useMutation(
+		trpc.story.updateDelivery.mutationOptions({ onSuccess: invalidateDelivery }),
+	);
+	const updateStandaloneDelivery = useMutation(
+		trpc.story.updateStandaloneDelivery.mutationOptions({ onSuccess: invalidateDelivery }),
+	);
+
+	const updateDelivery = useCallback(
+		async (settings: Omit<Parameters<typeof updateStandaloneDelivery.mutateAsync>[0], 'storyId'>) => {
+			if ('storyId' in story) {
+				await updateStandaloneDelivery.mutateAsync({ storyId: story.storyId, ...settings });
+			} else {
+				await updateChatDelivery.mutateAsync({ chatId: story.chatId, storySlug: story.storySlug, ...settings });
+			}
+		},
+		[story, updateChatDelivery, updateStandaloneDelivery],
+	);
+
+	return {
+		delivery: chatStory ? chatDelivery : standaloneDelivery,
+		recipientsQuery: chatStory ? chatRecipients : standaloneRecipients,
+		recipientGroupsQuery: chatStory ? chatRecipientGroups : standaloneRecipientGroups,
+		updateDelivery,
+	};
+}
 
 function TimingOption({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
 	return (

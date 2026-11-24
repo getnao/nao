@@ -12,10 +12,11 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { Button } from '@/components/ui/button';
 import StoryIcon from '@/components/ui/story-icon';
 import { useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useOpenMentionedStory, useMentionedStories } from '@/hooks/use-mentioned-stories';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { areChatArtifactsEqual, collectChatArtifacts, countChatArtifacts } from '@/lib/chat-artifacts';
+import { revealToolCall } from '@/lib/tool-call-reveal';
 import { cn } from '@/lib/utils';
 
 /** Mirrors `max-w-3xl` on the conversation column. */
@@ -24,12 +25,12 @@ const CHAT_COLUMN_MAX_WIDTH = 768;
 const PANEL_WIDTH = 288;
 /** Right offset of the panel plus the breathing room kept from the chat column. */
 const PANEL_HORIZONTAL_MARGIN = 32;
-const REVEAL_HIGHLIGHT_CLASS = 'chat-artifact-reveal-highlight';
 
 interface ChatArtifactsMenuProps {
 	chatId: string;
 	chatColumnRef?: RefObject<HTMLElement | null>;
 	panelClassName?: string;
+	labelClassName?: string;
 }
 
 /**
@@ -39,9 +40,9 @@ interface ChatArtifactsMenuProps {
  * otherwise it collapses to a header pill the user can expand on demand.
  * The panel is absolutely positioned, so the header rendering the menu must be positioned.
  */
-export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: ChatArtifactsMenuProps) {
+export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName, labelClassName }: ChatArtifactsMenuProps) {
 	const [density] = useToolCallDensity();
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel } = useSidePanelActions();
 	const artifacts = useAgentMessagesSelector(collectChatArtifacts, areChatArtifactsEqual);
 	const showQueries = density !== 'compact';
 	const mentionedStories = useMentionedStories(chatId, artifacts.mentionedStories);
@@ -80,7 +81,7 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 		setIsExpanded(false);
 	};
 	const revealQuery = (query: QueryArtifact) => {
-		scrollToToolCall(query.toolCallId);
+		revealToolCall(query.toolCallId);
 		setIsExpanded(false);
 	};
 
@@ -96,7 +97,7 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 					aria-label={`Library (${count})`}
 				>
 					<Layers className='size-3' strokeWidth={2.25} />
-					<span className='text-xs'>Library</span>
+					<span className={cn('text-xs', labelClassName)}>Library</span>
 					<span className='rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums'>{count}</span>
 					<ChevronDown className={cn('size-3 transition-transform', isOpen && 'rotate-180')} />
 				</Button>
@@ -328,42 +329,4 @@ function describeQuery(query: QueryArtifact): string {
 	const rows = `${query.rowCount} ${query.rowCount === 1 ? 'row' : 'rows'}`;
 	const columns = `${query.columns.length} ${query.columns.length === 1 ? 'col' : 'cols'}`;
 	return `${rows} · ${columns}`;
-}
-
-function scrollToToolCall(toolCallId: string) {
-	const target = document.querySelector<HTMLElement>(`[data-replay-target-id="${CSS.escape(toolCallId)}"]`);
-	if (!target) {
-		return;
-	}
-
-	expandToolCall(target);
-	target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-	highlightRevealedElement(target);
-}
-
-function expandToolCall(toolCall: HTMLElement) {
-	const trigger = toolCall.querySelector<HTMLButtonElement>('button[aria-expanded]');
-	if (trigger?.getAttribute('aria-expanded') === 'false') {
-		trigger.click();
-	}
-}
-
-function prefersReducedMotion(): boolean {
-	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-/** Re-adding the class after a reflow restarts the fade when the same element is revealed twice in a row. */
-function highlightRevealedElement(element: HTMLElement) {
-	element.classList.remove(REVEAL_HIGHLIGHT_CLASS);
-	void element.offsetWidth;
-	element.classList.add(REVEAL_HIGHLIGHT_CLASS);
-
-	const removeHighlight = (event: AnimationEvent) => {
-		if (event.target !== element) {
-			return;
-		}
-		element.classList.remove(REVEAL_HIGHLIGHT_CLASS);
-		element.removeEventListener('animationend', removeHighlight);
-	};
-	element.addEventListener('animationend', removeHighlight);
 }

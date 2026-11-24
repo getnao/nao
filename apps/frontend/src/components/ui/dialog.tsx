@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
 
+import { PortalContainerContext } from '@/contexts/portal-container';
 import { cn } from '@/lib/utils';
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -33,6 +34,10 @@ function DialogOverlay({ className, ...props }: React.ComponentProps<typeof Dial
 	);
 }
 
+/**
+ * Popovers opened inside mount on `document.body` like the dialog, not in a themed story's
+ * portal container, which sits under the dialog and its modal overlay.
+ */
 function DialogContent({
 	className,
 	children,
@@ -59,7 +64,7 @@ function DialogContent({
 				)}
 				{...props}
 			>
-				{children}
+				<PortalContainerContext.Provider value={null}>{children}</PortalContainerContext.Provider>
 				{showCloseButton && (
 					<DialogPrimitive.Close
 						data-slot='dialog-close'

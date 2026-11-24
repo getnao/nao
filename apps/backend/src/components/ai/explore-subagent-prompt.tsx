@@ -1,12 +1,14 @@
 import { Block, Bold, Code, List, ListItem, Span, Title } from '../../lib/markdown';
 import type { ContextPresence } from '../../utils/nao-config';
-import { NaoContextStructure } from './nao-context-structure';
+import { NaoContextStructure, UserRulesSection } from './nao-context-structure';
 
 type ExploreSubagentPromptProps = {
 	templates?: string[];
 	repoNames?: string[];
 	contextPresence?: ContextPresence;
 	userRules?: string;
+	/** True when `userRules` was cut to fit the prompt, so the agent may still need to read RULES.md. */
+	isUserRulesExcerpt?: boolean;
 };
 
 /** Light system prompt of the explore subagent: the project layout, how deep to go and how to report. */
@@ -15,6 +17,7 @@ export function ExploreSubagentPrompt({
 	repoNames,
 	contextPresence,
 	userRules,
+	isUserRulesExcerpt = false,
 }: ExploreSubagentPromptProps) {
 	return (
 		<Block>
@@ -24,7 +27,12 @@ export function ExploreSubagentPrompt({
 				context relevant to it. You never answer the question itself and never query a database; you only
 				explore files and report what you found so the caller can work from it.
 			</Span>
-			<NaoContextStructure templates={templates} repoNames={repoNames} contextPresence={contextPresence} />
+			<NaoContextStructure
+				templates={templates}
+				repoNames={repoNames}
+				contextPresence={contextPresence}
+				rulesInPrompt={Boolean(userRules) && !isUserRulesExcerpt}
+			/>
 			<Title level={2}>Thoroughness</Title>
 			<Span>
 				The task states a thoroughness level. It decides how far you go before reporting; when it is missing,
@@ -43,7 +51,7 @@ export function ExploreSubagentPrompt({
 				<ListItem>
 					<Bold>very thorough</Bold>: a comprehensive sweep. Cover every location and naming convention
 					(singular, plural, snake_case, abbreviations, synonyms), cross-check definitions between{' '}
-					<Code>databases/</Code>, <Code>semantics/</Code>, <Code>docs/</Code> and <Code>RULES.md</Code>, and
+					<Code>databases/</Code>, <Code>semantics/</Code>, <Code>docs/</Code> and the project rules, and
 					report conflicts and gaps as well as findings.
 				</ListItem>
 			</List>
@@ -55,7 +63,7 @@ export function ExploreSubagentPrompt({
 				</ListItem>
 				<ListItem>
 					Look for tables and columns in <Code>databases/</Code>, business definitions in{' '}
-					<Code>semantics/</Code> and <Code>docs/</Code>, and conventions in <Code>RULES.md</Code>.
+					<Code>semantics/</Code> and <Code>docs/</Code>, and conventions in the project rules.
 				</ListItem>
 				<ListItem>
 					Grep for the business terms of the task in several spellings (singular, plural, snake_case,
@@ -81,10 +89,11 @@ export function ExploreSubagentPrompt({
 				</ListItem>
 			</List>
 			{userRules && (
-				<Block>
-					<Title level={2}>Project rules</Title>
-					{userRules}
-				</Block>
+				<UserRulesSection
+					rules={userRules}
+					isExcerpt={isUserRulesExcerpt}
+					rulesFile={contextPresence?.rulesFile}
+				/>
 			)}
 		</Block>
 	);

@@ -50,7 +50,7 @@ import { MAP_STYLE_OPTIONS, useMapStyle } from '@/hooks/use-map-style';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { useStoryIds } from '@/hooks/use-story-ids';
 import { useAgentMessagesGetter, useOptionalAgentContext } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 
 const MapView = lazy(() => import('./display-map-view'));
@@ -64,12 +64,13 @@ export const DisplayMapToolCall = ({
 	const getMessages = useAgentMessagesGetter();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
+	const { open: openSidePanel, getState: getSidePanelState } = useSidePanelActions();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const { sourceQuery, sourceData, isLoadingRows } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
+	const [addToStoryError, setAddToStoryError] = useState<string | null>(null);
 	const slotRef = useRef<HTMLDivElement>(null);
 	const breakoutStyle = useBreakoutStyle(slotRef, isExpanded && viewMode === 'map');
 	const mapViewRef = useRef<MapViewHandle>(null);
@@ -126,12 +127,14 @@ export const DisplayMapToolCall = ({
 	};
 
 	const handleAddToStory = async () => {
+		const { isVisible, currentStorySlug, currentStoryTabIndex } = getSidePanelState();
 		const latestStoryId = storyIds[storyIds.length - 1];
 		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
 		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
 		if (!targetId || !config || !chatId) {
 			return;
 		}
+		setAddToStoryError(null);
 
 		const data = await queryClient.fetchQuery({
 			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
@@ -139,6 +142,11 @@ export const DisplayMapToolCall = ({
 		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
+			return;
+		}
+
+		if (data.format === 'custom') {
+			setAddToStoryError('Maps cannot be added to custom stories yet. Ask the agent to add it.');
 			return;
 		}
 
@@ -252,6 +260,7 @@ export const DisplayMapToolCall = ({
 			<div
 				className='group flex flex-col gap-2 transition-[margin,width] duration-200 ease-out'
 				style={breakoutStyle}
+				data-overflows-chat-group={breakoutStyle ? true : undefined}
 			>
 				<div
 					className={cn(
@@ -347,6 +356,12 @@ export const DisplayMapToolCall = ({
 							)}
 						</div>
 					</div>
+
+					{addToStoryError && (
+						<div className='px-3 pb-2 text-xs text-red-400' role='alert'>
+							{addToStoryError}
+						</div>
+					)}
 
 					{isEditable && (
 						<MapConfigEditDialog

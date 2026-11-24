@@ -6,31 +6,48 @@ import {
 	ALL_SKILLS_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	DEFAULT_USER_GROUP_FEATURES,
 	DEFAULT_USER_GROUP_NAME,
 	type DefaultModelSettings,
 	type MapSettings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
 	SYSTEM_EXAMPLE_PROJECT_ID,
-	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
+import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, type SQL, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gt,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lte,
+	ne,
+	notExists,
+	or,
+	type SQL,
+	sql,
+} from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { env, isCloud, isCloudBillingEnabled } from '../env';
-import { CLOUD_TRIAL_PROVISIONING_JOB_NAME } from '../types/billing';
+import { isCloud } from '../env';
+import { getActiveProjectPaths, isSelfHostedMultiProjectEnabled } from '../services/multi-project.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
-import { startOrganizationTrial } from './billing.queries';
-import { enqueueOnceJob } from './scheduled-job.queries';
+import { getDefaultProjectPath } from '../utils/project-paths';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
-import { userMemberStatus } from './user.queries';
+import { userHasPassword, userMemberStatus } from './user.queries';
+import { getImpersonatedGroupIds } from './user-group-impersonation.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -41,6 +58,7 @@ export type ProjectAccessSource = 'project' | 'organization' | 'both';
 
 export interface UserWithProjectAccessDetails extends UserWithRole {
 	source: ProjectAccessSource;
+	hasPassword: boolean;
 }
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -86,6 +104,10 @@ export const touchProjectUpdatedAt = async (projectId: string): Promise<void> =>
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
 };
 
+export const recordProjectDeployment = async (projectId: string, deployedAt: Date): Promise<void> => {
+	await db.update(s.project).set({ deployedAt }).where(eq(s.project.id, projectId)).execute();
+};
+
 export const getProjectMemoryEnabled = async (projectId: string): Promise<boolean> => {
 	const [project] = await db
 		.select({ agentSettings: s.project.agentSettings })
@@ -99,17 +121,13 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (
-	project: NewProject,
-	transaction?: DBTransaction,
-	actingUserId?: string,
-): Promise<DBProject> => {
+export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> => {
 	if (isCloud && !project.orgId) {
 		throw new Error('Cloud projects must belong to an organization.');
 	}
 	return transaction
-		? createProjectWithDefaultGroup(project, transaction, actingUserId)
-		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx, actingUserId));
+		? createProjectWithDefaultGroup(project, transaction)
+		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
@@ -163,7 +181,13 @@ export const listProjectMembershipsForUser = async (
 		.execute();
 };
 
-export const listUserProjectsWithRoles = async (userId: string): Promise<UserProjectWithRole[]> => {
+/** `includeInactive` also returns self-hosted projects the instance no longer serves, for cleanups. */
+export type ListUserProjectsOptions = { includeInactive?: boolean };
+
+export const listUserProjectsWithRoles = async (
+	userId: string,
+	{ includeInactive = false }: ListUserProjectsOptions = {},
+): Promise<UserProjectWithRole[]> => {
 	const results = await db
 		.select({
 			project: s.project,
@@ -176,6 +200,7 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 			and(
 				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
 				or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)),
+				includeInactive ? undefined : await selfHostedActiveProjectsFilter(),
 			),
 		)
 		.orderBy(asc(s.project.name))
@@ -183,12 +208,33 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 	return results;
 };
 
-export const listUserProjects = async (userId: string): Promise<DBProject[]> => {
-	const results = await listUserProjectsWithRoles(userId);
+/**
+ * Self-hosted instances only list the projects they currently serve, so projects whose path was
+ * removed, or that a lapsed multi-project license no longer covers, stay hidden.
+ */
+async function selfHostedActiveProjectsFilter(): Promise<SQL | undefined> {
+	if (isCloud) {
+		return undefined;
+	}
+	const activeProjectPaths = await getActiveProjectPaths();
+	return activeProjectPaths.length > 0 ? inArray(s.project.path, activeProjectPaths) : undefined;
+}
+
+export const listUserProjects = async (userId: string, options?: ListUserProjectsOptions): Promise<DBProject[]> => {
+	const results = await listUserProjectsWithRoles(userId, options);
 	return results.map((r) => r.project);
 };
 
+/** An admin impersonating user groups acts as a regular member until they stop. */
 export const getUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
+	const role = await getActualUserRoleInProject(projectId, userId);
+	if (role === 'admin' && (await getImpersonatedGroupIds(projectId, userId))) {
+		return 'user';
+	}
+	return role;
+};
+
+export const getActualUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;
@@ -263,6 +309,7 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 				when ${s.projectMember.userId} is not null then 'project'
 				else 'organization'
 			end`,
+			hasPassword: userHasPassword,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
@@ -273,8 +320,17 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 	return results;
 };
 
+export const listProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+	const projects = await db
+		.select({ id: s.project.id, path: s.project.path })
+		.from(s.project)
+		.where(isNotNull(s.project.path))
+		.execute();
+	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
+};
+
 export const getDefaultProject = async (): Promise<DBProject | null> => {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = getDefaultProjectPath();
 	if (projectPath) {
 		return getProjectByPath(projectPath);
 	}
@@ -283,19 +339,24 @@ export const getDefaultProject = async (): Promise<DBProject | null> => {
 	return project ?? null;
 };
 
+/**
+ * A selected project the user cannot access is swapped for their default one, so a stale selection still
+ * loads the app. A write must not follow that swap: `fallbackWhenInaccessible: false` answers null instead.
+ */
 export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
+	{ fallbackWhenInaccessible = true }: { fallbackWhenInaccessible?: boolean } = {},
 ): Promise<DBProject | null> => {
-	if (isCloud) {
+	if (isCloud || (await isSelfHostedMultiProjectEnabled())) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
-			if (selectedProject) {
-				return selectedProject;
+			if (selectedProject || !fallbackWhenInaccessible) {
+				return selectedProject ?? null;
 			}
 		}
-		return projects[0] ?? null;
+		return projects.find((project) => project.path === getDefaultProjectPath()) ?? projects[0] ?? null;
 	}
 
 	const project = await getDefaultProject();
@@ -330,10 +391,6 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 		webSearch: {
 			...current.webSearch,
 			...settings.webSearch,
-		},
-		pythonExecution: {
-			...current.pythonExecution,
-			...settings.pythonExecution,
 		},
 		subagent: {
 			...current.subagent,
@@ -423,38 +480,63 @@ export const getMapSettings = async (projectId: string): Promise<MapSettings> =>
 	return project?.mapSettings ?? {};
 };
 
+export const getMenuSettings = async (projectId: string): Promise<SidebarMenu | null> => {
+	const project = await getProjectById(projectId);
+	return project?.menuSettings ?? null;
+};
+
+export const updateMenuSettings = async (projectId: string, menuSettings: SidebarMenu | null): Promise<void> => {
+	await db.update(s.project).set({ menuSettings }).where(eq(s.project.id, projectId)).execute();
+};
+
 export const getCustomBoundaries = async (projectId: string): Promise<CustomBoundarySet[]> => {
 	const settings = await getMapSettings(projectId);
 	return settings.customBoundaries ?? [];
 };
 
-export const addCustomBoundary = (projectId: string, boundary: CustomBoundarySet): Promise<CustomBoundarySet[]> =>
-	mutateCustomBoundaries(projectId, (current) => {
+export interface CustomBoundaryChange {
+	boundaries: CustomBoundarySet[];
+	previous: CustomBoundarySet | undefined;
+}
+
+export const addCustomBoundary = async (
+	projectId: string,
+	boundary: CustomBoundarySet,
+): Promise<CustomBoundarySet[]> => {
+	const { after } = await mutateCustomBoundaries(projectId, (current) => {
 		if (current.some((b) => b.key === boundary.key)) {
 			throw new Error(`A boundary set with key "${boundary.key}" already exists.`);
 		}
 		return [...current, boundary];
 	});
+	return after;
+};
 
-export const updateCustomBoundary = (
+export const updateCustomBoundary = async (
 	projectId: string,
 	key: string,
 	patch: Partial<CustomBoundarySet>,
-): Promise<CustomBoundarySet[]> =>
-	mutateCustomBoundaries(projectId, (current) => {
+): Promise<CustomBoundaryChange> => {
+	const { before, after } = await mutateCustomBoundaries(projectId, (current) => {
 		if (patch.key && patch.key !== key && current.some((b) => b.key === patch.key)) {
 			throw new Error(`A boundary set with key "${patch.key}" already exists.`);
 		}
 		return current.map((b) => (b.key === key ? { ...b, ...patch } : b));
 	});
+	return { boundaries: after, previous: before.find((b) => b.key === key) };
+};
 
-export const deleteCustomBoundary = (projectId: string, key: string): Promise<CustomBoundarySet[]> =>
-	mutateCustomBoundaries(projectId, (current) => current.filter((b) => b.key !== key));
+export const deleteCustomBoundary = async (projectId: string, key: string): Promise<CustomBoundaryChange> => {
+	const { before, after } = await mutateCustomBoundaries(projectId, (current) =>
+		current.filter((b) => b.key !== key),
+	);
+	return { boundaries: after, previous: before.find((b) => b.key === key) };
+};
 
 const mutateCustomBoundaries = async (
 	projectId: string,
 	transform: (current: CustomBoundarySet[]) => CustomBoundarySet[],
-): Promise<CustomBoundarySet[]> =>
+): Promise<{ before: CustomBoundarySet[]; after: CustomBoundarySet[] }> =>
 	db.transaction(async (tx) => {
 		const base = tx
 			.select({ mapSettings: s.project.mapSettings })
@@ -462,13 +544,14 @@ const mutateCustomBoundaries = async (
 			.where(eq(s.project.id, projectId));
 		const [row] = await lockForUpdate(base).execute();
 		const settings = row?.mapSettings ?? {};
-		const next = transform(settings.customBoundaries ?? []);
+		const before = settings.customBoundaries ?? [];
+		const after = transform(before);
 		await tx
 			.update(s.project)
-			.set({ mapSettings: { ...settings, customBoundaries: next } })
+			.set({ mapSettings: { ...settings, customBoundaries: after } })
 			.where(eq(s.project.id, projectId))
 			.execute();
-		return next;
+		return { before, after };
 	});
 
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
@@ -504,103 +587,36 @@ const renameProjectIfNameAvailable = async (
 const createProjectWithDefaultGroup = (
 	project: NewProject,
 	transaction: DBTransaction,
-	actingUserId?: string,
 ): DBProject | Promise<DBProject> =>
 	dbConfig.dialect === Dialect.Postgres
-		? createPostgresProjectWithDefaultGroup(project, transaction, actingUserId)
-		: createSqliteProjectWithDefaultGroup(project, transaction, actingUserId);
+		? createPostgresProjectWithDefaultGroup(project, transaction)
+		: createSqliteProjectWithDefaultGroup(project, transaction);
 
-function createSqliteProjectWithDefaultGroup(
-	project: NewProject,
-	transaction: DBTransaction,
-	actingUserId?: string,
-): DBProject {
-	const shouldStartTrial = shouldStartSqliteOrganizationTrial(project.orgId, transaction);
+function createSqliteProjectWithDefaultGroup(project: NewProject, transaction: DBTransaction): DBProject {
 	const [created] = transaction.insert(s.project).values(project).returning().all();
 	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
-	if (shouldStartTrial && created.orgId) {
-		const started = startOrganizationTrial(created.orgId, new Date(), transaction) as boolean;
-		if (started) {
-			enqueueOnceJob(cloudTrialProvisioningJob(created.orgId, actingUserId), transaction);
-		}
-	}
 	return created;
-}
-
-function shouldStartSqliteOrganizationTrial(orgId: string | null | undefined, executor: DBExecutor): boolean {
-	if (!orgId || !isCloudBillingEnabled()) {
-		return false;
-	}
-	const [organization] = executor
-		.select({ bypassBilling: s.organization.bypassBilling })
-		.from(s.organization)
-		.where(eq(s.organization.id, orgId))
-		.limit(1)
-		.all();
-	if (!organization || organization.bypassBilling) {
-		return false;
-	}
-	const [existingProject] = executor
-		.select({ id: s.project.id })
-		.from(s.project)
-		.where(eq(s.project.orgId, orgId))
-		.limit(1)
-		.all();
-	return !existingProject;
-}
-
-async function shouldStartPostgresOrganizationTrial(
-	orgId: string | null | undefined,
-	executor: DBExecutor,
-): Promise<boolean> {
-	if (!orgId || !isCloudBillingEnabled()) {
-		return false;
-	}
-	const [organization] = await executor
-		.select({ bypassBilling: s.organization.bypassBilling })
-		.from(s.organization)
-		.where(eq(s.organization.id, orgId))
-		.limit(1)
-		.execute();
-	if (!organization || organization.bypassBilling) {
-		return false;
-	}
-	const [existingProject] = await executor
-		.select({ id: s.project.id })
-		.from(s.project)
-		.where(eq(s.project.orgId, orgId))
-		.limit(1)
-		.execute();
-	return !existingProject;
 }
 
 const createPostgresProjectWithDefaultGroup = async (
 	project: NewProject,
 	transaction: DBTransaction,
-	actingUserId?: string,
 ): Promise<DBProject> => {
-	const shouldStartTrial = await shouldStartPostgresOrganizationTrial(project.orgId, transaction);
 	const [created] = await transaction.insert(s.project).values(project).returning().execute();
 	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
-	if (shouldStartTrial && created.orgId) {
-		if (await startOrganizationTrial(created.orgId, new Date(), transaction)) {
-			await enqueueOnceJob(cloudTrialProvisioningJob(created.orgId, actingUserId), transaction);
-		}
-	}
 	return created;
 };
-
-const cloudTrialProvisioningJob = (organizationId: string, actingUserId?: string) => ({
-	name: CLOUD_TRIAL_PROVISIONING_JOB_NAME,
-	payload: { organizationId, ...(actingUserId ? { actingUserId } : {}) },
-	uniqueKey: `billing-cloud-provision-trial:${organizationId}`,
-});
 
 const defaultUserGroupValues = (projectId: string) => ({
 	projectId,
 	name: DEFAULT_USER_GROUP_NAME,
 	isDefault: true,
-	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY, 'inherit', true),
+	featureGrants: serializeUserGroupConfig(
+		DEFAULT_USER_GROUP_FEATURES,
+		DEFAULT_TOOL_CALL_DENSITY_POLICY,
+		'inherit',
+		true,
+	),
 	contextGrants: serializeUserGroupContextAccess({
 		databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
 		docsAccess: ALL_DOCS_CONTEXT_ACCESS,

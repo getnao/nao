@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
-import { restartOnboarding } from '../services/onboarding-restart';
+import { restartOnboarding } from '../services/onboarding/onboarding-restart';
 import {
 	getActiveWarehouseProvisioningJob,
 	getLatestWarehouseProvisioningJob,
@@ -11,19 +11,22 @@ import {
 	startWarehouseProvisioning,
 	submitWarehouseContextSources,
 	validateConfluenceContext,
+	validateGithubContext,
 	validateNotionContext,
 	validateWarehouseCredentials,
-} from '../services/warehouse-provisioning';
+} from '../services/onboarding/warehouse-provisioning';
 import {
 	confluenceContextSourceSchema,
 	confluenceContextValidationResultSchema,
+	githubContextValidationResultSchema,
+	githubRepositoryContextSourceSchema,
 	notionContextSourceSchema,
 	notionContextValidationResultSchema,
 	warehouseContextSourcesInputSchema,
-	warehouseCredentialsSchema,
 	warehouseProvisioningInputSchema,
 	warehouseValidationResultSchema,
-} from '../types/warehouse';
+} from '../types/onboarding/warehouse-provisioning';
+import { warehouseCredentialsSchema } from '../types/warehouse';
 import { organizationProtectedProcedure, protectedProcedure, router } from './trpc';
 
 export const onboardingRoutes = router({
@@ -41,6 +44,11 @@ export const onboardingRoutes = router({
 		.input(confluenceContextSourceSchema)
 		.output(confluenceContextValidationResultSchema)
 		.mutation(({ input }) => validateConfluenceContext(input)),
+
+	validateGithubContext: organizationProtectedProcedure
+		.input(githubRepositoryContextSourceSchema)
+		.output(githubContextValidationResultSchema)
+		.mutation(({ input }) => validateGithubContext(input)),
 
 	startWarehouseProvisioning: organizationProtectedProcedure
 		.input(warehouseProvisioningInputSchema)

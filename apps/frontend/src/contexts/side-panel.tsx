@@ -1,28 +1,36 @@
-import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef } from 'react';
 import type { ShareSource } from '@nao/shared/types';
 
-interface SidePanelContext {
+interface SidePanelState {
 	isVisible: boolean;
 	currentStorySlug: string | null;
-	setCurrentStorySlug: (slug: string | null) => void;
 	currentStoryTabIndex: number;
+}
+
+interface SidePanelActions {
+	open: (content: React.ReactNode, storySlug?: string) => void;
+	close: () => void;
+	setCurrentStorySlug: (slug: string | null) => void;
 	setCurrentStoryTabIndex: (index: number) => void;
+	registerBeforeChange: (guard: (continueChange: () => void) => void) => () => void;
+	getState: () => SidePanelState;
+}
+
+interface SidePanelContext extends SidePanelState, SidePanelActions {
 	chatId: string | null;
 	shareSource: ShareSource | null;
 	isReadonlyMode: boolean;
 	isReplay: boolean;
-	open: (content: React.ReactNode, storySlug?: string) => void;
-	close: () => void;
-	registerBeforeChange: (guard: (continueChange: () => void) => void) => () => void;
 }
 
 const SidePanelContext = createContext<SidePanelContext | null>(null);
+const SidePanelActionsContext = createContext<SidePanelActions | null>(null);
+
+const closedSidePanelState: SidePanelState = { isVisible: false, currentStorySlug: null, currentStoryTabIndex: 0 };
 
 const noopSidePanel: SidePanelContext = {
-	isVisible: false,
-	currentStorySlug: null,
+	...closedSidePanelState,
 	setCurrentStorySlug: () => {},
-	currentStoryTabIndex: 0,
 	setCurrentStoryTabIndex: () => {},
 	chatId: null,
 	shareSource: null,
@@ -31,10 +39,16 @@ const noopSidePanel: SidePanelContext = {
 	open: () => {},
 	close: () => {},
 	registerBeforeChange: () => () => {},
+	getState: () => closedSidePanelState,
 };
 
 export const useSidePanel = () => {
 	return useContext(SidePanelContext) ?? noopSidePanel;
+};
+
+/** Stable across panel state changes, for components that only act on the panel or read its state in handlers. */
+export const useSidePanelActions = (): SidePanelActions => {
+	return useContext(SidePanelActionsContext) ?? noopSidePanel;
 };
 
 export const SidePanelProvider = ({
@@ -64,6 +78,10 @@ export const SidePanelProvider = ({
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
 }) => {
+	const latestRef = useRef({ isVisible, currentStorySlug, currentStoryTabIndex, open, close });
+	useLayoutEffect(() => {
+		latestRef.current = { isVisible, currentStorySlug, currentStoryTabIndex, open, close };
+	});
 	const beforeChangeRef = useRef<((continueChange: () => void) => void) | null>(null);
 	const registerBeforeChange = useCallback((guard: (continueChange: () => void) => void) => {
 		beforeChangeRef.current = guard;
@@ -73,52 +91,40 @@ export const SidePanelProvider = ({
 			}
 		};
 	}, []);
-	const guardedOpen = useCallback(
-		(content: React.ReactNode, storySlug?: string) => {
-			if (isVisible && currentStorySlug && beforeChangeRef.current) {
-				beforeChangeRef.current(() => open(content, storySlug));
+	const actions = useMemo<SidePanelActions>(() => {
+		const runGuarded = (change: () => void) => {
+			const { isVisible: isOpen, currentStorySlug: openStorySlug } = latestRef.current;
+			if (isOpen && openStorySlug && beforeChangeRef.current) {
+				beforeChangeRef.current(change);
 				return;
 			}
-			open(content, storySlug);
-		},
-		[currentStorySlug, isVisible, open],
-	);
-	const guardedClose = useCallback(() => {
-		if (isVisible && currentStorySlug && beforeChangeRef.current) {
-			beforeChangeRef.current(close);
-			return;
-		}
-		close();
-	}, [close, currentStorySlug, isVisible]);
+			change();
+		};
+		return {
+			open: (content, storySlug) => runGuarded(() => latestRef.current.open(content, storySlug)),
+			close: () => runGuarded(() => latestRef.current.close()),
+			setCurrentStorySlug,
+			setCurrentStoryTabIndex,
+			registerBeforeChange,
+			getState: () => latestRef.current,
+		};
+	}, [setCurrentStorySlug, setCurrentStoryTabIndex, registerBeforeChange]);
 	const value = useMemo(
 		() => ({
+			...actions,
 			isVisible,
 			currentStorySlug,
-			setCurrentStorySlug,
 			currentStoryTabIndex,
-			setCurrentStoryTabIndex,
 			chatId,
 			shareSource,
 			isReadonlyMode,
 			isReplay,
-			open: guardedOpen,
-			close: guardedClose,
-			registerBeforeChange,
 		}),
-		[
-			isVisible,
-			currentStorySlug,
-			setCurrentStorySlug,
-			currentStoryTabIndex,
-			setCurrentStoryTabIndex,
-			chatId,
-			shareSource,
-			isReadonlyMode,
-			isReplay,
-			guardedOpen,
-			guardedClose,
-			registerBeforeChange,
-		],
+		[actions, isVisible, currentStorySlug, currentStoryTabIndex, chatId, shareSource, isReadonlyMode, isReplay],
 	);
-	return <SidePanelContext.Provider value={value}>{children}</SidePanelContext.Provider>;
+	return (
+		<SidePanelActionsContext.Provider value={actions}>
+			<SidePanelContext.Provider value={value}>{children}</SidePanelContext.Provider>
+		</SidePanelActionsContext.Provider>
+	);
 };

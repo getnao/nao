@@ -130,6 +130,9 @@ def render_metric_doc(metric: MetricInfo) -> str:
     if metric.semantic_models:
         lines.append(f"**Semantic models:** {', '.join(f'`{name}`' for name in metric.semantic_models)}  ")
 
+    if metric.meta:
+        lines += ["", "## Meta", "", *_meta_bullets(metric.meta)]
+
     lines += ["", "## Dimensions", ""]
     lines.append(
         "Group by or filter this metric with any of the dimensions below. `metric_time` accepts a granularity "
@@ -152,6 +155,30 @@ def render_metric_doc(metric: MetricInfo) -> str:
     lines.append(json.dumps(_filtered_query_example(metric)))
     lines.append("```")
     return "\n".join(lines) + "\n"
+
+
+def _meta_bullets(meta: dict[str, Any], depth: int = 0) -> list[str]:
+    indent = "  " * depth
+    lines = []
+    for key in sorted(meta):
+        value = meta[key]
+        if isinstance(value, dict) and value:
+            lines += [f"{indent}- `{key}`:", *_meta_bullets(value, depth + 1)]
+        elif _is_list_of_structures(value):
+            lines += [f"{indent}- `{key}`:", *(f"{indent}  - {_meta_value(item)}" for item in value)]
+        else:
+            lines.append(f"{indent}- `{key}`: {_meta_value(value)}")
+    return lines
+
+
+def _is_list_of_structures(value: Any) -> bool:
+    return isinstance(value, list) and any(isinstance(item, (dict, list)) for item in value)
+
+
+def _meta_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    return " ".join(str(value).split())
 
 
 def _filtered_query_example(metric: MetricInfo) -> dict[str, Any]:

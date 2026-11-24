@@ -7,7 +7,7 @@ import {
 	clearWarehouseContextFiles,
 	MAX_WAREHOUSE_CONTEXT_FILE_SIZE_BYTES,
 	saveWarehouseContextFile,
-} from '../services/warehouse-context-files';
+} from '../services/onboarding/warehouse-context-files';
 import { HandlerError } from '../utils/error';
 
 const uploadQuerySchema = z.object({

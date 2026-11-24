@@ -1,22 +1,29 @@
 import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ChevronDown, EllipsisVertical, Plus } from 'lucide-react';
+import { EllipsisVertical, Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
-import type { TeamMember } from '@/components/settings/team';
+import type { AddMembersRequest, TeamMember } from '@/components/settings/team';
+import type { ProjectUserFilters } from '@/lib/project-user-filters';
+import type { UserSectionsPagination } from '@/hooks/use-paginated-user-sections';
+import type { UserGroupToken } from '@/components/settings/user-group-token-field';
 import {
 	AddMemberDialog,
 	EditMemberDialog,
 	NewCredentialsDialog,
 	RemoveMemberDialog,
 } from '@/components/settings/team';
-import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
+import { ProjectUsersToolbar } from '@/components/settings/project-users-toolbar';
+import { TransferAutomationsDialog } from '@/components/settings/transfer-automations-dialog';
+import { TransferStoriesDialog } from '@/components/settings/transfer-stories-dialog';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
+import { UserGroupTokenField } from '@/components/settings/user-group-token-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
 	DropdownMenu,
@@ -28,9 +35,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import { usePaginatedUserSections } from '@/hooks/use-paginated-user-sections';
 import { useSession } from '@/lib/auth-client';
-import { trpc } from '@/main';
+import { ALL_GROUPS_FILTER, filterProjectUsers, hasActiveProjectUserFilters } from '@/lib/project-user-filters';
+import { countUsers } from '@/lib/user-sections-pagination';
+import { trpc, trpcClient } from '@/main';
+
+const BULK_MEMBERSHIP_BATCH_SIZE = 1_000;
+const LISTED_SKIPPED_USERS_LIMIT = 3;
 
 export type ProjectAccessSource = 'project' | 'organization' | 'both';
 
@@ -41,6 +55,7 @@ export interface ProjectUser {
 	role: UserRole;
 	status: MemberStatus;
 	source: ProjectAccessSource;
+	hasPassword: boolean;
 }
 
 export interface AssignableUserGroup {
@@ -51,6 +66,8 @@ export interface AssignableUserGroup {
 
 interface ProjectMemberActions {
 	onEdit: (user: ProjectUser) => void;
+	onTransferStories: (user: ProjectUser) => void;
+	onTransferAutomations?: (user: ProjectUser) => void;
 	onRemove: (user: ProjectUser) => void;
 	onResetPassword?: (user: ProjectUser) => void;
 }
@@ -61,9 +78,23 @@ interface GroupAccess {
 	ssoMembershipKeys: Set<string>;
 }
 
+interface BulkMembershipChange {
+	groupId: string;
+	userIds: string[];
+	isMember: boolean;
+}
+
+interface UserSelection {
+	selectedUserIds: Set<string>;
+	selectableCount: number;
+	onToggleUser: (userId: string, isSelected: boolean) => void;
+	onToggleAll: (isSelected: boolean) => void;
+}
+
 interface UserAccessManagement {
 	groupAccess: GroupAccess;
 	memberActions: ProjectMemberActions;
+	selection: UserSelection;
 	onOpenUser: (userId: string) => void;
 }
 
@@ -111,13 +142,16 @@ export function ReadOnlyProjectUsers() {
 
 function ReadOnlyProjectUsersTable({ projectUsers, organizationUsers }: ProjectUsersProps) {
 	const { data: session } = useSession();
+	const users = { projectUsers, organizationUsers };
+	const { page, pagination } = usePaginatedUserSections(users, countUsers(users));
 
 	return (
 		<SettingsCard title='Members' description='People who have access to this project.' flush>
 			<UserAccessTable
-				projectUsers={projectUsers}
-				organizationUsers={organizationUsers}
+				projectUsers={page.projectUsers}
+				organizationUsers={page.organizationUsers}
 				currentUserId={session?.user?.id}
+				pagination={pagination}
 			/>
 		</SettingsCard>
 	);
@@ -134,18 +168,39 @@ function ManagedProjectUsersTable({
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const isCloud = useIsCloud();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<ProjectUser | null>(null);
 	const [removeMember, setRemoveMember] = useState<ProjectUser | null>(null);
+	const [transferStoriesMember, setTransferStoriesMember] = useState<ProjectUser | null>(null);
+	const [transferAutomationsMember, setTransferAutomationsMember] = useState<ProjectUser | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<ProjectUser | null>(null);
 	const [resetPasswordError, setResetPasswordError] = useState('');
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+
+	const [filters, setFilters] = useState<ProjectUserFilters>({ search: '', groupFilter: ALL_GROUPS_FILTER });
+	const customGroups = useMemo(() => groups.filter((group) => !group.isDefault), [groups]);
+	const visibleUsers = useMemo(() => {
+		const customGroupIds = customGroups.map((group) => group.id);
+		return {
+			projectUsers: filterProjectUsers(projectUsers, filters, customGroupIds, membershipKeys),
+			organizationUsers: filterProjectUsers(organizationUsers, filters, customGroupIds, membershipKeys),
+		};
+	}, [projectUsers, organizationUsers, filters, customGroups, membershipKeys]);
+	const selectableUsers = [...visibleUsers.projectUsers, ...visibleUsers.organizationUsers];
+	const selection = useVisibleUserSelection(selectableUsers);
+	const paginatedUsers = usePaginatedUserSections(visibleUsers, projectUsers.length + organizationUsers.length);
+	const [bulkNotice, setBulkNotice] = useState('');
 
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
 	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
 	const removeUser = useMutation(trpc.project.removeProjectMember.mutationOptions());
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
+	const setMemberships = useMutation({
+		mutationKey: trpc.userGroup.setMemberships.mutationKey(),
+		mutationFn: setMembershipsInBatches,
+	});
 
 	const invalidateMembers = () => {
 		return Promise.all([
@@ -154,24 +209,10 @@ function ManagedProjectUsersTable({
 		]);
 	};
 
-	const handleAdd = async (data: { email: string; name?: string; groupIds?: string[] }) => {
-		try {
-			const result = await addUser.mutateAsync({
-				email: data.email,
-				name: data.name,
-				groupIds: data.groupIds ?? [],
-			});
-			await invalidateMembers();
-			if (result.password) {
-				setCredentials({ email: data.email, password: result.password });
-			}
-			return {};
-		} catch (err: any) {
-			if (err.message === 'USER_DOES_NOT_EXIST') {
-				return { needsName: true };
-			}
-			throw err;
-		}
+	const handleAdd = async ({ members, groupIds }: AddMembersRequest) => {
+		const outcomes = await addUser.mutateAsync({ members, groupIds: groupIds ?? [] });
+		await invalidateMembers();
+		return outcomes;
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
@@ -206,13 +247,35 @@ function ManagedProjectUsersTable({
 		setResetPasswordError('');
 	};
 
+	const handleBulkMembershipChange = (groupId: string, isMember: boolean) => {
+		const selectedUsers = selectableUsers.filter((user) => selection.selectedUserIds.has(user.id));
+		const isManagedBySso = (user: ProjectUser) => ssoMembershipKeys.has(`${groupId}:${user.id}`);
+		const ssoManagedUsers = selectedUsers.filter(isManagedBySso);
+		const userIds = selectedUsers.filter((user) => !isManagedBySso(user)).map((user) => user.id);
+		const groupName = groups.find((group) => group.id === groupId)?.name ?? 'this group';
+		setBulkNotice(describeSsoManagedUsers(ssoManagedUsers, groupName));
+		if (userIds.length === 0) {
+			return;
+		}
+		setMemberships.mutate(
+			{ groupId, userIds, isMember },
+			{
+				onSuccess: () => selection.clear(),
+				onSettled: () => invalidateUserGroupQueries(queryClient),
+			},
+		);
+	};
+
 	const management: UserAccessManagement = {
 		groupAccess: { groups, membershipKeys, ssoMembershipKeys },
 		memberActions: {
 			onEdit: setEditMember,
+			onTransferStories: setTransferStoriesMember,
+			onTransferAutomations: config.data?.betaAutomationsEnabled ? setTransferAutomationsMember : undefined,
 			onRemove: setRemoveMember,
 			onResetPassword: isCloud ? undefined : setResetPasswordMember,
 		},
+		selection,
 		onOpenUser,
 	};
 
@@ -222,6 +285,7 @@ function ManagedProjectUsersTable({
 				title='Members'
 				description='Add members to the project and assign them to groups.'
 				flush
+				className='gap-0'
 				action={
 					<Button onClick={() => setIsAddOpen(true)}>
 						<Plus />
@@ -229,18 +293,38 @@ function ManagedProjectUsersTable({
 					</Button>
 				}
 			>
+				<ProjectUsersToolbar
+					filters={filters}
+					onFiltersChange={(nextFilters) => {
+						setFilters(nextFilters);
+						paginatedUsers.goToFirstPage();
+					}}
+					customGroups={customGroups}
+					selectedCount={selection.selectedUserIds.size}
+					isBulkPending={setMemberships.isPending}
+					bulkError={setMemberships.error?.message}
+					bulkNotice={bulkNotice}
+					onBulkMembershipChange={handleBulkMembershipChange}
+					onClearSelection={() => {
+						selection.clear();
+						setMemberships.reset();
+						setBulkNotice('');
+					}}
+				/>
 				<UserAccessTable
-					projectUsers={projectUsers}
-					organizationUsers={organizationUsers}
+					projectUsers={paginatedUsers.page.projectUsers}
+					organizationUsers={paginatedUsers.page.organizationUsers}
 					currentUserId={session?.user?.id}
 					management={management}
+					pagination={paginatedUsers.pagination}
+					emptyMessage={hasActiveProjectUserFilters(filters) ? 'No users match your filters.' : undefined}
 				/>
 			</SettingsCard>
 
 			<AddMemberDialog
 				open={isAddOpen}
 				onOpenChange={setIsAddOpen}
-				title='Add User to Project'
+				title='Add Users to Project'
 				onSubmit={handleAdd}
 				groupOptions={groups}
 			/>
@@ -261,6 +345,22 @@ function ManagedProjectUsersTable({
 				memberName={removeMember?.name ?? ''}
 				description='Are you sure you want to remove this user from the project?'
 				onConfirm={handleRemove}
+			/>
+
+			<TransferStoriesDialog
+				member={transferStoriesMember}
+				recipients={[...projectUsers, ...organizationUsers].filter(
+					(user) => user.id !== transferStoriesMember?.id && user.role !== 'viewer',
+				)}
+				onOpenChange={(open) => !open && setTransferStoriesMember(null)}
+			/>
+
+			<TransferAutomationsDialog
+				member={transferAutomationsMember}
+				recipients={[...projectUsers, ...organizationUsers].filter(
+					(user) => user.id !== transferAutomationsMember?.id && user.role !== 'viewer',
+				)}
+				onOpenChange={(open) => !open && setTransferAutomationsMember(null)}
 			/>
 
 			<ConfirmationDialog
@@ -288,26 +388,109 @@ function toTeamMember(user: ProjectUser): TeamMember {
 	return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status };
 }
 
+/** The endpoint caps each request, while a selection can include every user of the project. */
+async function setMembershipsInBatches({ groupId, userIds, isMember }: BulkMembershipChange): Promise<void> {
+	for (let start = 0; start < userIds.length; start += BULK_MEMBERSHIP_BATCH_SIZE) {
+		await trpcClient.userGroup.setMemberships.mutate({
+			groupId,
+			userIds: userIds.slice(start, start + BULK_MEMBERSHIP_BATCH_SIZE),
+			isMember,
+		});
+	}
+}
+
+/** SSO sync owns these memberships, so a manual change would be duplicated or undone. */
+function describeSsoManagedUsers(users: ProjectUser[], groupName: string): string {
+	if (users.length === 0) {
+		return '';
+	}
+	const names = users.slice(0, LISTED_SKIPPED_USERS_LIMIT).map((user) => user.name);
+	const hiddenCount = users.length - names.length;
+	const userList = hiddenCount > 0 ? `${names.join(', ')} and ${hiddenCount} more` : names.join(', ');
+	return `Skipped ${userList}: SSO manages their membership in ${groupName}.`;
+}
+
+/** Only visible users stay selected, so bulk actions never touch users hidden by the current filters. */
+function useVisibleUserSelection(visibleUsers: ProjectUser[]) {
+	const [checkedUserIds, setCheckedUserIds] = useState<Set<string>>(() => new Set());
+	const visibleUserIds = visibleUsers.map((user) => user.id);
+	const selectedUserIds = new Set(visibleUserIds.filter((userId) => checkedUserIds.has(userId)));
+
+	const onToggleUser = (userId: string, isSelected: boolean) => {
+		setCheckedUserIds((current) => {
+			const next = new Set(current);
+			if (isSelected) {
+				next.add(userId);
+			} else {
+				next.delete(userId);
+			}
+			return next;
+		});
+	};
+
+	const onToggleAll = (isSelected: boolean) => {
+		setCheckedUserIds(isSelected ? new Set(visibleUserIds) : new Set());
+	};
+
+	const clear = () => {
+		setCheckedUserIds(new Set());
+	};
+
+	return { selectedUserIds, selectableCount: visibleUserIds.length, onToggleUser, onToggleAll, clear };
+}
+
 function UserAccessTable({
 	projectUsers,
 	organizationUsers,
 	currentUserId,
 	management,
+	pagination,
+	emptyMessage = 'No users have access to this project.',
 }: ProjectUsersProps & {
 	currentUserId?: string;
 	management?: UserAccessManagement;
+	pagination?: UserSectionsPagination;
+	emptyMessage?: string;
+}) {
+	return (
+		<div className='flex flex-col'>
+			<UserAccessTableContent
+				projectUsers={projectUsers}
+				organizationUsers={organizationUsers}
+				currentUserId={currentUserId}
+				management={management}
+				emptyMessage={emptyMessage}
+			/>
+			{pagination?.isVisible && <TablePagination {...pagination} />}
+		</div>
+	);
+}
+
+function UserAccessTableContent({
+	projectUsers,
+	organizationUsers,
+	currentUserId,
+	management,
+	emptyMessage,
+}: ProjectUsersProps & {
+	currentUserId?: string;
+	management?: UserAccessManagement;
+	emptyMessage: string;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
-	const columnCount = management ? 4 : 2;
+	const columnCount = management ? 5 : 2;
 
 	return (
 		<div className='overflow-x-auto'>
 			<Table className='min-w-3xl table-fixed'>
 				<TableHeader>
-					<TableRow className='[&_th]:h-12'>
+					<TableRow className='hover:bg-transparent [&_th]:h-10 [&_th]:text-xs [&_th]:text-muted-foreground'>
 						{management ? (
 							<>
-								<TableHead className='w-[36%]'>User</TableHead>
+								<TableHead className='w-10 [&>[role=checkbox]]:translate-y-0'>
+									<SelectAllUsersCheckbox selection={management.selection} />
+								</TableHead>
+								<TableHead className='w-[32%]'>User</TableHead>
 								<TableHead className='w-1/5'>Role</TableHead>
 								<TableHead className='w-[38%]'>Groups</TableHead>
 								<TableHead className='w-[6%]' />
@@ -324,7 +507,7 @@ function UserAccessTable({
 					{!hasUsers && (
 						<TableRow>
 							<TableCell colSpan={columnCount} className='h-24 text-center'>
-								No users have access to this project.
+								{emptyMessage}
 							</TableCell>
 						</TableRow>
 					)}
@@ -345,6 +528,7 @@ function UserAccessTable({
 							columnCount={columnCount}
 							currentUserId={currentUserId}
 							management={management}
+							showMemberActions
 						/>
 					)}
 				</TableBody>
@@ -410,10 +594,22 @@ function ManagedUserAccessRow({
 	management: UserAccessManagement;
 	showMemberActions: boolean;
 }) {
-	const { groupAccess, memberActions, onOpenUser } = management;
+	const { groupAccess, memberActions, selection, onOpenUser } = management;
+	const isSelected = selection.selectedUserIds.has(user.id);
 
 	return (
-		<TableRow className='cursor-pointer hover:bg-primary/10' onClick={() => onOpenUser(user.id)}>
+		<TableRow
+			className='cursor-pointer'
+			data-state={isSelected ? 'selected' : undefined}
+			onClick={() => onOpenUser(user.id)}
+		>
+			<TableCell className='[&>[role=checkbox]]:translate-y-0' onClick={(event) => event.stopPropagation()}>
+				<Checkbox
+					checked={isSelected}
+					onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
+					aria-label={`Select ${user.name}`}
+				/>
+			</TableCell>
 			<TableCell className='min-w-0 overflow-hidden'>
 				<UserIdentity
 					user={user}
@@ -445,6 +641,23 @@ function ManagedUserAccessRow({
 	);
 }
 
+function SelectAllUsersCheckbox({ selection }: { selection: UserSelection }) {
+	const { selectableCount } = selection;
+	const selectedCount = selection.selectedUserIds.size;
+	const checked =
+		selectableCount > 0 && selectedCount === selectableCount ? true : selectedCount > 0 ? 'indeterminate' : false;
+
+	return (
+		<Checkbox
+			checked={checked}
+			disabled={selectableCount === 0}
+			onCheckedChange={() => selection.onToggleAll(checked !== true)}
+			aria-label='Select all users'
+			className='data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none'
+		/>
+	);
+}
+
 function UserIdentity({ user, isCurrentUser, name }: { user: ProjectUser; isCurrentUser: boolean; name?: ReactNode }) {
 	return (
 		<div className='flex min-w-0 flex-col'>
@@ -464,8 +677,10 @@ function UserIdentity({ user, isCurrentUser, name }: { user: ProjectUser; isCurr
 	);
 }
 
+/** Organisation members are managed from the organisation, so here they only get their content handed over. */
 function MemberRowActions({ user, actions }: { user: ProjectUser; actions: ProjectMemberActions }) {
-	const { onEdit, onRemove, onResetPassword } = actions;
+	const { onEdit, onTransferStories, onTransferAutomations, onRemove, onResetPassword } = actions;
+	const isProjectMember = user.source !== 'organization';
 
 	return (
 		<DropdownMenu>
@@ -481,13 +696,21 @@ function MemberRowActions({ user, actions }: { user: ProjectUser; actions: Proje
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' onClick={(event) => event.stopPropagation()}>
 				<DropdownMenuGroup>
-					<DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>
-					{onResetPassword && (
+					{isProjectMember && <DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>}
+					{isProjectMember && user.hasPassword && onResetPassword && (
 						<DropdownMenuItem onSelect={() => onResetPassword(user)}>Reset password</DropdownMenuItem>
 					)}
-					<DropdownMenuItem className='text-destructive' onSelect={() => onRemove(user)}>
-						Remove
-					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={() => onTransferStories(user)}>Transfer stories</DropdownMenuItem>
+					{onTransferAutomations && (
+						<DropdownMenuItem onSelect={() => onTransferAutomations(user)}>
+							Transfer automations
+						</DropdownMenuItem>
+					)}
+					{isProjectMember && (
+						<DropdownMenuItem className='text-destructive' onSelect={() => onRemove(user)}>
+							Remove
+						</DropdownMenuItem>
+					)}
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -502,30 +725,22 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 			onSuccess: () => invalidateUserGroupQueries(queryClient),
 		}),
 	);
-	const selectedGroupNames = useMemo(
-		() =>
-			groups
-				.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
-				.map((group) => group.name),
-		[groups, membershipKeys, user.id],
-	);
-	const selectedGroupLabel = selectedGroupNames.length > 0 ? selectedGroupNames.join(', ') : 'No groups';
+	const setGroupMembership = (groupId: string, isMember: boolean) => {
+		setMembership.mutate({ groupId, userId: user.id, isMember });
+	};
+	const tokens = groups
+		.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
+		.map((group) => toGroupToken(group, ssoMembershipKeys.has(`${group.id}:${user.id}`), setGroupMembership));
+	const selectedGroupLabel = tokens.length > 0 ? tokens.map((token) => token.name).join(', ') : 'No groups';
+	const hasGroupsToAdd = tokens.length < groups.length;
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					variant='outline'
-					size='sm'
-					className='h-8 w-full min-w-0 justify-between overflow-hidden bg-background font-normal'
-					aria-label={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
-					title={selectedGroupLabel}
-					onClick={(event) => event.stopPropagation()}
-				>
-					<ResponsiveGroupChips names={selectedGroupNames} />
-					<ChevronDown className='shrink-0' />
-				</Button>
-			</DropdownMenuTrigger>
+		<UserGroupTokenField
+			tokens={tokens}
+			triggerLabel={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
+			placeholder={hasGroupsToAdd ? 'Add groups' : ''}
+			isRemoveDisabled={setMembership.isPending}
+		>
 			<DropdownMenuContent
 				align='start'
 				className='max-h-64 min-w-56'
@@ -541,13 +756,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 							disabled={group.isDefault || isManagedBySso || setMembership.isPending}
 							aria-label={isManagedBySso ? `${group.name}, managed by SSO` : group.name}
 							onSelect={(event) => event.preventDefault()}
-							onCheckedChange={(checked) =>
-								setMembership.mutate({
-									groupId: group.id,
-									userId: user.id,
-									isMember: checked === true,
-								})
-							}
+							onCheckedChange={(checked) => setGroupMembership(group.id, checked === true)}
 						>
 							<span className='min-w-0 flex-1 truncate'>{group.name}</span>
 							{isManagedBySso && (
@@ -559,6 +768,20 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 					);
 				})}
 			</DropdownMenuContent>
-		</DropdownMenu>
+		</UserGroupTokenField>
 	);
+}
+
+function toGroupToken(
+	group: AssignableUserGroup,
+	isManagedBySso: boolean,
+	setGroupMembership: (groupId: string, isMember: boolean) => void,
+): UserGroupToken {
+	if (group.isDefault) {
+		return { key: group.id, name: group.name, title: 'Added automatically' };
+	}
+	if (isManagedBySso) {
+		return { key: group.id, name: group.name, title: 'Managed by SSO' };
+	}
+	return { key: group.id, name: group.name, onRemove: () => setGroupMembership(group.id, false) };
 }

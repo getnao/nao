@@ -1,0 +1,162 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+const projectPaths: Record<string, string> = {};
+
+vi.mock('../../src/queries/project.queries', () => ({
+	retrieveProjectById: vi.fn(async (projectId: string) => ({ id: projectId, path: projectPaths[projectId] })),
+}));
+
+vi.mock('fs', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('fs')>();
+	return { ...actual, watch: vi.fn(() => ({ close: vi.fn() })) };
+});
+
+vi.mock('../../src/utils/logger', () => ({
+	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+import loadSkillTool from '../../src/agents/tools/load-skill';
+import { skillService } from '../../src/services/skill';
+import type {
+	ResolvedFilesContextAccess,
+	ResolvedSkillsAccess,
+} from '../../src/services/user-group-context-access.service';
+import type { PersonalSkill } from '../../src/types/user-skill';
+import { createToolContext, executeTool } from '../helpers/tool-context';
+
+const PROJECT_ID = 'load-skill-project';
+const MY_ORDERS: PersonalSkill = {
+	name: 'my-orders',
+	description: 'My weekly orders.',
+	body: 'Completed orders only.',
+};
+
+describe('load_skill tool with project skills', () => {
+	let projectRoot: string;
+
+	beforeAll(async () => {
+		projectRoot = mkdtempSync(join(tmpdir(), 'nao-load-skill-'));
+		const skillsFolder = join(projectRoot, 'agent', 'skills');
+		mkdirSync(skillsFolder, { recursive: true });
+		writeFileSync(
+			join(skillsFolder, 'revenue.md'),
+			'---\nname: revenue\ndescription: How to compute revenue.\n---\n\nAlways use net revenue.\n',
+		);
+		writeFileSync(
+			join(skillsFolder, 'churn.md'),
+			'---\nname: churn\ndescription: How to compute churn.\n---\n\nCount a customer once.\n',
+		);
+		writeFileSync(
+			join(skillsFolder, 'excel-handling.md'),
+			'---\nname: excel-handling\ndescription: Our own spreadsheet rules.\n---\n\nUse the Finance tab only.\n',
+		);
+		projectPaths[PROJECT_ID] = projectRoot;
+		await skillService.initializeSkills(PROJECT_ID);
+	});
+
+	afterAll(() => {
+		rmSync(projectRoot, { recursive: true, force: true });
+	});
+
+	it('loads a project skill body without its frontmatter', async () => {
+		const output = await runLoadSkill('revenue', { skillsAccess: { mode: 'all' } });
+
+		expect(output).toEqual({ _version: '1', name: 'revenue', body: 'Always use net revenue.' });
+	});
+
+	it('still serves a built-in skill no project skill shadows', async () => {
+		const output = await runLoadSkill('pdf-handling', { skillsAccess: { mode: 'all' } });
+
+		expect(output.name).toBe('pdf-handling');
+		expect(output.body).toContain('--- Page N ---');
+	});
+
+	it('serves a project skill over the built-in skill of the same name', async () => {
+		const output = await runLoadSkill('excel-handling', { skillsAccess: { mode: 'all' } });
+
+		expect(output.body).toBe('Use the Finance tab only.');
+	});
+
+	it('falls back to the built-in skill when the shadowing project skill is not granted', async () => {
+		const output = await runLoadSkill('excel-handling', { skillsAccess: restrictedSkills(['revenue']) });
+
+		expect(output.body).not.toBe('Use the Finance tab only.');
+		expect(output.body).toContain('read_xlsx');
+	});
+
+	it('loads a skill granted to the user group', async () => {
+		const skillsAccess = restrictedSkills(['revenue']);
+
+		await expect(runLoadSkill('revenue', { skillsAccess })).resolves.toMatchObject({ name: 'revenue' });
+	});
+
+	it('reports a skill outside the user group grants as missing, without listing it', async () => {
+		const skillsAccess = restrictedSkills(['revenue']);
+
+		const error = await runLoadSkill('churn', { skillsAccess }).catch((caught: Error) => caught);
+
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toMatch(/no skill called 'churn'/);
+		expect((error as Error).message).toContain('revenue');
+		expect((error as Error).message).not.toMatch(/Available:.*churn/);
+	});
+
+	it('refuses a granted skill whose file the user group may not read', async () => {
+		const filesContextAccess: ResolvedFilesContextAccess = {
+			enforced: true,
+			access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'docs' }] },
+		};
+
+		await expect(runLoadSkill('revenue', { skillsAccess: { mode: 'all' }, filesContextAccess })).rejects.toThrow(
+			/no skill called 'revenue'/,
+		);
+	});
+
+	it('loads a personal skill of the user', async () => {
+		const output = await runLoadSkill('my-orders', { skillsAccess: { mode: 'all' }, personalSkills: [MY_ORDERS] });
+
+		expect(output).toEqual({ _version: '1', name: 'my-orders', body: 'Completed orders only.' });
+	});
+
+	it('serves the project skill over a personal skill of the same name', async () => {
+		const personalSkills = [{ ...MY_ORDERS, name: 'revenue' }];
+
+		const output = await runLoadSkill('revenue', { skillsAccess: { mode: 'all' }, personalSkills });
+
+		expect(output.body).toBe('Always use net revenue.');
+	});
+
+	it('lists personal skills among the available ones when a skill is missing', async () => {
+		const error = await runLoadSkill('unknown', {
+			skillsAccess: { mode: 'all' },
+			personalSkills: [MY_ORDERS],
+		}).catch((caught: Error) => caught);
+
+		expect((error as Error).message).toMatch(/Available:.*my-orders/);
+	});
+
+	const runLoadSkill = async (
+		name: string,
+		access: {
+			skillsAccess: ResolvedSkillsAccess;
+			filesContextAccess?: ResolvedFilesContextAccess;
+			personalSkills?: PersonalSkill[];
+		},
+	) => {
+		const context = createToolContext({
+			projectId: PROJECT_ID,
+			projectFolder: projectRoot,
+			filesContextAccess: access.filesContextAccess ?? { enforced: false },
+			skillsAccess: access.skillsAccess,
+			personalSkills: access.personalSkills,
+		});
+		return (await executeTool(loadSkillTool, { name }, context)) as { name: string; body: string };
+	};
+});
+
+function restrictedSkills(skills: string[]): ResolvedSkillsAccess {
+	return { mode: 'restricted', skills, grantedFiles: skills.map((skill) => `agent/skills/${skill}.md`) };
+}

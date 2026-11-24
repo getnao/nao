@@ -10,7 +10,7 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_select, ask_text
 
 if TYPE_CHECKING:
-    from azure.identity import AzureCliCredential, InteractiveBrowserCredential
+    from azure.core.credentials import TokenCredential
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
@@ -225,9 +225,7 @@ class FabricConfig(DatabaseConfig):
         conn = pyodbc.connect(self.build_odbc_string())
         return MSSQLBackend.from_connection(conn)
 
-    def _connect_via_aad_token_injection(
-        self, credential: AzureCliCredential | InteractiveBrowserCredential, message: str
-    ) -> BaseBackend:
+    def _connect_via_aad_token_injection(self, credential: TokenCredential, message: str) -> BaseBackend:
         """Connect using an Azure AD token injected via SQL_COPT_SS_ACCESS_TOKEN."""
         UI.info(f"[yellow]{message}[/yellow]")
 

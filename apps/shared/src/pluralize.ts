@@ -21,6 +21,10 @@ export const pluralize = (word: string, count: number) => {
 	return word + matchCase('s', word.slice(-1));
 };
 
+export const formatCount = (count: number, word: string) => {
+	return `${count.toLocaleString()} ${pluralize(word, count)}`;
+};
+
 const vowels = new Set(['a', 'e', 'i', 'o', 'u']);
 
 function matchCase(suffix: string, reference: string): string {

@@ -1,19 +1,22 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Lock, Plus } from 'lucide-react';
-import { useMemo } from 'react';
+import { Lock, Plus, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { ImpersonateGroupsButton } from '@/components/group-impersonation';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { ProjectColumnSecurity } from '@/components/settings/project-column-security';
 import { ProjectRowSecurity } from '@/components/settings/project-row-security';
 import { ProjectUsersTable } from '@/components/settings/project-users-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
@@ -35,7 +38,7 @@ export type UserGroupsPageTab = 'groups' | 'security' | 'users';
 const USER_GROUPS_PAGE_TABS: Array<{ id: UserGroupsPageTab; label: string }> = [
 	{ id: 'users', label: 'Users' },
 	{ id: 'groups', label: 'Manage Groups' },
-	{ id: 'security', label: 'Security' },
+	{ id: 'security', label: 'Data protection' },
 ];
 
 interface UserGroupsTableProps {
@@ -167,11 +170,14 @@ function UserGroupsContent({
 					/>
 				)}
 				{tab === 'security' && (
-					<ProjectRowSecurity
-						objects={contextObjects}
-						catalogState={databaseCatalogState}
-						onRetryCatalog={() => void contextCatalog.refetch()}
-					/>
+					<div className='flex flex-col gap-8'>
+						<ProjectRowSecurity
+							objects={contextObjects}
+							catalogState={databaseCatalogState}
+							onRetryCatalog={() => void contextCatalog.refetch()}
+						/>
+						<ProjectColumnSecurity objects={contextObjects} catalogState={databaseCatalogState} />
+					</div>
 				)}
 			</TabPanel>
 		</>
@@ -208,30 +214,51 @@ function GroupsTable({
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
+	const [search, setSearch] = useState('');
 	const customGroupCount = groups.filter((group) => !group.isDefault).length;
 	const canCreateGroup = entitlement === 'unlimited' || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
-	const sortedGroups = [...groups].sort(compareUserGroupsForDisplay);
+	const normalizedSearch = search.trim().toLowerCase();
+	const impersonableGroups = groups.filter((group) => !group.isDefault && !group.isLocked);
+	const sortedGroups = groups
+		.filter((group) => group.name.toLowerCase().includes(normalizedSearch))
+		.sort(compareUserGroupsForDisplay);
 
 	return (
 		<SettingsCard
 			title='Group access'
 			description='Configure the features, database tables, docs, and project files each group can access.'
 			action={
-				entitlement === 'loading' ? (
-					<Button disabled>Loading group access...</Button>
-				) : entitlement === 'error' ? (
-					<Button disabled>Create group unavailable</Button>
-				) : canCreateGroup ? (
-					<Button onClick={onCreateGroup}>
-						<Plus />
-						Create group
-					</Button>
-				) : (
-					<CreateGroupUpgradeNudge />
-				)
+				<div className='flex items-center gap-2'>
+					<ImpersonateGroupsButton groups={impersonableGroups} />
+					{entitlement === 'loading' ? (
+						<Button disabled>Loading group access...</Button>
+					) : entitlement === 'error' ? (
+						<Button disabled>Create group unavailable</Button>
+					) : canCreateGroup ? (
+						<Button onClick={onCreateGroup}>
+							<Plus />
+							Create group
+						</Button>
+					) : (
+						<CreateGroupUpgradeNudge />
+					)}
+				</div>
 			}
 			flush
 		>
+			<div className='border-b p-4'>
+				<div className='relative'>
+					<Search className='pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground' />
+					<Input
+						type='search'
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						placeholder='Search groups…'
+						aria-label='Search groups'
+						className='h-8 pl-8 text-sm'
+					/>
+				</div>
+			</div>
 			<Table>
 				<TableHeader>
 					<TableRow className='[&_th]:h-12'>
@@ -241,6 +268,13 @@ function GroupsTable({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
+					{sortedGroups.length === 0 && (
+						<TableRow>
+							<TableCell colSpan={3} className='h-24 text-center text-muted-foreground'>
+								No groups match your search.
+							</TableCell>
+						</TableRow>
+					)}
 					{sortedGroups.map((group) => (
 						<TableRow
 							key={group.id}

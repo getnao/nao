@@ -26,10 +26,19 @@ export const InputSchema = z.object({
 	limit: z.number().int().positive().optional().describe('Maximum number of rows to return.'),
 	start_time: z.string().optional().describe('Inclusive ISO date lower bound on metric_time, e.g. "2024-01-01".'),
 	end_time: z.string().optional().describe('Inclusive ISO date upper bound on metric_time, e.g. "2024-12-31".'),
+	params: z
+		.record(z.string(), z.string())
+		.optional()
+		.describe(
+			'Story parameters only: default values for {{ params.<id> }} placeholders used in metrics, group_by, order_by or where, e.g. metrics ["{{ params.metric }}"] with params {"metric": "revenue"}. The query runs with these defaults; a story <parameter> lets readers switch them.',
+		),
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
 });
 
-/** Same shape as an execute_sql result, so charts, stories and read_query_result treat it as one. */
+/** The metric query itself, without its display name: what the semantic layer compiles. */
+export const SemanticQuerySchema = InputSchema.omit({ name: true });
+
+/** Same shape as an execute_sql result, so charts, stories and page_query_result treat it as one. */
 export const OutputSchema = ExecuteSqlOutputSchema.extend({
 	/** The SQL the semantic layer compiled and ran. Shown in the UI, never sent back to the model. */
 	compiled_sql: z.string(),
@@ -39,3 +48,26 @@ export const OutputSchema = ExecuteSqlOutputSchema.extend({
 
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+export type SemanticQuery = z.infer<typeof SemanticQuerySchema>;
+
+/** The metrics and dimensions a semantic query can reference, as the semantic layer describes them. */
+export type Catalog = {
+	metrics: CatalogMetric[];
+	dimensions: CatalogDimension[];
+};
+
+export type CatalogMetric = {
+	name: string;
+	label: string | null;
+	description: string | null;
+	/** Granularity-free names of the dimensions this metric can be grouped or filtered by. */
+	dimensions: string[];
+};
+
+export type CatalogDimension = {
+	name: string;
+	type: string;
+	/** Finest time granularity of a time dimension. */
+	granularity: string | null;
+	description: string | null;
+};

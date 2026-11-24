@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { GitBranch, Github } from 'lucide-react';
+import { GitBranch } from 'lucide-react';
 
 import type { RepoProvider } from '@nao/shared/types';
 
+import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { Button } from '@/components/ui/button';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -22,7 +23,7 @@ export function RecommendationRepoCard() {
 
 	if (repo.isLoading) {
 		return (
-			<SettingsCard title='Repository' icon={<Github className='size-4' />}>
+			<SettingsCard title='Repository' icon={<GithubIcon className='size-4' />}>
 				<Skeleton className='h-4 w-48' />
 			</SettingsCard>
 		);
@@ -32,7 +33,7 @@ export function RecommendationRepoCard() {
 		return (
 			<SettingsCard
 				title='Repository'
-				icon={<Github className='size-4' />}
+				icon={<GithubIcon className='size-4' />}
 				description='Connect a context repository on the Git settings page so recommendations can include proposed changes.'
 				action={<GitSettingsLink label='Open Git settings' />}
 			>
@@ -42,7 +43,7 @@ export function RecommendationRepoCard() {
 	}
 
 	const { repoFullName, branch, provider, webUrl } = repo.data;
-	const ProviderIcon = provider === 'gitlab' ? GitlabIcon : Github;
+	const ProviderIcon = provider === 'gitlab' ? GitlabIcon : GithubIcon;
 
 	return (
 		<SettingsCard

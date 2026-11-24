@@ -9,6 +9,7 @@ import { debugCompaction } from '../../utils/debug';
 import { stripImageParts, stripReasoningParts } from '../../utils/model-message';
 import { type ProviderModelResult } from '../providers';
 import { llmTelemetry } from '../telemetry';
+import { disableToolResultClearing } from '../tool-result-clearing';
 
 export const MAX_OUTPUT_TOKENS = 16_000;
 
@@ -29,6 +30,7 @@ export class CompactionLLM implements ICompactionLLM {
 
 		const { text, usage } = await generateText({
 			...this._model,
+			providerOptions: disableToolResultClearing(this._model.providerOptions),
 			system: COMPACTION_SYSTEM_PROMPT,
 			messages: modelMessages,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,

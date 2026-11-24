@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { Github } from 'lucide-react';
 import { useState } from 'react';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
@@ -12,6 +12,8 @@ import { EditableOrganizationName } from '@/components/settings/editable-organiz
 import { OrganizationHeading } from '@/components/settings/organization-heading';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
+import { OrgTwoFactorSettings } from '@/components/settings/org-two-factor-settings';
+import { OrgSsoSettings } from '@/components/settings/org-sso-settings';
 import { SsoSettingsSection } from '@/components/settings/sso-settings-section';
 import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
 import { Badge } from '@/components/ui/badge';
@@ -59,13 +61,13 @@ function OrganizationSettingsPage() {
 				{showGithubImport &&
 					(isGithubConnected ? (
 						<Button variant='secondary' size='sm' onClick={() => setRepoPickerOpen(true)}>
-							<Github className='size-3.5' />
+							<GithubIcon className='size-3.5' />
 							Import from GitHub
 						</Button>
 					) : (
 						<Button variant='secondary' size='sm' asChild>
 							<a href='/api/github/connect'>
-								<Github className='size-3.5' />
+								<GithubIcon className='size-3.5' />
 								Import from GitHub
 							</a>
 						</Button>
@@ -135,6 +137,7 @@ function OrganizationSettingsPage() {
 						)}
 					</SettingsCard>
 					{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
+					{isCloud && isOrgAdmin && <OrgSsoSettings />}
 					{!isCloud && <SsoSettingsSection />}
 					{!isCloud && isOrgAdmin && <SsoTokenInspector />}
 					{!isCloud && (
@@ -142,6 +145,7 @@ function OrganizationSettingsPage() {
 							<GoogleConfigSection isAdmin={isOrgAdmin} />
 						</SettingsCard>
 					)}
+					<OrgTwoFactorSettings isAdmin={isOrgAdmin} />
 					<OrgApiKeys isAdmin={isOrgAdmin} />
 				</div>
 			</div>

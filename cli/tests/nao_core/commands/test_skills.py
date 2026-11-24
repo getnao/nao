@@ -5,6 +5,14 @@ import pytest
 from nao_core.commands.skills import _run_npx_skills, skills
 
 
+@pytest.fixture
+def npx_run():
+    with patch("nao_core.commands.skills.shutil.which", return_value="/usr/local/bin/npx"):
+        with patch("nao_core.commands.skills.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            yield mock_run
+
+
 class TestSkillsCommand:
     """Tests for the `nao skills` wrapper around `npx skills`."""
 
@@ -18,39 +26,25 @@ class TestSkillsCommand:
         mock_ui.error.assert_called_once()
         assert "npx" in mock_ui.error.call_args[0][0]
 
-    def test_forwards_no_args_to_npx_skills(self):
-        with patch("nao_core.commands.skills.shutil.which", return_value="/usr/local/bin/npx"):
-            with patch("nao_core.commands.skills.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                skills()
+    def test_forwards_no_args_to_npx_skills(self, npx_run):
+        skills()
 
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args.args[0]
+        npx_run.assert_called_once()
+        cmd = npx_run.call_args.args[0]
         assert cmd == ["npx", "--yes", "skills"]
 
-    def test_forwards_positional_and_flag_args(self):
-        with patch("nao_core.commands.skills.shutil.which", return_value="/usr/local/bin/npx"):
-            with patch("nao_core.commands.skills.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                skills(["add", "getnao/nao", "-a", "claude-code", "-y"])
+    def test_forwards_positional_and_flag_args(self, npx_run):
+        skills(["add", "getnao/nao", "-a", "claude-code", "-y"])
 
-        cmd = mock_run.call_args.args[0]
+        cmd = npx_run.call_args.args[0]
         assert cmd == ["npx", "--yes", "skills", "add", "getnao/nao", "-a", "claude-code", "-y"]
 
-    def test_propagates_non_zero_exit_code(self):
-        with patch("nao_core.commands.skills.shutil.which", return_value="/usr/local/bin/npx"):
-            with patch("nao_core.commands.skills.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=2)
-                with pytest.raises(SystemExit) as exc_info:
-                    skills(["list"])
+    def test_propagates_non_zero_exit_code(self, npx_run):
+        npx_run.return_value = MagicMock(returncode=2)
+        with pytest.raises(SystemExit) as exc_info:
+            skills(["list"])
 
         assert exc_info.value.code == 2
-
-    def test_returns_cleanly_on_zero_exit_code(self):
-        with patch("nao_core.commands.skills.shutil.which", return_value="/usr/local/bin/npx"):
-            with patch("nao_core.commands.skills.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                skills(["list"])
 
 
 class TestRunNpxSkills:

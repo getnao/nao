@@ -3,26 +3,26 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 
-import type { AskSelection } from '@/stores/ask-bar';
 import { AskBar } from '@/components/ask-bar';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesGetter, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
-
-const STORY_QUERY_KEYS = [[['story']], [['storyShare']], [['customStoryViewer']]];
-const MAX_SELECTION_TEXT_LENGTH = 4_000;
+import { getShownStoryFiltersRequestBody } from '@/stores/shown-story-filters';
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
 
 export function StoryAskBar({
 	storyId,
-	isOwner,
+	canEdit,
 	isInputHidden = false,
+	onChatChange,
 }: {
 	storyId: string;
-	isOwner: boolean;
+	canEdit: boolean;
 	isInputHidden?: boolean;
+	onChatChange?: (chatId: string | null) => void;
 }) {
 	const [handedOverQuestion] = useState(() => getHandedOverQuestion(storyId));
 	const queryClient = useQueryClient();
@@ -37,28 +37,40 @@ export function StoryAskBar({
 		forgetHandedOverQuestion(storyId);
 	}, [storyId]);
 
-	const askStory = async (selection?: AskSelection) => {
-		const { chatId, hasAttachedStoryChat } = await askMutation.mutateAsync({
-			storyId,
-			selectionText: selection && toSelectionText(selection).slice(0, MAX_SELECTION_TEXT_LENGTH),
-		});
-		if (hasAttachedStoryChat) {
-			handOverQuestion(storyId, { chatId, selection });
+	const [hasAttachedStoryChat, setHasAttachedStoryChat] = useState(false);
+	const refreshStoryPage = () =>
+		queryClient.invalidateQueries({ queryKey: trpc.story.resolve.queryKey({ storyId }) });
+
+	const askStory = async () => {
+		const response = await askMutation.mutateAsync({ storyId });
+		if (response.hasAttachedStoryChat) {
+			handOverQuestion(storyId, { chatId: response.chatId });
+			setHasAttachedStoryChat(true);
 		}
-		return chatId;
+		return response.chatId;
+	};
+
+	const endQuestion = () => {
+		forgetHandedOverQuestion(storyId);
+		if (hasAttachedStoryChat) {
+			void refreshStoryPage();
+		}
 	};
 
 	return (
 		<AskBar
-			placeholder={isOwner ? 'Ask a question, edit story' : 'Ask a question about the story'}
+			placeholder={canEdit ? 'Ask a question, edit story' : 'Ask a question about the story'}
 			isInputHidden={isInputHidden}
 			isAsking={askMutation.isPending}
 			hasAskFailed={askMutation.isError}
 			resumedQuestion={handedOverQuestion}
+			getRequestBody={getShownStoryFiltersRequestBody}
 			onAsk={askStory}
-			onEnd={() => forgetHandedOverQuestion(storyId)}
+			onEnd={endQuestion}
+			onChatChange={onChatChange}
 		>
 			<StoryRefreshAfterEdit />
+			{hasAttachedStoryChat && <StoryPageRefreshAfterAnswer onAnswered={refreshStoryPage} />}
 		</AskBar>
 	);
 }
@@ -66,36 +78,46 @@ export function StoryAskBar({
 /** The agent may edit the story from a quick question: the page shows the new version once it answered. */
 function StoryRefreshAfterEdit() {
 	const queryClient = useQueryClient();
-	const messages = useAgentMessages();
+	const getMessages = useAgentMessagesGetter();
 	const { isRunning } = useAgentContext();
-	const editedStory = isRunning ? false : hasStoryEdit(messages.at(-1));
+	const editMessageId = useAgentMessagesSelector((messages) => (isRunning ? null : findStoryEditMessageId(messages)));
 	const handledMessageId = useRef<string | null>(null);
 
 	useEffect(() => {
-		const lastMessage = messages.at(-1);
-		if (!editedStory || !lastMessage || handledMessageId.current === lastMessage.id) {
+		if (!editMessageId || handledMessageId.current === editMessageId) {
 			return;
 		}
-		handledMessageId.current = lastMessage.id;
-		for (const queryKey of STORY_QUERY_KEYS) {
-			queryClient.invalidateQueries({ queryKey });
-		}
-	}, [editedStory, messages, queryClient]);
+		handledMessageId.current = editMessageId;
+		const edit = readStoryEdit(getMessages());
+		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
+	}, [editMessageId, getMessages, queryClient]);
 
 	return null;
 }
 
-function hasStoryEdit(message: UIMessage | undefined): boolean {
-	return (
-		message?.role === 'assistant' &&
-		message.parts.some((part) => part.type === 'tool-story' && part.state === 'output-available')
-	);
+/**
+ * Asking about a standalone story attaches a chat to it, which replaces its page by the owned one.
+ * The page waits for the answer to end, so the running answer keeps streaming in the panel.
+ */
+function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void }) {
+	const { isRunning } = useAgentContext();
+	const wasRunning = useRef(false);
+
+	useEffect(() => {
+		if (isRunning) {
+			wasRunning.current = true;
+			return;
+		}
+		if (wasRunning.current) {
+			wasRunning.current = false;
+			onAnswered();
+		}
+	}, [isRunning, onAnswered]);
+
+	return null;
 }
 
-/** What the agent reads about the selection: the selected text, or the block of a custom story. */
-function toSelectionText({ text, block }: AskSelection): string {
-	if (!block) {
-		return text;
-	}
-	return block.title ? `The ${block.kind} "${block.title}"` : `This ${block.kind}`;
+function findStoryEditMessageId(messages: UIMessage[]): string | null {
+	const lastMessage = messages.at(-1);
+	return lastMessage && hasStoryEdit(lastMessage) ? lastMessage.id : null;
 }

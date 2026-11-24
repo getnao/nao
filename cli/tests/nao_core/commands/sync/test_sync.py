@@ -4,14 +4,26 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from nao_core.commands.sync import sync
 from nao_core.commands.sync.providers import (
     DatabaseSyncProvider,
     ProviderSelection,
+    RepositorySyncProvider,
     SyncProvider,
     SyncResult,
 )
+
+CONFIG_WITH_TABLES_FROM_A_REPOSITORY = """
+project_name: test-project
+databases:
+  - name: warehouse
+    type: duckdb
+    path: warehouse.duckdb
+    include:
+      from_file: repos/business_context/tables.yml
+"""
 
 
 def _make_provider(
@@ -23,8 +35,9 @@ def _make_provider(
     sync_error=None,
     result_error=None,
     emoji=None,
+    spec=SyncProvider,
 ):
-    provider = MagicMock(spec=SyncProvider)
+    provider = MagicMock(spec=spec)
     provider.should_sync.return_value = should_sync
     provider.name = name
     provider.default_output_dir = output_dir
@@ -42,7 +55,20 @@ def _make_provider(
     return ProviderSelection(provider)
 
 
-@pytest.mark.usefixtures("clean_env")
+def _write_tables_file(project_path: Path, tables: str = "- analytics.orders\n") -> SyncResult:
+    tables_file = project_path / "repos" / "business_context" / "tables.yml"
+    tables_file.parent.mkdir(parents=True, exist_ok=True)
+    tables_file.write_text(tables)
+    return SyncResult(provider_name="Repositories", items_synced=1)
+
+
+@pytest.fixture
+def sync_console():
+    with patch("nao_core.commands.sync.console") as console:
+        yield console
+
+
+@pytest.mark.usefixtures("clean_env", "sync_console")
 class TestSyncCommand:
     def test_sync_exits_when_no_config_found(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -59,8 +85,7 @@ class TestSyncCommand:
         create_config()
         selection = _make_provider()
 
-        with patch("nao_core.commands.sync.console"):
-            sync(_providers=[selection])
+        sync(_providers=[selection])
 
         selection.provider.should_sync.assert_called_once()
 
@@ -70,10 +95,8 @@ class TestSyncCommand:
 
         custom_output = str(tmp_path / "custom-output")
 
-        with patch("nao_core.commands.sync.console"):
-            sync(output_dirs={"TestProvider": custom_output}, _providers=[selection])
+        sync(output_dirs={"TestProvider": custom_output}, _providers=[selection])
 
-        # Verify sync was called with the custom output path
         call_args = selection.provider.sync.call_args
         assert str(call_args[0][1]) == custom_output
 
@@ -81,34 +104,53 @@ class TestSyncCommand:
         create_config("project_name: test-project\nthreads: 3\n")
         selection = _make_provider(items=["item1"], items_synced=1)
 
-        with patch("nao_core.commands.sync.console"):
-            sync(_providers=[selection])
+        sync(_providers=[selection])
 
         assert selection.provider.sync.call_args.kwargs["threads"] == 3
 
+    @pytest.mark.parametrize("tables_before_sync", [None, "- analytics.stale\n"], ids=["first_sync", "later_sync"])
+    def test_sync_reads_from_file_values_once_repositories_are_synced(
+        self, tmp_path: Path, create_config, tables_before_sync: str | None
+    ):
+        create_config(CONFIG_WITH_TABLES_FROM_A_REPOSITORY)
+        if tables_before_sync:
+            _write_tables_file(tmp_path, tables_before_sync)
+        databases = _make_provider(name="Databases", output_dir="databases", spec=DatabaseSyncProvider)
+        repositories = _make_provider(name="Repositories", output_dir="repos", spec=RepositorySyncProvider)
+        repositories.provider.sync.side_effect = lambda *_args, **_kwargs: _write_tables_file(tmp_path)
+
+        sync(_providers=[databases, repositories], render_templates=False)
+
+        synced_config = databases.provider.get_items.call_args.args[0]
+        assert synced_config.databases[0].include == ["analytics.orders"]
+
+    def test_sync_fails_when_a_from_file_value_is_still_missing(self, create_config):
+        create_config(CONFIG_WITH_TABLES_FROM_A_REPOSITORY)
+        databases = _make_provider(name="Databases", output_dir="databases", spec=DatabaseSyncProvider)
+
+        with patch("nao_core.config.base.Console") as mock_console_cls:
+            with pytest.raises(SystemExit) as exc_info:
+                sync(_providers=[databases], render_templates=False)
+
+        assert exc_info.value.code == 1
+        assert "tables.yml' does not exist" in mock_console_cls.return_value.print.call_args.args[0]
+        databases.provider.sync.assert_not_called()
+
     def test_sync_forwards_select_to_database_provider(self, create_config):
         create_config()
-        provider = MagicMock(spec=DatabaseSyncProvider)
-        provider.should_sync.return_value = True
-        provider.name = "Databases"
-        provider.default_output_dir = "databases"
-        provider.get_items.return_value = []
-        provider.sync.return_value = SyncResult(provider_name="Databases", items_synced=0)
-        selection = ProviderSelection(provider)
+        selection = _make_provider(name="Databases", output_dir="databases", spec=DatabaseSyncProvider)
 
-        with patch("nao_core.commands.sync.console"):
-            sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
+        sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
 
-        assert provider.sync.call_args.kwargs.get("select") == ["analytics.orders"]
+        assert selection.provider.sync.call_args.kwargs.get("select") == ["analytics.orders"]
 
-    def test_sync_warns_and_skips_select_for_non_database_provider(self, create_config):
+    def test_sync_warns_and_skips_select_for_non_database_provider(self, create_config, sync_console):
         create_config()
         selection = _make_provider(items=["item1"], items_synced=1)
 
-        with patch("nao_core.commands.sync.console") as mock_console:
-            sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
+        sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
 
-        mock_console.print.assert_any_call(
+        sync_console.print.assert_any_call(
             "[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here."
         )
         assert "select" not in selection.provider.sync.call_args.kwargs
@@ -117,8 +159,7 @@ class TestSyncCommand:
         create_config("project_name: test-project\nthreads: 3\n")
         selection = _make_provider(items=["item1"], items_synced=1)
 
-        with patch("nao_core.commands.sync.console"):
-            sync(threads=5, _providers=[selection])
+        sync(threads=5, _providers=[selection])
 
         assert selection.provider.sync.call_args.kwargs["threads"] == 5
 
@@ -126,9 +167,8 @@ class TestSyncCommand:
         create_config()
         selection = _make_provider(items=["item1"], items_synced=1)
 
-        with patch("nao_core.commands.sync.console"):
-            with pytest.raises(SystemExit) as exc_info:
-                sync(threads=0, _providers=[selection])
+        with pytest.raises(SystemExit) as exc_info:
+            sync(threads=0, _providers=[selection])
 
         assert exc_info.value.code == 1
         selection.provider.sync.assert_not_called()
@@ -137,21 +177,17 @@ class TestSyncCommand:
         create_config()
         selection = _make_provider(should_sync=False)
 
-        with patch("nao_core.commands.sync.console"):
-            sync(_providers=[selection])
+        sync(_providers=[selection])
 
-        # sync should not be called when should_sync returns False
         selection.provider.sync.assert_not_called()
 
-    def test_sync_prints_nothing_to_sync_when_no_results(self, create_config):
+    def test_sync_prints_nothing_to_sync_when_no_results(self, create_config, sync_console):
         create_config()
         selection = _make_provider()
 
-        with patch("nao_core.commands.sync.console") as mock_console:
-            sync(_providers=[selection])
+        sync(_providers=[selection])
 
-        # Check that "Nothing to sync" was printed
-        calls = [str(call) for call in mock_console.print.call_args_list]
+        calls = [str(call) for call in sync_console.print.call_args_list]
         assert any("Nothing to sync" in call for call in calls)
 
     def test_sync_continues_when_provider_fails(self, create_config):
@@ -164,12 +200,10 @@ class TestSyncCommand:
             name="WorkingProvider", emoji="✅", output_dir="working-output", items=["item1"], items_synced=1
         )
 
-        with patch("nao_core.commands.sync.console"):
-            with pytest.raises(SystemExit) as exc_info:
-                sync(_providers=[failing, working])
+        with pytest.raises(SystemExit) as exc_info:
+            sync(_providers=[failing, working])
 
         assert exc_info.value.code == 1
-        # Verify both providers were attempted
         failing.provider.sync.assert_called_once()
         working.provider.sync.assert_called_once()
 
@@ -177,13 +211,12 @@ class TestSyncCommand:
         create_config()
         failing = _make_provider(items=["item1"], result_error="Failed to sync 1 item")
 
-        with patch("nao_core.commands.sync.console"):
-            with pytest.raises(SystemExit) as exc_info:
-                sync(_providers=[failing], render_templates=False)
+        with pytest.raises(SystemExit) as exc_info:
+            sync(_providers=[failing], render_templates=False)
 
         assert exc_info.value.code == 1
 
-    def test_sync_shows_partial_success_when_some_providers_fail(self, create_config):
+    def test_sync_shows_partial_success_when_some_providers_fail(self, create_config, sync_console):
         """Test that sync shows partial success status when some providers fail."""
         create_config()
         failing = _make_provider(
@@ -193,29 +226,49 @@ class TestSyncCommand:
             name="WorkingProvider", emoji="✅", output_dir="working-output", items=["item1"], items_synced=1
         )
 
-        with patch("nao_core.commands.sync.console") as mock_console:
-            with pytest.raises(SystemExit) as exc_info:
-                sync(_providers=[failing, working])
+        with pytest.raises(SystemExit) as exc_info:
+            sync(_providers=[failing, working])
 
         assert exc_info.value.code == 1
-        calls = [str(call) for call in mock_console.print.call_args_list]
-        # Should show "Completed with Errors" status
+        calls = [str(call) for call in sync_console.print.call_args_list]
         assert any("Sync Completed with Errors" in call for call in calls)
-        # Should show error details
         assert any("API error" in call for call in calls)
 
-    def test_sync_shows_failure_when_all_providers_fail(self, create_config):
+    def test_sync_shows_failure_when_all_providers_fail(self, create_config, sync_console):
         """Test that sync shows failure status when all providers fail."""
         create_config()
         failing = _make_provider(
             name="FailingProvider", emoji="❌", output_dir="failing-output", sync_error="Connection timeout"
         )
 
-        with patch("nao_core.commands.sync.console") as mock_console:
-            with pytest.raises(SystemExit) as exc_info:
-                sync(_providers=[failing])
+        with pytest.raises(SystemExit) as exc_info:
+            sync(_providers=[failing])
 
         assert exc_info.value.code == 1
-        calls = [str(call) for call in mock_console.print.call_args_list]
-        # Should show "Sync Failed" status
+        calls = [str(call) for call in sync_console.print.call_args_list]
         assert any("Sync Failed" in call for call in calls)
+
+    @pytest.mark.parametrize(
+        ("provider_kwargs", "expected_lines"),
+        [
+            ({"sync_error": "Run pip install 'nao-core[semantic-layer]'"}, ["❌ TestProvider: ", "TestProvider: "]),
+            ({"items": ["item1"], "result_error": "Run pip install 'nao-core[semantic-layer]'"}, ["TestProvider: "]),
+        ],
+    )
+    def test_sync_keeps_brackets_in_printed_errors(self, create_config, sync_console, provider_kwargs, expected_lines):
+        create_config()
+        failing = _make_provider(emoji="❌", **provider_kwargs)
+
+        with pytest.raises(SystemExit):
+            sync(_providers=[failing], render_templates=False)
+
+        error_lines = [line for line in _render_printed_lines(sync_console) if "Run pip install" in line]
+        assert error_lines == [f"{prefix}Run pip install 'nao-core[semantic-layer]'" for prefix in expected_lines]
+
+
+def _render_printed_lines(console: MagicMock) -> list[str]:
+    rendered = Console(width=200)
+    with rendered.capture() as capture:
+        for call in console.print.call_args_list:
+            rendered.print(*call.args)
+    return [line.strip(" ⚠•") for line in capture.get().splitlines()]
