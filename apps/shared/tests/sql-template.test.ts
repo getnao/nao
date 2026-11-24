@@ -76,6 +76,20 @@ describe('renderFilterSqlValue', () => {
 		expect(renderFilterSqlValue('text', '1; DROP TABLE x', 'number')).toBeNull();
 		expect(renderFilterSqlValue('text', '   ')).toBeNull();
 	});
+
+	it('renders typed select values unquoted', () => {
+		expect(renderFilterSqlValue('select', 'true', 'boolean')).toBe('true');
+		expect(renderFilterSqlValue('select', 'FALSE', 'boolean')).toBe('false');
+		expect(renderFilterSqlValue('select', '2026', 'number')).toBe('2026');
+		expect(renderFilterSqlValue('multi_select', ['true', 'false'], 'boolean')).toBe('true, false');
+		expect(renderFilterSqlValue('multi_select', ['1', 'x', '2'], 'number')).toBe('1, 2');
+	});
+
+	it('ignores select values that do not match their value type', () => {
+		expect(renderFilterSqlValue('select', 'yes', 'boolean')).toBeNull();
+		expect(renderFilterSqlValue('select', "true' OR '1'='1", 'boolean')).toBeNull();
+		expect(renderFilterSqlValue('multi_select', ['open'], 'boolean')).toBeNull();
+	});
 });
 
 describe('renderSqlTemplate', () => {

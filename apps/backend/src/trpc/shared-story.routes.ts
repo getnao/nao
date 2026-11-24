@@ -59,6 +59,8 @@ import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
 	getFilteredStoryQueryDataByStoryId,
+	getStoryFilterTargets,
+	getStoryFilterTargetsByStoryId,
 	getStoryQuerySql,
 	getStoryQuerySqlByStoryId,
 } from '../services/story-filters';
@@ -454,6 +456,14 @@ export const sharedStoryRoutes = {
 					})
 				: getFilteredStoryQueryDataByStoryId(shared.storyId, input.selections, options);
 		}),
+
+	getFilterTargets: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
+		assertStoryFiltersEnabled();
+		const shared = ctx.resource;
+		return shared.chatId
+			? getStoryFilterTargets(shared.chatId, shared.slug)
+			: getStoryFilterTargetsByStoryId(shared.storyId);
+	}),
 
 	getQuerySql: shareAccessProcedure
 		.input(

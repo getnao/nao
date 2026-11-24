@@ -1,4 +1,5 @@
 import {
+	findUnreferencedStoryFilters,
 	renderSqlTemplate,
 	type StoryFilterSelections,
 	type StoryFilterSpecById,
@@ -26,7 +27,12 @@ import {
 	type StoryQueryScope,
 } from './live-story';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
-import { bindSemanticQuery, semanticBindingsFromCode } from './semantic-story-bindings';
+import {
+	bindSemanticQuery,
+	type CatalogLoader,
+	listBindableFilterIds,
+	semanticBindingsFromCode,
+} from './semantic-story-bindings';
 import { loadStorySqlQueries } from './story-sql-queries';
 
 interface StoryFilterExecutionOptions {
@@ -54,6 +60,9 @@ interface StoryQuerySqlDescription {
 	effectiveSemanticQuery?: SemanticQuery;
 }
 
+/** Filter ids per query id; queries no filter can change are left out. */
+export type StoryFilterTargets = Record<string, string[]>;
+
 export function assertStoryFiltersEnabled() {
 	if (!env.BETA_STORY_FILTERS_ENABLED) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Story filters are disabled on this instance.' });
@@ -75,6 +84,14 @@ export async function getFilteredStoryQueryDataByStoryId(
 	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<StoryQueryData> {
 	return executeFilteredQueries(await loadFilterableStoryById(storyId), selections, executionOptions);
+}
+
+export async function getStoryFilterTargets(chatId: string, storySlug: string): Promise<StoryFilterTargets> {
+	return listStoryFilterTargets(await loadChatFilterableStory(chatId, storySlug));
+}
+
+export async function getStoryFilterTargetsByStoryId(storyId: string): Promise<StoryFilterTargets> {
+	return listStoryFilterTargets(await loadFilterableStoryById(storyId));
 }
 
 export async function getStoryQuerySql(
@@ -115,8 +132,37 @@ async function executeFilteredQueries(
 			renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
 			semanticBindings: semanticBindingsFromCode(story.code, selections),
 			billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+			isolateQueryFailures: true,
 		}),
 	);
+}
+
+/** For each query of the story, the filters that can change it, whether or not they have a value yet. */
+async function listStoryFilterTargets(story: FilterableStory): Promise<StoryFilterTargets> {
+	const filterIds = getStoryFiltersFromCode(story.code).map((filter) => filter.id);
+	const bindings = semanticBindingsFromCode(story.code);
+	let catalog: ReturnType<CatalogLoader> | undefined;
+	const loadCatalog: CatalogLoader = () => {
+		catalog ??= story
+			.createExecutionContext()
+			.then(({ toolContext }) => describeSemanticLayerCached(toolContext))
+			.catch(() => null);
+		return catalog;
+	};
+	const targets = await Promise.all(
+		Object.entries(story.sqlQueries).map(async ([queryId, query]) => {
+			const targetIds = query.semanticQuery
+				? await listBindableFilterIds(query.semanticQuery, bindings, loadCatalog)
+				: listReferencedFilterIds(query.sqlQuery, filterIds);
+			return [queryId, targetIds] as const;
+		}),
+	);
+	return Object.fromEntries(targets.filter(([, targetIds]) => targetIds.length > 0));
+}
+
+function listReferencedFilterIds(sqlQuery: string, filterIds: string[]): string[] {
+	const unreferenced = new Set(findUnreferencedStoryFilters(filterIds, [sqlQuery]));
+	return filterIds.filter((id) => !unreferenced.has(id));
 }
 
 async function describeStoryQuerySql(
