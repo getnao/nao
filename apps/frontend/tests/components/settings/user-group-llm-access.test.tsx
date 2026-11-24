@@ -16,7 +16,7 @@ vi.mock('@tanstack/react-query', () => ({
 		queryKey[0] === 'llm-access-readiness' ? { data: { mode: mocks.mode } } : mocks.llmConfigs,
 }));
 vi.mock('@/components/settings/llm-access-mode-control', () => ({
-	LlmAccessModeControl: () => null,
+	LlmAccessModeControl: () => <div>Access mode control</div>,
 }));
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
@@ -206,5 +206,16 @@ describe('UserGroupLlmAccess', () => {
 		expect(credential.getAttribute('aria-checked')).toBe('true');
 		expect(credential.disabled).toBe(true);
 		expect(screen.getByText('All members')).toBeTruthy();
+	});
+
+	it('keeps the access mode control usable without a license or credentials', () => {
+		mocks.llmConfigs = {
+			data: { projectConfigs: [], configProviders: [], envProviders: [], envBaseUrls: {} },
+			isLoading: false,
+			isError: false,
+		};
+		render(<UserGroupLlmAccess llmConfigIds={[]} llmModelIdsByConfig={{}} isLicensed={false} onChange={vi.fn()} />);
+
+		expect(screen.getByText('Access mode control').closest('fieldset')).toBeNull();
 	});
 });

@@ -117,6 +117,7 @@ export function UserGroupLlmAccess({
 				</div>
 				{!isLicensed && <UpgradeToEnterprise />}
 			</div>
+			<LlmAccessModeControl />
 			{configs.isLoading ? (
 				<p className='text-sm text-muted-foreground'>Loading LLM credentials...</p>
 			) : configs.isError ? (
@@ -125,7 +126,6 @@ export function UserGroupLlmAccess({
 				<NoProjectCredentials inheritedProviders={inheritedProviders} />
 			) : (
 				<LockedFieldset disabled={!isLicensed} className='gap-3'>
-					<LlmAccessModeControl />
 					{isRestricted && allUsersGrantsEverything && (
 						<Callout>
 							All Users already grants every model, so this group adds nothing.{' '}

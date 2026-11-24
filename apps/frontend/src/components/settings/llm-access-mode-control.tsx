@@ -77,7 +77,7 @@ export function LlmAccessModeControl() {
 				title='Restrict model access by user group?'
 				description={
 					readiness.data?.assignedConfigCount === 0
-						? 'All Users will start with every credential, so nobody loses access. Then remove models from All Users to reserve them for specific groups.'
+						? describeAllUsersSeeding(readiness.data.ignoredProviderIds.length)
 						: `${warning ? `${warning} ` : ''}Each user will only be able to run models assigned through their groups.`
 				}
 				confirmLabel='Enable restrictions'
@@ -111,6 +111,14 @@ export function LlmAccessModeSummary() {
 			</Button>
 		</section>
 	);
+}
+
+function describeAllUsersSeeding(ignoredProviderCount: number): string {
+	const lostProviders =
+		ignoredProviderCount > 0
+			? ` Models from ${ignoredProviderCount} ${ignoredProviderCount === 1 ? 'provider' : 'providers'} not saved as project credentials will stop being available.`
+			: '';
+	return `All Users will start with every project credential, so members keep those models.${lostProviders} Then remove models from All Users to reserve them for specific groups.`;
 }
 
 function describeReadiness(readiness: {

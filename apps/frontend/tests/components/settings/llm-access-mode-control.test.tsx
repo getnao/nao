@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 			staleConfigIds: [],
 			unassignedGroupIds: ['group-1'],
 			userIdsWithoutModels: ['user-1', 'user-2', 'user-3', 'user-4', 'user-5'],
-			ignoredProviderIds: [],
+			ignoredProviderIds: [] as string[],
 			staleDefaultCount: 0,
 			staleAutomationIds: [],
 		},
@@ -85,6 +85,7 @@ describe('LlmAccessModeControl', () => {
 	beforeEach(() => {
 		mocks.readiness.data.canEnable = true;
 		mocks.readiness.data.assignedConfigCount = 1;
+		mocks.readiness.data.ignoredProviderIds = [];
 		mocks.readiness.data.mode = 'project';
 		mocks.license.data['user-groups'] = true;
 	});
@@ -118,10 +119,12 @@ describe('LlmAccessModeControl', () => {
 
 	it('explains that All Users starts with every credential when no group has one', () => {
 		mocks.readiness.data.assignedConfigCount = 0;
+		mocks.readiness.data.ignoredProviderIds = ['nao'];
 		render(<LlmAccessModeControl />);
 
 		fireEvent.click(screen.getByRole('switch', { name: 'Restrict models by user group' }));
-		expect(screen.getByText(/All Users will start with every credential/)).toBeDefined();
+		expect(screen.getByText(/All Users will start with every project credential/)).toBeDefined();
+		expect(screen.getByText(/Models from 1 provider not saved as project credentials will stop/)).toBeDefined();
 		fireEvent.click(screen.getByRole('button', { name: 'Enable restrictions' }));
 
 		expect(mocks.mutate).toHaveBeenCalledWith({ mode: 'user_group' });
