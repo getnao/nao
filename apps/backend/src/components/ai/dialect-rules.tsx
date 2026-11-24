@@ -139,8 +139,9 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 			</>,
 			<>
 				A window function cannot sit inside an aggregate, and aggregates cannot be nested: compute the window or
-				the first aggregate in a CTE, then aggregate its result. <Code>QUALIFY</Code> needs a window function in
-				its condition; otherwise use <Code>WHERE</Code> or <Code>HAVING</Code>.
+				the first aggregate in a CTE, then aggregate its result. <Code>QUALIFY</Code> only filters on a window
+				function of the query (in <Code>SELECT</Code> or in its condition); without one, use <Code>WHERE</Code>{' '}
+				or <Code>HAVING</Code>.
 			</>,
 			<>
 				Correlated subqueries are rarely supported (<Code>Unsupported subquery type</Code>): rewrite them as a
@@ -205,8 +206,8 @@ export const LOCAL_DUCKDB_SQL_RULES: ReactNode[] = [
 	</>,
 	<>
 		Warehouse tables are not here: <Code>database.schema.table</Code> fails with{' '}
-		<Code>Catalog … does not exist</Code>. Query the warehouse with its own database_id, then read the result here
-		by its query id. The reverse holds too: a warehouse query cannot read a <Code>query_…</Code> table.
+		<Code>Catalog … does not exist</Code>. Warehouse data only reaches this database as an earlier result, read by
+		its query id. Those <Code>query_…</Code> tables exist only here, never in the warehouse.
 	</>,
 	<>
 		Every selected column that is not aggregated must be in the <Code>GROUP BY</Code>; prefer{' '}

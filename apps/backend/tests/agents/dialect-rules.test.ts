@@ -105,8 +105,18 @@ describe('dialect-aware system prompt', () => {
 		expect(section).toContain('**Snowflake dialect:** Use `DATEDIFF(day, start, end)`');
 		expect(section).toContain('`BOOLOR_AGG(col)`');
 		expect(section).toContain('Prefer `GROUP BY ALL`');
-		expect(section).toContain('`QUALIFY` needs a window function');
+		expect(section).toContain('`QUALIFY` only filters on a window function');
 		expect(section).not.toContain('**BigQuery dialect:**');
+	});
+
+	it('does not send an exclusive semantic layer project to the warehouse', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({ connections: [{ type: 'bigquery', database: 'db' }], semanticLayerMode: 'exclusive' }),
+		);
+		const localDatabase = markdown.slice(markdown.indexOf('## The local database'));
+
+		expect(localDatabase).toContain('Warehouse data only reaches this database as an earlier result');
+		expect(localDatabase).not.toContain('database_id, then');
 	});
 
 	it('gives the local DuckDB its own rules, whatever the warehouse', () => {
@@ -115,7 +125,7 @@ describe('dialect-aware system prompt', () => {
 
 		expect(localDatabase).toContain('instead of `SAFE_DIVIDE`');
 		expect(localDatabase).toContain('`regexp_matches(col, pattern)` instead of `REGEXP_CONTAINS`');
-		expect(localDatabase).toContain('a warehouse query cannot read a `query_…` table');
+		expect(localDatabase).toContain('Those `query_…` tables exist only here, never in the warehouse');
 	});
 
 	it('injects the ClickHouse tool-call rule under Tool Calls', () => {
