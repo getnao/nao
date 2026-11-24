@@ -1,5 +1,5 @@
 {
-  "id": "88f0a680-5085-4f14-a51c-1b084abaf2b1",
+  "id": "2bc91040-d2ef-4463-9c92-aa1289f1c758",
   "prevId": "381e9f60-170a-4164-806f-13f6000c340b",
   "version": "7",
   "dialect": "postgresql",
@@ -1027,6 +1027,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "mcp_enabled": {
           "name": "mcp_enabled",
           "type": "boolean",
@@ -1220,6 +1226,12 @@
         },
         "error_message": {
           "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1911,6 +1923,12 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2924,6 +2942,12 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -3974,6 +3998,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "input_total_tokens": {
           "name": "input_total_tokens",
@@ -7397,6 +7427,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "llm_access_mode": {
+          "name": "llm_access_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'project'"
+        },
         "column_security": {
           "name": "column_security",
           "type": "jsonb",
@@ -7478,92 +7515,6 @@
           "value": "CASE WHEN \"type\" = 'local' THEN \"path\" IS NOT NULL ELSE TRUE END"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.project_decision_config": {
-      "name": "project_decision_config",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "api_key": {
-          "name": "api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "credentials": {
-          "name": "credentials",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "base_url": {
-          "name": "base_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "project_decision_config_project_id_project_id_fk": {
-          "name": "project_decision_config_project_id_project_id_fk",
-          "tableFrom": "project_decision_config",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "project_decision_config_project_provider": {
-          "name": "project_decision_config_project_provider",
-          "nullsNotDistinct": false,
-          "columns": [
-            "project_id",
-            "provider"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.project_discord_link": {
@@ -7854,11 +7805,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "provider": {
           "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "credential_source": {
+          "name": "credential_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'database'"
         },
         "api_key": {
           "name": "api_key",
@@ -7899,6 +7863,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "disabled_at": {
+          "name": "disabled_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -7929,6 +7899,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "project_llm_config_project_name": {
+          "name": "project_llm_config_project_name",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"project_llm_config\".\"disabled_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -7947,16 +7939,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "project_llm_config_project_provider": {
-          "name": "project_llm_config_project_provider",
-          "nullsNotDistinct": false,
-          "columns": [
-            "project_id",
-            "provider"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -11906,6 +11889,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "reasoning_effort": {
           "name": "reasoning_effort",
           "type": "text",
@@ -12332,6 +12321,20 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "llm_config_ids": {
+          "name": "llm_config_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "llm_model_ids_by_config": {
+          "name": "llm_model_ids_by_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",

@@ -1,8 +1,10 @@
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { eq } from 'drizzle-orm';
 
 import s, { type DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
 
 /** The provider settings blobs on `project` that hold more than one writer-editable field. */
@@ -66,3 +68,16 @@ type Lockable<Query> = { for(strength: 'update'): Query };
 
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
 	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
+
+/** A model selection stored as loose strings in project settings, dropped when the provider is unknown. */
+export function toLlmSelectedModel(
+	provider: string | null | undefined,
+	modelId: string | null | undefined,
+	llmConfigId?: string,
+): LlmSelectedModel | undefined {
+	if (!provider || !modelId) {
+		return undefined;
+	}
+	const parsed = llmProviderSchema.safeParse(provider);
+	return parsed.success ? { provider: parsed.data, modelId, ...(llmConfigId && { llmConfigId }) } : undefined;
+}

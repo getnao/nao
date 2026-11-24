@@ -4,6 +4,7 @@ import type {
 	CitationData,
 	GroupedChatListResponse,
 	LlmProvider,
+	LlmSelectedModel,
 } from '@nao/shared/types';
 import {
 	and,
@@ -665,6 +666,7 @@ export const upsertMessage = async (
 		tokenUsage?: TokenUsage;
 		llmProvider?: LlmProvider;
 		llmModelId?: string;
+		llmConfigId?: string;
 		versionGroupId?: string;
 	},
 	options: { updateMetadata?: boolean } = {},
@@ -680,6 +682,7 @@ export const upsertMessage = async (
 			errorMessage: getErrorMessage(message.error),
 			llmProvider: message.llmProvider,
 			llmModelId: message.llmModelId,
+			llmConfigId: message.llmConfigId,
 			source: message.source,
 			isForked: message.isForked,
 			citations: message.citations ?? null,
@@ -1263,11 +1266,13 @@ export const isOnboardingChat = async (chatId: string): Promise<boolean> => {
 	return Boolean(result);
 };
 
-export const getLatestAssistantModel = async (
-	chatId: string,
-): Promise<{ provider: LlmProvider; modelId: string } | null> => {
+export const getLatestAssistantModel = async (chatId: string): Promise<LlmSelectedModel | null> => {
 	const [result] = await db
-		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+		.select({
+			provider: s.chatMessage.llmProvider,
+			modelId: s.chatMessage.llmModelId,
+			llmConfigId: s.chatMessage.llmConfigId,
+		})
 		.from(s.chatMessage)
 		.where(
 			and(
@@ -1286,7 +1291,11 @@ export const getLatestAssistantModel = async (
 		return null;
 	}
 
-	return { provider: result.provider, modelId: result.modelId };
+	return {
+		provider: result.provider,
+		modelId: result.modelId,
+		...(result.llmConfigId && { llmConfigId: result.llmConfigId }),
+	};
 };
 
 export const getAssistantMessageModels = async (

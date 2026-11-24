@@ -58,8 +58,15 @@ describe('resolveAnnotationModelId', () => {
 		expect(modelId).toBe('gpt-4.1-mini');
 	});
 
-	it('uses the active model when the provider base URL comes from the environment', async () => {
+	it.each([
+		{ credential: 'no saved credential', config: null },
+		{
+			credential: 'an environment-backed credential',
+			config: { credentialSource: 'env', baseUrl: null, enabledModels: [] },
+		},
+	])('uses the active model when the base URL comes from the environment with $credential', async ({ config }) => {
 		vi.stubEnv('OPENAI_BASE_URL', 'http://litellm.test/v1');
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue(config);
 
 		const modelId = await resolveAnnotationModelId(
 			'project-1',
