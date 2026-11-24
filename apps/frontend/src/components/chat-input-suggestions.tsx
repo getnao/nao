@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { Activity, MessageSquare, X, ThumbsDown, ThumbsUp, Check, Plug } from 'lucide-react';
 import { FeedbackDialog } from './chat-messages/assistant-message-actions';
 import { Button } from './ui/button';
@@ -11,6 +10,7 @@ import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-sett
 import { useAgentContext, useAgentMessagesGetter, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
+import { useIsConversationFeedbackRequired, useSubmitMessageFeedback } from '@/hooks/use-message-feedback';
 import { useStoryIds } from '@/hooks/use-story-ids';
 import { findLastAssistantMessageWithContent, NEW_CHAT_ID } from '@/lib/ai';
 import { countDisplayCharts } from '@/lib/charts.utils';
@@ -18,7 +18,6 @@ import { createLocalStorage } from '@/lib/local-storage';
 import { lastUserMessagePayload } from '@/lib/mcp-auth-retry';
 import { openMcpConnectPopup } from '@/lib/mcp-oauth';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 /**
  * Milliseconds of inactivity before we ask the user how the conversation went, indexed by how many
@@ -242,9 +241,9 @@ function renderSuggestion({
 				<FeedbackDialog
 					open={feedback.feedbackDialogOpen}
 					onOpenChange={feedback.setFeedbackDialogOpen}
-					onSubmit={(explanation) => feedback.vote(feedback.feedbackDialogVote, explanation)}
+					onSubmit={(explanation, vote) => feedback.vote(vote, explanation)}
 					isPending={feedback.isPending}
-					vote={feedback.feedbackDialogVote}
+					defaultVote={feedback.feedbackDialogVote}
 				/>
 			</>
 		);
@@ -518,35 +517,17 @@ function useConversationFeedback(): ConversationFeedback {
 	const [thanksForChat, setThanksForChat] = useState<string | null>(null);
 	const [feedbackDialogVote, setFeedbackDialogVote] = useState<FeedbackVote>('down');
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+	const isFeedbackRequired = useIsConversationFeedbackRequired();
 
-	const submitFeedback = useMutation(
-		trpc.feedback.submit.mutationOptions({
-			onSuccess: (data, variables, _, ctx) => {
-				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId: variables.chatId }), (prev) =>
-					prev
-						? {
-								...prev,
-								messages: prev.messages.map((message) =>
-									message.id === variables.messageId ? { ...message, feedback: data } : message,
-								),
-							}
-						: prev,
-				);
-				void ctx.client.invalidateQueries({
-					queryKey: trpc.project.getChatReplay.queryKey({ chatId: variables.chatId }),
-				});
-				void ctx.client.invalidateQueries({
-					queryKey: trpc.project.getProjectChats.queryKey(),
-				});
-				setThanksForChat(variables.chatId);
-				setFeedbackDialogOpen(false);
-			},
-		}),
-	);
+	const submitFeedback = useSubmitMessageFeedback(() => {
+		setThanksForChat(chatId ?? null);
+		setFeedbackDialogOpen(false);
+	});
 
 	const isPersistedChat = !!chatId && chatId !== NEW_CHAT_ID;
 	const isDismissed = !!chatId && dismissedChats.has(chatId);
 	const isEligible =
+		!isFeedbackRequired &&
 		mode !== 'onboarding' &&
 		isPersistedChat &&
 		!isRunning &&

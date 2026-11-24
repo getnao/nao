@@ -1,32 +1,16 @@
-import { useEffect } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { useBlocker } from '@tanstack/react-router';
-import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
 
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FeedbackDialog } from '@/components/chat-messages/assistant-message-actions';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { useLicenseFeatures } from '@/hooks/use-license';
-import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useIsConversationFeedbackRequired, useSubmitMessageFeedback } from '@/hooks/use-message-feedback';
 import { findLastAssistantMessageWithContent } from '@/lib/ai';
 import { isConversationFeedbackNavigationAllowed } from '@/lib/conversation-feedback-navigation';
-import { trpc } from '@/main';
 
 export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
-	const { isReadonly, isRunning, mode } = useAgentContext();
+	const { isRunning } = useAgentContext();
 	const message = useAgentMessagesSelector(findLastAssistantMessageWithContent);
-	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
-	const features = useLicenseFeatures();
-	const isCloud = useIsCloud();
-	const shouldCollect =
-		!isCloud &&
-		features.data?.['conversation-feedback'] === true &&
-		agentSettings.data?.requireConversationFeedback === true &&
-		!isReadonly &&
-		mode !== 'onboarding' &&
-		!!chatId;
-	const isEnforced = agentSettings.data?.enforceConversationFeedbackBeforeLeaving === true;
+	const isFeedbackRequired = useIsConversationFeedbackRequired();
 	const needsFeedback = !!message && !message.feedback;
 	const navigationBlocker = useBlocker({
 		shouldBlockFn: ({ next }) => {
@@ -34,101 +18,49 @@ export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
 			if (staysInConversation || isConversationFeedbackNavigationAllowed(chatId)) {
 				return false;
 			}
-			return isRunning ? isEnforced : needsFeedback;
+			return !isRunning && needsFeedback;
 		},
 		enableBeforeUnload: false,
-		disabled: !shouldCollect,
+		disabled: !isFeedbackRequired || !chatId,
 		withResolver: true,
 	});
-	const submitFeedback = useMutation(
-		trpc.feedback.submit.mutationOptions({
-			onSuccess: (data, variables, _, ctx) => {
-				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId: variables.chatId }), (previous) =>
-					previous
-						? {
-								...previous,
-								messages: previous.messages.map((candidate) =>
-									candidate.id === variables.messageId ? { ...candidate, feedback: data } : candidate,
-								),
-							}
-						: previous,
-				);
-				void ctx.client.invalidateQueries({
-					queryKey: trpc.project.getChatReplay.queryKey({ chatId: variables.chatId }),
-				});
-				void ctx.client.invalidateQueries({
-					queryKey: trpc.project.getProjectChats.queryKey(),
-				});
-				if (navigationBlocker.status === 'blocked') {
-					navigationBlocker.proceed();
-				}
-			},
-		}),
-	);
+	const submitFeedback = useSubmitMessageFeedback(() => leaveConversation());
 
-	useEffect(() => {
-		if (navigationBlocker.status === 'blocked' && !isRunning && !needsFeedback) {
+	const leaveConversation = () => {
+		submitFeedback.reset();
+		if (navigationBlocker.status === 'blocked') {
 			navigationBlocker.proceed();
 		}
-	}, [isRunning, navigationBlocker, needsFeedback]);
+	};
 
-	const handleVote = (vote: FeedbackVote) => {
-		if (!message) {
-			return;
+	const stayInConversation = () => {
+		submitFeedback.reset();
+		if (navigationBlocker.status === 'blocked') {
+			navigationBlocker.reset();
 		}
-		submitFeedback.mutate({ chatId, messageId: message.id, vote });
 	};
 
 	const handleOpenChange = (open: boolean) => {
-		if (!open && !submitFeedback.isPending && navigationBlocker.status === 'blocked') {
-			if (isEnforced) {
-				navigationBlocker.reset();
-			} else {
-				navigationBlocker.proceed();
-			}
+		if (!open) {
+			stayInConversation();
+		}
+	};
+
+	const handleSubmit = (explanation: string | undefined, vote: FeedbackVote) => {
+		if (message) {
+			submitFeedback.mutate({ chatId, messageId: message.id, vote, explanation });
 		}
 	};
 
 	return (
-		<Dialog
-			open={navigationBlocker.status === 'blocked' && !isRunning && needsFeedback}
+		<FeedbackDialog
+			open={navigationBlocker.status === 'blocked'}
 			onOpenChange={handleOpenChange}
-		>
-			<DialogContent showCloseButton={false} className='sm:max-w-sm'>
-				<div className='flex items-center justify-between gap-4'>
-					<DialogHeader className='text-left'>
-						<DialogTitle>How did it go?</DialogTitle>
-						<DialogDescription className='sr-only'>
-							{isEnforced ? 'Rate the latest answer to continue.' : 'Rate the latest answer.'}
-						</DialogDescription>
-					</DialogHeader>
-					<div className='flex shrink-0 gap-1'>
-						<Button
-							variant='ghost'
-							size='icon'
-							className='rounded-full'
-							onClick={() => handleVote('up')}
-							disabled={submitFeedback.isPending}
-							aria-label='Good conversation'
-						>
-							<ThumbsUp />
-						</Button>
-						<Button
-							variant='ghost'
-							size='icon'
-							className='rounded-full'
-							onClick={() => handleVote('down')}
-							disabled={submitFeedback.isPending}
-							aria-label='Bad conversation'
-						>
-							<ThumbsDown />
-						</Button>
-					</div>
-				</div>
-				{submitFeedback.isError && (
-					<p className='text-sm text-destructive'>Feedback could not be submitted. Please try again.</p>
-				)}
-			</DialogContent>
-		</Dialog>
+			onSubmit={handleSubmit}
+			onSkip={leaveConversation}
+			isPending={submitFeedback.isPending}
+			error={submitFeedback.isError ? "Couldn't send your feedback. Try again or skip." : undefined}
+			subject='conversation'
+		/>
 	);
 }

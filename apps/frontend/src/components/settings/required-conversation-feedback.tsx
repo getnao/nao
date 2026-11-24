@@ -32,7 +32,6 @@ export function SettingsRequiredConversationFeedback({ isAdmin }: SettingsRequir
 
 	const isLicensed = features.data?.['conversation-feedback'] === true;
 	const isRequired = isLicensed && (agentSettings.data?.requireConversationFeedback ?? false);
-	const isEnforced = isRequired && (agentSettings.data?.enforceConversationFeedbackBeforeLeaving ?? false);
 	const isPending = features.isPending || agentSettings.isPending || updateAgentSettings.isPending;
 
 	return (
@@ -51,28 +50,9 @@ export function SettingsRequiredConversationFeedback({ isAdmin }: SettingsRequir
 							id='require-conversation-feedback'
 							checked={isRequired}
 							onCheckedChange={(enabled) =>
-								updateAgentSettings.mutate({
-									requireConversationFeedback: enabled,
-									...(!enabled && { enforceConversationFeedbackBeforeLeaving: false }),
-								})
+								updateAgentSettings.mutate({ requireConversationFeedback: enabled })
 							}
 							disabled={!isAdmin || !isLicensed || isPending}
-						/>
-					}
-				/>
-				<SettingsControlRow
-					id='enforce-conversation-feedback-before-leaving'
-					label='Enforce before leaving chat'
-					description='Require a rating of the latest answer before navigating to another chat or page.'
-					className='ml-2 border-l pl-4'
-					control={
-						<Switch
-							id='enforce-conversation-feedback-before-leaving'
-							checked={isEnforced}
-							onCheckedChange={(enabled) =>
-								updateAgentSettings.mutate({ enforceConversationFeedbackBeforeLeaving: enabled })
-							}
-							disabled={!isAdmin || !isLicensed || !isRequired || isPending}
 						/>
 					}
 				/>

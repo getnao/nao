@@ -6,10 +6,7 @@ import { ConversationFeedbackGuard } from './conversation-feedback-guard';
 import type { UIMessage } from '@nao/backend/chat';
 
 const mocks = vi.hoisted(() => ({
-	agentSettings: {
-		requireConversationFeedback: true,
-		enforceConversationFeedbackBeforeLeaving: true,
-	},
+	agentSettings: { requireConversationFeedback: true },
 	features: { 'conversation-feedback': true },
 	isCloud: false,
 	isRunning: false,
@@ -19,6 +16,8 @@ const mocks = vi.hoisted(() => ({
 	mutate: vi.fn(),
 	proceed: vi.fn(),
 	reset: vi.fn(),
+	submitFails: false,
+	isSubmitError: false,
 	isNavigationAllowed: false,
 	blockerOptions: undefined as
 		| {
@@ -42,18 +41,29 @@ vi.mock('@tanstack/react-query', () => ({
 				};
 			},
 		) => void;
+		onError?: () => void;
+		onSettled?: () => void;
 	}) => ({
 		mutate: (variables: { chatId: string; messageId: string; vote: 'up' | 'down' }) => {
 			mocks.mutate(variables);
-			options.onSuccess({ messageId: variables.messageId, vote: variables.vote }, variables, undefined, {
-				client: {
-					setQueryData: vi.fn(),
-					invalidateQueries: vi.fn(),
-				},
-			});
+			if (mocks.submitFails) {
+				mocks.isSubmitError = true;
+				options.onError?.();
+			} else {
+				options.onSuccess({ messageId: variables.messageId, vote: variables.vote }, variables, undefined, {
+					client: {
+						setQueryData: vi.fn(),
+						invalidateQueries: vi.fn(),
+					},
+				});
+			}
+			options.onSettled?.();
+		},
+		reset: () => {
+			mocks.isSubmitError = false;
 		},
 		isPending: false,
-		isError: false,
+		isError: mocks.isSubmitError,
 	}),
 }));
 
@@ -108,7 +118,6 @@ vi.mock('@/main', () => ({
 describe('ConversationFeedbackGuard', () => {
 	beforeEach(() => {
 		mocks.agentSettings.requireConversationFeedback = true;
-		mocks.agentSettings.enforceConversationFeedbackBeforeLeaving = true;
 		mocks.features['conversation-feedback'] = true;
 		mocks.isCloud = false;
 		mocks.isRunning = false;
@@ -118,20 +127,29 @@ describe('ConversationFeedbackGuard', () => {
 		mocks.mutate.mockReset();
 		mocks.proceed.mockReset();
 		mocks.reset.mockReset();
+		mocks.submitFails = false;
+		mocks.isSubmitError = false;
 		mocks.isNavigationAllowed = false;
 	});
 
 	afterEach(cleanup);
 
-	it('rates the latest answer and continues the blocked navigation', () => {
+	it('keeps the prompt open after voting and continues navigation once feedback is submitted', () => {
 		render(<ConversationFeedbackGuard chatId='chat-1' />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Good conversation' }));
+
+		expect(mocks.mutate).not.toHaveBeenCalled();
+		expect(mocks.proceed).not.toHaveBeenCalled();
+
+		fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Useful answer  ' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
 		expect(mocks.mutate).toHaveBeenCalledWith({
 			chatId: 'chat-1',
 			messageId: 'answer-1',
 			vote: 'up',
+			explanation: 'Useful answer',
 		});
 		expect(mocks.proceed).toHaveBeenCalledOnce();
 	});
@@ -143,36 +161,43 @@ describe('ConversationFeedbackGuard', () => {
 
 		expect(mocks.blockerOptions?.disabled).toBe(false);
 		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(false);
-		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
-	it('shows a dismissible leave prompt without a skip button when feedback collection is not enforced', () => {
-		mocks.agentSettings.enforceConversationFeedbackBeforeLeaving = false;
-
+	it('stays in the conversation when the prompt is closed', () => {
 		render(<ConversationFeedbackGuard chatId='chat-1' />);
-
-		expect(mocks.blockerOptions?.disabled).toBe(false);
-		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
-		expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
 
 		fireEvent.keyDown(document, { key: 'Escape' });
 
+		expect(mocks.reset).toHaveBeenCalledOnce();
+		expect(mocks.proceed).not.toHaveBeenCalled();
+	});
+
+	it('continues navigation without feedback when skipped', () => {
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+		expect(mocks.mutate).not.toHaveBeenCalled();
 		expect(mocks.proceed).toHaveBeenCalledOnce();
 	});
 
-	it('keeps enforced navigation pending while the latest answer is generating', () => {
-		mocks.isRunning = true;
+	it('keeps the prompt open with an error when submitting fails', () => {
+		mocks.submitFails = true;
 		const { rerender } = render(<ConversationFeedbackGuard chatId='chat-1' />);
 
-		expect(mocks.blockerOptions?.disabled).toBe(false);
-		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
-		expect(screen.queryByRole('dialog')).toBeNull();
-
-		mocks.isRunning = false;
+		fireEvent.click(screen.getByRole('button', { name: 'Bad conversation' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 		rerender(<ConversationFeedbackGuard chatId='chat-1' />);
 
-		expect(screen.getByRole('dialog')).toBeTruthy();
-		expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+		expect(mocks.proceed).not.toHaveBeenCalled();
+		expect(screen.getByRole('alert').textContent).toContain("Couldn't send your feedback");
+	});
+
+	it('does not prompt while the latest answer is generating', () => {
+		mocks.isRunning = true;
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(false);
 	});
 
 	it('allows navigation within the chat and after the chat is deleted', () => {

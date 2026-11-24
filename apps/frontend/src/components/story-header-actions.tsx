@@ -140,8 +140,8 @@ export function StoryFeedbackButtons({ storyId }: { storyId: string }) {
 		setIsDialogOpen(true);
 	};
 
-	const handleSubmit = (explanation?: string) => {
-		submitFeedback.mutate({ storyId, vote: dialogVote, explanation });
+	const handleSubmit = (explanation: string | undefined, vote: FeedbackVote) => {
+		submitFeedback.mutate({ storyId, vote, explanation });
 		setIsDialogOpen(false);
 	};
 
@@ -171,7 +171,7 @@ export function StoryFeedbackButtons({ storyId }: { storyId: string }) {
 				onOpenChange={setIsDialogOpen}
 				onSubmit={handleSubmit}
 				isPending={submitFeedback.isPending}
-				vote={dialogVote}
+				defaultVote={dialogVote}
 				subject='story'
 			/>
 		</>
