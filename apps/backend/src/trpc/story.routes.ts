@@ -944,8 +944,7 @@ export const storyRoutes = {
 		const actor = toShareActor(ctx);
 		await assertCanManageStoryShare(story, actor);
 		const ownerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
-		const recipients = await listStoryRecipients(actor, ownerId);
-		return recipients.map(({ id, name, email }) => ({ id, name, email }));
+		return listStoryRecipients(actor, ownerId);
 	}),
 
 	transferOwnership: canSendProcedure

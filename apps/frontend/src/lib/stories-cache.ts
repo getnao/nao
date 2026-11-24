@@ -30,6 +30,7 @@ export function invalidateStoryOwnershipCaches(queryClient: QueryClient): void {
 	invalidateStoryPlacementCaches(queryClient);
 	void queryClient.invalidateQueries({ queryKey: trpc.story.resolve.queryKey() });
 	void queryClient.invalidateQueries({ queryKey: trpc.storyShare.getShareSettings.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.story.listTransferRecipients.queryKey() });
 	void queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey() });
 	void queryClient.invalidateQueries({ queryKey: trpc.story.listStories.queryKey() });
 	void queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey() });

@@ -6,15 +6,18 @@ import { trpc } from '@/main';
 
 interface TransferAutomationsDialogProps {
 	member: TransferRecipient | null;
-	recipients: TransferRecipient[];
 	onOpenChange: (open: boolean) => void;
 }
 
 /** Hands every automation a member owns in the project to another member, e.g. when they leave or are away for long. */
-export function TransferAutomationsDialog({ member, recipients, onOpenChange }: TransferAutomationsDialogProps) {
+export function TransferAutomationsDialog({ member, onOpenChange }: TransferAutomationsDialogProps) {
 	const queryClient = useQueryClient();
 	const ownedAutomations = useQuery({
 		...trpc.automation.countOwnedByUser.queryOptions({ userId: member?.id ?? '' }),
+		enabled: !!member,
+	});
+	const recipients = useQuery({
+		...trpc.project.listTransferRecipients.queryOptions({ fromUserId: member?.id ?? '' }),
 		enabled: !!member,
 	});
 	const transfer = useMutation(
@@ -40,11 +43,11 @@ export function TransferAutomationsDialog({ member, recipients, onOpenChange }: 
 					? 'Their automations could not be counted. Close this dialog and try again.'
 					: describeOwnedAutomations(member?.name ?? '', automationCount)
 			}
-			recipients={recipients}
+			recipients={recipients.data}
 			canTransfer={!!automationCount}
 			hasNothingToTransfer={automationCount === 0}
 			isPending={transfer.isPending}
-			error={transfer.error?.message}
+			error={recipients.error?.message ?? transfer.error?.message}
 			onTransfer={(recipientId) => member && transfer.mutate({ fromUserId: member.id, recipientId })}
 		/>
 	);

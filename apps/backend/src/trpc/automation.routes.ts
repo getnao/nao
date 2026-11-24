@@ -30,6 +30,7 @@ import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
+import { hasTableAccessOf, MISSING_TABLE_ACCESS_MESSAGE } from '../services/user-group-context-access.service';
 import { llmProviderSchema } from '../types/llm';
 import {
 	adminProtectedProcedure,
@@ -386,7 +387,7 @@ export const automationRoutes = {
 			if (automation.userId === input.newOwnerId) {
 				return { success: true as const };
 			}
-			await assertCanOwnAutomation(ctx.project.id, input.newOwnerId);
+			await assertCanOwnAutomation(ctx.project.id, input.newOwnerId, automation.userId);
 			await automationQueries.transferAutomationOwnership(automation.id, input.newOwnerId);
 			return { success: true as const };
 		}),
@@ -402,7 +403,7 @@ export const automationRoutes = {
 			if (input.fromUserId === input.recipientId) {
 				return { transferredCount: 0 };
 			}
-			await assertCanOwnAutomation(ctx.project.id, input.recipientId);
+			await assertCanOwnAutomation(ctx.project.id, input.recipientId, input.fromUserId);
 			const transferredCount = await automationQueries.transferProjectAutomationsOfUser(
 				ctx.project.id,
 				input.fromUserId,
@@ -495,13 +496,16 @@ async function setAutomationActive(
 	return { ...automation, webhookEnabled, eventTriggers };
 }
 
-async function assertCanOwnAutomation(projectId: string, userId: string): Promise<void> {
+async function assertCanOwnAutomation(projectId: string, userId: string, previousOwnerId: string): Promise<void> {
 	const role = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (!role) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The new owner must have access to this project.' });
 	}
 	if (role === 'viewer') {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Viewers cannot own automations.' });
+	}
+	if (!(await hasTableAccessOf(projectId, previousOwnerId, userId))) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: MISSING_TABLE_ACCESS_MESSAGE });
 	}
 }
 
