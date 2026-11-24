@@ -3,8 +3,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChatHeaderFeedback } from './chat-header-feedback';
 import type { UIMessage } from '@nao/backend/chat';
+import { ChatHeaderFeedback } from '@/components/chat-header-feedback';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({

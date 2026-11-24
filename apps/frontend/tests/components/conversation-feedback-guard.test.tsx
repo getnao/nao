@@ -2,8 +2,8 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConversationFeedbackGuard } from './conversation-feedback-guard';
 import type { UIMessage } from '@nao/backend/chat';
+import { ConversationFeedbackGuard } from '@/components/conversation-feedback-guard';
 
 const mocks = vi.hoisted(() => ({
 	agentSettings: { requireConversationFeedback: true },
