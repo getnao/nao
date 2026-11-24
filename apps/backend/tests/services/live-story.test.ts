@@ -244,9 +244,8 @@ describe('live story SQL execution', () => {
 		mocks.getChatOwnerId.mockResolvedValue('owner-1');
 		mocks.getChatProjectId.mockResolvedValue('project-1');
 		mocks.resolveUserBackgroundModelSelection.mockImplementation(
-			async (_projectId: string, _userId: string, selection: unknown) => {
-				return selection;
-			},
+			async (projectId: string, _userId: string, selection: unknown) =>
+				selection ?? mocks.resolveDefaultChatModel(projectId),
 		);
 		mocks.getStoryByChatAndSlug.mockImplementation(async (_chatId, slug) => ({
 			id: 'story-1',

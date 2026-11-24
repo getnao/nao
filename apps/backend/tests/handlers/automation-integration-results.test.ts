@@ -197,6 +197,7 @@ function createStoppableAgent() {
 			closeStream();
 		},
 		waitUntilFinished: () => Promise.resolve(),
+		getModelSelection: () => ({ provider: 'openai', modelId: 'gpt-5-mini' }),
 	};
 	return agent;
 }

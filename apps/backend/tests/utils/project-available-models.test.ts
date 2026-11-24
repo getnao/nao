@@ -412,6 +412,19 @@ describe('resolveProviderModel with a project base URL pointing at a private add
 		expect(captured).toEqual([]);
 	});
 
+	it('is refused on cloud for a credential that reads its key from the environment', async () => {
+		mocks.isCloud = true;
+		vi.stubEnv('OPENAI_COMPATIBLE_API_KEY', 'env-key');
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			...(await mocks.getProjectLlmConfigByProvider()),
+			credentialSource: 'env',
+		});
+
+		await expect(generateWithProjectModel()).rejects.toThrow('private address');
+		expect(captured).toEqual([]);
+		vi.unstubAllEnvs();
+	});
+
 	it('is reached on a self-hosted instance, where internal endpoints are the point', async () => {
 		await generateWithProjectModel();
 

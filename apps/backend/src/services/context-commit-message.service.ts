@@ -1,12 +1,10 @@
-import type { LlmProvider } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { generateText } from 'ai';
 
-import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
-import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveUserBackgroundModel } from './background-model.service';
 import { type ContextExplorerGitContext, readContextChangesPatch } from './context-explorer-git.service';
-import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 const MAX_PATCH_LENGTH = 12_000;
 const MAX_MESSAGE_LENGTH = 120;
@@ -26,7 +24,14 @@ export async function generateContextCommitMessage(
 	if (!patch.trim()) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'None of these files has changes to describe.' });
 	}
-	const modelConfig = await resolveModelForProject(context.projectId, context.userId);
+	const { projectId, userId } = context;
+	const modelConfig = await resolveUserBackgroundModel({
+		projectId,
+		userId,
+		defaultCategory: 'other',
+		preferredModelId: ({ provider }) => getProviderMeta(provider).summaryModelId,
+		usageContext: { userId, projectId, category: 'title' },
+	});
 	if (!modelConfig) {
 		throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Set up a model for this project first.' });
 	}
@@ -35,7 +40,7 @@ export async function generateContextCommitMessage(
 		system: SYSTEM_PROMPT,
 		messages: [{ role: 'user', content: patch }],
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
-		experimental_telemetry: llmTelemetry('nao-context-commit-message', { projectId: context.projectId }),
+		experimental_telemetry: llmTelemetry('nao-context-commit-message', { projectId }),
 	});
 	return sanitizeCommitMessage(text);
 }
@@ -47,33 +52,4 @@ export function sanitizeCommitMessage(text: string): string {
 		.replace(/\.$/, '')
 		.trim()
 		.slice(0, MAX_MESSAGE_LENGTH);
-}
-
-async function resolveModelForProject(
-	projectId: string,
-	userId: string,
-): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
-	const provider = selection.provider;
-	const modelId = await resolveUserBackgroundModelId(
-		projectId,
-		userId,
-		selection,
-		pinned ? selection.modelId : getProviderMeta(provider).summaryModelId,
-	);
-	const model = await resolveProviderModel(
-		projectId,
-		provider,
-		modelId,
-		false,
-		{
-			userId,
-			projectId,
-			category: 'title',
-		},
-		undefined,
-		selection.llmConfigId,
-	);
-	return model ? { provider, model } : null;
 }

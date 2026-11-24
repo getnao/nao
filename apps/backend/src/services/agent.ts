@@ -96,7 +96,6 @@ import {
 	getProjectDeclaredModels,
 	resolveAnnotationModelId,
 	resolveDefaultChatModel,
-	resolveDefaultModelSelection,
 	resolveProviderModel,
 	resolveProviderSettings,
 } from '../utils/llm';
@@ -113,6 +112,7 @@ import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { assertUserIsActive } from './account-status.service';
+import { resolveUserBackgroundModel } from './background-model.service';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
@@ -149,11 +149,7 @@ import {
 	appendAgentUserGroupRestrictions,
 	resolveAgentUserGroupAccess,
 } from './user-group-feature-access.service';
-import {
-	resolveUserBackgroundModelId,
-	resolveUserBackgroundModelSelection,
-	resolveUserModelSelection,
-} from './user-group-llm-access.service';
+import { resolveUserModelSelection } from './user-group-llm-access.service';
 import { safeListPersonalSkillsForAgent } from './user-skill.service';
 import { getWarehouseAccessTokenForUser } from './warehouse-access-token.service';
 
@@ -1031,28 +1027,18 @@ export class AgentManager {
 	}
 
 	private async _generateTitle(userMessageText: string): Promise<void> {
-		const pinned = await resolveDefaultModelSelection(this.chat.projectId, 'title');
-		const selected = await resolveUserBackgroundModelSelection(
-			this.chat.projectId,
-			this.chat.userId,
-			pinned ?? this._modelSelection,
-		);
-		const provider = selected.provider;
-		const preferredModelId = pinned
-			? selected.modelId
-			: await resolveAnnotationModelId(this.chat.projectId, selected, getProviderMeta(provider).summaryModelId);
-		const summaryModelId = await resolveUserBackgroundModelId(
-			this.chat.projectId,
-			this.chat.userId,
-			selected,
-			preferredModelId,
-		);
-		const modelResult = await resolveProviderModel(
-			this.chat.projectId,
-			provider,
-			summaryModelId,
-			false,
-			{
+		const resolved = await resolveUserBackgroundModel({
+			projectId: this.chat.projectId,
+			userId: this.chat.userId,
+			defaultCategory: 'title',
+			fallback: this._modelSelection,
+			preferredModelId: (selection) =>
+				resolveAnnotationModelId(
+					this.chat.projectId,
+					selection,
+					getProviderMeta(selection.provider).summaryModelId,
+				),
+			usageContext: {
 				userId: this.chat.userId,
 				projectId: this.chat.projectId,
 				chatId: this.chat.id,
@@ -1060,12 +1046,11 @@ export class AgentManager {
 				category: 'title',
 				billingMode: this._usageContext.billingMode,
 			},
-			undefined,
-			selected.llmConfigId,
-		);
-		if (!modelResult) {
+		});
+		if (!resolved) {
 			return;
 		}
+		const { provider, model: modelResult } = resolved;
 
 		const { text, usage } = await generateText({
 			...disableModelReasoning(provider, modelResult),
@@ -1088,7 +1073,7 @@ export class AgentManager {
 			provider,
 			modelResult.model.modelId,
 			convertToTokenUsage(usage),
-			selected.llmConfigId,
+			resolved.llmConfigId,
 		);
 
 		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);

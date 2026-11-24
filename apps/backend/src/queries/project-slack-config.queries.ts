@@ -4,21 +4,8 @@ import { eq } from 'drizzle-orm';
 import s, { DBProject } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import { SlackReplyMode, SlackTransportMode } from '../types/messaging-provider';
-import { updateProjectSettings } from './project-settings.queries';
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-	llmConfigId?: string,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId, ...(llmConfigId && { llmConfigId }) } : undefined;
-}
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectSlackConfig = async (projectId: string): Promise<SlackConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();

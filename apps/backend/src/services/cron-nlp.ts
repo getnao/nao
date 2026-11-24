@@ -1,19 +1,23 @@
-import type { LlmProvider } from '@nao/shared/types';
 import { generateText } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 
-import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
 import { sanitizeCron } from '../utils/cron';
 import { ManagedCreditsExhaustedError } from '../utils/error';
-import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
-import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
+import { resolveUserBackgroundModel } from './background-model.service';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
 
 export async function naturalLanguageToCron(projectId: string, userId: string, text: string): Promise<string | null> {
-	const modelConfig = await resolveModelForProject(projectId, userId);
+	const modelConfig = await resolveUserBackgroundModel({
+		projectId,
+		userId,
+		defaultCategory: 'other',
+		preferredModelId: ({ provider }) => getProviderMeta(provider).extractorModelId,
+		usageContext: { userId, projectId, category: 'cron' },
+	});
 	if (!modelConfig) {
 		return null;
 	}
@@ -51,33 +55,4 @@ export async function naturalLanguageToCron(projectId: string, userId: string, t
 		}
 		return null;
 	}
-}
-
-async function resolveModelForProject(
-	projectId: string,
-	userId: string,
-): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
-	const provider = selection.provider;
-	const modelId = await resolveUserBackgroundModelId(
-		projectId,
-		userId,
-		selection,
-		pinned ? selection.modelId : getProviderMeta(provider).extractorModelId,
-	);
-	const model = await resolveProviderModel(
-		projectId,
-		provider,
-		modelId,
-		false,
-		{
-			userId,
-			projectId,
-			category: 'cron',
-		},
-		undefined,
-		selection.llmConfigId,
-	);
-	return model ? { provider, model } : null;
 }

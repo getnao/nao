@@ -1,7 +1,5 @@
-import type { LlmProvider } from '@nao/shared/types';
-
 import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
-import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
@@ -14,10 +12,10 @@ import type {
 	UserMemory,
 	UserProfile,
 } from '../types/memory';
-import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId } from '../utils/llm';
 import { logger } from '../utils/logger';
+import { type BackgroundModel, resolveUserBackgroundModel } from './background-model.service';
 import { posthog, PostHogEvent } from './posthog';
-import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 /**
  * Manages persistent user memories: injecting them into agent context and
@@ -62,23 +60,12 @@ class MemoryService {
 			return;
 		}
 
-		const pinned = await resolveDefaultModelSelection(opts.projectId, 'other');
-		const selected = await resolveUserBackgroundModelSelection(
-			opts.projectId,
-			opts.userId,
-			pinned ?? {
-				provider: opts.provider,
-				modelId: opts.modelId,
-				...(opts.llmConfigId && { llmConfigId: opts.llmConfigId }),
-			},
-		);
-		const provider = selected.provider;
-		const preferredModelId = pinned ? selected.modelId : await this._getExtractorModelId(opts.projectId, selected);
-		const modelId = await resolveUserBackgroundModelId(opts.projectId, opts.userId, selected, preferredModelId);
-		const model = await this._resolveModel(opts, provider, modelId, selected.llmConfigId);
-		if (!model) {
+		const resolved = await this._resolveModel(opts);
+		if (!resolved) {
 			return;
 		}
+		const { provider, modelId, llmConfigId } = resolved;
+		const model = disableModelReasoning(provider, resolved.model);
 
 		const existingMemories = await memoryQueries.getUserMemories(opts.userId);
 		const extractor = new MemoryExtractorLLM(model);
@@ -98,7 +85,7 @@ class MemoryService {
 			...opts,
 			provider,
 			modelId,
-			llmConfigId: selected.llmConfigId,
+			llmConfigId,
 			usage: extractorResult.usage,
 			newCount,
 			supersededCount,
@@ -108,37 +95,26 @@ class MemoryService {
 			...opts,
 			provider,
 			modelId,
-			llmConfigId: selected.llmConfigId,
+			llmConfigId,
 			usage: extractorResult.usage,
 		});
 	}
 
-	private async _resolveModel(
-		context: Pick<MemoryExtractionOptions, 'userId' | 'projectId' | 'chatId' | 'runId' | 'billingMode'>,
-		provider: LlmProvider,
-		modelId: string,
-		llmConfigId?: string,
-	): Promise<ProviderModelResult | null> {
-		const model = await resolveProviderModel(
-			context.projectId,
-			provider,
-			modelId,
-			false,
-			{
-				...context,
-				category: 'memory',
+	private _resolveModel(opts: MemoryExtractionOptions): Promise<BackgroundModel | null> {
+		const { projectId, userId, chatId, runId, billingMode } = opts;
+		return resolveUserBackgroundModel({
+			projectId,
+			userId,
+			defaultCategory: 'other',
+			fallback: {
+				provider: opts.provider,
+				modelId: opts.modelId,
+				...(opts.llmConfigId && { llmConfigId: opts.llmConfigId }),
 			},
-			undefined,
-			llmConfigId,
-		);
-		return model ? disableModelReasoning(provider, model) : null;
-	}
-
-	private async _getExtractorModelId(
-		projectId: string,
-		selection: { provider: LlmProvider; modelId: string; llmConfigId?: string },
-	): Promise<string> {
-		return resolveAnnotationModelId(projectId, selection, getProviderMeta(selection.provider).extractorModelId);
+			preferredModelId: (selection) =>
+				resolveAnnotationModelId(projectId, selection, getProviderMeta(selection.provider).extractorModelId),
+			usageContext: { userId, projectId, chatId, runId, billingMode, category: 'memory' },
+		});
 	}
 
 	private async _persistExtractedMemories(opts: {

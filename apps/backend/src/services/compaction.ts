@@ -15,11 +15,11 @@ import {
 	findLastUserMessageIndex,
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
-import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId } from '../utils/llm';
 import { sanitizeToolCalls } from '../utils/model-message';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { resolveUserBackgroundModel } from './background-model.service';
 import { ITokenCounter, TokenCounter } from './token-counter';
-import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
 
@@ -242,27 +242,18 @@ export class CompactionService {
 		runId?: string,
 		billingMode?: ManagedAiUsageContext['billingMode'],
 	): Promise<ResolvedCompactionLLM | undefined> {
-		const pinned = await resolveDefaultModelSelection(chat.projectId, 'compaction');
-		const authorized = await resolveUserBackgroundModelSelection(
-			chat.projectId,
-			chat.userId,
-			pinned ?? selectedModel,
-		);
-		const effectiveProvider = authorized.provider;
-		const preferredModelId = pinned
-			? authorized.modelId
-			: await resolveAnnotationModelId(
+		const resolved = await resolveUserBackgroundModel({
+			projectId: chat.projectId,
+			userId: chat.userId,
+			defaultCategory: 'compaction',
+			fallback: selectedModel,
+			preferredModelId: (selection) =>
+				resolveAnnotationModelId(
 					chat.projectId,
-					authorized,
-					getProviderMeta(effectiveProvider).extractorModelId,
-				);
-		const modelId = await resolveUserBackgroundModelId(chat.projectId, chat.userId, authorized, preferredModelId);
-		const model = await resolveProviderModel(
-			chat.projectId,
-			effectiveProvider,
-			modelId,
-			false,
-			{
+					selection,
+					getProviderMeta(selection.provider).extractorModelId,
+				),
+			usageContext: {
 				userId: chat.userId,
 				projectId: chat.projectId,
 				chatId: chat.id,
@@ -270,16 +261,14 @@ export class CompactionService {
 				category: 'compaction',
 				billingMode,
 			},
-			undefined,
-			authorized.llmConfigId,
-		);
-		if (!model) {
+		});
+		if (!resolved) {
 			return undefined;
 		}
 		return {
-			llm: this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc),
-			provider: effectiveProvider,
-			llmConfigId: authorized.llmConfigId,
+			llm: this.options.createCompactionLlm(disableModelReasoning(resolved.provider, resolved.model), this._tc),
+			provider: resolved.provider,
+			llmConfigId: resolved.llmConfigId,
 		};
 	}
 

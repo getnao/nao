@@ -30,7 +30,6 @@ import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache
 import type { StoryQuerySources } from '../types/story-cache';
 import type { ChatlessToolContext, QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
-import { resolveDefaultChatModel, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { describeError, logger } from '../utils/logger';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
@@ -51,6 +50,7 @@ import {
 	stripViewerSensitiveTagCopy,
 } from '../utils/story-structure';
 import { buildChatlessToolContext, buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
+import { type BackgroundModel, resolveUserBackgroundModel } from './background-model.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
@@ -69,7 +69,6 @@ import {
 } from './story-sql-queries';
 import { getActiveGroupImpersonation } from './user-group-availability.service';
 import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
-import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
@@ -1232,38 +1231,25 @@ function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNa
 	return narratives;
 }
 
-type LiveStoryModel = NonNullable<Awaited<ReturnType<typeof resolveLiveStoryModel>>>;
-
-/** The pinned live story model, otherwise the project's default chat model, so a refresh never lands on a model the chat cannot use. */
-async function resolveLiveStoryModel(target: StoryRefreshTarget) {
-	const requested =
-		(await resolveDefaultModelSelection(target.projectId, 'live_story')) ??
-		(await resolveDefaultChatModel(target.projectId));
-	if (!requested) {
-		return null;
-	}
-
-	const selection = await resolveUserBackgroundModelSelection(target.projectId, target.userId, requested);
-	const model = await resolveProviderModel(
-		target.projectId,
-		selection.provider,
-		selection.modelId,
-		true,
-		{
+/** The pinned live story model, otherwise the user's default chat model, so a refresh never lands on a model the chat cannot use. */
+function resolveLiveStoryModel(target: StoryRefreshTarget): Promise<BackgroundModel | null> {
+	return resolveUserBackgroundModel({
+		projectId: target.projectId,
+		userId: target.userId,
+		defaultCategory: 'live_story',
+		applyUserSettings: true,
+		usageContext: {
 			userId: target.userId,
 			projectId: target.projectId,
 			chatId: target.chatId ?? undefined,
 			category: 'story',
 		},
-		undefined,
-		selection.llmConfigId,
-	);
-	return model ? { provider: selection.provider, model, llmConfigId: selection.llmConfigId } : null;
+	});
 }
 
 async function generateLiveStoryOutput<T>(
 	target: StoryRefreshTarget,
-	{ provider, model, llmConfigId }: LiveStoryModel,
+	{ provider, model, llmConfigId }: BackgroundModel,
 	systemPrompt: string,
 	instruction: string,
 	schema: z.ZodType<T>,

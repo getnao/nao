@@ -4,10 +4,9 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import type { MattermostSettings } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
-import { updateProjectSettings } from './project-settings.queries';
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectMattermostConfig = async (projectId: string): Promise<MattermostConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -100,18 +99,6 @@ function toMattermostConfig(
 		interactiveButtonsEnabled: settings.mattermostInteractiveButtonsEnabled ?? false,
 		callbackUrl: settings.mattermostCallbackUrl,
 	};
-}
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-	llmConfigId?: string,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId, ...(llmConfigId && { llmConfigId }) } : undefined;
 }
 
 export interface MattermostConfig {
