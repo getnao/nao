@@ -222,6 +222,21 @@ describe('deploy route deployment record', () => {
 		expect(send).toHaveBeenCalledWith(expect.objectContaining({ status: 'created' }));
 	});
 
+	it('reports at most ten escaping references of one config, then how many more it holds', async () => {
+		const send = vi.fn();
+		const references = Array.from({ length: 25 }, (_, index) => `  r${index}: { from_file: ../${index}.yml }`);
+
+		await handler()(deployRequest('flood', `tables:\n${references.join('\n')}\n`), {
+			status: vi.fn(() => ({ send })),
+			send,
+		});
+
+		expect(mocks.reportSecuritySignal).toHaveBeenCalledTimes(11);
+		expect(mocks.reportSecuritySignal).toHaveBeenLastCalledWith('path-escape', 'from_file: 15 more references', {
+			userId: 'user-id',
+		});
+	});
+
 	it('stamps the existing project when a deployment updates it', async () => {
 		const projectDir = createTemporaryFolder('nao-deploy-existing-');
 		mocks.getProjectByOrgAndName.mockResolvedValue({ id: 'existing-project', path: projectDir });

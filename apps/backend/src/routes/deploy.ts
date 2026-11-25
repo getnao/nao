@@ -14,6 +14,8 @@ import { createProject, recordProjectDeployment } from '../services/project.serv
 import { listEscapingFileReferences } from '../utils/nao-config-references';
 import { reportSecuritySignal } from '../utils/security-signal';
 
+const MAX_REPORTED_FILE_REFERENCES = 10;
+
 export const deployRoutes = async (app: App) => {
 	app.post('/deploy', async (request, reply) => {
 		const authHeader = request.headers.authorization;
@@ -105,10 +107,15 @@ export const deployRoutes = async (app: App) => {
 	});
 };
 
-/** Deployed as is, as such references are ignored when the config is read. */
+/** Deployed as is, as such references are ignored when the config is read. Capped, so one config cannot flood the logs. */
 function reportEscapingFileReferences(config: unknown, userId: string): void {
-	for (const file of listEscapingFileReferences(config)) {
+	const files = listEscapingFileReferences(config);
+	for (const file of files.slice(0, MAX_REPORTED_FILE_REFERENCES)) {
 		reportSecuritySignal('path-escape', `from_file ${file}`, { userId });
+	}
+	if (files.length > MAX_REPORTED_FILE_REFERENCES) {
+		const remaining = files.length - MAX_REPORTED_FILE_REFERENCES;
+		reportSecuritySignal('path-escape', `from_file: ${remaining} more references`, { userId });
 	}
 }
 
