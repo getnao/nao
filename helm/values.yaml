@@ -397,6 +397,23 @@ tolerations: []
 affinity: {}
 
 # =============================================================================
+# Rollout and shutdown
+# =============================================================================
+# -- Seconds a new pod must stay ready before it counts as available
+minReadySeconds: 0
+# -- Deployment update strategy (Kubernetes default when empty)
+strategy: {}
+# strategy:
+#   type: RollingUpdate
+#   rollingUpdate:
+#     maxSurge: 1
+#     maxUnavailable: 0
+# -- Pod termination grace period (Kubernetes default of 30s when empty).
+#    supervisord gives the backend up to 120s to stop (stopwaitsecs), so raise
+#    this above 120 to let long-running chats finish on rollouts.
+terminationGracePeriodSeconds: null
+
+# =============================================================================
 # Persistence — used when config.contextSource = "local"
 # Populated at pod startup by the gitSync initContainer.
 # =============================================================================
