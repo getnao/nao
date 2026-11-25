@@ -50,6 +50,8 @@ export function FolderCreateDialog({
 	const groups = groupsQuery.data ?? [];
 	const isAudienceLoading =
 		mode === 'create' && (treeQuery.isLoading || licenseFeatures.isLoading || groupsQuery.isLoading);
+	const groupsFailedToLoad =
+		mode === 'create' && groupIds.length > 0 && (groupsQuery.isError || licenseFeatures.isError);
 
 	const parentAudience = getTargetAudience(selectedParentId, tree);
 	const willBePrivate = parentAudience === 'private';
@@ -95,7 +97,7 @@ export function FolderCreateDialog({
 	const trimmed = name.trim();
 
 	function handleSubmit() {
-		if (!trimmed || isAudienceLoading) {
+		if (!trimmed || isAudienceLoading || groupsFailedToLoad) {
 			return;
 		}
 		if (mode === 'create') {
@@ -194,6 +196,11 @@ export function FolderCreateDialog({
 						)}
 					</p>
 				)}
+				{groupsFailedToLoad && (
+					<p className='text-xs text-destructive'>
+						Could not load the groups for this folder. Try again later.
+					</p>
+				)}
 				{mutationError && <p className='text-xs text-destructive'>{mutationError.message}</p>}
 				<DialogFooter>
 					<Button
@@ -208,7 +215,7 @@ export function FolderCreateDialog({
 						variant='primary-gradient'
 						className='rounded-full'
 						onClick={handleSubmit}
-						disabled={!trimmed || isPending || isAudienceLoading}
+						disabled={!trimmed || isPending || isAudienceLoading || groupsFailedToLoad}
 					>
 						{mode === 'create' ? 'Create' : 'Save'}
 					</Button>
