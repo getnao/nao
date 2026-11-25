@@ -7,10 +7,16 @@ import { requireOrganizationAdminCloudBilling } from '@/lib/route-guards';
 export const Route = createFileRoute('/_sidebar-layout/settings/organization/billing')({
 	beforeLoad: requireOrganizationAdminCloudBilling,
 	validateSearch: (search: Record<string, unknown>): OrganizationBillingSearch => ({
+		tab:
+			search.tab === 'plans' || search.tab === 'seats' || search.tab === 'credits' || search.tab === 'invoices'
+				? search.tab
+				: undefined,
 		checkout:
 			search.checkout === 'success' || search.checkout === 'subscribed' || search.checkout === 'canceled'
 				? search.checkout
 				: undefined,
+		checkoutPlan:
+			search.checkoutPlan === 'team' || search.checkoutPlan === 'unlimited' ? search.checkoutPlan : undefined,
 		portal: search.portal === 'returned' ? search.portal : undefined,
 		creditCheckout:
 			typeof search.creditCheckout === 'string' &&
@@ -32,6 +38,9 @@ function PlanAndBillingPage() {
 	return (
 		<OrganizationBillingSettings
 			search={search}
+			onTabChange={(tab) => {
+				navigate({ search: (current) => ({ ...current, tab }), replace: true, resetScroll: false });
+			}}
 			onCreditsTabChange={(creditsTab) => {
 				navigate({
 					search: (current) => ({ ...current, creditsTab }),

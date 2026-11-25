@@ -1,14 +1,18 @@
 import { isTerminalBillingStatus } from '@nao/shared/billing';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { CloudBillingCurrency } from '@nao/shared/billing';
+import type { CloudBillingCurrency, PaidCloudBillingTier } from '@nao/shared/billing';
 
 import { trpc } from '@/main';
 
 const STATUS_CONFIRMATION_TIMEOUT_MS = 15_000;
 
+export type OrganizationBillingTab = 'plans' | 'seats' | 'credits' | 'invoices';
+
 export type OrganizationBillingSearch = {
+	tab?: OrganizationBillingTab;
 	checkout?: 'success' | 'subscribed' | 'canceled';
+	checkoutPlan?: PaidCloudBillingTier;
 	portal?: 'returned';
 	creditCheckout?: string;
 	creditsTab?: 'history' | 'usage';
@@ -39,18 +43,13 @@ export function useOrganizationBillingSync(
 	});
 	const invoices = useQuery({
 		...trpc.billing.getInvoices.queryOptions(),
-		enabled: billing.data?.canManageBilling === true && billing.data.invoiceHistoryAvailable,
+		enabled: billing.data?.invoiceHistoryAvailable === true,
 		refetchOnWindowFocus: false,
 	});
 	const syncStripeBilling = useMutation(
 		trpc.billing.syncStripeBilling.mutationOptions({
 			onSuccess: async () => {
-				await Promise.all([
-					billing.refetch(),
-					invoices.refetch(),
-					queryClient.invalidateQueries({ queryKey: trpc.billing.getUpcomingInvoice.queryKey() }),
-					queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
-				]);
+				await invalidateBillingAndMembers();
 				setIsBillingRefreshPolling(false);
 			},
 		}),
@@ -65,10 +64,8 @@ export function useOrganizationBillingSync(
 			: search.checkout === 'success'
 				? paidPlanSelected
 				: false;
-	const canSyncStripeBilling =
-		billing.data?.canManageBilling === true && billing.data.paymentMethodManagementAvailable;
 	const shouldAutoSyncStripeBilling =
-		canSyncStripeBilling &&
+		billing.data?.paymentMethodManagementAvailable === true &&
 		(search.portal === 'returned' || search.checkout === 'success' || search.checkout === 'subscribed');
 	const syncBillingWithStripe = syncStripeBilling.mutate;
 
@@ -124,6 +121,17 @@ export function useOrganizationBillingSync(
 					: 'Billing details refreshed from Stripe.'
 			: null;
 
+	function invalidateBillingAndMembers() {
+		return Promise.all([
+			billing.refetch(),
+			invoices.refetch(),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getUpcomingInvoice.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.organization.getUserCounts.queryKey() }),
+		]);
+	}
+
 	return {
 		billing,
 		invoices,
@@ -140,6 +148,7 @@ export function useOrganizationBillingSync(
 		syncError: syncStripeBilling.error?.message ?? null,
 		isBillingSyncPending: syncStripeBilling.isPending,
 		setIsResumeConfirming,
+		invalidateBillingAndMembers,
 		syncBilling: () => {
 			setIsBillingRefreshPolling(true);
 			syncStripeBilling.mutate();

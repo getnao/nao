@@ -16,6 +16,7 @@ import {
 	ThumbsDown,
 	ThumbsUp,
 	Timer,
+	Users,
 	Wallet,
 	X,
 } from 'lucide-react';
@@ -273,6 +274,7 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	budget: Wallet,
 	feedback: ThumbsDown,
 	story_refresh: RefreshCw,
+	seats: Users,
 	shared: Share2,
 	subscription: BellPlus,
 	test_run: FlaskConical,

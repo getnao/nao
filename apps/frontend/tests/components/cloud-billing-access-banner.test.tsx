@@ -10,16 +10,22 @@ type RefetchInterval = (query: { state: { data: Record<string, unknown> | undefi
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const restrictedTrialAccess = {
+const trialAccess = {
 	canManageBilling: true,
-	hasAccess: false,
+	hasAccess: true,
 	bypassBilling: false,
 	organizationId: 'project-organization',
 	requiresBillingAction: true,
 	status: 'trialing',
 	trialAvailable: false,
 	trialEndsAt: null,
+	tier: 'trial',
+	seatLimit: null,
+	seatUserCount: 5,
+	isReadOnly: false,
 };
+
+const readOnlyAccess = { ...trialAccess, status: 'active', tier: 'free', seatLimit: 3, isReadOnly: true };
 
 const mocks = vi.hoisted(() => ({
 	access: {} as Record<string, unknown>,
@@ -58,7 +64,7 @@ vi.mock('@/main', () => ({
 }));
 
 beforeEach(() => {
-	mocks.access = restrictedTrialAccess;
+	mocks.access = readOnlyAccess;
 	mocks.cloudBillingEnabled = true;
 	mocks.pathname = '/';
 	mocks.refetchInterval = undefined;
@@ -77,7 +83,7 @@ it('stays hidden when cloud billing is disabled', () => {
 
 	render(<CloudBillingAccessBanner />);
 
-	expect(screen.queryByText('A subscription is needed to keep using nao Cloud.')).toBeNull();
+	expect(screen.queryByRole('status')).toBeNull();
 });
 
 it('stays hidden on the plan and billing page', () => {
@@ -92,11 +98,10 @@ it('hides the active trial banner throughout settings without hiding access noti
 	mocks.pathname = '/settings/account';
 	const view = render(<CloudBillingAccessBanner />);
 
-	expect(screen.getByRole('status').textContent).toContain('A subscription is needed');
+	expect(screen.getByRole('status').textContent).toContain('You have read-only access.');
 
 	mocks.access = {
-		...restrictedTrialAccess,
-		hasAccess: true,
+		...trialAccess,
 		trialEndsAt: new Date(Date.now() + 14 * DAY_MS),
 	};
 
@@ -105,23 +110,32 @@ it('hides the active trial banner throughout settings without hiding access noti
 	expect(screen.queryByRole('status')).toBeNull();
 });
 
-it('explains the subscription requirement without presenting it as an alert', () => {
+it.each([
+	[
+		'a read-only member',
+		{ canManageBilling: false },
+		'You have read-only access.',
+		'Ask an organization admin to add a seat.',
+	],
+	['a read-only admin', {}, 'You have read-only access.', 'Add seats or reassign them to restore full access.'],
+	[
+		'a seated admin of an organization over capacity',
+		{ isReadOnly: false },
+		'2 people have read-only access.',
+		'Add seats or reassign them.',
+	],
+])('explains seat restrictions to %s without presenting them as an alert', (_case, overrides, title, description) => {
+	mocks.access = { ...readOnlyAccess, ...overrides };
+
 	render(<CloudBillingAccessBanner />);
 
-	expect(screen.getByRole('status').textContent).toContain('A subscription is needed to keep using nao Cloud.');
+	expect(screen.getByRole('status').textContent).toContain(title);
+	expect(screen.getByRole('status').textContent).toContain(description);
 	expect(screen.queryByRole('alert')).toBeNull();
 });
 
-it('keeps the subscription notice for admins of an organization that bypasses billing', () => {
-	mocks.access = { ...restrictedTrialAccess, bypassBilling: true };
-
-	render(<CloudBillingAccessBanner />);
-
-	expect(screen.getByRole('status').textContent).toContain('A subscription is needed to keep using nao Cloud.');
-});
-
 it('hides the notice from members of an organization that bypasses billing', () => {
-	mocks.access = { ...restrictedTrialAccess, bypassBilling: true, canManageBilling: false };
+	mocks.access = { ...readOnlyAccess, bypassBilling: true, canManageBilling: false };
 
 	render(<CloudBillingAccessBanner />);
 
@@ -129,7 +143,7 @@ it('hides the notice from members of an organization that bypasses billing', () 
 });
 
 it('warns about a failed payment while access is kept', () => {
-	mocks.access = { ...restrictedTrialAccess, hasAccess: true, status: 'past_due' };
+	mocks.access = { ...trialAccess, status: 'past_due' };
 
 	render(<CloudBillingAccessBanner />);
 
@@ -199,9 +213,8 @@ it('hides the trial-start notice from non-admins but shows the final three-day w
 	vi.useFakeTimers();
 	vi.setSystemTime(now);
 	mocks.access = {
-		...restrictedTrialAccess,
+		...trialAccess,
 		canManageBilling: false,
-		hasAccess: true,
 		trialEndsAt: new Date(now.getTime() + 14 * DAY_MS),
 	};
 
@@ -213,13 +226,13 @@ it('hides the trial-start notice from non-admins but shows the final three-day w
 	view.rerender(<CloudBillingAccessBanner />);
 
 	expect(screen.getByRole('status').textContent).toContain(
-		'Your free trial ends soon. 2 days left. An organization admin must manage billing to keep access.',
+		'Your free trial ends soon. 2 days left. An organization admin must choose a plan to keep full access for everyone.',
 	);
 	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
 });
 
 it('offers an available trial to non-managers and lets them dismiss it', () => {
-	mocks.access = { ...restrictedTrialAccess, canManageBilling: false, trialAvailable: true };
+	mocks.access = { ...trialAccess, canManageBilling: false, trialAvailable: true };
 
 	render(<CloudBillingAccessBanner />);
 
@@ -235,12 +248,12 @@ it('offers an available trial to non-managers and lets them dismiss it', () => {
 });
 
 it('stops polling after active billing access is confirmed', () => {
-	mocks.access = { ...restrictedTrialAccess, hasAccess: true, status: 'active' };
+	mocks.access = { ...trialAccess, status: 'active', tier: 'unlimited' };
 
 	render(<CloudBillingAccessBanner />);
 
 	expect(mocks.refetchInterval?.({ state: { data: mocks.access } })).toBe(false);
-	expect(mocks.refetchInterval?.({ state: { data: restrictedTrialAccess } })).toBe(60_000);
+	expect(mocks.refetchInterval?.({ state: { data: readOnlyAccess } })).toBe(60_000);
 });
 
 it('selects the project organization before opening billing management', async () => {
@@ -264,8 +277,7 @@ function startTrialEndingIn(remainingMs: number): Date {
 	vi.useFakeTimers();
 	vi.setSystemTime(now);
 	mocks.access = {
-		...restrictedTrialAccess,
-		hasAccess: true,
+		...trialAccess,
 		trialEndsAt,
 	};
 	return trialEndsAt;

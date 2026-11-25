@@ -1,7 +1,13 @@
+import type { CloudBillingTier } from '@nao/shared/billing';
+
 export type CloudBillingAccess = {
 	organizationId: string;
 	hasAccess: boolean;
 	bypassBilling: boolean;
+	tier: CloudBillingTier;
+	seatLimit: number | null;
+	seatUserCount: number;
+	isReadOnly: boolean;
 	status: string | null;
 	trialEndsAt: Date | null;
 	accessEndsAt: Date | null;
@@ -22,14 +28,35 @@ export function isCloudBillingAccessError(error: ParsedCloudBillingError | null)
 	return [error?.error, error?.message].some((value) => value?.includes('Cloud billing access is restricted'));
 }
 
+export function isCloudBillingSeatError(error: ParsedCloudBillingError | null): boolean {
+	return [error?.error, error?.message].some((value) => value?.includes('Cloud billing seat access is restricted'));
+}
+
+export function hasMoreSeatUsersThanSeats(access: Pick<CloudBillingAccess, 'seatLimit' | 'seatUserCount'>): boolean {
+	return access.seatLimit !== null && access.seatUserCount > access.seatLimit;
+}
+
 export function getCloudBillingAccessRefetchInterval(
 	access:
-		| Pick<CloudBillingAccess, 'status' | 'hasAccess' | 'accessEndsAt' | 'bypassBilling' | 'canManageBilling'>
+		| Pick<
+				CloudBillingAccess,
+				| 'status'
+				| 'hasAccess'
+				| 'accessEndsAt'
+				| 'bypassBilling'
+				| 'canManageBilling'
+				| 'isReadOnly'
+				| 'seatLimit'
+				| 'seatUserCount'
+		  >
 		| undefined,
 	now = Date.now(),
 ): number | false {
 	if (access?.bypassBilling && !access.canManageBilling) {
 		return false;
+	}
+	if (access && (access.isReadOnly || hasMoreSeatUsersThanSeats(access))) {
+		return BILLING_POLL_INTERVAL_MS;
 	}
 	if (access?.status !== 'active' || !access.hasAccess) {
 		return BILLING_POLL_INTERVAL_MS;

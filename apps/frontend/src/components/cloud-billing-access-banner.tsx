@@ -4,6 +4,7 @@ import { Clock3, Info, X } from 'lucide-react';
 import { useState } from 'react';
 
 import type { CloudBillingAccess } from '@/lib/cloud-billing-access';
+import { hasMoreSeatUsersThanSeats } from '@/lib/cloud-billing-access';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
@@ -103,11 +104,21 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 				: 'An organization admin can finish setting up the first project.',
 		};
 	}
-	if (!access.hasAccess) {
+	if (access.isReadOnly) {
 		return {
 			restricted: true,
-			title: 'A subscription is needed to keep using nao Cloud.',
-			description: 'Your data is safe and remains available. Subscribe to run agents and make changes.',
+			title: 'You have read-only access.',
+			description: access.canManageBilling
+				? 'Your organization has more people than seats. Add seats or reassign them to restore full access.'
+				: 'Your organization has more people than seats. Ask an organization admin to add a seat.',
+		};
+	}
+	if (access.canManageBilling && hasMoreSeatUsersThanSeats(access)) {
+		const readOnlyCount = access.seatUserCount - access.seatLimit!;
+		return {
+			restricted: true,
+			title: `${readOnlyCount} ${readOnlyCount === 1 ? 'person has' : 'people have'} read-only access.`,
+			description: 'Your organization has more people than seats. Add seats or reassign them.',
 		};
 	}
 	if (access.status === 'past_due') {
@@ -139,9 +150,9 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 			? `${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left. ${
 					access.requiresBillingAction
 						? access.canManageBilling
-							? 'Manage billing to keep access.'
-							: 'An organization admin must manage billing to keep access.'
-						: 'Your subscription will start automatically.'
+							? 'Choose a plan to keep full access for everyone.'
+							: 'An organization admin must choose a plan to keep full access for everyone.'
+						: 'Nothing changes for your team when it ends.'
 				}`
 			: `${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left. Only admins can see this banner.`,
 	};
