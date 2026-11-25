@@ -60,6 +60,11 @@ export function jsonToolResult<T extends Record<string, unknown>>(output: T): To
 	};
 }
 
+/** For tools whose errors are written for the user, such as a selection matching nothing. */
+export function errorMessageOf(toolName: string): (error: unknown) => string {
+	return (error) => (error instanceof Error ? error.message : `${toolName} failed.`);
+}
+
 export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentInput>(
 	server: McpServer,
 	ctx: McpContext,

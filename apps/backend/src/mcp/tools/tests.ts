@@ -13,7 +13,7 @@ import { MAX_TEST_RUN_ATTEMPTS, TEST_RUN_STATUSES, TEST_RUN_TRIGGERS } from '../
 import { compareContextVariants, listOneSidedTests } from '../../utils/test-comparison';
 import { countAttemptsByTest, toAttemptCounts } from '../../utils/test-run-totals';
 import type { McpContext } from '../logging';
-import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
+import { errorMessageOf, jsonToolResult, registerMcpTool } from './register-mcp-tool';
 
 const TEST_RUN_MODES = ['production', 'changes', 'compare'] as const satisfies readonly TestRunMode[];
 
@@ -336,9 +336,4 @@ async function requireUser(ctx: McpContext): Promise<{ id: string; name: string;
 		throw new Error('Your nao account could not be found.');
 	}
 	return { id: user.id, name: user.name, email: user.email };
-}
-
-/** The errors of the tests are written for the user, such as a selection matching no test. */
-function errorMessageOf(toolName: string): (error: unknown) => string {
-	return (error) => (error instanceof Error ? error.message : `${toolName} failed.`);
 }
