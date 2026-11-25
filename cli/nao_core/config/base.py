@@ -13,6 +13,7 @@ from rich.console import Console
 if TYPE_CHECKING:
     from ibis import BaseBackend
 
+from nao_core.text_files import read_text
 from nao_core.ui import UI, ask_confirm, ask_select
 
 from .confluence import ConfluenceConfig
@@ -247,7 +248,7 @@ class NaoConfig(BaseModel):
                 f"The value read with `from_file: {file}` is now written in nao_config.yaml itself: "
                 "nao moved it when loading the config, so the reference could not be kept."
             )
-        with config_file.open("w") as f:
+        with config_file.open("w", encoding="utf-8") as f:
             # Documentation Link
             f.write("# Configuration documentation:\n")
             f.write("# https://docs.getnao.io/nao-agent/context-builder/configuration#nao_config-yaml\n\n")
@@ -281,7 +282,7 @@ class NaoConfig(BaseModel):
         file does not exist yet are left out instead of failing the load.
         """
         config_file = path / "nao_config.yaml"
-        content = config_file.read_text()
+        content = read_text(config_file)
         processed_content, missing = process_secrets(content, extra_env=extra_env, process_env=process_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data, file_references = resolve_file_references(
@@ -431,7 +432,7 @@ LLM_OVERRIDE_NOTICE = (
 
 def annotate_llm_override(config_path: Path) -> None:
     """Note, above the saved `llm` block, that editing a provider in the app overrides it."""
-    content = config_path.read_text()
+    content = read_text(config_path)
     lines = content.splitlines()
     index = next((i for i, line in enumerate(lines) if line.rstrip() == "llm:"), None)
     if index is None:
@@ -439,12 +440,12 @@ def annotate_llm_override(config_path: Path) -> None:
 
     lines[index:index] = LLM_OVERRIDE_NOTICE
     trailing_newline = "\n" if content.endswith("\n") else ""
-    config_path.write_text("\n".join(lines) + trailing_newline)
+    config_path.write_text("\n".join(lines) + trailing_newline, encoding="utf-8")
 
 
 def annotate_optional_templates(config_path: Path) -> None:
     """Add commented optional templates to each saved database configuration."""
-    content = config_path.read_text()
+    content = read_text(config_path)
     lines = content.splitlines()
     index = 0
     changed = False
@@ -485,7 +486,7 @@ def annotate_optional_templates(config_path: Path) -> None:
 
     if changed:
         trailing_newline = "\n" if content.endswith("\n") else ""
-        config_path.write_text("\n".join(lines) + trailing_newline)
+        config_path.write_text("\n".join(lines) + trailing_newline, encoding="utf-8")
 
 
 def resolve_project_path() -> Path:

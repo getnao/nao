@@ -3,6 +3,7 @@ from pathlib import Path
 
 import yaml
 
+from nao_core.text_files import read_text
 from nao_core.ui import UI
 
 from .assertions import Assertion, parse_assertions
@@ -38,8 +39,7 @@ class TestCase:
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
         """Load a test case from a YAML file."""
-        with open(file_path) as f:
-            data = yaml.load(f, Loader=_TestFileLoader)
+        data = yaml.load(read_text(file_path), Loader=_TestFileLoader)
 
         return cls(
             name=data.get("name", file_path.stem),

@@ -27,6 +27,7 @@ else:
 
 from nao_core import __version__
 from nao_core.mode import MODE
+from nao_core.text_files import read_text
 
 POSTHOG_DISABLED = os.environ.get("POSTHOG_DISABLED", "false").lower() == "true"
 POSTHOG_KEY = os.environ.get("POSTHOG_KEY", "phc_TUN2TvdA5qjeDFU1XFVCmD3hoVk1dmWree4cWb0dNk4")
@@ -44,14 +45,14 @@ def get_or_create_distinct_id() -> str:
     try:
         # Try to read existing ID
         if DISTINCT_ID_FILE.exists():
-            existing_id = DISTINCT_ID_FILE.read_text().strip()
+            existing_id = read_text(DISTINCT_ID_FILE).strip()
             if existing_id:
                 return existing_id
 
         # Create new ID and persist it
         new_id = str(uuid.uuid4())
         DISTINCT_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        DISTINCT_ID_FILE.write_text(new_id)
+        DISTINCT_ID_FILE.write_text(new_id, encoding="utf-8")
         return new_id
     except Exception:
         # If we can't persist, generate a new ID each time
