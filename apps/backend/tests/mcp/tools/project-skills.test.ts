@@ -54,7 +54,7 @@ beforeAll(async () => {
 	);
 	writeFileSync(
 		join(skillsFolder, 'broken.md'),
-		'---\nname: broken\ndescription: NOTE: unquoted colon\n---\n\nBody\n',
+		'---\nname: broken\ndescription: [mcp project skills unclosed\n---\n\nBody\n',
 	);
 	mocks.projectPath = projectRoot;
 	await skillService.initializeSkills(PROJECT_ID);
