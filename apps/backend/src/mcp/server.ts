@@ -13,6 +13,7 @@ import { registerContextAdminTools } from './tools/context-admin-tools';
 import { registerContextLayerTools } from './tools/context-layer';
 import { registerMemberBudgetTools } from './tools/member-budget';
 import { registerPersonalSkillTools } from './tools/personal-skills';
+import { registerProjectSkillTools } from './tools/project-skills';
 import { registerSubAgentTools } from './tools/sub-agent';
 
 export async function createMcpServer(
@@ -54,6 +55,7 @@ export async function createMcpServer(
 	registerContextAdminTools(server, ctx);
 	await registerMemberBudgetTools(server, ctx);
 	await registerPersonalSkillTools(server, ctx);
+	registerProjectSkillTools(server, ctx);
 	registerNaoMcpApps(server);
 
 	return server;
