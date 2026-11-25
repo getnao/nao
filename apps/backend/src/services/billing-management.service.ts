@@ -25,6 +25,7 @@ import {
 	isActiveTrialWithoutPaidPlan,
 	isExpiredTrialWithoutPaidPlan,
 } from './cloud-billing-access.service';
+import { matchCloudTrialPlaceholderCurrency } from './cloud-trial-provisioning.service';
 import { createCreditTopUpCheckoutSession, getCreditTopUpPurchase } from './credit-top-up.service';
 import { issueCreditPurchase } from './credit-wallet.service';
 import {
@@ -86,23 +87,27 @@ export async function getCloudBillingAccessForUser(input: AdminBillingInput & { 
 	};
 }
 
-export async function getCloudBillingStatusForAdmin(input: AdminBillingInput & { currency: CloudBillingCurrency }) {
+/** `currency` is set once a paid subscription exists, because Stripe locks a customer to its first currency. */
+export async function getCloudBillingStatusForAdmin(input: AdminBillingInput) {
 	const organization = await loadCloudBillingOrganization(input.organizationId);
 	const billing = organization.billing;
 	const trialAvailable = isTrialAvailable(billing);
 	const paidPlanSelected = Boolean(billing?.stripeSubscriptionId && billing.billingPlan);
 	const currentPlanLive = paidPlanSelected && !isTerminalBillingStatus(billing?.billingStatus);
-	const [plan, { entitlement, candidates, readOnlyUserIds }] = await Promise.all([
-		currentPlanLive && billing?.stripeSubscriptionId && billing.stripePriceId
-			? getCloudSubscriptionCurrency(billing.stripeSubscriptionId).then((currency) =>
-					getCloudSubscriptionPlan(billing.stripePriceId!, currency),
-				)
+	const subscriptionCurrency =
+		paidPlanSelected && billing?.stripeSubscriptionId
+			? getCloudSubscriptionCurrency(billing.stripeSubscriptionId)
+			: null;
+	const [currency, plan, { entitlement, candidates, readOnlyUserIds }] = await Promise.all([
+		subscriptionCurrency,
+		currentPlanLive && subscriptionCurrency && billing?.stripePriceId
+			? subscriptionCurrency.then((currency) => getCloudSubscriptionPlan(billing.stripePriceId!, currency))
 			: null,
 		getOrganizationSeats(organization.id),
 	]);
 	const pendingPlan = findCloudBillingPlan(billing?.pendingBillingPlan);
 	return {
-		currency: (plan?.currency ?? input.currency) as CloudBillingCurrency,
+		currency: currency as CloudBillingCurrency | null,
 		plan: plan ? { ...plan, legacy: !isCloudBillingPlanKey(plan.key) } : null,
 		seatQuantity: currentPlanLive ? (billing?.seatQuantity ?? null) : null,
 		pending: pendingPlan
@@ -154,6 +159,13 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingChecko
 	}
 	const quantity = planQuantity(input.planKey, input.seats);
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
+	if (trialEndsAt) {
+		await matchCloudTrialPlaceholderCurrency({
+			organizationId: organization.id,
+			stripeCustomerId,
+			currency: input.currency,
+		});
+	}
 	return createCloudCheckoutSession({
 		planKey: input.planKey,
 		quantity,

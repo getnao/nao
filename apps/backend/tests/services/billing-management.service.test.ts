@@ -36,6 +36,10 @@ vi.mock('../../src/services/cloud-billing-access.service', () => ({
 		billing?.billingPlan == null && billing?.billingStatus === 'trialing',
 }));
 
+vi.mock('../../src/services/cloud-trial-provisioning.service', () => ({
+	matchCloudTrialPlaceholderCurrency: vi.fn(),
+}));
+
 vi.mock('../../src/services/credit-top-up.service', () => ({
 	createCreditTopUpCheckoutSession: mocks.createCreditTopUpCheckout,
 }));

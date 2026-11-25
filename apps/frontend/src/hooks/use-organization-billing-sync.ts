@@ -1,7 +1,7 @@
 import { isTerminalBillingStatus } from '@nao/shared/billing';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import type { CloudBillingCurrency, PaidCloudBillingTier } from '@nao/shared/billing';
+import type { PaidCloudBillingTier } from '@nao/shared/billing';
 
 import { trpc } from '@/main';
 
@@ -18,10 +18,7 @@ export type OrganizationBillingSearch = {
 	creditsTab?: 'history' | 'usage';
 };
 
-export function useOrganizationBillingSync(
-	search: OrganizationBillingSearch,
-	selectedBillingCurrency: CloudBillingCurrency,
-) {
+export function useOrganizationBillingSync(search: OrganizationBillingSearch) {
 	const queryClient = useQueryClient();
 	const initialStatusSyncRequested = useRef(false);
 	const [isResumeConfirming, setIsResumeConfirming] = useState(false);
@@ -30,7 +27,7 @@ export function useOrganizationBillingSync(
 	);
 	const [isBillingRefreshPolling, setIsBillingRefreshPolling] = useState(search.portal === 'returned');
 	const billing = useQuery({
-		...trpc.billing.getStatus.queryOptions({ currency: selectedBillingCurrency }),
+		...trpc.billing.getStatus.queryOptions(),
 		refetchOnWindowFocus: false,
 		refetchInterval: (query) =>
 			(isCheckoutPolling &&

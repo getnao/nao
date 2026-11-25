@@ -62,6 +62,10 @@ vi.mock('../../src/services/billing-reconciliation.service', () => ({
 	reconcileCloudBillingCustomer: stripeMocks.reconcileCustomer,
 }));
 
+vi.mock('../../src/services/cloud-trial-provisioning.service', () => ({
+	matchCloudTrialPlaceholderCurrency: vi.fn(),
+}));
+
 vi.mock('../../src/services/stripe.service', () => ({
 	CloudSubscriptionUnavailableError: class extends Error {},
 	CloudSubscriptionResumeError: class extends Error {},
@@ -280,10 +284,15 @@ describe('billing.getStatus', () => {
 		});
 	});
 
-	it('uses the currency selected by the client until a subscription fixes it', async () => {
-		testState.membership = membership({});
+	it.each([
+		['no paid subscription', {}, null],
+		['a placeholder trial', { billingStatus: 'trialing', stripeSubscriptionId: 'sub_cloud_trial' }, null],
+		['a canceled paid subscription', { billingPlan: 'cloud_team_monthly_v1', billingStatus: 'canceled' }, 'eur'],
+	] as const)('locks the currency only once a paid subscription exists (%s)', async (_, overrides, currency) => {
+		stripeMocks.getSubscriptionCurrency.mockResolvedValue('eur');
+		testState.membership = membership({ stripeSubscriptionId: 'sub_cloud', ...overrides });
 
-		await expect(caller().billing.getStatus({ currency: 'eur' })).resolves.toMatchObject({ currency: 'eur' });
+		await expect(caller().billing.getStatus()).resolves.toMatchObject({ currency });
 	});
 
 	it('does not invent a plan for an uninitialized organization', async () => {

@@ -144,14 +144,18 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 	organizationId: string;
 	stripeCustomerId: string;
 	trialEnd: Date;
+	currency?: string;
+	replacedSubscriptionId?: string;
 }): Promise<Stripe.Subscription> {
 	if (input.trialEnd.getTime() <= Date.now()) {
 		throw new Error('The organization trial has expired');
 	}
 	const price = await getCloudTrialPrice();
+	const replacementKey = input.replacedSubscriptionId ? `:${input.replacedSubscriptionId}:${input.currency}` : '';
 	return getStripeClient().subscriptions.create(
 		{
 			customer: input.stripeCustomerId,
+			...(input.currency ? { currency: input.currency } : {}),
 			items: [{ price: price.id, quantity: 1 }],
 			metadata: {
 				[ORGANIZATION_METADATA_KEY]: input.organizationId,
@@ -161,8 +165,39 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 			trial_end: stripeTimestamp(input.trialEnd),
 			trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
 		},
-		{ idempotencyKey: `cloud-trial-placeholder-v1:${input.organizationId}` },
+		{ idempotencyKey: `cloud-trial-placeholder-v1:${input.organizationId}${replacementKey}` },
 	);
+}
+
+/**
+ * Stripe rejects active subscriptions in two currencies on one customer, so the placeholder is recreated in the
+ * Checkout currency. The original currency is restored if that fails, so the trial is never lost.
+ */
+export async function replaceCloudTrialPlaceholderSubscription(
+	placeholder: Stripe.Subscription,
+	organizationId: string,
+	currency: CloudBillingCurrency,
+): Promise<Stripe.Subscription> {
+	if (placeholder.trial_end === null) {
+		throw new Error(`Stripe Subscription "${placeholder.id}" has no trial end`);
+	}
+	const trialEnd = new Date(placeholder.trial_end * 1_000);
+	await getCloudTrialPrice();
+	await cancelCloudTrialPlaceholderSubscription(placeholder, organizationId);
+	const recreateIn = (placeholderCurrency: string) =>
+		createCloudTrialPlaceholderSubscription({
+			organizationId,
+			stripeCustomerId: stripeCustomerId(placeholder.customer),
+			trialEnd,
+			currency: placeholderCurrency,
+			replacedSubscriptionId: placeholder.id,
+		});
+	try {
+		return await recreateIn(currency);
+	} catch (error) {
+		await recreateIn(placeholder.currency);
+		throw error;
+	}
 }
 
 export async function createCloudCheckoutSession(input: {
@@ -874,7 +909,7 @@ async function fetchCloudTrialPrice(lookupKey: string, productId: string): Promi
 	const [price] = (
 		await getStripeClient().prices.list({
 			active: true,
-			expand: ['data.product'],
+			expand: ['data.currency_options', 'data.product'],
 			lookup_keys: [lookupKey],
 			limit: 1,
 		})
@@ -885,7 +920,7 @@ async function fetchCloudTrialPrice(lookupKey: string, productId: string): Promi
 	}
 	if (!isExpectedCloudTrialPrice(price) || price.product.id !== productId) {
 		throw new Error(
-			`Stripe Price "${price.id}" must belong to configured active trial Product "${productId}" and be a fixed $0 recurring licensed Price`,
+			`Stripe Price "${price.id}" must belong to configured active trial Product "${productId}" and be a fixed $0 USD and EUR recurring licensed Price`,
 		);
 	}
 	return price;
@@ -1228,9 +1263,13 @@ function isExpectedCloudTrialPrice(price: Stripe.Price): price is CloudTrialPric
 		!price.product.deleted &&
 		price.product.active &&
 		price.billing_scheme === 'per_unit' &&
-		price.unit_amount === 0 &&
 		price.type === 'recurring' &&
-		price.recurring?.usage_type === 'licensed'
+		price.recurring?.usage_type === 'licensed' &&
+		CLOUD_BILLING_CURRENCIES.every(
+			(currency) =>
+				(price.currency === currency ? price.unit_amount : price.currency_options?.[currency]?.unit_amount) ===
+				0,
+		)
 	);
 }
 

@@ -113,7 +113,13 @@ export function OrganizationBillingSettings({
 							data={data}
 							disabled={billingState.isCommandPending}
 							onUpgrade={() =>
-								choosePlan(getPlanOffer(data, 'team', billingState.selectedBillingInterval))
+								choosePlan(
+									getPlanOffer(
+										billingState.billingCurrency,
+										'team',
+										billingState.selectedBillingInterval,
+									),
+								)
 							}
 							onAdjustSeats={
 								data.plan?.tier === 'team' && !data.plan.legacy && data.tier === 'team'
@@ -186,12 +192,12 @@ function getBillingTabs(data: CloudBillingStatus | undefined): TabBarItem<Organi
 	];
 }
 
-function getPlanOffer(data: CloudBillingStatus, tier: CloudPlanOffer['tier'], interval: CloudPlanOffer['interval']) {
-	return getCloudPlanOffers(data.currency).find((plan) => plan.tier === tier && plan.interval === interval)!;
+function getPlanOffer(currency: string, tier: CloudPlanOffer['tier'], interval: CloudPlanOffer['interval']) {
+	return getCloudPlanOffers(currency).find((plan) => plan.tier === tier && plan.interval === interval)!;
 }
 
 function getCurrentPlanOffer(data: CloudBillingStatus) {
-	return getCloudPlanOffers(data.currency).find((plan) => plan.key === data.plan?.key);
+	return getCloudPlanOffers(data.currency ?? 'usd').find((plan) => plan.key === data.plan?.key);
 }
 
 function getChangeDialogProps(data: CloudBillingStatus, dialog: BillingDialog | null) {

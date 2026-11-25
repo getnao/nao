@@ -91,7 +91,6 @@ const cloudBillingAccessProcedure = cloudBillingProcedure.use(async ({ ctx, next
 
 const requestInput = z.object({ requestId: z.uuid() });
 const currencyInput = z.enum(CLOUD_BILLING_CURRENCIES);
-const billingStatusInput = z.object({ currency: currencyInput }).optional();
 const planKeyInput = z.enum(Object.keys(CLOUD_BILLING_PLANS) as [CloudBillingPlanKey, ...CloudBillingPlanKey[]]);
 const checkoutInput = z.object({
 	planKey: planKeyInput,
@@ -113,11 +112,10 @@ export const billingRoutes = {
 		}),
 	),
 
-	getStatus: cloudBillingAdminProcedure.input(billingStatusInput).query(({ ctx, input }) =>
+	getStatus: cloudBillingAdminProcedure.query(({ ctx }) =>
 		getCloudBillingStatusForAdmin({
 			userId: ctx.user.id,
 			organizationId: ctx.organization.id,
-			currency: input?.currency ?? 'usd',
 		}).catch((error: unknown) => throwBillingFailure('status lookup', 'Unable to load billing status', error)),
 	),
 

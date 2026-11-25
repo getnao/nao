@@ -9,7 +9,6 @@ import { useConfirmCloudBillingChange, useOrganizationBilling } from '@/hooks/us
 
 const mocks = vi.hoisted(() => ({
 	getStatus: vi.fn(),
-	getStatusInput: vi.fn(),
 	mutationInput: vi.fn(),
 	mutationResults: {} as Record<string, unknown>,
 }));
@@ -17,12 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/main', () => {
 	const query = (name: string, queryFn: () => Promise<unknown>) => ({
 		queryKey: () => [['billing', name]],
-		queryOptions: (input?: unknown) => {
-			if (name === 'getStatus') {
-				mocks.getStatusInput(input);
-			}
-			return { queryKey: [['billing', name], input], queryFn };
-		},
+		queryOptions: (input?: unknown) => ({ queryKey: [['billing', name], input], queryFn }),
 	});
 	const mutation = (name: string) => ({
 		mutationOptions: (options: object) => ({
@@ -87,28 +81,29 @@ describe('useOrganizationBilling', () => {
 	});
 
 	it.each([
-		[{ trialAvailable: true }, 'createTrialCheckoutSession'],
-		[{ trialAvailable: false, needsPaidPlanSelection: false }, 'createResubscribeSession'],
-	])('sends the chosen plan, seats and browser currency to Checkout (%o)', async (billing, mutation) => {
-		vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['not a locale']);
-		vi.spyOn(navigator, 'language', 'get').mockReturnValue('en_FR');
-		mocks.getStatus.mockResolvedValue({ hasStripeSubscription: false, status: null, ...billing });
+		[{ trialAvailable: true, currency: null }, 'createTrialCheckoutSession', 'eur'],
+		[{ trialAvailable: false, needsPaidPlanSelection: false, currency: 'usd' }, 'createResubscribeSession', 'usd'],
+	])(
+		'sends the chosen plan, seats and currency to Checkout unless a subscription locked it (%o)',
+		async (billing, mutation, currency) => {
+			mocks.getStatus.mockResolvedValue({ hasStripeSubscription: false, status: null, ...billing });
 
-		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
+			const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
 
-		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
-		expect(mocks.getStatusInput).toHaveBeenCalledWith({ currency: 'eur' });
-		act(() => {
-			void result.current.startCheckout('cloud_team_yearly_v1', 5);
-		});
-		await waitFor(() =>
-			expect(mocks.mutationInput).toHaveBeenCalledWith(mutation, {
-				planKey: 'cloud_team_yearly_v1',
-				seats: 5,
-				currency: 'eur',
-			}),
-		);
-	});
+			await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
+			act(() => result.current.setSelectedBillingCurrency('eur'));
+			act(() => {
+				void result.current.startCheckout('cloud_team_yearly_v1', 5);
+			});
+			await waitFor(() =>
+				expect(mocks.mutationInput).toHaveBeenCalledWith(mutation, {
+					planKey: 'cloud_team_yearly_v1',
+					seats: 5,
+					currency,
+				}),
+			);
+		},
+	);
 });
 
 describe('useConfirmCloudBillingChange', () => {
