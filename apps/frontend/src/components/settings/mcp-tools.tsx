@@ -47,6 +47,8 @@ const MCP_TOOL_GROUPS: McpToolGroup[] = [
 			{ name: 'ls_nao_context', description: 'Lists the files of the project context.' },
 			{ name: 'grep_nao_context', description: 'Searches the project context.' },
 			{ name: 'read_nao_context', description: 'Reads a file of the project context.' },
+			{ name: 'list_nao_skills', description: 'Lists the project skills the user may use.' },
+			{ name: 'get_nao_skill', description: "Fetches a project skill's full instructions." },
 			{
 				name: 'execute_sql',
 				description:

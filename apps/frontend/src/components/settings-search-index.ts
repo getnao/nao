@@ -924,11 +924,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'nao MCP',
 		title: 'Context-layer mode',
 		description:
-			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, execute_semantic_query, create_story, update_story — the client MCP drives the workflow step by step.',
+			'Exposes ls_nao_context, grep_nao_context, read_nao_context, list_nao_skills, get_nao_skill, execute_sql, execute_semantic_query, create_story, update_story — the client MCP drives the workflow step by step.',
 		keywords: [
 			'ls_nao_context',
 			'grep_nao_context',
 			'read_nao_context',
+			'list_nao_skills',
+			'get_nao_skill',
+			'skill',
+			'skills',
 			'execute_sql',
 			'execute_semantic_query',
 			'create_story',
