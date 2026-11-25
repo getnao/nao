@@ -29,6 +29,7 @@ const STORY_ID = 'mcp-folders-story';
 describe('MCP story folder tools', () => {
 	let salesFolderId: string;
 	let financeFolderId: string;
+	let archivedFolderId: string;
 
 	beforeAll(async () => {
 		const users = [OWNER_ID, OTHER_ID];
@@ -54,6 +55,8 @@ describe('MCP story folder tools', () => {
 			})
 		).id;
 		await createFolder({ ownerId: OTHER_ID, projectId: PROJECT_ID, name: 'Open' });
+		archivedFolderId = (await createFolder({ ownerId: OWNER_ID, projectId: PROJECT_ID, name: 'Old' })).id;
+		await db.update(s.storyFolder).set({ archivedAt: new Date() }).where(eq(s.storyFolder.id, archivedFolderId));
 		await db
 			.insert(s.story)
 			.values({ id: STORY_ID, slug: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID, title: 'Q3' });
@@ -128,12 +131,28 @@ describe('MCP story folder tools', () => {
 		expect(offer).not.toContain('Finance');
 	});
 
-	it('creates no story when the picked folder is one the user cannot see', async () => {
-		const result = await callAs(OWNER_ID, 'create_story', { title: 'Budget', folder_id: financeFolderId });
+	it.each([
+		{ label: 'one the user cannot see', folder: () => financeFolderId, error: 'Folder not found.' },
+		{ label: 'archived', folder: () => archivedFolderId, error: 'Folder is archived.' },
+	])('creates no story when the picked folder is $label', async ({ folder, error }) => {
+		const result = await callAs(OWNER_ID, 'create_story', { title: 'Budget', folder_id: folder() });
 
 		expect(result.isError).toBe(true);
-		expect(result.content[0]).toMatchObject({ text: expect.stringContaining('Folder not found.') });
+		expect(result.content[0]).toMatchObject({ text: expect.stringContaining(error) });
 		expect(await db.select().from(s.story).where(eq(s.story.title, 'Budget'))).toEqual([]);
+	});
+
+	it('keeps a custom story created in Home there once it is published', async () => {
+		const result = await callAs(OWNER_ID, 'create_story', {
+			title: 'Funnel',
+			format: 'custom',
+			folder_id: null,
+			files: [{ path: 'app.jsx', content: 'export default function App() { return null; }' }],
+		});
+
+		const storyId = result.structuredContent?.id as string;
+		expect(await getStoryFolderItem(storyId)).toBeNull();
+		expect((await getSharedStoryInfo(storyId, PROJECT_ID))?.visibility).toBe('project');
 	});
 
 	it('deletes the new story when the folder becomes unavailable before it is filed', async () => {
@@ -150,7 +169,12 @@ describe('MCP story folder tools', () => {
 
 function callAs(userId: string, tool: string, args: Record<string, unknown>) {
 	const server = new FakeMcpServer();
-	const context = createMcpContext({ userId, projectId: PROJECT_ID, storyCreationEnabled: true });
+	const context = createMcpContext({
+		userId,
+		projectId: PROJECT_ID,
+		storyCreationEnabled: true,
+		customStoryCreationEnabled: true,
+	});
 	registerStoryFolderTools(server.asMcpServer(), context);
 	registerContextLayerTools(server.asMcpServer(), context, []);
 	return server.call(tool, args);

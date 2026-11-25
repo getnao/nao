@@ -82,6 +82,9 @@ export async function resolveMoveTarget(folderId: string | null, ctx: FolderCont
 	}
 	const target = await assertFolderInProject(folderId, ctx, label);
 	await assertCanSeeFolder(target, ctx, label);
+	if (target.archivedAt) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: `${label} is archived.` });
+	}
 	assertCanPlaceInDestination(target, ctx.user.id);
 	return target;
 }
