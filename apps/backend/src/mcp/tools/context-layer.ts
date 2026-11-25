@@ -46,7 +46,7 @@ import {
 } from './custom-story-mcp';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
 import { jsonToolResult, registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
-import { toFolderContext } from './story-folders';
+import { toFolderContext, withFolderChoice } from './story-folders';
 import { NOT_LIVE_SETTINGS, saveMcpLiveSettings, STORY_LIVE_INPUT, type StoryLiveInput } from './story-live-settings';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
@@ -93,8 +93,9 @@ const CREATE_STORY_DESCRIPTION =
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
 	'FOLDER: when the user said where to save the story, pass that folder from `list_story_folders` as ' +
-	'`folder_id`. Otherwise omit it: the story is saved in their private folder. Home, `project` and `team` folders ' +
-	'share the story with their audience: tell the user who can see it.\n\n' +
+	'`folder_id`. Otherwise omit it: the story is saved in their private folder and the result lists the folders ' +
+	'to offer them. Home, `project` and `team` folders share the story with their audience: tell the user who can ' +
+	'see it.\n\n' +
 	'STORY FILTERS: Hardcode `<filter options=\'["a","b"]\' />` only for universal constants that do not come from database rows. ' +
 	'Use `table` plus `column` for direct database-column values. For computed labels or other database-derived values, ' +
 	"run a separate `execute_sql` query that returns exactly one column named `value`, then set the filter's " +
@@ -361,10 +362,11 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					if (content !== undefined) {
 						return errorResult('A custom story takes `files`, not `content`.');
 					}
-					return createCustomStoryForMcp(
+					const result = await createCustomStoryForMcp(
 						{ chatId: chat_id, title, files, queryData: query_data, folderId: folder_id, live },
 						ctx,
 					);
+					return folder_id === undefined ? withFolderChoice(result, ctx) : result;
 				}
 				if (files !== undefined) {
 					return errorResult('`files` only applies to `format: "custom"`.');
@@ -399,7 +401,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					chatUrl: storyChatUrl(story),
 					...savedLive,
 				};
-				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
+				const result = await buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
+				return folder_id === undefined ? withFolderChoice(result, ctx) : result;
 			},
 		});
 	}

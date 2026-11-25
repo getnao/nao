@@ -118,6 +118,16 @@ describe('MCP story folder tools', () => {
 		expect(await getSharedStoryAllowedGroupIds(share!.id)).toEqual([SALES_GROUP_ID]);
 	});
 
+	it('offers the other folders the user sees when a story is created without one', async () => {
+		const result = await callAs(OWNER_ID, 'create_story', { title: 'Churn' });
+
+		const offer = result.content.at(-1)?.text;
+		expect(offer).toContain('- Home (shared with the whole project): folder_id null');
+		expect(offer).toContain(`- Sales (shared with Sales): folder_id "${salesFolderId}"`);
+		expect(offer).not.toContain('- My private folder');
+		expect(offer).not.toContain('Finance');
+	});
+
 	it('creates no story when the picked folder is one the user cannot see', async () => {
 		const result = await callAs(OWNER_ID, 'create_story', { title: 'Budget', folder_id: financeFolderId });
 

@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { type FolderContext, getViewer, moveStoryForUser } from '../../services/story-folder-move.service';
-import type { McpContext } from '../logging';
+import type { McpContext, ToolResult } from '../logging';
 import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
 
 const LIST_STORY_FOLDERS_DESCRIPTION =
@@ -92,11 +92,37 @@ export function toFolderContext(ctx: McpContext): FolderContext {
 	return { user: { id: ctx.userId }, project: { id: ctx.projectId }, userRole: ctx.role };
 }
 
+/** Agents skip asking where to save a story before creating it, so the result asks it once the story exists. */
+export async function withFolderChoice(result: ToolResult, ctx: McpContext): Promise<ToolResult> {
+	if (result.isError) {
+		return result;
+	}
+	const { privateRootId, folders } = await listStoryFolders(toFolderContext(ctx));
+	const otherFolders = folders.filter((folder) => folder.id !== privateRootId).map(describeFolderChoice);
+	const text =
+		'The story is saved in My private folder, so only the user can see it. Tell them, then ask whether they ' +
+		'want it in another folder, naming the folders, never their ids. If they pick one, call `move_story` with ' +
+		`its \`folder_id\`:\n${otherFolders.join('\n')}`;
+	return { ...result, content: [...result.content, { type: 'text', text }] };
+}
+
 async function listStoryFolders(folderContext: FolderContext) {
 	const { user, project } = folderContext;
-	await storyFolderQueries.ensurePrivateRoot(user.id, project.id);
+	const privateRootId = await storyFolderQueries.ensurePrivateRoot(user.id, project.id);
 	const tree = await storyFolderQueries.listFolderTree(await getViewer(folderContext), project.id);
-	return { folders: [HOME_FOLDER, ...tree.filter(isStoryFolder).map(toStoryFolderListItem)] };
+	return { privateRootId, folders: [HOME_FOLDER, ...tree.filter(isStoryFolder).map(toStoryFolderListItem)] };
+}
+
+function describeFolderChoice(folder: StoryFolderListItem): string {
+	const folderId = folder.id === null ? 'null' : `"${folder.id}"`;
+	return `- ${folder.name} (${describeFolderAudience(folder)}): folder_id ${folderId}`;
+}
+
+function describeFolderAudience(folder: StoryFolderListItem): string {
+	if (folder.access === 'team') {
+		return `shared with ${folder.teams.join(', ')}`;
+	}
+	return folder.access === 'project' ? 'shared with the whole project' : 'only the user';
 }
 
 function isStoryFolder(folder: storyFolderQueries.FolderTreeEntry): folder is storyFolderQueries.StoryFolderWithCount {
