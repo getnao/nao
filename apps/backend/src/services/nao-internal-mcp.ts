@@ -7,33 +7,34 @@ import { minimatch } from 'minimatch';
 import path from 'path';
 
 import { personalSkillMcpTools } from '../mcp/tools/personal-skills';
-import { registerInternalMcpTool } from '../mcp/tools/register-mcp-tool';
+import { registerInternalMcpTool, type RegisterMcpToolOptions } from '../mcp/tools/register-mcp-tool';
+import { setStoryLiveMcpTool } from '../mcp/tools/story-live-settings';
 import type { ToolContext } from '../types/tools';
 import { buildMcpOpenApiDocument, type McpToolDefinition } from './mcp-openapi';
 
 /**
- * nao's own MCP server: tools acting on nao itself, such as the user's personal skills. The agent finds them like the
+ * nao's own MCP server: tools acting on nao itself, such as the user's personal skills or their stories' live settings. The agent finds them like the
  * tools of the project's servers, as specs under `/agent/mcps/nao__internal/` called through `mcp_call`, so they cost
  * nothing until it needs one. The specs depend on who asks, so they are served from memory, never written to disk.
  */
 
 /** What the system prompt says the server is for, next to its name. */
 export const NAO_INTERNAL_MCP_DESCRIPTION =
-	'nao itself: the user’s own personal skills, to list them or create one when the user asks to save how a request should be answered.';
+	'nao itself: the user’s own personal skills, to list them or create one when the user asks to save how a request should be answered; ' +
+	'and the live settings of the user’s stories, to keep one up to date on a schedule.';
 
 const MCPS_FOLDER = '/agent/mcps';
 const SPECS_FOLDER = `${MCPS_FOLDER}/${NAO_INTERNAL_MCP_SERVER}`;
 
-type InternalMcpContext = Pick<ToolContext, 'projectId' | 'userId' | 'canManagePersonalSkills'>;
+type InternalMcpContext = Pick<ToolContext, 'projectId' | 'userId' | 'canManagePersonalSkills' | 'userGroupFeatures'>;
 
 export interface NaoInternalMcpSpecFile {
 	virtualPath: string;
 	content: string;
 }
 
-/** The server only has tools for users who may write personal skills. */
 export function hasNaoInternalMcpTools(context: InternalMcpContext): boolean {
-	return context.canManagePersonalSkills === true;
+	return internalMcpTools(context).length > 0;
 }
 
 /** True for `/agent/mcps/nao__internal` and anything below it. */
@@ -146,10 +147,18 @@ async function withNaoInternalMcpClient<T>(
 
 function createNaoInternalMcpServer(context: InternalMcpContext): McpServer {
 	const server = new McpServer({ name: NAO_INTERNAL_MCP_SERVER, version: '1.0.0' });
-	for (const tool of personalSkillMcpTools(context)) {
+	for (const tool of internalMcpTools(context)) {
 		registerInternalMcpTool(server, context, tool);
 	}
 	return server;
+}
+
+/** Each tool follows the app: personal skills for users who may write them, live settings for story creators. */
+function internalMcpTools(context: InternalMcpContext): RegisterMcpToolOptions[] {
+	return [
+		...(context.canManagePersonalSkills === true ? personalSkillMcpTools(context) : []),
+		...(context.userGroupFeatures.includes('storyCreation') ? [setStoryLiveMcpTool(context)] : []),
+	];
 }
 
 function normalizeVirtualPath(virtualPath: string): string {

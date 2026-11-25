@@ -31,6 +31,7 @@ import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { nextCronTick } from '../services/scheduler.service';
+import { hasTableAccessOf, MISSING_TABLE_ACCESS_MESSAGE } from '../services/user-group-context-access.service';
 import { llmProviderSchema } from '../types/llm';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import {
@@ -149,6 +150,7 @@ const writeAutomationSchema = z.object({
 	timezone: z.string().trim().max(100).optional(),
 	modelProvider: llmProviderSchema.optional(),
 	modelId: z.string().trim().min(1).optional(),
+	llmConfigId: z.string().trim().min(1).optional(),
 	enabled: z.boolean().default(true),
 	mcpEnabled: z.boolean().default(true),
 	mcpServers: z.array(z.string().trim().min(1)).optional(),
@@ -220,7 +222,11 @@ export const automationRoutes = {
 		const { cron, enabled, title, editorChatId, ...promptInput } = input;
 		const modelSelection =
 			input.modelProvider && input.modelId
-				? { provider: input.modelProvider, modelId: input.modelId }
+				? {
+						provider: input.modelProvider,
+						modelId: input.modelId,
+						...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
+					}
 				: undefined;
 		const resolvedTitle =
 			title?.trim() || (await inferAutomationTitle(ctx.project.id, ctx.user.id, input.prompt, modelSelection));
@@ -233,6 +239,7 @@ export const automationRoutes = {
 			timezone: getServerTimezone(),
 			modelProvider: input.modelProvider || null,
 			modelId: input.modelId || null,
+			llmConfigId: input.llmConfigId || null,
 			mcpServers: input.mcpServers,
 		});
 		if (editorChatId) {
@@ -272,6 +279,7 @@ export const automationRoutes = {
 				timezone: getServerTimezone(),
 				modelProvider: data.modelProvider || null,
 				modelId: data.modelId || null,
+				llmConfigId: data.llmConfigId || null,
 				mcpServers: data.mcpServers,
 			});
 			if (!automation) {
@@ -402,7 +410,7 @@ export const automationRoutes = {
 			if (automation.userId === input.newOwnerId) {
 				return { success: true as const };
 			}
-			await assertCanOwnAutomation(ctx.project.id, input.newOwnerId);
+			await assertCanOwnAutomation(ctx.project.id, input.newOwnerId, automation.userId);
 			await automationQueries.transferAutomationOwnership(automation.id, input.newOwnerId);
 			return { success: true as const };
 		}),
@@ -418,7 +426,7 @@ export const automationRoutes = {
 			if (input.fromUserId === input.recipientId) {
 				return { transferredCount: 0 };
 			}
-			await assertCanOwnAutomation(ctx.project.id, input.recipientId);
+			await assertCanOwnAutomation(ctx.project.id, input.recipientId, input.fromUserId);
 			const transferredCount = await automationQueries.transferProjectAutomationsOfUser(
 				ctx.project.id,
 				input.fromUserId,
@@ -511,13 +519,16 @@ async function setAutomationActive(
 	return { ...automation, webhookEnabled, eventTriggers };
 }
 
-async function assertCanOwnAutomation(projectId: string, userId: string): Promise<void> {
+async function assertCanOwnAutomation(projectId: string, userId: string, previousOwnerId: string): Promise<void> {
 	const role = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (!role) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The new owner must have access to this project.' });
 	}
 	if (role === 'viewer') {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Viewers cannot own automations.' });
+	}
+	if (!(await hasTableAccessOf(projectId, previousOwnerId, userId))) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: MISSING_TABLE_ACCESS_MESSAGE });
 	}
 }
 

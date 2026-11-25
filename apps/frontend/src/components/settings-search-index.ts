@@ -495,6 +495,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 	},
 	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'Restrict models by user group',
+		description: 'Limit each user to models from the LLM credentials assigned to their groups.',
+		keywords: ['llm access', 'credentials', 'api keys', 'group models', 'model permissions'],
+		adminOnly: true,
+	},
+	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Models',
@@ -544,6 +554,24 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Decision models',
+		search: { tab: 'decision-models' },
+		title: 'Decision providers',
+		description: 'Connect the providers of decision (System 1) models and their API keys.',
+		keywords: ['system one', 'system 1', 'jev', 'typesafe', 'clef', 'cloudflare', 'openai', 'ollama', 'api key'],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Decision models',
+		search: { tab: 'decision-models' },
+		title: 'Decision model',
+		description: 'Pick the model decisions run on and test it.',
+		keywords: ['system one', 'system 1', 'classification', 'yes/no', 'probability', 'luna'],
 	},
 
 	// ── Project > Agent ──────────────────────────────────────
@@ -1299,6 +1327,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'playbook',
 			'groups',
 		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'LLM Access',
+		description: 'Assign all models or a selected model subset from each LLM credential to a user group.',
+		keywords: ['models', 'providers', 'credentials', 'api keys', 'group access', 'llm permissions', 'allowlist'],
 		adminOnly: true,
 	},
 	{

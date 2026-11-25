@@ -148,7 +148,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const findSentCitation = useCallback((id: string) => citations[Number(id) - 1], [citations]);
 
 	return (
-		<div className='rounded-2xl px-3 py-2 bg-panel text-card-foreground ml-auto max-w-xl'>
+		<div className='rounded-2xl px-3 py-2 bg-panel text-card-foreground ml-auto max-w-xl animate-rise'>
 			<MessageSourceBadge source={message.source} />
 			{images.length > 0 && (
 				<div className='flex gap-2 flex-wrap mb-2'>

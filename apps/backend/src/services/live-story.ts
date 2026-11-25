@@ -30,7 +30,6 @@ import * as storyViewerDataCacheQueries from '../queries/story-viewer-data-cache
 import type { StoryQuerySources } from '../types/story-cache';
 import type { ChatlessToolContext, QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
-import { resolveDefaultChatModel, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { describeError, logger } from '../utils/logger';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
@@ -51,6 +50,7 @@ import {
 	stripViewerSensitiveTagCopy,
 } from '../utils/story-structure';
 import { buildChatlessToolContext, buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
+import { type BackgroundModel, resolveUserBackgroundModel } from './background-model.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
@@ -110,6 +110,8 @@ export interface StoryQueryResult {
 	/** Story filters not applied to this semantic-layer query because its metrics lack their dimension. */
 	skippedFilterIds?: string[];
 	accessDenied?: true;
+	/** Why the query failed, when the caller asked to keep the other queries running. */
+	error?: string;
 }
 
 export async function executeLiveQuery(
@@ -694,6 +696,10 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	);
 }
 
+function toFailedQueryResult(error: unknown): ExecutedQueryResult {
+	return { data: [], columns: [], error: error instanceof Error ? error.message : String(error) };
+}
+
 export function omitAccessDeniedQueries(queryData: StoryQueryData): StoryQueryData {
 	return Object.fromEntries(Object.entries(queryData).filter(([, result]) => !result.accessDenied));
 }
@@ -714,7 +720,7 @@ export interface ViewerExecutionContext extends StoryExecutionContext {
 	permissionRevision: string;
 }
 
-type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'accessDenied' | 'skippedFilterIds'>;
+type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'accessDenied' | 'skippedFilterIds' | 'error'>;
 
 interface StoryQueryExecutionOptions {
 	renderSql: (sqlQuery: string) => string;
@@ -722,6 +728,8 @@ interface StoryQueryExecutionOptions {
 	semanticBindings?: SemanticStoryBindings;
 	executionContext?: StoryExecutionContext;
 	billingAccessVerifiedProjectId?: string;
+	/** A failing query comes back with its `error` instead of failing every query of the story. */
+	isolateQueryFailures?: boolean;
 }
 
 /**
@@ -794,7 +802,13 @@ export async function executeStoryQueries(
 	const entries = await Promise.all(
 		Object.keys(sqlQueries)
 			.filter((queryId) => runnableIds.has(queryId))
-			.map(async (queryId) => [queryId, await run(queryId, new Set())] as const),
+			.map(async (queryId) => {
+				const result = run(queryId, new Set());
+				return [
+					queryId,
+					await (options.isolateQueryFailures ? result.catch(toFailedQueryResult) : result),
+				] as const;
+			}),
 	);
 	return Object.fromEntries(entries);
 }
@@ -1231,29 +1245,25 @@ function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNa
 	return narratives;
 }
 
-type LiveStoryModel = NonNullable<Awaited<ReturnType<typeof resolveLiveStoryModel>>>;
-
-/** The pinned live story model, otherwise the project's default chat model, so a refresh never lands on a model the chat cannot use. */
-async function resolveLiveStoryModel(target: StoryRefreshTarget) {
-	const selection =
-		(await resolveDefaultModelSelection(target.projectId, 'live_story')) ??
-		(await resolveDefaultChatModel(target.projectId));
-	if (!selection) {
-		return null;
-	}
-
-	const model = await resolveProviderModel(target.projectId, selection.provider, selection.modelId, true, {
-		userId: target.userId,
+/** The pinned live story model, otherwise the user's default chat model, so a refresh never lands on a model the chat cannot use. */
+function resolveLiveStoryModel(target: StoryRefreshTarget): Promise<BackgroundModel | null> {
+	return resolveUserBackgroundModel({
 		projectId: target.projectId,
-		chatId: target.chatId ?? undefined,
-		category: 'story',
+		userId: target.userId,
+		defaultCategory: 'live_story',
+		applyUserSettings: true,
+		usageContext: {
+			userId: target.userId,
+			projectId: target.projectId,
+			chatId: target.chatId ?? undefined,
+			category: 'story',
+		},
 	});
-	return model ? { provider: selection.provider, model } : null;
 }
 
 async function generateLiveStoryOutput<T>(
 	target: StoryRefreshTarget,
-	{ provider, model }: LiveStoryModel,
+	{ provider, model, llmConfigId }: BackgroundModel,
 	systemPrompt: string,
 	instruction: string,
 	schema: z.ZodType<T>,
@@ -1274,6 +1284,7 @@ async function generateLiveStoryOutput<T>(
 		chatId: target.chatId,
 		llmProvider: provider,
 		llmModelId: model.model.modelId,
+		llmConfigId,
 		...convertToTokenUsage(usage),
 	});
 

@@ -111,6 +111,31 @@ describe('scheduler', () => {
 		},
 	);
 
+	it('keeps a one-off job of a project without access for a later run', async () => {
+		const handler = vi.fn().mockResolvedValue(undefined);
+		registerJob('story.delivery', handler, { resolveProjectId: () => 'project-1' });
+		mocks.hasProjectCloudBillingAccess.mockResolvedValue(false);
+		mocks.claimDueJobs.mockResolvedValueOnce([
+			{
+				id: 'delivery-retry',
+				name: 'story.delivery',
+				payload: { storyId: 'story-1' },
+				runAt: new Date(),
+				cron: null,
+				status: 'running',
+				attempts: 1,
+				maxAttempts: 10,
+			},
+		]);
+
+		startScheduler();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(handler).not.toHaveBeenCalled();
+		expect(mocks.deleteJob).not.toHaveBeenCalled();
+		expect(mocks.rescheduleJob).toHaveBeenCalledWith('delivery-retry', new Date('2026-09-28T11:00:00.000Z'));
+	});
+
 	it('waits for an active poll before resetting scheduler state', async () => {
 		let finishClaim: (jobs: []) => void = () => undefined;
 		mocks.claimDueJobs

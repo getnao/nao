@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	getAutomationById: vi.fn(),
 	getChat: vi.fn(),
 	getProjectAutomationRun: vi.fn(),
+	hasTableAccessOf: vi.fn(),
 	linkAutomationJob: vi.fn(),
 	listProjectAutomations: vi.fn(),
 	listShareableMembers: vi.fn(),
@@ -62,6 +63,10 @@ vi.mock('../../src/queries/project.queries', () => ({
 }));
 vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../../src/services/project-sharing.service', () => ({ listShareableMembers: mocks.listShareableMembers }));
+vi.mock('../../src/services/user-group-context-access.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/user-group-context-access.service')>()),
+	hasTableAccessOf: mocks.hasTableAccessOf,
+}));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
@@ -106,6 +111,7 @@ describe('automation admin routes', () => {
 		vi.clearAllMocks();
 		mocks.roles = { 'admin-id': 'admin', 'owner-id': 'user', 'viewer-id': 'viewer' };
 		mocks.listUsersWithProjectAccess.mockResolvedValue([{ id: 'admin-id' }, { id: 'owner-id' }]);
+		mocks.hasTableAccessOf.mockResolvedValue(true);
 		mocks.upsertRecurringJob.mockResolvedValue({ id: 'job-id' });
 		mocks.getAutomationById.mockImplementation(async (id: string) => ({ ...scheduledAutomation, id }));
 	});
@@ -252,6 +258,25 @@ describe('automation admin routes', () => {
 				recipientId: 'viewer-id',
 			}),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Viewers cannot own automations.' });
+		expect(mocks.transferAutomationOwnership).not.toHaveBeenCalled();
+		expect(mocks.transferProjectAutomationsOfUser).not.toHaveBeenCalled();
+	});
+
+	it("refuses to transfer automations to a member missing some of the previous owner's tables", async () => {
+		mocks.getProjectAutomation.mockResolvedValue(scheduledAutomation);
+		mocks.hasTableAccessOf.mockResolvedValue(false);
+		const missingTables = { code: 'BAD_REQUEST', message: expect.stringContaining('every table') };
+
+		await expect(
+			createCaller('admin-id').automation.transferOwnership({ id: 'scheduled-id', newOwnerId: 'admin-id' }),
+		).rejects.toMatchObject(missingTables);
+		await expect(
+			createCaller('admin-id').automation.transferAllFromUser({
+				fromUserId: 'owner-id',
+				recipientId: 'admin-id',
+			}),
+		).rejects.toMatchObject(missingTables);
+		expect(mocks.hasTableAccessOf).toHaveBeenCalledWith('project-id', 'owner-id', 'admin-id');
 		expect(mocks.transferAutomationOwnership).not.toHaveBeenCalled();
 		expect(mocks.transferProjectAutomationsOfUser).not.toHaveBeenCalled();
 	});

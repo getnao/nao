@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 import type { LlmProviderKind } from '@nao/shared/types';
 
+import type { DecisionProvider } from '../src/types/decision';
+
 const MODELS_DEV_URL = 'https://models.dev/api.json';
+const MODELS_DEV_DECISION_URL = `${MODELS_DEV_URL}?type=decision`;
 const OUTPUT_PATH = fileURLToPath(new URL('../src/data/model-prices.json', import.meta.url));
 
 type ModelsDevModel = {
@@ -21,6 +24,8 @@ type PriceSource = {
 	provider: string;
 	/** The ids nao sends to the provider for a models.dev entry, when they differ from its models.dev id. */
 	modelIds?: (modelsDevId: string, model: ModelsDevModel, models: Record<string, ModelsDevModel>) => string[];
+	/** The id nao sends in place of the models.dev one, undefined for a model the nao provider does not serve. */
+	rename?: (modelsDevId: string, model: ModelsDevModel) => string | undefined;
 };
 
 const PRICE_SOURCES: Record<LlmProviderKind, PriceSource[]> = {
@@ -45,22 +50,44 @@ const PRICE_SOURCES: Record<LlmProviderKind, PriceSource[]> = {
 	openaiCompatible: [],
 };
 
+/** Decision providers that are also LLM providers are priced by their LLM entry. */
+const DECISION_PRICE_SOURCES: Record<Exclude<DecisionProvider, LlmProviderKind>, PriceSource[]> = {
+	typesafe: [
+		{ provider: 'openrouter', rename: (_id, model) => withoutPrefix(model.canonical_model_id, 'typesafe/') },
+	],
+	cloudflare: [{ provider: 'cloudflare-workers-ai', rename: (id) => withoutPrefix(id, '@cf/cloudflare/') }],
+	systemOne: [],
+};
+
 async function main(): Promise<void> {
-	const catalog = await fetchCatalog();
-	const prices = Object.fromEntries(
-		Object.entries(PRICE_SOURCES).map(([kind, sources]) => [kind, collectPrices(catalog, sources)]),
-	);
+	const [catalog, decisionCatalog] = await Promise.all([
+		fetchCatalog(MODELS_DEV_URL),
+		fetchCatalog(MODELS_DEV_DECISION_URL),
+	]);
+	const prices = {
+		...collectProviderPrices(catalog, PRICE_SOURCES),
+		...collectProviderPrices(decisionCatalog, DECISION_PRICE_SOURCES),
+	};
 	writeFileSync(OUTPUT_PATH, serialize(prices));
 	const modelCount = Object.values(prices).reduce((count, models) => count + Object.keys(models).length, 0);
 	console.log(`Wrote prices of ${modelCount} models to ${OUTPUT_PATH}`);
 }
 
-async function fetchCatalog(): Promise<ModelsDevCatalog> {
-	const response = await fetch(MODELS_DEV_URL);
+async function fetchCatalog(url: string): Promise<ModelsDevCatalog> {
+	const response = await fetch(url);
 	if (!response.ok) {
 		throw new Error(`models.dev answered ${response.status} ${response.statusText}`);
 	}
 	return (await response.json()) as ModelsDevCatalog;
+}
+
+function collectProviderPrices(
+	catalog: ModelsDevCatalog,
+	sourcesByProvider: Record<string, PriceSource[]>,
+): Record<string, Record<string, ModelPrices>> {
+	return Object.fromEntries(
+		Object.entries(sourcesByProvider).map(([provider, sources]) => [provider, collectPrices(catalog, sources)]),
+	);
 }
 
 function collectPrices(catalog: ModelsDevCatalog, sources: PriceSource[]): Record<string, ModelPrices> {
@@ -72,10 +99,11 @@ function collectPrices(catalog: ModelsDevCatalog, sources: PriceSource[]): Recor
 		}
 		for (const [modelsDevId, model] of Object.entries(models)) {
 			const modelPrices = toModelPrices(model);
-			if (!modelPrices) {
+			const modelId = source.rename ? source.rename(modelsDevId, model) : modelsDevId;
+			if (!modelPrices || !modelId) {
 				continue;
 			}
-			prices.set(modelsDevId, modelPrices);
+			prices.set(modelId, modelPrices);
 			for (const alias of source.modelIds?.(modelsDevId, model, models) ?? []) {
 				if (!models[alias] && !prices.has(alias)) {
 					prices.set(alias, modelPrices);
@@ -96,6 +124,10 @@ function toModelPrices(model: ModelsDevModel): ModelPrices | undefined {
 		inputCacheWrite: model.cost.cache_write,
 		output: model.cost.output,
 	};
+}
+
+function withoutPrefix(id: string | undefined, prefix: string): string | undefined {
+	return id?.startsWith(prefix) ? id.slice(prefix.length) : undefined;
 }
 
 /** Vertex takes `claude-sonnet-4-6` where models.dev lists `claude-sonnet-4-6@default`. */

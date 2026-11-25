@@ -16,7 +16,7 @@ import { agentStreamService } from '../services/agent-stream';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { getQueryRowsPage, type QueryRowsPage } from '../services/query-rows.service';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
-import { llmProviderSchema } from '../types/llm';
+import { llmSelectedModelSchema } from '../types/llm';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { canUserViewChatContent } from '../utils/chat-access';
 import { getChatContextUsage } from '../utils/chat-context-usage';
@@ -37,7 +37,7 @@ export const chatRoutes = {
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
-		if (userId !== ctx.user.id) {
+		if (userId !== ctx.user.id || (chat.projectId && (await projectQueries.isProjectDeactivated(chat.projectId)))) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: `You are not authorized to access this chat.` });
 		}
 
@@ -238,12 +238,7 @@ export const chatRoutes = {
 		.input(
 			z.object({
 				chatId: z.string(),
-				model: z
-					.object({
-						provider: llmProviderSchema,
-						modelId: z.string(),
-					})
-					.optional(),
+				model: llmSelectedModelSchema.optional(),
 			}),
 		)
 		.query(async ({ input, ctx }): Promise<ContextUsage> => {

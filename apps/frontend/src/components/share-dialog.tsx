@@ -6,6 +6,7 @@ import type { ShareRole } from '@nao/shared/types';
 import type { ShareModel, ShareTarget, ShareTargetState } from '@/hooks/use-share-target';
 import type { ShareOwner } from '@/lib/share-access';
 import type { ShareDraft, ShareSavedState } from '@/lib/share-draft';
+import type { TransferCandidate } from '@/components/transfer-ownership-dialog';
 import { ShareAccessPanel } from '@/components/share-access-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -235,7 +236,7 @@ function toSavedState(model: ShareModel): ShareSavedState {
 }
 
 /** Project members the story can be handed to: everyone but viewers and its current owner. */
-function useOwnerCandidates(model: ShareModel): ShareOwner[] {
+function useOwnerCandidates(model: ShareModel): TransferCandidate[] {
 	const recipients = useQuery({
 		...trpc.story.listTransferRecipients.queryOptions({ storyId: model.storyId ?? '' }),
 		enabled: model.storyId !== null && model.canManage,

@@ -83,6 +83,7 @@ export const AssistantMessage = memo(
 							chatId={chatId}
 							className={cn(
 								'transition-opacity duration-200',
+								isLastMessage && 'animate-rise',
 								isLastMessage || hasFeedback ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
 							)}
 						/>

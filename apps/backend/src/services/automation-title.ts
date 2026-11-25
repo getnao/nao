@@ -1,11 +1,11 @@
-import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText } from 'ai';
 
-import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId } from '../utils/llm';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
+import { type BackgroundModel, resolveUserBackgroundModel } from './background-model.service';
 
 const FALLBACK_TITLE = 'Untitled automation';
 
@@ -20,7 +20,7 @@ export async function inferAutomationTitle(
 		return FALLBACK_TITLE;
 	}
 
-	const modelConfig = await resolveModelForProject(projectId, userId, modelSelection);
+	const modelConfig = await resolveTitleModel(projectId, userId, modelSelection);
 	if (!modelConfig) {
 		return fallbackTitleFromPrompt(trimmedPrompt);
 	}
@@ -40,28 +40,22 @@ export async function inferAutomationTitle(
 	}
 }
 
-async function resolveModelForProject(
+function resolveTitleModel(
 	projectId: string,
 	userId: string,
 	modelSelection?: LlmSelectedModel,
-): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const pinned = modelSelection ? null : await resolveDefaultModelSelection(projectId, 'title');
-	const provider =
-		modelSelection?.provider ?? pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
-	if (!provider) {
-		return null;
-	}
-
-	const defaultModelId = getProviderMeta(provider).summaryModelId;
-	const modelId = modelSelection
-		? await resolveAnnotationModelId(projectId, modelSelection, defaultModelId)
-		: (pinned?.modelId ?? defaultModelId);
-	const model = await resolveProviderModel(projectId, provider, modelId, false, {
-		userId,
+): Promise<BackgroundModel | null> {
+	return resolveUserBackgroundModel({
 		projectId,
-		category: 'automation',
+		userId,
+		defaultCategory: modelSelection ? undefined : 'title',
+		fallback: modelSelection,
+		preferredModelId: (selection) => {
+			const summaryModelId = getProviderMeta(selection.provider).summaryModelId;
+			return modelSelection ? resolveAnnotationModelId(projectId, selection, summaryModelId) : summaryModelId;
+		},
+		usageContext: { userId, projectId, category: 'automation' },
 	});
-	return model ? { provider, model } : null;
 }
 
 function fallbackTitleFromPrompt(prompt: string): string {

@@ -152,6 +152,7 @@ function trackInference(context: ToolContext, model: SubagentModel, usage: Token
 		chatId: context.chatId,
 		llmProvider: model.selection.provider,
 		llmModelId: model.selection.modelId,
+		llmConfigId: model.selection.llmConfigId,
 		...usage,
 	});
 }

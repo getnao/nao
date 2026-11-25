@@ -4,7 +4,6 @@ import { ArrowLeft, Check, Loader2, Mail, MoreHorizontal, Play, Share2, Trash, X
 import { useRef, useState } from 'react';
 
 import type { AutomationFormHandle, AutomationFormValue } from '@/components/automations-form';
-import GithubIcon from '@/components/icons/github-icon.svg';
 import {
 	AutomationChatPanel,
 	OpenAutomationChatButton,
@@ -12,6 +11,7 @@ import {
 } from '@/components/automation-chat-panel';
 import { AutomationEditorLayout } from '@/components/automation-editor-layout';
 import { AutomationForm } from '@/components/automations-form';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ShareDialog } from '@/components/share-dialog';
 import { SHARE_ROLE_LABELS } from '@/components/share-role-select';
@@ -238,6 +238,7 @@ function AutomationDetailPage() {
 						scheduleDescription: automation.scheduleDescription ?? undefined,
 						modelProvider: automation.modelProvider ?? undefined,
 						modelId: automation.modelId ?? undefined,
+						llmConfigId: automation.llmConfigId ?? undefined,
 						enabled: automation.enabled,
 						mcpEnabled: automation.mcpEnabled,
 						mcpServers: automation.mcpServers ?? undefined,

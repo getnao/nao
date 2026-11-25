@@ -27,6 +27,11 @@ import {
 import { syncStoryScheduledJobs } from './story-refresh.service';
 import { assertCanManageStoryShare, type ShareActor } from './story-share-settings.service';
 import { copyStoryQueries } from './story-sql-queries';
+import {
+	flagRecipientsWithTableAccess,
+	hasTableAccessOf,
+	MISSING_TABLE_ACCESS_MESSAGE,
+} from './user-group-context-access.service';
 
 const TRANSFER_LOCK_SESSION_ID = 'story-transfer';
 
@@ -69,6 +74,7 @@ export async function transferAllStoriesOfUser(
 	if (recipient.id === fromUserId) {
 		throw new StoryTransferError('This member already owns these stories.');
 	}
+	await assertHasTableAccessOf(actor.projectId, fromUserId, recipient.id);
 	const storyIds = await storyQueries.listOwnedStoryIdsInProject(fromUserId, actor.projectId);
 	const transferred: DBStory[] = [];
 	let failedCount = 0;
@@ -92,8 +98,12 @@ export async function transferAllStoriesOfUser(
 }
 
 /** Members who can edit, and whom the actor could share with, can take a story over. */
-export async function listStoryRecipients(actor: ShareActor, ownerId: string): Promise<StoryRecipient[]> {
-	return (await listEditingMembers(actor)).filter((member) => member.id !== ownerId);
+export async function listStoryRecipients(
+	actor: ShareActor,
+	ownerId: string,
+): Promise<Array<StoryRecipient & { hasTableAccess: boolean }>> {
+	const recipients = (await listEditingMembers(actor)).filter((member) => member.id !== ownerId);
+	return flagRecipientsWithTableAccess(actor.projectId, ownerId, recipients);
 }
 
 /** Where a story that left this chat went, and whether the user can still open it there. */
@@ -110,7 +120,10 @@ export async function describeTransferredStory(
 	return { ownerName: transferred.ownerName, storyId: canOpen ? transferred.id : null };
 }
 
-/** With `expectedOwnerId`, a story someone else took over meanwhile is left alone and `null` is returned. */
+/**
+ * With `expectedOwnerId`, a story someone else took over meanwhile is left alone and `null` is returned, and the
+ * caller has already checked the recipient's table access against that owner.
+ */
 async function handOverStory(
 	storyId: string,
 	recipient: StoryRecipient,
@@ -129,6 +142,9 @@ async function handOverStory(
 		}
 		if (!previousOwnerId || previousOwnerId === recipient.id) {
 			throw new StoryTransferError('This member already owns the story.');
+		}
+		if (!expectedOwnerId) {
+			await assertHasTableAccessOf(actor.projectId, previousOwnerId, recipient.id);
 		}
 
 		const handover = { storyId: story.id, previousOwnerId, recipientId: recipient.id, projectId: actor.projectId };
@@ -199,6 +215,12 @@ async function findRecipient(actor: ShareActor, recipientId: string): Promise<St
 		throw new StoryTransferError('Stories can only be handed to project members who can edit them.');
 	}
 	return recipient;
+}
+
+async function assertHasTableAccessOf(projectId: string, previousOwnerId: string, recipientId: string): Promise<void> {
+	if (!(await hasTableAccessOf(projectId, previousOwnerId, recipientId))) {
+		throw new StoryTransferError(MISSING_TABLE_ACCESS_MESSAGE);
+	}
 }
 
 async function listEditingMembers(actor: ShareActor): Promise<StoryRecipient[]> {

@@ -52,7 +52,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeatures }));
 vi.mock('@/hooks/use-custom-stories-enabled', () => ({ useCustomStoriesEnabled: mocks.useCustomStoriesEnabled }));
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: mocks.useQuery,
+	useQuery: (options?: { queryKey?: string[] }) =>
+		options?.queryKey?.[0] === 'transfer-recipients' ? { data: [] } : mocks.useQuery(options),
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, fetchQuery: mocks.fetchQuery }),
 	useMutation: mocks.useMutation,
 }));
@@ -101,11 +102,21 @@ vi.mock('@/main', () => ({
 		},
 		project: {
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
+			getLlmAccessReadiness: {
+				queryKey: vi.fn(() => ['llm-access-readiness']),
+				queryOptions: vi.fn(() => ({ queryKey: ['llm-access-readiness'] })),
+			},
+			getLlmConfigs: { queryOptions: vi.fn(() => ({ queryKey: ['llm-configs'] })) },
 			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
+			listTransferRecipients: {
+				queryOptions: vi.fn(() => ({ queryKey: ['transfer-recipients'] })),
+				queryKey: vi.fn(() => ['transfer-recipients']),
+			},
 			removeProjectMember: { mutationOptions: vi.fn() },
 		},
 		story: {
 			countOwnedStories: { queryOptions: vi.fn(() => ({ queryKey: ['owned-stories'] })) },
+			listTransferRecipients: { queryKey: vi.fn(() => ['story-transfer-recipients']) },
 			transferAllFromUser: { mutationOptions: vi.fn() },
 		},
 		system: {
@@ -159,9 +170,13 @@ vi.mock('@/main', () => ({
 			setMemberships: { mutationKey: () => ['set-memberships'] },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
+			updateLlmAccess: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
 		},
 	},
+}));
+vi.mock('@/components/settings/llm-access-mode-control', () => ({
+	LlmAccessModeControl: () => null,
 }));
 vi.mock('@/components/settings/tool-call-density-slider', () => ({
 	ToolCallDensitySlider: ({
@@ -315,6 +330,8 @@ const allUsers = {
 	mcpAccess: ALL_MCP_ACCESS,
 	skillsAccess: ALL_SKILLS_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
+	llmConfigIds: [] as string[],
+	llmModelIdsByConfig: {},
 };
 const analysts = {
 	...allUsers,
@@ -429,6 +446,9 @@ beforeEach(() => {
 	});
 	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
 		const queryKey = options?.queryKey?.[0];
+		if (queryKey === 'llm-access-readiness') {
+			return { isLoading: false, isError: false, data: { mode: 'user_group' } };
+		}
 		if (queryKey === 'effective-oidc-env-mappings' || queryKey === 'effective-microsoft-env-mappings') {
 			return { isLoading: false, isError: false, isSuccess: true, data: [], refetch: vi.fn() };
 		}
@@ -446,11 +466,28 @@ beforeEach(() => {
 								? { content: '', hash: 'rules-hash' }
 								: queryKey === 'member-budget-overview'
 									? { period: 'month', defaultLimitUsd: 0, groups: [], members: [] }
-									: queryKey === 'context-catalog'
-										? { syncState: 'ready', objects: [] }
-										: queryKey === 'docs-context-catalog'
-											? { syncState: 'ready', entries: [] }
-											: overview,
+									: queryKey === 'llm-configs'
+										? {
+												projectConfigs: [
+													{
+														id: 'credential-a',
+														name: 'OpenAI production',
+														provider: 'openai',
+														baseUrl: null,
+													},
+													{
+														id: 'credential-b',
+														name: 'OpenAI backup',
+														provider: 'openai',
+														baseUrl: null,
+													},
+												],
+											}
+										: queryKey === 'context-catalog'
+											? { syncState: 'ready', objects: [] }
+											: queryKey === 'docs-context-catalog'
+												? { syncState: 'ready', entries: [] }
+												: overview,
 		};
 	});
 	mocks.useMutation.mockReturnValue({
@@ -961,6 +998,7 @@ describe('UserGroupEditor', () => {
 
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
+			'LLM Access',
 			'Data access',
 			'MCP',
 			'Skills',
@@ -971,6 +1009,74 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
 		expect(screen.queryByRole('navigation', { name: 'User group sections' })).toBeNull();
+	});
+
+	it('autosaves credential assignments for an existing group', async () => {
+		renderEditor('llm-access');
+
+		fireEvent.click(screen.getByRole('checkbox', { name: /OpenAI backup/ }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith({
+				groupId: 'analysts',
+				llmConfigIds: ['credential-b'],
+				llmModelIdsByConfig: {},
+			}),
+		);
+		await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Saved'));
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+	});
+
+	it('queues another access change while an autosave is in flight', async () => {
+		let finishFirstSave: (() => void) | undefined;
+		mocks.mutateAsync
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						finishFirstSave = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({});
+		renderEditor('llm-access');
+
+		const credential = screen.getByRole('checkbox', { name: /OpenAI backup/ });
+		fireEvent.click(credential);
+		await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+
+		fireEvent.click(credential);
+		expect(credential.getAttribute('aria-checked')).toBe('false');
+		expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
+
+		finishFirstSave?.();
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenLastCalledWith({
+				groupId: 'analysts',
+				llmConfigIds: [],
+				llmModelIdsByConfig: {},
+			}),
+		);
+	});
+
+	it('leaves LLM access out of full updates for existing groups', async () => {
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		renameGroup('Updated analysts');
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
+		const update = mocks.mutateAsync.mock.calls[0]?.[0];
+		expect(update).not.toHaveProperty('llmConfigIds');
+		expect(update).not.toHaveProperty('llmModelIdsByConfig');
+	});
+
+	it('keeps credential assignments in the draft for a new group', () => {
+		renderEditor('llm-access', vi.fn(), 'new');
+
+		fireEvent.click(screen.getByRole('checkbox', { name: /OpenAI backup/ }));
+
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+		expect(screen.getByRole('button', { name: 'Save' })).toBeDefined();
 	});
 
 	it('opens legacy Security links in Data access', () => {

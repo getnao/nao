@@ -1,8 +1,10 @@
 import type { LlmProviderKind } from '@nao/shared/types';
 import { describe, expect, it } from 'vitest';
 
+import { DECISION_PROVIDER_META } from '../../src/agents/decision.providers';
 import { getBuiltInModelPrices, resolveModelPrices } from '../../src/agents/model-prices';
 import { PROVIDER_META } from '../../src/agents/provider-meta';
+import type { DecisionProvider } from '../../src/types/decision';
 
 const MODELS_DEV_UNLISTED = [
 	'mistral/labs-leanstral-2603',
@@ -54,6 +56,22 @@ describe('getBuiltInModelPrices', () => {
 
 		expect(listed).toBeDefined();
 		expect(getBuiltInModelPrices(provider, modelId)).toEqual(listed);
+	});
+
+	it('prices the decision models models.dev lists', () => {
+		const priced = Object.entries(DECISION_PROVIDER_META).flatMap(([provider, meta]) =>
+			meta.models
+				.filter((model) => getBuiltInModelPrices(provider as DecisionProvider, model.id))
+				.map((model) => `${provider}/${model.id}`),
+		);
+
+		expect(priced).toEqual([
+			'typesafe/jev-latest',
+			'openai/gpt-6-luna',
+			'cloudflare/clef-flash',
+			'cloudflare/clef',
+		]);
+		expect(getBuiltInModelPrices('typesafe', 'jev-latest')).toEqual({ inputNoCache: 0.042, output: 0 });
 	});
 
 	it('knows no prices for a model models.dev does not list', () => {

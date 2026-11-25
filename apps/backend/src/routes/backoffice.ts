@@ -123,6 +123,7 @@ export const backofficeRoutes = async (app: App) => {
 					name: z.string().trim().min(1).max(100).optional(),
 					bypassBilling: z.boolean().optional(),
 					license: z.string().trim().min(1).nullable().optional(),
+					deactivated: z.boolean().optional(),
 				})
 				.strict(),
 			request.body,
@@ -132,6 +133,17 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.updateOrganization(params.orgId, body));
+	});
+
+	app.delete('/organizations/:orgId', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => backofficeService.deleteOrganization(params.orgId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
 	});
 
 	app.get('/organizations/:orgId/sso', async (request, reply) => {
@@ -204,6 +216,26 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.getProjectDetail(params.projectId));
+	});
+
+	app.patch('/projects/:projectId', async (request, reply) => {
+		const params = parse(projectParamsSchema, request.params, reply);
+		const body = parse(z.object({ deactivated: z.boolean() }).strict(), request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, () => backofficeService.updateProject(params.projectId, body));
+	});
+
+	app.delete('/projects/:projectId', async (request, reply) => {
+		const params = parse(projectParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => backofficeService.deleteProject(params.projectId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
 	});
 
 	app.get('/projects/:projectId/messages', async (request, reply) => {

@@ -76,11 +76,9 @@ export async function getProvidersCostSupport(projectId: string): Promise<Record
 		getProjectDeclaredModels(projectId),
 	]);
 	return Object.fromEntries(
-		declaredSources.map(({ provider }) => [
+		[...new Set(activeModels.map((model) => model.provider))].map((provider) => [
 			provider,
-			activeModels.some(
-				(model) => model.provider === provider && hasModelCost(provider, model.modelId, declaredSources),
-			),
+			activeModels.some((model) => model.provider === provider && hasModelCost(model, declaredSources)),
 		]),
 	) as Record<LlmProvider, boolean>;
 }
@@ -93,7 +91,7 @@ export async function getUnpricedModels(projectId: string): Promise<UnpricedMode
 		getProjectDeclaredModels(projectId),
 	]);
 	return activeModels
-		.filter(({ provider, modelId }) => !hasModelCost(provider, modelId, declaredSources))
+		.filter((model) => !hasModelCost(model, declaredSources))
 		.map(({ provider, modelId, name }) => ({ provider, modelId, name }));
 }
 
@@ -237,15 +235,14 @@ type ResolvedBudget = {
 };
 
 function hasModelCost(
-	provider: LlmProvider,
-	modelId: string,
-	declaredSources: Array<{ provider: LlmProvider; models: CustomModelMetadata[] }>,
+	model: { provider: LlmProvider; modelId: string; llmConfigId?: string },
+	declaredSources: Array<{ provider: LlmProvider; llmConfigId?: string; models: CustomModelMetadata[] }>,
 ): boolean {
 	const declaredModel = declaredSources
-		.find((source) => source.provider === provider)
-		?.models.find((model) => model.id === modelId);
+		.find((source) => source.provider === model.provider && source.llmConfigId === model.llmConfigId)
+		?.models.find((candidate) => candidate.id === model.modelId);
 	return (
-		getBuiltInModelPrices(provider, modelId) !== undefined ||
+		getBuiltInModelPrices(model.provider, model.modelId) !== undefined ||
 		(declaredModel !== undefined && hasDeclaredCosts(declaredModel))
 	);
 }
