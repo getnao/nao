@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { DBOrganization } from '../db/abstractSchema';
+import type { DBOrganization, User } from '../db/abstractSchema';
 import * as apiKeyQueries from '../queries/api-key.queries';
 import { getOrganizationById } from '../queries/organization.queries';
 import { getUser } from '../queries/user.queries';
@@ -16,6 +16,7 @@ export interface GeneratedKey {
 
 export interface ValidatedApiKey {
 	createdBy: string;
+	creator: User;
 	organization: DBOrganization;
 }
 
@@ -56,5 +57,5 @@ export const validateApiKey = async (plaintext: string): Promise<ValidatedApiKey
 	if (!organization || organization.deactivatedAt || !creator || creator.deactivatedAt) {
 		return null;
 	}
-	return { createdBy: apiKey.createdBy, organization };
+	return { createdBy: apiKey.createdBy, creator, organization };
 };

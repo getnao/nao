@@ -1,7 +1,7 @@
 import '../../src/env';
 
 import { eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
@@ -31,10 +31,14 @@ describe('validateApiKey', () => {
 		});
 	});
 
+	afterAll(() => {
+		db.$client.close();
+	});
+
 	it('accepts a key of an active organization and creator', async () => {
 		const validated = await validateApiKey(key.plaintext);
 
-		expect(validated?.createdBy).toBe(CREATOR_ID);
+		expect(validated?.creator.id).toBe(CREATOR_ID);
 		expect(validated?.organization.id).toBe(ORG_ID);
 	});
 
