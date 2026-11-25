@@ -22,6 +22,7 @@ import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useToggleStarred } from '@/hooks/use-toggle-starred';
 import { useSession } from '@/lib/auth-client';
+import { allowConversationFeedbackNavigationAfterDeletion } from '@/lib/conversation-feedback-navigation';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -50,7 +51,8 @@ export function ChatListItem({ chat, needsAttention = false, resumeOnboarding = 
 						storage.set(null);
 					}
 				}
-				navigate({ to: '/', ignoreBlocker: true });
+				allowConversationFeedbackNavigationAfterDeletion(vars.chatId);
+				navigate({ to: '/' });
 				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 			},
 		}),

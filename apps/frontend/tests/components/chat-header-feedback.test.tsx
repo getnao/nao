@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UIMessage } from '@nao/backend/chat';
 import { ChatHeaderFeedback, ConversationFeedbackGuard } from '@/components/chat-header-feedback';
+import { allowConversationFeedbackNavigationAfterDeletion } from '@/lib/conversation-feedback-navigation';
 
 const mocks = vi.hoisted(() => ({
 	isFeedbackRequired: true,
@@ -164,6 +165,16 @@ describe('ConversationFeedbackGuard', () => {
 
 		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/chat-1/subagent/tool-1' } })).toBe(false);
 		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
+	});
+
+	it('exempts feedback only when the current chat was deleted', () => {
+		render(<ConversationFeedbackGuard chatId='current-chat' />);
+
+		allowConversationFeedbackNavigationAfterDeletion('different-chat');
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/' } })).toBe(true);
+
+		allowConversationFeedbackNavigationAfterDeletion('current-chat');
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/' } })).toBe(false);
 	});
 
 	it.each([

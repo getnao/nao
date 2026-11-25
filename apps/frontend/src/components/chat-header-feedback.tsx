@@ -7,6 +7,7 @@ import { FEEDBACK_VOTES, FeedbackButton, FeedbackDialog } from '@/components/cha
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useIsConversationFeedbackRequired, useSubmitMessageFeedback } from '@/hooks/use-message-feedback';
 import { checkAssistantMessageHasContent } from '@/lib/ai';
+import { isConversationFeedbackNavigationAllowed } from '@/lib/conversation-feedback-navigation';
 
 export function ChatHeaderFeedback({ chatId }: { chatId: string }) {
 	const [dialogVote, setDialogVote] = useState<FeedbackVote>('down');
@@ -69,7 +70,10 @@ export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
 	const navigationBlocker = useBlocker({
 		shouldBlockFn: ({ next }) => {
 			const staysInConversation = next.pathname === `/${chatId}` || next.pathname.startsWith(`/${chatId}/`);
-			return !staysInConversation && !isRunning && !!message && !message.feedback;
+			if (staysInConversation || isConversationFeedbackNavigationAllowed(chatId)) {
+				return false;
+			}
+			return !isRunning && !!message && !message.feedback;
 		},
 		enableBeforeUnload: false,
 		disabled: !isFeedbackRequired,
