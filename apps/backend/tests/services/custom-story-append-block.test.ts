@@ -5,7 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import * as storyFileQueries from '../../src/queries/story-file.queries';
-import { appendCustomStoryBlock, StoryBlockEditError } from '../../src/services/story-block-edit';
+import { appendCustomStoryBlock, saveCustomStoryFiles, StoryBlockEditError } from '../../src/services/story-block-edit';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -74,6 +74,21 @@ describe('appending a chart to a custom story', () => {
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: `${APP_SOURCE}\n// wip\n` });
 
 		await expect(appendChart()).rejects.toBeInstanceOf(StoryBlockEditError);
+		expect(await db.select().from(s.storyVersion)).toHaveLength(1);
+	});
+
+	it('refuses to save files that show an image from a source the project does not allow', async () => {
+		const content = APP_SOURCE.replace('<main>', '<main>\n      <Image src="https://blocked.example/logo.png" />');
+
+		await expect(
+			saveCustomStoryFiles({
+				chatId: 'chat-1',
+				authorId: 'user-1',
+				storySlug: 'revenue',
+				versionNumber: 1,
+				files: [{ path: 'app.jsx', content }],
+			}),
+		).rejects.toThrow('https://blocked.example/logo.png');
 		expect(await db.select().from(s.storyVersion)).toHaveLength(1);
 	});
 });

@@ -84,6 +84,10 @@ export function describeBlockedStoryImages(sources: string[]): string {
 	return `It shows images from sources this project does not allow (${sources.join(', ')}). Ask the user whether to go on without them; an admin can allow them in ${STORY_IMAGES_SETTINGS}.`;
 }
 
+export function describeBlockedStoryImagesToEditor(sources: string[]): string {
+	return `This story shows images from sources this project does not allow (${sources.join(', ')}). Remove them, or ask an admin to allow them in ${STORY_IMAGES_SETTINGS}.`;
+}
+
 export async function getAllowedStoryImageSources(projectId: string): Promise<string[]> {
 	return allowedStoryImageSources(await projectQueries.getAgentSettings(projectId));
 }
