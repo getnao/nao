@@ -29,7 +29,7 @@ import {
 	STORY_QUERIES_FILE,
 } from '../../utils/story-library';
 import { groupBy } from '../../utils/utils';
-import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
+import { getDialectSqlQueryRules, getDialectToolCallRules, LOCAL_DUCKDB_SQL_RULES } from './dialect-rules';
 import { NaoContextStructure, UserRulesSection } from './nao-context-structure';
 import { storyKitGuideItems } from './story-kit-guide';
 
@@ -811,6 +811,11 @@ function LocalDatabaseBlock({
 					? 'For questions a warehouse can answer on its own, keep using the warehouse — this is for files and for results you already have.'
 					: 'It holds no warehouse data of its own: get the numbers from execute_semantic_query first, then reshape them here.'}
 			</Span>
+			<List>
+				{LOCAL_DUCKDB_SQL_RULES.map((rule) => (
+					<ListItem>{rule}</ListItem>
+				))}
+			</List>
 		</Block>
 	);
 }
