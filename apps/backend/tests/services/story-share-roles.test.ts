@@ -28,6 +28,7 @@ import {
 const mocks = vi.hoisted(() => ({
 	attachChatToStandaloneStory: vi.fn(),
 	storyFolderId: null as string | null,
+	assertStoryNotBeingEdited: vi.fn(),
 }));
 
 vi.mock('../../src/db/db', async () => {
@@ -59,6 +60,9 @@ vi.mock('../../src/queries/story-folder.queries', async (importOriginal) => ({
 	}),
 	withProjectFolderLock: (_projectId: string, work: () => Promise<unknown>) => work(),
 }));
+vi.mock('../../src/services/story-folder-access.service', () => ({
+	assertStoryNotBeingEdited: mocks.assertStoryNotBeingEdited,
+}));
 vi.mock('../../src/services/story-delivery.service', () => ({ teardownStoryDelivery: vi.fn() }));
 vi.mock('../../src/services/standalone-story', () => ({
 	attachChatToStandaloneStory: mocks.attachChatToStandaloneStory,
@@ -85,6 +89,7 @@ describe('story edit rights shared through roles', () => {
 		await db.delete(s.sharedStory);
 		await db.delete(s.storyDelivery);
 		vi.clearAllMocks();
+		mocks.assertStoryNotBeingEdited.mockReset();
 		mocks.storyFolderId = PRIVATE_FOLDER_ID;
 	});
 
@@ -289,6 +294,17 @@ describe('story edit rights shared through roles', () => {
 		expect(mocks.storyFolderId).toBe(PRIVATE_FOLDER_ID);
 		expect(await getStoryShareRole(STORY_ID, VIEWER_ID)).toBe('viewer');
 		expect(await getStoryShareRole(STORY_ID, GROUP_MEMBER_ID)).toBeNull();
+	});
+
+	it('refuses to move the story from the share dialog while the agent edits it', async () => {
+		mocks.assertStoryNotBeingEdited.mockRejectedValue(new Error('The agent is working on this story.'));
+
+		await expect(save({ visibility: 'project', folderId: null })).rejects.toThrow('The agent is working');
+		expect(mocks.storyFolderId).toBe(PRIVATE_FOLDER_ID);
+
+		mocks.storyFolderId = null;
+		await save({ visibility: 'project', folderId: null });
+		expect(mocks.assertStoryNotBeingEdited).toHaveBeenCalledOnce();
 	});
 
 	it('lets only the owner or an admin change who has access, never an editor', async () => {

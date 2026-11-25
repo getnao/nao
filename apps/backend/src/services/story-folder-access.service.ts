@@ -1,6 +1,10 @@
+import { TRPCError } from '@trpc/server';
+
 import type { DBStoryFolder } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
+import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import { agentService } from './agent';
 import { listShareableUserGroupsWithMembers } from './shareable-user-groups.service';
 
 type FolderAccessPerson = {
@@ -41,4 +45,14 @@ export async function getFolderAccess(folder: DBStoryFolder): Promise<FolderAcce
 		.filter((person) => person.groupNames.length > 0 || person.isAdmin)
 		.sort((left, right) => left.name.localeCompare(right.name));
 	return { kind: 'groups', people };
+}
+
+export async function assertStoryNotBeingEdited(storyId: string): Promise<void> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (story?.chatId && agentService.get(story.chatId)) {
+		throw new TRPCError({
+			code: 'CONFLICT',
+			message: 'The agent is working on this story. Move it once it is done.',
+		});
+	}
 }

@@ -12,6 +12,7 @@ import { notifySharedItem } from './notification.service';
 import { assertCanShareToProject, assertCanShareWith } from './project-sharing.service';
 import { assertShareableUserGroupIds } from './shareable-user-groups.service';
 import { unshareStory } from './shared-story.service';
+import { assertStoryNotBeingEdited } from './story-folder-access.service';
 import { getFolderViewer } from './story-folder-viewer.service';
 
 export type ShareActor = { id: string; name: string; role: UserRole | null; projectId: string };
@@ -81,6 +82,7 @@ export async function saveStoryShareSettings(
 }
 
 async function replaceStoryAccess(story: DBStory, actor: ShareActor, change: StoryShareChange): Promise<void> {
+	await assertFolderChangeAllowed(story.id, change.folderId);
 	const ownerId = await storyQueries.getStoryOwnerId(story.id);
 	const users = change.users.filter((user) => user.id !== ownerId);
 	const groups = change.visibility === 'project' ? [] : change.groups;
@@ -218,6 +220,17 @@ async function listNewRecipients(
 		userIds: recipients.userIds.filter((id) => !currentUserIds.includes(id)),
 		groupIds: recipients.groupIds.filter((id) => !currentGroupIds.includes(id)),
 	};
+}
+
+/** The share dialog follows the same rule as every other move: a story stays put while the agent edits it. */
+async function assertFolderChangeAllowed(storyId: string, folderId: string | null | undefined): Promise<void> {
+	if (folderId === undefined) {
+		return;
+	}
+	const folderItem = await storyFolderQueries.getStoryFolderItem(storyId);
+	if ((folderItem?.folderId ?? null) !== folderId) {
+		await assertStoryNotBeingEdited(storyId);
+	}
 }
 
 /**

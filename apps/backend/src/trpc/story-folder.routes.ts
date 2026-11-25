@@ -6,11 +6,10 @@ import { z } from 'zod/v4';
 import type { DBStoryFolder } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
-import { agentService } from '../services/agent';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { assertCanShareToProject, assertCanShareWith } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
-import { getFolderAccess } from '../services/story-folder-access.service';
+import { assertStoryNotBeingEdited, getFolderAccess } from '../services/story-folder-access.service';
 import { getFolderViewer } from '../services/story-folder-viewer.service';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
 
@@ -109,16 +108,6 @@ async function assertCanCreateFolder(parentId: string | null, groupIds: string[]
 	}
 	assertCanPlaceInDestination(parent, ctx.user.id);
 	await assertCanCreateTeamFolder(groupIds, ctx);
-}
-
-async function assertStoryNotBeingEdited(storyId: string) {
-	const story = await storyQueries.getStoryById(storyId);
-	if (story?.chatId && agentService.get(story.chatId)) {
-		throw new TRPCError({
-			code: 'CONFLICT',
-			message: 'The agent is working on this story. Move it once it is done.',
-		});
-	}
 }
 
 async function resolveMoveTarget(folderId: string | null, ctx: FolderContext, label = 'Target folder') {
