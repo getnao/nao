@@ -18,16 +18,14 @@ export function parseStoryTabs(code: string): StoryTab[] | null {
 	return findStoryTabBlocks(code).map(({ title, innerCode }) => ({ title, innerCode }));
 }
 
-/** The complete tabs of streamed code, followed by the tab still being written. */
+/** The complete tabs of streamed code, followed by the tab still being written once it has content to show. */
 export function parseStreamingStoryTabs(code: string): StoryTab[] | null {
 	const tabs = parseStoryTabs(code) ?? [];
 	const lastTabEnd = findStoryTabBlocks(code).at(-1)?.end ?? 0;
 	const openTab = new RegExp(`<tab\\b(${TAG_ATTRS})>`).exec(code.slice(lastTabEnd));
-	if (openTab) {
-		tabs.push({
-			title: parseChartAttributes(openTab[1]).title ?? '',
-			innerCode: code.slice(lastTabEnd + openTab.index + openTab[0].length),
-		});
+	const openTabInnerCode = openTab ? code.slice(lastTabEnd + openTab.index + openTab[0].length) : '';
+	if (openTab && hasVisibleContent(openTabInnerCode)) {
+		tabs.push({ title: parseChartAttributes(openTab[1]).title ?? '', innerCode: openTabInnerCode });
 	}
 	return tabs.length > 0 ? tabs : null;
 }
@@ -155,6 +153,10 @@ function findStoryTabBlocks(code: string): StoryTabBlock[] {
 	}
 
 	return blocks;
+}
+
+function hasVisibleContent(innerCode: string): boolean {
+	return innerCode.replace(/<[^>]*$/, '').trim().length > 0;
 }
 
 function escapeAttribute(value: string): string {
