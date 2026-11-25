@@ -7,9 +7,11 @@ import type { StoryTheme } from '@nao/shared/story-theme';
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import type { PendingStoryBlock } from '@/lib/story.utils';
 import {
+	StoryBlockSkeleton,
 	StoryChartEmbed as LiveChartEmbed,
 	StoryMapEmbed as LiveMapEmbed,
 	StoryTableEmbed as LiveTableEmbed,
+	StoryTableSkeleton,
 } from '@/components/story-embeds';
 import { StoryFilterBar, StoryFilterBarPlaceholder } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
@@ -21,21 +23,13 @@ import {
 	StoryTableFrame,
 	tableBlockReference,
 } from '@/components/story-block';
-import { SegmentList } from '@/components/story-rendering';
-import { VisualizationSkeleton } from '@/components/tool-calls/visualization-skeleton';
+import { SegmentList, StoryGridLayout } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters, useStreamingStoryFilterLabels } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { holdBackIncompleteStoryBlock } from '@/lib/story.utils';
 import { trpc } from '@/main';
 import { useShowStoryFilters } from '@/stores/shown-story-filters';
-
-const PENDING_BLOCK_LABELS: Record<PendingStoryBlock, string> = {
-	chart: 'Loading chart',
-	table: 'Loading table',
-	map: 'Loading map',
-	grid: 'Loading charts',
-};
 
 interface StoryPreviewProps {
 	code: string;
@@ -227,9 +221,27 @@ export const StoryPreview = memo(function StoryPreview({
 						renderTable={renderTable}
 						renderMap={renderMap}
 					/>
-					{pendingBlock && <VisualizationSkeleton label={PENDING_BLOCK_LABELS[pendingBlock]} />}
+					{pendingBlock && <PendingStoryBlockSkeleton block={pendingBlock} />}
 				</div>
 			</StoryThemeProvider>
 		</StoryQuerySqlProvider>
 	);
 });
+
+function PendingStoryBlockSkeleton({ block }: { block: PendingStoryBlock }) {
+	if (block.type === 'table') {
+		return <StoryTableSkeleton />;
+	}
+	if (block.type !== 'grid') {
+		return <StoryBlockSkeleton block={block.type} />;
+	}
+	return (
+		<StoryGridLayout cols={block.cols} widths={block.widths}>
+			{Array.from({ length: block.widths?.length ?? block.cols }, (_, index) => (
+				<div key={index} className='min-w-0'>
+					<StoryBlockSkeleton />
+				</div>
+			))}
+		</StoryGridLayout>
+	);
+}

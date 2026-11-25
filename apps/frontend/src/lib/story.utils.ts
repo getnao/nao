@@ -1,7 +1,9 @@
-import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { parseChartAttributes, resolveGridWidths, TAG_ATTRS } from '@nao/shared/story-segments';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
-export type PendingStoryBlock = 'chart' | 'table' | 'map' | 'grid';
+export type PendingStoryBlock =
+	| { type: 'chart' | 'table' | 'map' }
+	| { type: 'grid'; cols: number; widths: number[] | null };
 
 export interface StorySummary {
 	id: string;
@@ -126,14 +128,11 @@ export function findStoryDraft(
 	return prefixMatchedDraft;
 }
 
-/**
- * Cuts the story block still being written off the end of streamed code, so its raw markup is never shown.
- * `pendingBlock` is the visual block being written, or null when the cut tag renders nothing (filter, tab...).
- */
+/** Cuts the story block still being written off the end of streamed code, so its raw markup is never shown. */
 export function holdBackIncompleteStoryBlock(code: string): { code: string; pendingBlock: PendingStoryBlock | null } {
 	const openGridStart = findOpenGridStart(code);
 	if (openGridStart !== null) {
-		return { code: code.slice(0, openGridStart), pendingBlock: 'grid' };
+		return { code: code.slice(0, openGridStart), pendingBlock: toPendingGrid(code.slice(openGridStart)) };
 	}
 	const incompleteTag = findIncompleteTrailingTag(code);
 	if (!incompleteTag) {
@@ -146,8 +145,15 @@ const STORY_TAG_START_REGEX = /<\/?(chart|table|map|filter|parameter|grid|tabs?)
 const PARTIAL_TAG_NAME_REGEX = /<\/?[a-z]*$/;
 
 function findOpenGridStart(code: string): number | null {
-	const lastGrid = [...code.matchAll(/<grid\b/g)].at(-1);
-	return lastGrid && !code.includes('</grid>', lastGrid.index) ? lastGrid.index : null;
+	const openGridStarts: number[] = [];
+	for (const match of code.matchAll(/<grid\b|<\/grid>/g)) {
+		if (match[0] === '</grid>') {
+			openGridStarts.pop();
+		} else {
+			openGridStarts.push(match.index);
+		}
+	}
+	return openGridStarts[0] ?? null;
 }
 
 function findIncompleteTrailingTag(code: string): { start: number; name: string | null } | null {
@@ -166,7 +172,18 @@ function isCompleteTagAt(code: string, start: number): boolean {
 }
 
 function toPendingStoryBlock(tagName: string | null): PendingStoryBlock | null {
-	return tagName === 'chart' || tagName === 'table' || tagName === 'map' || tagName === 'grid' ? tagName : null;
+	return tagName === 'chart' || tagName === 'table' || tagName === 'map' ? { type: tagName } : null;
+}
+
+const DEFAULT_PENDING_GRID_COLUMNS = 2;
+
+function toPendingGrid(openGridCode: string): PendingStoryBlock {
+	const openingTag = new RegExp(String.raw`^<grid\b(${TAG_ATTRS})>`).exec(openGridCode);
+	const attributes = parseChartAttributes(openingTag?.[1] ?? '');
+	const announcedWidths = attributes.widths?.split(',').length ?? 0;
+	const widths = resolveGridWidths(attributes.widths, announcedWidths);
+	const cols = widths?.length ?? (parseInt(attributes.cols ?? '', 10) || DEFAULT_PENDING_GRID_COLUMNS);
+	return { type: 'grid', cols, widths };
 }
 
 function findMessageStories(message: UIMessage): StorySummary[] {
