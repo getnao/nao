@@ -45,8 +45,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "nao.serviceAccountName" . }}
-      {{- with .Values.terminationGracePeriodSeconds }}
-      terminationGracePeriodSeconds: {{ . }}
+      {{- if ne .Values.terminationGracePeriodSeconds nil }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -156,7 +156,7 @@ spec:
       topologySpreadConstraints:
         {{- range . }}
         {{- $constraint := deepCopy . }}
-        {{- if not $constraint.labelSelector }}
+        {{- if not (hasKey $constraint "labelSelector") }}
         {{- $_ := set $constraint "labelSelector" (dict "matchLabels" (include "nao.selectorLabels" $ | fromYaml)) }}
         {{- end }}
         - {{ toYaml $constraint | nindent 10 | trim }}
