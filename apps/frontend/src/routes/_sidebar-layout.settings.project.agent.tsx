@@ -15,6 +15,7 @@ import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsSandboxSecrets } from '@/components/settings/sandbox-secrets';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
+import { SettingsRequiredConversationFeedback } from '@/components/settings/required-conversation-feedback';
 import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
 import { SettingsSqlQueryTag } from '@/components/settings/sql-query-tag';
 import { SettingsSqlWritePermissions } from '@/components/settings/sql-write-permissions';
@@ -133,6 +134,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			<SettingsDisplayMap isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsSandboxSecrets />
+			<SettingsRequiredConversationFeedback isAdmin={isAdmin} />
 		</>
 	);
 }

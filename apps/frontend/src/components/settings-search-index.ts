@@ -704,6 +704,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Conversation feedback',
+		description: 'Collect conversation ratings and prompt users when they leave an unrated chat.',
+		keywords: ['feedback', 'rating', 'thumbs up', 'thumbs down', 'conversation'],
+		adminOnly: true,
+		licenseFeature: 'conversation-feedback',
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
 		section: 'SQL',
 		search: { tab: 'sql' },
 		title: 'Exclude columns',
