@@ -694,9 +694,6 @@ function renderWithEditProvider(
 	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string; storyVersion?: number },
 	children: React.ReactNode,
 ) {
-	if (!enabled) {
-		return children;
-	}
 	return (
 		<StoryChartEditProvider
 			chatId={params.chatId}
@@ -704,6 +701,7 @@ function renderWithEditProvider(
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
 			storyVersion={params.storyVersion}
+			enabled={enabled}
 		>
 			<StoryTableEditProvider
 				chatId={params.chatId}
@@ -711,6 +709,7 @@ function renderWithEditProvider(
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
 				storyVersion={params.storyVersion}
+				enabled={enabled}
 			>
 				<StoryMapEditProvider
 					chatId={params.chatId}
@@ -718,6 +717,7 @@ function renderWithEditProvider(
 					storyTitle={params.storyTitle}
 					storyCode={params.storyCode}
 					storyVersion={params.storyVersion}
+					enabled={enabled}
 				>
 					{children}
 				</StoryMapEditProvider>
