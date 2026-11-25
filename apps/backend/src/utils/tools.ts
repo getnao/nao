@@ -5,6 +5,7 @@ import path from 'path';
 
 import type { StorageScope } from '../services/storage';
 import { McpToolContext, ToolContext } from '../types/tools';
+import { PathEscapeError } from './security-errors';
 import { isStoryLibraryPath, STORY_LIBRARY_MOUNT } from './story-library';
 import { isStoriesPath, STORIES_MOUNT } from './story-mount';
 
@@ -366,7 +367,7 @@ const assertAllowedProjectPath = (
 ): void => {
 	const withinFolder = absolutePath === projectFolder || absolutePath.startsWith(projectFolder + path.sep);
 	if (!withinFolder) {
-		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
+		throw new PathEscapeError(`Access denied: path '${virtualPath}' is outside the project folder`, virtualPath);
 	}
 
 	assertNotMountPath(path.relative(projectFolder, absolutePath).replaceAll(path.sep, '/'), virtualPath);
@@ -441,7 +442,10 @@ export const resolveCanonicalProjectPath = (
 	const realPath = resolveExistingAncestor(candidatePath);
 
 	if (!isWithinProjectFolder(realPath, canonicalProjectRoot)) {
-		throw new Error(`Access denied: path '${virtualPath}' resolves outside the project folder`);
+		throw new PathEscapeError(
+			`Access denied: path '${virtualPath}' resolves outside the project folder`,
+			virtualPath,
+		);
 	}
 
 	const relativePath = path.relative(canonicalProjectRoot, realPath).replaceAll(path.sep, '/');
@@ -483,7 +487,7 @@ export const toVirtualPath = (realPath: string, projectFolder: string, options: 
 	const normalizedFolder = path.resolve(projectFolder);
 
 	if (!isWithinProjectFolder(resolved, normalizedFolder, options)) {
-		throw new Error(`Path '${realPath}' is outside the project folder`);
+		throw new PathEscapeError(`Path '${realPath}' is outside the project folder`, realPath);
 	}
 
 	if (resolved === normalizedFolder) {

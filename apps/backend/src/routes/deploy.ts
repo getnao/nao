@@ -11,6 +11,8 @@ import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/c
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
 import { createProject, recordProjectDeployment } from '../services/project.service';
+import { listEscapingFileReferences } from '../utils/nao-config-references';
+import { reportSecuritySignal } from '../utils/security-signal';
 
 export const deployRoutes = async (app: App) => {
 	app.post('/deploy', async (request, reply) => {
@@ -57,6 +59,7 @@ export const deployRoutes = async (app: App) => {
 
 			const configContent = fs.readFileSync(configPath, 'utf-8');
 			const config = yaml.load(configContent) as { project_name?: string };
+			reportEscapingFileReferences(config, apiKey.createdBy);
 			const projectName = config?.project_name;
 			if (!projectName) {
 				return reply.status(400).send({ error: 'project_name not found in nao_config.yaml' });
@@ -101,6 +104,13 @@ export const deployRoutes = async (app: App) => {
 		}
 	});
 };
+
+/** Deployed as is, as such references are ignored when the config is read. */
+function reportEscapingFileReferences(config: unknown, userId: string): void {
+	for (const file of listEscapingFileReferences(config)) {
+		reportSecuritySignal('path-escape', `from_file ${file}`, { userId });
+	}
+}
 
 /**
  * Why the archive cannot become a project folder, if it cannot. Git metadata is refused because the

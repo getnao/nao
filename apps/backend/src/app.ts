@@ -122,6 +122,7 @@ import {
 } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { describeError, logger } from './utils/logger';
+import { reportSecuritySignalOfError } from './utils/security-signal';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
 import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
@@ -170,6 +171,7 @@ app.setErrorHandler((error, request, reply) => {
 		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
+	reportSecuritySignalOfError(error, { userId: request.actorUserId });
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
@@ -243,6 +245,7 @@ app.register(fastifyTRPCPlugin, {
 				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
+			reportSecuritySignalOfError(error, { userId: req.actorUserId, path });
 		},
 	} satisfies FastifyTRPCPluginOptions<TrpcRouter>['trpcOptions'],
 });

@@ -969,7 +969,7 @@ function toFileError(error: unknown, filePath: string): TRPCError {
 		message.includes('ignored by .naoignore') ||
 		message.includes('symlink')
 	) {
-		return new TRPCError({ code: 'FORBIDDEN', message });
+		return new TRPCError({ code: 'FORBIDDEN', message, cause: error });
 	}
 
 	return new TRPCError({ code: 'BAD_REQUEST', message: message || `Unable to access file: ${filePath}` });
