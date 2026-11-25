@@ -267,11 +267,11 @@ describe('search', () => {
 		});
 	});
 
-	it('can be scoped to saved files by naming the folder', async () => {
+	it.each(['home/**/*.csv', '/home/**/*.csv'])('can be scoped to saved files with %s', async (pattern) => {
 		await fs.writeFile(path.join(projectFolder, 'columns.csv'), 'a,b');
 		await run(writeTool, { file_path: '/home/q2.csv', content: 'q2' });
 
-		expect(await run(searchTool, { pattern: 'home/**/*.csv' })).toMatchObject({
+		expect(await run(searchTool, { pattern })).toMatchObject({
 			files: [{ path: '/home/q2.csv' }],
 		});
 	});
@@ -283,21 +283,23 @@ describe('search', () => {
 		expect(await run(searchTool, { pattern: '*.csv' })).toEqual({ _version: '1', files: [] });
 	});
 
-	it('refuses traversal in a pattern', async () => {
-		await expect(run(searchTool, { pattern: '../**' })).rejects.toThrow("'..' is not allowed");
+	it.each(['../**', '/../**'])('refuses traversal in %s', async (pattern) => {
+		await expect(run(searchTool, { pattern })).rejects.toThrow("'..' is not allowed");
 	});
 
-	it('refuses an absolute pattern with a relative glob that works', async () => {
-		await fs.mkdir(path.join(projectFolder, 'docs', 'guides'), { recursive: true });
-		await fs.writeFile(path.join(projectFolder, 'docs', 'guides', 'setup.md'), 'setup');
+	it.each(['docs/**/*.md', '/docs/**/*.md', '//docs/**/*.md'])(
+		'reads %s as relative to the project root',
+		async (pattern) => {
+			await fs.mkdir(path.join(projectFolder, 'docs', 'guides'), { recursive: true });
+			await fs.writeFile(path.join(projectFolder, 'docs', 'guides', 'setup.md'), 'setup');
+			await fs.writeFile(path.join(projectFolder, 'setup.md'), 'root');
 
-		await expect(run(searchTool, { pattern: '/docs/**/*.md' })).rejects.toThrow(
-			'Use a relative glob without the leading slash, e.g. `docs/**/*.md`',
-		);
-		await expect(run(searchTool, { pattern: 'docs/**/*.md' })).resolves.toMatchObject({
-			files: [{ path: '/docs/guides/setup.md' }],
-		});
-	});
+			expect(await run(searchTool, { pattern })).toEqual({
+				_version: '1',
+				files: [{ path: '/docs/guides/setup.md', dir: '/docs/guides', size: '5' }],
+			});
+		},
+	);
 
 	it('returns the matched path instead of its canonical symlink target', async () => {
 		const target = path.join(projectFolder, 'target.md');
