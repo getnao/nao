@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useBlocker } from '@tanstack/react-router';
+import type { UIMessage } from '@nao/backend/chat';
 import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
 
 import { FEEDBACK_VOTES, FeedbackButton, FeedbackDialog } from '@/components/chat-messages/assistant-message-actions';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useIsConversationFeedbackRequired, useSubmitMessageFeedback } from '@/hooks/use-message-feedback';
-import { findLastAssistantMessageWithContent } from '@/lib/ai';
+import { checkAssistantMessageHasContent } from '@/lib/ai';
 
 export function ChatHeaderFeedback({ chatId }: { chatId: string }) {
 	const [dialogVote, setDialogVote] = useState<FeedbackVote>('down');
@@ -58,4 +60,62 @@ export function ChatHeaderFeedback({ chatId }: { chatId: string }) {
 			/>
 		</>
 	);
+}
+
+export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
+	const { isRunning } = useAgentContext();
+	const message = useAgentMessagesSelector(findLastAssistantMessageWithContent);
+	const isFeedbackRequired = useIsConversationFeedbackRequired();
+	const navigationBlocker = useBlocker({
+		shouldBlockFn: ({ next }) => {
+			const staysInConversation = next.pathname === `/${chatId}` || next.pathname.startsWith(`/${chatId}/`);
+			return !staysInConversation && !isRunning && !!message && !message.feedback;
+		},
+		enableBeforeUnload: false,
+		disabled: !isFeedbackRequired,
+		withResolver: true,
+	});
+	const submitFeedback = useSubmitMessageFeedback(() => leaveConversation());
+
+	const leaveConversation = () => {
+		submitFeedback.reset();
+		if (navigationBlocker.status === 'blocked') {
+			navigationBlocker.proceed();
+		}
+	};
+
+	const stayInConversation = () => {
+		submitFeedback.reset();
+		if (navigationBlocker.status === 'blocked') {
+			navigationBlocker.reset();
+		}
+	};
+
+	const handleSubmit = (explanation: string | undefined, vote: FeedbackVote) => {
+		if (message) {
+			submitFeedback.mutate({ chatId, messageId: message.id, vote, explanation });
+		}
+	};
+
+	return (
+		<FeedbackDialog
+			open={navigationBlocker.status === 'blocked'}
+			onOpenChange={(open) => !open && stayInConversation()}
+			onSubmit={handleSubmit}
+			onSkip={leaveConversation}
+			isPending={submitFeedback.isPending}
+			error={submitFeedback.isError ? "Couldn't send your feedback. Try again or skip." : undefined}
+			subject='conversation'
+		/>
+	);
+}
+
+function findLastAssistantMessageWithContent(messages: UIMessage[]): UIMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role === 'assistant' && checkAssistantMessageHasContent(message)) {
+			return message;
+		}
+	}
+	return undefined;
 }

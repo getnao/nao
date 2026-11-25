@@ -2,147 +2,139 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type { UIMessage } from '@nao/backend/chat';
-import { ChatHeaderFeedback } from '@/components/chat-header-feedback';
-import { TooltipProvider } from '@/components/ui/tooltip';
+import { ChatHeaderFeedback, ConversationFeedbackGuard } from '@/components/chat-header-feedback';
 
 const mocks = vi.hoisted(() => ({
-	agentSettings: { requireConversationFeedback: true },
-	features: { 'conversation-feedback': true },
-	isCloud: false,
+	isFeedbackRequired: true,
 	isRunning: false,
-	mode: 'default',
-	isReadonly: false,
 	messages: [] as UIMessage[],
 	mutate: vi.fn(),
+	resetMutation: vi.fn(),
+	proceed: vi.fn(),
+	resetNavigation: vi.fn(),
 	submitFails: false,
-	isSubmitError: false,
+	blockerOptions: undefined as
+		| {
+				disabled?: boolean;
+				shouldBlockFn: (args: { next: { pathname: string } }) => boolean;
+		  }
+		| undefined,
 }));
 
-const hiddenCases: Array<
-	[
-		string,
-		{
-			setting?: boolean;
-			licensed?: boolean;
-			cloud?: boolean;
-			messages?: UIMessage[];
-		},
-	]
-> = [
-	['the project setting is disabled', { setting: false }],
-	['the license feature is unavailable', { licensed: false }],
-	['the deployment is cloud-hosted', { cloud: true }],
-	['there is no assistant answer', { messages: [] }],
-];
-
-vi.mock('@tanstack/react-query', () => ({
-	useQuery: () => ({ data: mocks.agentSettings }),
-	useMutation: (options: {
-		onSuccess: (
-			data: unknown,
-			variables: { chatId: string; vote: 'up' | 'down' },
-			context: undefined,
-			ctx: { client: { setQueryData: () => void; invalidateQueries: () => void } },
-		) => void;
-	}) => ({
-		mutate: (variables: { chatId: string; vote: 'up' | 'down' }) => {
-			mocks.mutate(variables);
-			if (mocks.submitFails) {
-				mocks.isSubmitError = true;
-				return;
-			}
-			options.onSuccess(variables, variables, undefined, {
-				client: { setQueryData: vi.fn(), invalidateQueries: vi.fn() },
-			});
-		},
-		reset: () => {
-			mocks.isSubmitError = false;
-		},
-		isPending: false,
-		isError: mocks.isSubmitError,
-	}),
+vi.mock('@/components/chat-messages/assistant-message-actions', () => ({
+	FEEDBACK_VOTES: ['up', 'down'],
+	FeedbackButton: ({
+		vote,
+		subject = 'response',
+		isSelected,
+		disabled,
+		onClick,
+	}: {
+		vote: 'up' | 'down';
+		subject?: string;
+		isSelected: boolean;
+		disabled: boolean;
+		onClick: () => void;
+	}) => (
+		<button type='button' aria-pressed={isSelected} disabled={disabled} onClick={onClick}>
+			{vote === 'up' ? 'Good' : 'Bad'} {subject}
+		</button>
+	),
+	FeedbackDialog: ({
+		open,
+		onOpenChange,
+		onSubmit,
+		onSkip,
+		defaultVote,
+		error,
+	}: {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+		onSubmit: (explanation: string | undefined, vote: 'up' | 'down') => void;
+		onSkip?: () => void;
+		defaultVote?: 'up' | 'down';
+		error?: string;
+	}) =>
+		open ? (
+			<div role='dialog'>
+				{error && <p role='alert'>{error}</p>}
+				<button type='button' onClick={() => onSubmit('Useful answer', defaultVote ?? 'up')}>
+					Submit
+				</button>
+				<button type='button' onClick={() => onOpenChange(false)}>
+					Close
+				</button>
+				{onSkip && (
+					<button type='button' onClick={onSkip}>
+						Skip
+					</button>
+				)}
+			</div>
+		) : null,
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
-	useAgentContext: () => ({
-		isRunning: mocks.isRunning,
-		mode: mocks.mode,
-		isReadonly: mocks.isReadonly,
-	}),
+	useAgentContext: () => ({ isRunning: mocks.isRunning }),
 	useAgentMessagesSelector: (selector: (messages: UIMessage[]) => unknown) => selector(mocks.messages),
 }));
 
-vi.mock('@/hooks/use-license', () => ({
-	useLicenseFeatures: () => ({ data: mocks.features }),
+vi.mock('@/hooks/use-message-feedback', () => ({
+	useIsConversationFeedbackRequired: () => mocks.isFeedbackRequired,
+	useSubmitMessageFeedback: (onSuccess?: (vote: 'up' | 'down') => void) => ({
+		mutate: (variables: { vote: 'up' | 'down' }) => {
+			mocks.mutate(variables);
+			if (!mocks.submitFails) {
+				onSuccess?.(variables.vote);
+			}
+		},
+		reset: mocks.resetMutation,
+		isPending: false,
+		isError: mocks.submitFails,
+	}),
 }));
 
-vi.mock('@/hooks/use-nao-mode', () => ({
-	useIsCloud: () => mocks.isCloud,
-}));
-
-vi.mock('@/main', () => ({
-	trpc: {
-		project: {
-			getAgentSettings: { queryOptions: () => ({}) },
-			getChatReplay: { queryKey: () => ['chat-replay'] },
-			getProjectChats: { queryKey: () => ['project-chats'] },
-		},
-		chat: {
-			get: { queryKey: () => ['chat'] },
-		},
-		feedback: {
-			submit: { mutationOptions: (options: unknown) => options },
-		},
+vi.mock('@tanstack/react-router', () => ({
+	useBlocker: (options: { disabled?: boolean; shouldBlockFn: (args: { next: { pathname: string } }) => boolean }) => {
+		mocks.blockerOptions = options;
+		return {
+			status: options.disabled ? 'idle' : 'blocked',
+			proceed: mocks.proceed,
+			reset: mocks.resetNavigation,
+		};
 	},
 }));
 
+beforeEach(() => {
+	mocks.isFeedbackRequired = true;
+	mocks.isRunning = false;
+	mocks.messages = [assistantMessage('answer-1')];
+	mocks.mutate.mockReset();
+	mocks.resetMutation.mockReset();
+	mocks.proceed.mockReset();
+	mocks.resetNavigation.mockReset();
+	mocks.submitFails = false;
+	mocks.blockerOptions = undefined;
+});
+
+afterEach(cleanup);
+
 describe('ChatHeaderFeedback', () => {
-	beforeEach(() => {
-		mocks.agentSettings.requireConversationFeedback = true;
-		mocks.features['conversation-feedback'] = true;
-		mocks.isCloud = false;
-		mocks.isRunning = false;
-		mocks.mode = 'default';
-		mocks.isReadonly = false;
-		mocks.messages = [assistantMessage('answer-1')];
-		mocks.mutate.mockReset();
-		mocks.submitFails = false;
-		mocks.isSubmitError = false;
-	});
-
-	afterEach(cleanup);
-
-	it.each(hiddenCases)('hides the controls when %s', (_, state) => {
-		if (state.setting === false) {
-			mocks.agentSettings.requireConversationFeedback = false;
-		}
-		if (state.licensed === false) {
-			mocks.features['conversation-feedback'] = false;
-		}
-		if (state.cloud === true) {
-			mocks.isCloud = true;
-		}
-		if (state.messages) {
-			mocks.messages = state.messages;
-		}
-
-		renderFeedback();
+	it.each([
+		['feedback is optional', () => (mocks.isFeedbackRequired = false)],
+		['there is no assistant answer', () => (mocks.messages = [])],
+	])('hides the controls when %s', (_, arrange) => {
+		arrange();
+		render(<ChatHeaderFeedback chatId='chat-1' />);
 
 		expect(screen.queryByRole('button', { name: 'Good conversation' })).toBeNull();
 	});
 
 	it('submits feedback for the latest assistant answer', () => {
-		mocks.messages = [
-			assistantMessage('answer-1'),
-			{ id: 'question-2', role: 'user', parts: [{ type: 'text', text: 'More detail' }] } as UIMessage,
-			assistantMessage('answer-2'),
-		];
-		renderFeedback();
+		mocks.messages = [assistantMessage('answer-1'), assistantMessage('answer-2')];
+		render(<ChatHeaderFeedback chatId='chat-1' />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Good conversation' }));
-		fireEvent.change(screen.getByRole('textbox'), { target: { value: '  Useful answer  ' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
 		expect(mocks.mutate).toHaveBeenCalledWith({
@@ -154,56 +146,76 @@ describe('ChatHeaderFeedback', () => {
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
-	it('keeps the dialog and explanation open with an error when submitting fails', () => {
+	it('keeps the dialog open when feedback fails to save', () => {
 		mocks.submitFails = true;
-		const { rerender } = renderFeedback();
+		render(<ChatHeaderFeedback chatId='chat-1' />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Bad conversation' }));
-		fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Wrong numbers' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
-		rerender(
-			<TooltipProvider>
-				<ChatHeaderFeedback chatId='chat-1' />
-			</TooltipProvider>,
-		);
 
 		expect(screen.getByRole('dialog')).toBeTruthy();
-		expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Wrong numbers');
 		expect(screen.getByRole('alert').textContent).toContain("Couldn't send your feedback");
-	});
-
-	it('keeps the selected vote visible and disables voting while an answer is running', () => {
-		mocks.isRunning = true;
-		mocks.messages = [assistantMessage('answer-1', 'down')];
-		renderFeedback();
-
-		const negativeButton = screen.getByRole('button', { name: 'Bad conversation' });
-		expect(negativeButton.getAttribute('aria-pressed')).toBe('true');
-		expect(negativeButton.hasAttribute('disabled')).toBe(true);
 	});
 });
 
-function renderFeedback() {
-	return render(
-		<TooltipProvider>
-			<ChatHeaderFeedback chatId='chat-1' />
-		</TooltipProvider>,
-	);
-}
+describe('ConversationFeedbackGuard', () => {
+	it('blocks only navigation away from an unrated, idle conversation', () => {
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/chat-1/subagent/tool-1' } })).toBe(false);
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
+	});
+
+	it.each([
+		['the answer is rated', () => (mocks.messages = [assistantMessage('answer-1', 'down')])],
+		['the answer is running', () => (mocks.isRunning = true)],
+	])('allows navigation when %s', (_, arrange) => {
+		arrange();
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(false);
+	});
+
+	it('continues navigation after feedback is saved', () => {
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+		expect(mocks.mutate).toHaveBeenCalledWith({
+			chatId: 'chat-1',
+			messageId: 'answer-1',
+			vote: 'up',
+			explanation: 'Useful answer',
+		});
+		expect(mocks.proceed).toHaveBeenCalledOnce();
+	});
+
+	it('cancels navigation when dismissed and allows it when skipped', () => {
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+		expect(mocks.resetNavigation).toHaveBeenCalledOnce();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+		expect(mocks.proceed).toHaveBeenCalledOnce();
+	});
+
+	it('stays blocked when feedback fails to save', () => {
+		mocks.submitFails = true;
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+		expect(mocks.proceed).not.toHaveBeenCalled();
+		expect(screen.getByRole('alert').textContent).toContain("Couldn't send your feedback");
+	});
+});
 
 function assistantMessage(id: string, vote?: 'up' | 'down'): UIMessage {
 	return {
 		id,
 		role: 'assistant',
 		parts: [{ type: 'text', text: 'Answer' }],
-		feedback: vote
-			? {
-					messageId: id,
-					vote,
-					explanation: null,
-					createdAt: new Date(),
-					updatedAt: new Date(),
-				}
-			: undefined,
+		feedback: vote ? { messageId: id, vote } : undefined,
 	} as UIMessage;
 }
