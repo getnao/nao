@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
 		getJobByUniqueKey: vi.fn(),
 		getUserRoleInProject: vi.fn(),
 		listJobsByUniqueKeyPrefix: vi.fn(),
-		listProjectFolders: vi.fn(),
+		listActiveProjectFolders: vi.fn(),
 		startTestRun: vi.fn(),
 		upsertRecurringJob: vi.fn(),
 	};
@@ -31,7 +31,7 @@ vi.mock('../../src/queries/context-recommendation.queries', () => ({
 }));
 vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
-	listProjectFolders: mocks.listProjectFolders,
+	listActiveProjectFolders: mocks.listActiveProjectFolders,
 }));
 vi.mock('../../src/services/test-runner.service', () => ({
 	startTestRun: mocks.startTestRun,
@@ -142,7 +142,7 @@ describe('test schedules', () => {
 	it('schedules what nao_config.yaml adds and drops what it no longer lists, leaving the app schedules', async () => {
 		const removedKey = await syncConfiguredSchedule('0 2 * * *');
 		vi.clearAllMocks();
-		mocks.listProjectFolders.mockResolvedValue([{ id: 'project-1', path: projectFolder }]);
+		mocks.listActiveProjectFolders.mockResolvedValue([{ id: 'project-1', path: projectFolder }]);
 		mocks.listJobsByUniqueKeyPrefix.mockResolvedValue([
 			APP_JOB,
 			{ ...APP_JOB, id: 'job-config', uniqueKey: removedKey },
