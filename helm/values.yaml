@@ -395,6 +395,15 @@ podDisruptionBudget:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+# -- Topology spread constraints. A constraint without a labelSelector gets
+#    the chart's selector labels, so it spreads this release's pods only.
+topologySpreadConstraints: []
+# topologySpreadConstraints:
+#   - maxSkew: 1
+#     topologyKey: kubernetes.io/hostname
+#     whenUnsatisfiable: ScheduleAnyway
+#     matchLabelKeys:
+#       - pod-template-hash
 
 # =============================================================================
 # Rollout and shutdown
