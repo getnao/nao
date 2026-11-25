@@ -3,7 +3,7 @@ import { z } from 'zod/v4';
 
 import * as apiKeyQueries from '../queries/api-key.queries';
 import { generateApiKey } from '../services/api-key.service';
-import { protectedProcedure, resolveOrganizationMembership } from './trpc';
+import { protectedProcedure, rateLimitedBy, resolveOrganizationMembership } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(
@@ -18,17 +18,20 @@ const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 
 export const apiKeyRoutes = {
-	create: orgAdminProcedure.input(z.object({ name: z.string().min(1).max(100) })).mutation(async ({ input, ctx }) => {
-		const { plaintext, hash, prefix } = generateApiKey();
-		const apiKey = await apiKeyQueries.createApiKey({
-			orgId: ctx.org.id,
-			name: input.name,
-			keyHash: hash,
-			keyPrefix: prefix,
-			createdBy: ctx.user.id,
-		});
-		return { id: apiKey.id, plaintext, prefix };
-	}),
+	create: orgAdminProcedure
+		.use(rateLimitedBy('api-key-create', (ctx: { org: { id: string } }) => ctx.org.id))
+		.input(z.object({ name: z.string().min(1).max(100) }))
+		.mutation(async ({ input, ctx }) => {
+			const { plaintext, hash, prefix } = generateApiKey();
+			const apiKey = await apiKeyQueries.createApiKey({
+				orgId: ctx.org.id,
+				name: input.name,
+				keyHash: hash,
+				keyPrefix: prefix,
+				createdBy: ctx.user.id,
+			});
+			return { id: apiKey.id, plaintext, prefix };
+		}),
 
 	list: orgAdminProcedure.query(async ({ ctx }) => {
 		const keys = await apiKeyQueries.listApiKeysByOrg(ctx.org.id);

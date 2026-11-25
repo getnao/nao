@@ -113,6 +113,7 @@ import {
 	projectProtectedProcedure,
 	protectedProcedure,
 	publicProcedure,
+	rateLimitedBy,
 } from './trpc';
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
@@ -236,6 +237,12 @@ async function getRoleInProjectOrThrow(projectId: string, userId: string) {
 }
 
 const boundaryUploadSchema = z.object({ fileName: z.string().trim().min(1).max(255), geojson: z.unknown() });
+
+const limitOutboundFetchesByUser = rateLimitedBy('outbound-fetch', (ctx: { user: { id: string } }) => ctx.user.id);
+const limitLlmConfigWritesByProject = rateLimitedBy(
+	'llm-config-write',
+	(ctx: { project: { id: string } }) => ctx.project.id,
+);
 
 const BOUNDARY_SOURCE_MESSAGE = 'Provide either a GeoJSON URL or an uploaded GeoJSON file.';
 
@@ -461,6 +468,7 @@ export const projectRoutes = {
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure
+		.use(limitLlmConfigWritesByProject)
 		.input(
 			z.object({
 				configId: z.string().optional(),
@@ -582,6 +590,7 @@ export const projectRoutes = {
 		}),
 
 	deleteLlmConfig: adminProtectedProcedure
+		.use(limitLlmConfigWritesByProject)
 		.input(z.union([z.object({ configId: z.string().min(1) }), z.object({ provider: llmProviderSchema })]))
 		.output(z.object({ success: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
@@ -1634,6 +1643,7 @@ export const projectRoutes = {
 	}),
 
 	validateMapBoundaryUrl: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(z.object({ url: z.url() }))
 		.mutation(async ({ ctx: _ctx, input }) => {
 			const text = await safeFetch(input.url);
@@ -1642,6 +1652,7 @@ export const projectRoutes = {
 		}),
 
 	addMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z
 				.object({
@@ -1677,6 +1688,7 @@ export const projectRoutes = {
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z.object({
 				key: z.string().trim().min(1),

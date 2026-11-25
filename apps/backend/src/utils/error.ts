@@ -4,6 +4,7 @@ export type HandlerErrorCode =
 	| 'FORBIDDEN'
 	| 'NOT_FOUND'
 	| 'CONFLICT'
+	| 'TOO_MANY_REQUESTS'
 	| 'SERVICE_UNAVAILABLE';
 
 /**
@@ -58,5 +59,6 @@ const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	FORBIDDEN: 403,
 	NOT_FOUND: 404,
 	CONFLICT: 409,
+	TOO_MANY_REQUESTS: 429,
 	SERVICE_UNAVAILABLE: 503,
 };

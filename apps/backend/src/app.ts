@@ -122,8 +122,9 @@ import {
 } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { describeError, logger } from './utils/logger';
-import { reportSecuritySignalOfError } from './utils/security-signal';
+import { RateLimitExceededError } from './utils/rate-limiter';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
+import { reportSecuritySignalOfError } from './utils/security-signal';
 import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
@@ -187,6 +188,9 @@ app.setErrorHandler((error, request, reply) => {
 	}
 	if (error instanceof OnboardingChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED' });
+	}
+	if (error instanceof RateLimitExceededError) {
+		reply.header('Retry-After', String(error.retryAfterSeconds));
 	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });

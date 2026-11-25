@@ -223,6 +223,10 @@ describe('Cloud Google organization enrollment', () => {
 					window: 60,
 					max: 3,
 				},
+				'/sign-up/email': {
+					window: 3600,
+					max: 5,
+				},
 			},
 		});
 

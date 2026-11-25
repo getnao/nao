@@ -12,6 +12,7 @@ import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
 import { createProject, recordProjectDeployment } from '../services/project.service';
 import { listEscapingFileReferences } from '../utils/nao-config-references';
+import { consumeRateLimit } from '../utils/rate-limiter';
 import { reportSecuritySignal } from '../utils/security-signal';
 
 const MAX_REPORTED_FILE_REFERENCES = 10;
@@ -29,6 +30,7 @@ export const deployRoutes = async (app: App) => {
 		}
 		request.actorUserId = apiKey.createdBy;
 		const org = apiKey.organization;
+		consumeRateLimit('deploy', org.id, apiKey.createdBy);
 
 		const file = await request.file();
 		if (!file) {

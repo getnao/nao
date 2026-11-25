@@ -12,6 +12,7 @@ import { AgentRequestSchema } from '../types/chat';
 import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
 import { HandlerError } from '../utils/error';
 import { withQueryResultPreviewsInStream } from '../utils/query-result-preview';
+import { consumeRateLimit } from '../utils/rate-limiter';
 import { withSseKeepAlive } from '../utils/sse-keep-alive';
 
 const DEBUG_CHUNKS = false;
@@ -26,6 +27,7 @@ export const agentRoutes = async (app: App) => {
 
 	app.post('/', { schema: { body: AgentRequestSchema } }, async (request, reply) => {
 		const { user, project, body, headers } = request;
+		consumeRateLimit('agent', user.id, user.id);
 		const run = await authorizeAgentRun({ userId: user.id, currentProject: project, body });
 		let answer: OpenAgentStream | undefined;
 
