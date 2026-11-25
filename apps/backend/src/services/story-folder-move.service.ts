@@ -20,6 +20,19 @@ export async function moveStoryForUser(storyId: string, folderId: string | null,
 	});
 }
 
+export async function fileNewStoryInFolder(storyId: string, folderId: string | null, ctx: FolderContext) {
+	try {
+		await storyFolderQueries.moveStoryToFolder(storyId, folderId, {
+			storyOwnerId: ctx.user.id,
+			projectId: ctx.project.id,
+			assertAllowed: () => assertCanFileStoryIn(folderId, ctx),
+		});
+	} catch (error) {
+		await storyQueries.deleteStory(storyId);
+		throw error;
+	}
+}
+
 export async function assertCanFileStoryIn(folderId: string | null, ctx: FolderContext) {
 	await resolveMoveTarget(folderId, ctx, 'Folder');
 	await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(folderId), ctx);

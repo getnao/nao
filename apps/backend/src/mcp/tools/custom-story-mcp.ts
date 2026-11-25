@@ -23,6 +23,7 @@ import {
 	releaseStoryEditLock,
 	StoryEditLockedError,
 } from '../../services/story-edit-lock.service';
+import { fileNewStoryInFolder } from '../../services/story-folder-move.service';
 import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import type { StoryQuerySources } from '../../types/story-cache';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
@@ -35,6 +36,7 @@ import { buildCustomStoryToolResult } from '../embed/embed-tool-result';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyUrl } from '../urls';
 import { fetchLatestStoryVersion, resolveChartChatId } from './helpers';
+import { toFolderContext } from './story-folders';
 import { saveMcpLiveSettings, type StoryLiveInput, toStoryLiveOutput } from './story-live-settings';
 
 const CUSTOM_STORY_DATA_RULES =
@@ -91,6 +93,7 @@ export async function createCustomStoryForMcp(
 		title: string;
 		files: StoryFileInput[] | undefined;
 		queryData: StoryQueryDataMap | undefined;
+		folderId?: string | null;
 		live: StoryLiveInput | undefined;
 	},
 	ctx: McpContext,
@@ -122,6 +125,9 @@ export async function createCustomStoryForMcp(
 		title: input.title,
 		files: input.files ?? [],
 	});
+	if (input.folderId !== undefined) {
+		await fileNewStoryInFolder(story.id, input.folderId, toFolderContext(ctx));
+	}
 	if (!story.chatId) {
 		await saveStandaloneQueryData(story, input.queryData, ctx);
 	}

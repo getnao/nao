@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { executeSemanticQuery, executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
@@ -23,6 +24,7 @@ import {
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
 } from '../../services/semantic-layer.service';
+import { assertCanFileStoryIn, fileNewStoryInFolder } from '../../services/story-folder-move.service';
 import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
@@ -44,6 +46,7 @@ import {
 } from './custom-story-mcp';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
 import { jsonToolResult, registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
+import { toFolderContext } from './story-folders';
 import { NOT_LIVE_SETTINGS, saveMcpLiveSettings, STORY_LIVE_INPUT, type StoryLiveInput } from './story-live-settings';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
@@ -89,6 +92,9 @@ const CREATE_STORY_DESCRIPTION =
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
+	'FOLDER: when the user said where to save the story, pass that folder from `list_story_folders` as ' +
+	'`folder_id`. Otherwise omit it: the story is saved in their private folder. Home, `project` and `team` folders ' +
+	'share the story with their audience: tell the user who can see it.\n\n' +
 	'STORY FILTERS: Hardcode `<filter options=\'["a","b"]\' />` only for universal constants that do not come from database rows. ' +
 	'Use `table` plus `column` for direct database-column values. For computed labels or other database-derived values, ' +
 	"run a separate `execute_sql` query that returns exactly one column named `value`, then set the filter's " +
@@ -333,17 +339,32 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					.describe(
 						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
 					),
+				folder_id: z
+					.string()
+					.nullable()
+					.optional()
+					.describe(
+						"Folder UUID from `list_story_folders`, or null for Home. Omit to save the story in the user's private folder.",
+					),
 				live: STORY_LIVE_INPUT,
 				...(ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_INPUT : {}),
 			},
 			outputSchema: STORY_OUTPUT_SCHEMA,
 			_meta: uiToolMeta(STORY_APP_URI),
-			handler: async ({ title, content, query_data, chat_id, live, format, files }) => {
+			errorMessage: (error) =>
+				error instanceof TRPCError ? error.message : 'create_story failed. Please try again.',
+			handler: async ({ title, content, query_data, chat_id, folder_id, live, format, files }) => {
+				if (folder_id !== undefined) {
+					await assertCanFileStoryIn(folder_id, toFolderContext(ctx));
+				}
 				if (format === 'custom') {
 					if (content !== undefined) {
 						return errorResult('A custom story takes `files`, not `content`.');
 					}
-					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data, live }, ctx);
+					return createCustomStoryForMcp(
+						{ chatId: chat_id, title, files, queryData: query_data, folderId: folder_id, live },
+						ctx,
+					);
 				}
 				if (files !== undefined) {
 					return errorResult('`files` only applies to `format: "custom"`.');
@@ -356,6 +377,9 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 
 				if ('error' in story) {
 					return errorResult(story.error);
+				}
+				if (folder_id !== undefined) {
+					await fileNewStoryInFolder(story.id, folder_id, toFolderContext(ctx));
 				}
 
 				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);

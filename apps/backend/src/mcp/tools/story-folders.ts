@@ -10,8 +10,9 @@ import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
 
 const LIST_STORY_FOLDERS_DESCRIPTION =
 	'List the story folders the user can see, with who sees the stories filed in each one.\n\n' +
-	'USE WHEN: the user wants to file a story in a folder ("save it in the Marketing folder"): find the folder ' +
-	'here, then call `move_story` with its `id`. The first entry is Home, the top level of the stories page.';
+	'USE WHEN: the user wants to file a story in a folder ("save it in the Marketing folder"), or you ask them ' +
+	'where to save a new story: find the folder here, then pass its `id` as `folder_id` to `create_story`, or to ' +
+	'`move_story` for an existing story. The first entry is Home, the top level of the stories page.';
 
 const MOVE_STORY_DESCRIPTION =
 	'Move a story to one of the folders from `list_story_folders`, Home included, like moving it in nao.\n\n' +
@@ -23,7 +24,10 @@ const MOVE_STORY_DESCRIPTION =
 	'Only the owner of the story or an admin can move it.';
 
 const STORY_FOLDER_SCHEMA = z.object({
-	id: z.string().nullable().describe('Folder UUID to pass as `folder_id` to `move_story`, null for Home.'),
+	id: z
+		.string()
+		.nullable()
+		.describe('Folder UUID to pass as `folder_id` to `create_story` or `move_story`, null for Home.'),
 	name: z.string().describe('Folder name.'),
 	parentId: z
 		.string()

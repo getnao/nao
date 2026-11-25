@@ -1,11 +1,15 @@
 import '../../src/env';
 
+import { TRPCError } from '@trpc/server';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import { registerContextLayerTools } from '../../src/mcp/tools/context-layer';
 import { registerStoryFolderTools } from '../../src/mcp/tools/story-folders';
 import { getSharedStoryAllowedGroupIds, getSharedStoryInfo } from '../../src/queries/shared-story.queries';
+import * as storyFolderQueries from '../../src/queries/story-folder.queries';
 import { createFolder, getStoryFolderItem, saveStoryInPrivateRoot } from '../../src/queries/story-folder.queries';
 import { createMcpContext, FakeMcpServer } from '../helpers/fake-mcp-server';
 
@@ -104,10 +108,40 @@ describe('MCP story folder tools', () => {
 		expect(result.content[0]).toMatchObject({ text: expect.stringContaining(error) });
 		expect(await getStoryFolderItem(STORY_ID)).toEqual(before);
 	});
+
+	it('creates a story in the folder the user picked and shares it with its team', async () => {
+		const result = await callAs(OWNER_ID, 'create_story', { title: 'Pipeline', folder_id: salesFolderId });
+
+		const storyId = result.structuredContent?.id as string;
+		expect(await getStoryFolderItem(storyId)).toEqual({ folderId: salesFolderId });
+		const share = await getSharedStoryInfo(storyId, PROJECT_ID);
+		expect(await getSharedStoryAllowedGroupIds(share!.id)).toEqual([SALES_GROUP_ID]);
+	});
+
+	it('creates no story when the picked folder is one the user cannot see', async () => {
+		const result = await callAs(OWNER_ID, 'create_story', { title: 'Budget', folder_id: financeFolderId });
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0]).toMatchObject({ text: expect.stringContaining('Folder not found.') });
+		expect(await db.select().from(s.story).where(eq(s.story.title, 'Budget'))).toEqual([]);
+	});
+
+	it('deletes the new story when the folder becomes unavailable before it is filed', async () => {
+		vi.spyOn(storyFolderQueries, 'moveStoryToFolder').mockRejectedValueOnce(
+			new TRPCError({ code: 'NOT_FOUND', message: 'Folder not found.' }),
+		);
+
+		const result = await callAs(OWNER_ID, 'create_story', { title: 'Forecast', folder_id: salesFolderId });
+
+		expect(result.isError).toBe(true);
+		expect(await db.select().from(s.story).where(eq(s.story.title, 'Forecast'))).toEqual([]);
+	});
 });
 
 function callAs(userId: string, tool: string, args: Record<string, unknown>) {
 	const server = new FakeMcpServer();
-	registerStoryFolderTools(server.asMcpServer(), createMcpContext({ userId, projectId: PROJECT_ID }));
+	const context = createMcpContext({ userId, projectId: PROJECT_ID, storyCreationEnabled: true });
+	registerStoryFolderTools(server.asMcpServer(), context);
+	registerContextLayerTools(server.asMcpServer(), context, []);
 	return server.call(tool, args);
 }
