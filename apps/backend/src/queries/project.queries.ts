@@ -368,11 +368,12 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 	return results;
 };
 
-export const listProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+/** The folders of the projects still in service: background jobs leave deactivated projects untouched. */
+export const listActiveProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
 	const projects = await db
 		.select({ id: s.project.id, path: s.project.path })
 		.from(s.project)
-		.where(isNotNull(s.project.path))
+		.where(and(isNotNull(s.project.path), notDeactivatedProjectsFilter()))
 		.execute();
 	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
 };

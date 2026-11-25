@@ -15,6 +15,7 @@ import { listOrgProjectsWithAccess } from '../../src/queries/organization.querie
 import {
 	getProjectByUserId,
 	getUserRoleInProject,
+	listActiveProjectFolders,
 	listProjectMembersWithRoles,
 	listUserProjectsWithRoles,
 	listUsersWithProjectAccess,
@@ -210,6 +211,26 @@ describe('project accessible users', () => {
 		expect(orgProjects).toHaveLength(1);
 		expect(orgProjects[0]?.role).toBe('viewer');
 	});
+
+	it.each([
+		{ deactivated: 'organization', expected: ['pau-solo'] },
+		{ deactivated: 'project', expected: ['pau-solo'] },
+		{ deactivated: 'nothing', expected: ['pau-proj', 'pau-solo'] },
+	])(
+		'lists only the folders of active projects when the $deactivated is deactivated',
+		async ({ deactivated, expected }) => {
+			if (deactivated === 'organization') {
+				await db.update(organization).set({ deactivatedAt: new Date() }).where(eq(organization.id, 'pau-org'));
+			}
+			if (deactivated === 'project') {
+				await db.update(project).set({ deactivatedAt: new Date() }).where(eq(project.id, 'pau-proj'));
+			}
+
+			const folders = await listActiveProjectFolders();
+
+			expect(folders.map(({ id }) => id).filter((id) => id.startsWith('pau-'))).toEqual(expected);
+		},
+	);
 
 	it('returns null for a user without project or organization membership', async () => {
 		const result = await getProjectByUserId('pau-none');
