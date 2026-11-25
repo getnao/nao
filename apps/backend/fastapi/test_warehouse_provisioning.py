@@ -214,6 +214,7 @@ def test_prepare_postgres_warehouse_config():
     [
         ("postgres", "password authentication failed", ["user", "password"]),
         ("postgres", "connection refused", ["host", "port"]),
+        ("postgres", 'FATAL: role "nao" does not exist', ["user"]),
         ("bigquery", "invalid_grant", ["credentials_json"]),
         (
             "snowflake",

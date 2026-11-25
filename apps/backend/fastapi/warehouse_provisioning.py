@@ -227,7 +227,9 @@ def infer_warehouse_error_fields(
 ) -> list[str]:
     message = str(error).lower()
 
-    if "role" in message and any(
+    if provider == "postgres" and "role" in message and "does not exist" in message:
+        return ["user"]
+    if provider == "snowflake" and "role" in message and any(
         phrase in message for phrase in ("does not exist", "not authorized")
     ):
         return ["role"]
