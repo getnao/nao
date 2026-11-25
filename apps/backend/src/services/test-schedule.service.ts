@@ -9,7 +9,7 @@ import { getTestScheduleCronError } from '../utils/cron';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { nextCronTick } from './scheduler.service';
+import { type JobScope, nextCronTick } from './scheduler.service';
 import { startTestRun, TestRunInputError } from './test-runner.service';
 
 export const TEST_SCHEDULE_JOB_NAME = 'test.scheduled-run';
@@ -113,8 +113,8 @@ export async function runScheduledTests(payload: TestScheduleJobPayload): Promis
 	}
 }
 
-export function resolveTestScheduleProjectId(payload: TestScheduleJobPayload): string {
-	return payload.projectId;
+export function resolveTestScheduleScope(payload: TestScheduleJobPayload): JobScope {
+	return { projectId: payload.projectId };
 }
 
 /** Picks up the schedules added to, or removed from, the nao_config.yaml of every project since the last sync. */

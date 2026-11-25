@@ -5,18 +5,21 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { logger, serializeError } from '../utils/logger';
-import { hasProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { hasProjectCloudBillingAccess, isProjectUserReadOnly } from './cloud-billing-access.service';
+import { notifyScheduledWorkPaused } from './seat-notification.service';
 
 export type JobHandler<T = unknown> = (payload: T, job: DBScheduledJob) => Promise<void>;
-export type ProjectIdResolver<T = unknown> = (payload: T) => string | null | Promise<string | null>;
+/** `ownerId` is the person the job acts for: it is skipped while they have no seat. */
+export type JobScope = { projectId: string; ownerId?: string };
+export type JobScopeResolver<T = unknown> = (payload: T) => JobScope | null | Promise<JobScope | null>;
 
 interface JobRegistration<T = unknown> {
 	handler: JobHandler<T>;
-	resolveProjectId?: ProjectIdResolver<T>;
+	resolveScope?: JobScopeResolver<T>;
 }
 
 interface RegisterJobOptions<T> {
-	resolveProjectId?: ProjectIdResolver<T>;
+	resolveScope?: JobScopeResolver<T>;
 }
 
 const POLL_INTERVAL_MS = 30_000;
@@ -38,7 +41,7 @@ export function registerJob<T = unknown>(
 ): void {
 	handlers.set(name, {
 		handler: handler as JobHandler,
-		resolveProjectId: options.resolveProjectId as ProjectIdResolver | undefined,
+		resolveScope: options.resolveScope as JobScopeResolver | undefined,
 	});
 }
 
@@ -147,15 +150,24 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 
 	try {
 		const payload = job.payload ?? {};
-		const projectId = await registration.resolveProjectId?.(payload);
-		if (projectId && !(await hasProjectCloudBillingAccess(projectId))) {
+		const scope = await registration.resolveScope?.(payload);
+		if (scope && !(await hasProjectCloudBillingAccess(scope.projectId))) {
 			logger.info(
 				`Scheduler skipped job '${job.name}': the project is deactivated or its cloud billing access is restricted`,
 				{
 					source: 'system',
-					context: { jobId: job.id, name: job.name, projectId },
+					context: { jobId: job.id, name: job.name, projectId: scope.projectId },
 				},
 			);
+			await onJobSkipped(job);
+			return;
+		}
+		if (scope?.ownerId && (await isProjectUserReadOnly(scope.projectId, scope.ownerId))) {
+			logger.info(`Scheduler skipped job '${job.name}': its owner has no seat`, {
+				source: 'system',
+				context: { jobId: job.id, name: job.name, projectId: scope.projectId, ownerId: scope.ownerId },
+			});
+			await notifyScheduledWorkPaused(scope.projectId, scope.ownerId);
 			await onJobSkipped(job);
 			return;
 		}

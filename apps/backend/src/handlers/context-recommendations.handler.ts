@@ -2,7 +2,7 @@ import { env } from '../env';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { runContextRecommendations } from '../services/context-recommendations.service';
-import { ensureRecurring, JobHandler } from '../services/scheduler.service';
+import { ensureRecurring, JobHandler, type JobScope } from '../services/scheduler.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCY_CRON,
 	ContextRecommendationFrequency,
@@ -31,11 +31,11 @@ export const contextRecommendationsHandler: JobHandler<ContextRecommendationsJob
 	await runContextRecommendations(payload.projectId, { billingAccessVerifiedProjectId: payload.projectId });
 };
 
-export function resolveContextRecommendationsProjectId(payload: ContextRecommendationsJobPayload): string {
+export function resolveContextRecommendationsScope(payload: ContextRecommendationsJobPayload): JobScope {
 	if (typeof payload.projectId !== 'string') {
 		throw new Error('Context recommendations job is missing a projectId payload.');
 	}
-	return payload.projectId;
+	return { projectId: payload.projectId };
 }
 
 /**

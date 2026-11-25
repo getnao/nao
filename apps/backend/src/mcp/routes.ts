@@ -71,7 +71,7 @@ async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: Fasti
 }
 
 async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-	await assertProjectCloudBillingAccess(request.mcpProjectId);
+	await assertProjectCloudBillingAccess(request.mcpProjectId, request.mcpUserId);
 	const settings = await getMcpEndpointSettings(request.mcpProjectId);
 	if (!settings.enabled) {
 		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });

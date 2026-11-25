@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
 	enqueueOnceJob: vi.fn(),
 	getJobById: vi.fn(),
 	hasProjectCloudBillingAccess: vi.fn(),
+	isProjectUserReadOnly: vi.fn(),
 	markJobFailed: vi.fn(),
+	notifyScheduledWorkPaused: vi.fn(),
 	reclaimStaleJobs: vi.fn(),
 	rescheduleJob: vi.fn(),
 	upsertRecurringJob: vi.fn(),
@@ -15,6 +17,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/queries/scheduled-job.queries', () => mocks);
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	hasProjectCloudBillingAccess: mocks.hasProjectCloudBillingAccess,
+	isProjectUserReadOnly: mocks.isProjectUserReadOnly,
+}));
+vi.mock('../../src/services/seat-notification.service', () => ({
+	notifyScheduledWorkPaused: mocks.notifyScheduledWorkPaused,
 }));
 
 vi.mock('../../src/utils/logger', () => ({
@@ -31,6 +37,7 @@ describe('scheduler', () => {
 		vi.clearAllMocks();
 		mocks.getJobById.mockResolvedValue(null);
 		mocks.hasProjectCloudBillingAccess.mockResolvedValue(true);
+		mocks.isProjectUserReadOnly.mockResolvedValue(false);
 		mocks.reclaimStaleJobs.mockResolvedValue(0);
 	});
 
@@ -77,15 +84,17 @@ describe('scheduler', () => {
 	});
 
 	it.each([
-		{ hasAccess: false, expectedCalls: 0 },
-		{ hasAccess: true, expectedCalls: 1 },
+		{ hasAccess: false, ownerReadOnly: false, expectedCalls: 0 },
+		{ hasAccess: true, ownerReadOnly: true, expectedCalls: 0 },
+		{ hasAccess: true, ownerReadOnly: false, expectedCalls: 1 },
 	])(
-		'checks project access once before running a registered handler ($hasAccess)',
-		async ({ hasAccess, expectedCalls }) => {
+		'checks project access and owner seat before running a registered handler ($hasAccess, $ownerReadOnly)',
+		async ({ hasAccess, ownerReadOnly, expectedCalls }) => {
 			const handler = vi.fn().mockResolvedValue(undefined);
-			const resolveProjectId = vi.fn().mockResolvedValue('project-1');
-			registerJob('story.refresh', handler, { resolveProjectId });
+			const resolveScope = vi.fn().mockResolvedValue({ projectId: 'project-1', ownerId: 'owner-1' });
+			registerJob('story.refresh', handler, { resolveScope });
 			mocks.hasProjectCloudBillingAccess.mockResolvedValue(hasAccess);
+			mocks.isProjectUserReadOnly.mockResolvedValue(ownerReadOnly);
 			mocks.claimDueJobs.mockResolvedValueOnce([
 				{
 					id: 'story-job',
@@ -102,10 +111,11 @@ describe('scheduler', () => {
 			startScheduler();
 			await vi.advanceTimersByTimeAsync(0);
 
-			expect(resolveProjectId).toHaveBeenCalledTimes(1);
+			expect(resolveScope).toHaveBeenCalledTimes(1);
 			expect(mocks.hasProjectCloudBillingAccess).toHaveBeenCalledOnce();
 			expect(mocks.hasProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 			expect(handler).toHaveBeenCalledTimes(expectedCalls);
+			expect(mocks.notifyScheduledWorkPaused).toHaveBeenCalledTimes(hasAccess && ownerReadOnly ? 1 : 0);
 			expect(mocks.rescheduleJob).toHaveBeenCalledWith('story-job', new Date('2026-09-28T11:00:00.000Z'));
 			expect(mocks.markJobFailed).not.toHaveBeenCalled();
 		},
@@ -113,7 +123,7 @@ describe('scheduler', () => {
 
 	it('keeps a one-off job of a project without access for a later run', async () => {
 		const handler = vi.fn().mockResolvedValue(undefined);
-		registerJob('story.delivery', handler, { resolveProjectId: () => 'project-1' });
+		registerJob('story.delivery', handler, { resolveScope: () => ({ projectId: 'project-1' }) });
 		mocks.hasProjectCloudBillingAccess.mockResolvedValue(false);
 		mocks.claimDueJobs.mockResolvedValueOnce([
 			{

@@ -42,7 +42,7 @@ export const attachmentRoutes = async (app: App) => {
 		if (!role || role === 'viewer') {
 			throw new HandlerError('FORBIDDEN', 'Viewers cannot upload files');
 		}
-		await assertProjectCloudBillingAccess(project.id);
+		await assertProjectCloudBillingAccess(project.id, user.id);
 
 		const maxBytes = env.NAO_STORAGE_MAX_FILE_SIZE_MB * 1024 * 1024;
 		// Truncating rather than throwing keeps the size error phrased like every other one here.

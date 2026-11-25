@@ -9,7 +9,7 @@ import {
 	notifyStoryRefreshed,
 	notifyStoryRefreshFailed,
 } from '../services/notification.service';
-import { enqueueOnce } from '../services/scheduler.service';
+import { enqueueOnce, type JobScope } from '../services/scheduler.service';
 import { warmStoryFilterOptionsByStoryId } from '../services/story-filter-options';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
@@ -30,7 +30,7 @@ export async function storyRefreshHandler(payload: StoryRefreshJobPayload, _job?
 	await runScheduledStoryRefresh(storyId);
 }
 
-export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPayload): Promise<string> {
+export async function resolveStoryRefreshScope(payload: StoryRefreshJobPayload): Promise<JobScope> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
@@ -42,7 +42,7 @@ export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPaylo
 	if (!projectId) {
 		throw new Error(`Story ${payload.storyId} is missing a project; cannot schedule refresh.`);
 	}
-	return projectId;
+	return { projectId, ownerId: story.userId ?? (await storyQueries.getStoryOwnerId(story.id)) };
 }
 
 /**

@@ -25,6 +25,7 @@ vi.mock('../../src/queries/organization.queries', () => ({}));
 vi.mock('../../src/queries/project.queries', () => ({}));
 vi.mock('../../src/services/agent', () => ({ buildToolContext: mocks.buildToolContext }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	resolveSeatedProjectRole: async (_project: unknown, _userId: string, role: unknown) => role,
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
@@ -78,7 +79,7 @@ describe('SQL edit routes', () => {
 
 		expect(mocks.getLatestExecuteSqlByQueryId).toHaveBeenCalledTimes(1);
 		expect(mocks.getLatestExecuteSqlByQueryId).toHaveBeenCalledWith('query_1');
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 });
 
@@ -108,7 +109,7 @@ describe('semantic query edit routes', () => {
 			expect.objectContaining({ id: 'query_1', compiled_sql: compiled.sql, database_id: 'warehouse' }),
 		);
 		expect(result.output.compiled_sql).toBe(compiled.sql);
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 
 	it('previews without saving', async () => {

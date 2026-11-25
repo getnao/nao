@@ -115,7 +115,7 @@ import { assertUserIsActive } from './account-status.service';
 import { resolveUserBackgroundModel } from './background-model.service';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertProjectCloudBillingAccess, assertProjectUserHasSeat } from './cloud-billing-access.service';
 import { compactionService, RunCompaction } from './compaction';
 import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
 import { mcpService } from './mcp';
@@ -389,6 +389,7 @@ export class AgentService {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
+		await assertProjectUserHasSeat(chat.projectId, chat.userId);
 		await this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(
 			chat.projectId,

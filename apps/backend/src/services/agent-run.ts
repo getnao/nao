@@ -93,7 +93,7 @@ async function authorizeMemberAgentRun({ userId, body, projectId }: AuthorizedAg
 	if (!userRole || userRole === 'viewer') {
 		throw new HandlerError('FORBIDDEN', 'Viewers cannot send messages');
 	}
-	await assertProjectCloudBillingAccess(projectId);
+	await assertProjectCloudBillingAccess(projectId, userId);
 	return {
 		projectId,
 		profile: await resolveMemberAgentProfile({ userId, body, projectId }, userRole),

@@ -39,6 +39,7 @@ vi.mock('../../src/queries/project.queries', () => ({
 vi.mock('../../src/queries/user.queries', () => ({}));
 vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	resolveSeatedProjectRole: async (_project: unknown, _userId: string, role: unknown) => role,
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));

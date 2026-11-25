@@ -69,6 +69,7 @@ vi.mock('../../src/services/user-group-availability.service', () => ({
 }));
 
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	resolveSeatedProjectRole: async (_project: unknown, _userId: string, role: unknown) => role,
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
 }));

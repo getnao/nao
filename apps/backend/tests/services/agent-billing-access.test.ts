@@ -24,6 +24,7 @@ vi.mock('../../src/queries/project.queries', () => ({
 }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserHasSeat: vi.fn(),
 }));
 vi.mock('../../src/services/account-status.service', () => ({
 	assertUserIsActive: mocks.assertUserIsActive,
@@ -130,7 +131,7 @@ describe('agent route billing access', () => {
 			),
 		).rejects.toBe(accessError);
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 });

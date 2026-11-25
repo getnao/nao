@@ -59,6 +59,7 @@ vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
 vi.mock('../../src/queries/story-folder.queries', () => ({}));
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	resolveSeatedProjectRole: async (_project: unknown, _userId: string, role: unknown) => role,
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
@@ -179,7 +180,7 @@ describe('storyShare.getLiveQueryData', () => {
 		await expect(
 			createCaller('recipient-1').storyShare.getLiveQueryData({ storyId: 'story-1', queryId: 'q_customers' }),
 		).resolves.toEqual({ data: [{ n: 100 }], columns: ['n'] });
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1', 'recipient-1');
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
 			storyCode: expect.any(String),
@@ -352,7 +353,7 @@ describe('shared Story manual refresh', () => {
 			'Cloud billing access is restricted',
 		);
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1', 'owner-1');
 		expect(mocks.refreshStoryById).not.toHaveBeenCalled();
 		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
 	});
@@ -360,7 +361,7 @@ describe('shared Story manual refresh', () => {
 	it('lets the owner refresh using the owner execution principal', async () => {
 		await createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' });
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1', 'owner-1');
 		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
@@ -395,7 +396,7 @@ describe('shared Story manual refresh', () => {
 	it('lets an admin trigger an owner-scoped refresh while recording the admin actor', async () => {
 		await createCaller('admin-1').storyShare.refreshData({ storyId: 'story-1' });
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1', 'admin-1');
 		expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-1', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});

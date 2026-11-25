@@ -19,6 +19,7 @@ vi.mock('../../src/env', async (importOriginal) => ({
 	get isCloud() {
 		return state.isCloud;
 	},
+	isCloudBillingEnabled: () => state.isCloud,
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -138,7 +139,7 @@ describe('account wallet activity authorization', () => {
 		expect(mocks.listManagedAiUsage).toHaveBeenCalledWith({ orgId: 'org-id' }, { cursor: undefined, limit: 10 });
 	});
 
-	it('never returns the setup grant outside cloud mode, where it is not granted', async () => {
+	it('never returns the setup grant without cloud billing, where it is not granted', async () => {
 		state.isCloud = false;
 
 		await expect(caller().account.getOrganizationSetupCreditGrant()).resolves.toBeNull();

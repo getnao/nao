@@ -73,7 +73,7 @@ describe('cloud billing tRPC middleware', () => {
 		await expect(caller.run({ organizationId: 'organization-1', projectId: 'project-1' })).resolves.toBe('ok');
 
 		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledOnce();
-		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-1');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-1', undefined);
 		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
@@ -81,7 +81,7 @@ describe('cloud billing tRPC middleware', () => {
 		await expect(caller.run({ projectId: 'project-1' })).resolves.toBe('ok');
 
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledOnce();
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1', undefined);
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
@@ -127,6 +127,6 @@ describe('cloud billing tRPC middleware', () => {
 		mocks.assertOrganizationCloudBillingAccess.mockRejectedValue(new Error('Cloud billing access is restricted'));
 
 		await expect(authenticatedCaller.importProject()).rejects.toThrow('Cloud billing access is restricted');
-		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-1');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-1', 'user-1');
 	});
 });
