@@ -125,6 +125,7 @@ SCALAR_WAREHOUSE_CASES = [
             "password": "secret",
             "warehouse": "compute_wh",
             "schema_name": "public",
+            "role": "ANALYTICS_READER",
         },
         id="snowflake",
     ),
@@ -214,6 +215,11 @@ def test_prepare_postgres_warehouse_config():
         ("postgres", "password authentication failed", ["user", "password"]),
         ("postgres", "connection refused", ["host", "port"]),
         ("bigquery", "invalid_grant", ["credentials_json"]),
+        (
+            "snowflake",
+            "Role 'ANALYTICS_READER' specified in the connect string does not exist or not authorized",
+            ["role"],
+        ),
         ("postgres", "unexpected failure", []),
     ],
 )

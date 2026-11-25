@@ -72,6 +72,7 @@ ALLOWED_FIELDS = {
         "warehouse",
         "account_id",
         "username",
+        "role",
     },
     "starrocks": {
         "host",
@@ -226,6 +227,10 @@ def infer_warehouse_error_fields(
 ) -> list[str]:
     message = str(error).lower()
 
+    if "role" in message and any(
+        phrase in message for phrase in ("does not exist", "not authorized")
+    ):
+        return ["role"]
     if "dataset" in message:
         return ["dataset_id"]
     if "schema" in message:

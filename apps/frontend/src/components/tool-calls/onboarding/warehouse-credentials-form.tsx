@@ -280,6 +280,16 @@ export function WarehouseCredentialsForm({
 							</form.Subscribe>
 						</>
 					)}
+					{hasField('role') && (
+						<TextField
+							form={form}
+							name='role'
+							label='Role'
+							hint='(optional, uses default role)'
+							placeholder='Enter your Snowflake role'
+							required={false}
+						/>
+					)}
 					{hasField('schemaName') && (
 						<TextField
 							form={form}

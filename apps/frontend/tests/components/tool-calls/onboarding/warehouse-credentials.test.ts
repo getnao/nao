@@ -42,6 +42,7 @@ const values: WarehouseCredentialsFormValues = {
 	awsAccessKeyId: 'access-key',
 	awsSecretAccessKey: 'secret-key',
 	awsSessionToken: 'session-token',
+	role: 'ANALYTICS_READER',
 };
 
 const providerCases: Array<{
@@ -166,6 +167,7 @@ const providerCases: Array<{
 			warehouse: 'compute',
 			accountId: 'account',
 			username: 'nao',
+			role: 'ANALYTICS_READER',
 		},
 	},
 	{

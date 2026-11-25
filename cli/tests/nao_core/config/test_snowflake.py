@@ -22,9 +22,33 @@ def test_external_oauth_refuses_queries_with_the_configured_account():
         config.execute_sql("SELECT 1")
 
 
+def test_connect_uses_configured_role(monkeypatch: pytest.MonkeyPatch):
+    connect = _mock_snowflake_connect(monkeypatch, pd.DataFrame())
+    config = _snowflake_config(
+        private_key=None,
+        password="secret",
+        role="ANALYTICS_READER",
+    )
+
+    config.connect()
+
+    connect.assert_called_once_with(
+        user="NAO_SYNC",
+        account="xy12345.us-east-1",
+        role="ANALYTICS_READER",
+        database="ANALYTICS",
+        password="secret",
+        create_object_udfs=False,
+    )
+
+
 def test_execute_sql_with_token_connects_as_the_token_user(monkeypatch: pytest.MonkeyPatch):
     connect = _mock_snowflake_connect(monkeypatch, pd.DataFrame([{"value": 1}]))
-    config = _snowflake_config(auth_mode=SnowflakeAuthMode.EXTERNAL_OAUTH, warehouse="COMPUTE_WH")
+    config = _snowflake_config(
+        auth_mode=SnowflakeAuthMode.EXTERNAL_OAUTH,
+        role="ANALYTICS_READER",
+        warehouse="COMPUTE_WH",
+    )
 
     result = config.execute_sql_with_token("SELECT 1 AS value", "user-token")
 
@@ -32,6 +56,7 @@ def test_execute_sql_with_token_connects_as_the_token_user(monkeypatch: pytest.M
     connect.assert_called_once_with(
         account="xy12345.us-east-1",
         database="ANALYTICS",
+        role="ANALYTICS_READER",
         warehouse="COMPUTE_WH",
         authenticator="oauth",
         token="user-token",

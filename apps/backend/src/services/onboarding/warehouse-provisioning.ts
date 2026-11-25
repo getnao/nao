@@ -153,6 +153,7 @@ const WAREHOUSE_CREDENTIAL_LABELS: Record<string, string> = {
 	token: 'Access Token',
 	user: 'Username',
 	username: 'Username',
+	role: 'Role',
 };
 
 const persistedCredentialsSchema = z.object({

@@ -134,6 +134,10 @@ class SnowflakeConfig(DatabaseConfig):
     username: str = Field(description="Snowflake username")
     account_id: str = Field(description="Snowflake account identifier (e.g., 'xy12345.us-east-1')")
     password: str | None = Field(default=None, description="Snowflake password")
+    role: str | None = Field(
+        default=None,
+        description="Snowflake role to use (optional)",
+    )
     database: str = Field(description="Snowflake database")
     schema_name: str | None = Field(
         default=None,
@@ -177,6 +181,7 @@ class SnowflakeConfig(DatabaseConfig):
         name = ask_text("Connection name:", default="snowflake-prod") or "snowflake-prod"
         username = ask_text("Snowflake username:", required_field=True)
         account_id = ask_text("Account identifier (e.g., xy12345.us-east-1):", required_field=True)
+        role = ask_text("Role (optional):")
         database = ask_text("Snowflake database:", required_field=True)
         warehouse = ask_text("Warehouse (optional):")
         schema = ask_text("Default schema (optional):")
@@ -221,6 +226,7 @@ class SnowflakeConfig(DatabaseConfig):
             username=username or "",
             password=password,
             account_id=account_id or "",
+            role=role,
             database=database or "",
             warehouse=warehouse,
             schema_name=schema,
@@ -243,6 +249,9 @@ class SnowflakeConfig(DatabaseConfig):
 
         kwargs: dict = {"user": self.username}
         kwargs["account"] = self.account_id
+
+        if self.role:
+            kwargs["role"] = self.role
 
         if self.database:
             kwargs["database"] = self.database
@@ -306,6 +315,8 @@ class SnowflakeConfig(DatabaseConfig):
             "authenticator": "oauth",
             "token": access_token,
         }
+        if self.role:
+            kwargs["role"] = self.role
         if self.warehouse:
             kwargs["warehouse"] = self.warehouse
         return ibis.snowflake.connect(**kwargs, create_object_udfs=False)
