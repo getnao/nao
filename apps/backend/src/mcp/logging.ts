@@ -40,6 +40,8 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	grep_nao_context: ['contextLayerModeEnabled'],
 	ls_nao_context: ['contextLayerModeEnabled'],
 	read_nao_context: ['contextLayerModeEnabled'],
+	list_nao_skills: ['contextLayerModeEnabled'],
+	get_nao_skill: ['contextLayerModeEnabled'],
 	create_story: ['contextLayerModeEnabled'],
 	update_story: ['contextLayerModeEnabled'],
 	display_chart: ['subAgentModeEnabled', 'contextLayerModeEnabled'],

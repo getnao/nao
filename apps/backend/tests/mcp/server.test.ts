@@ -12,6 +12,7 @@ vi.mock('../../src/services/user-group-feature-access.service', () => ({
 }));
 
 import { createMcpServer } from '../../src/mcp/server';
+import type { McpUserRole } from '../../src/types/mcp-endpoint';
 
 let client: Client | undefined;
 
@@ -21,11 +22,11 @@ afterEach(async () => {
 });
 
 describe('createMcpServer', () => {
-	it('offers the project skill tools to every role', async () => {
+	it.each<McpUserRole>(['admin', 'context_admin', 'user'])('offers the project skill tools to %s', async (role) => {
 		const server = await createMcpServer(
 			'user-1',
 			'project-1',
-			'user',
+			role,
 			{ enabled: true, subAgentModeEnabled: false, contextLayerModeEnabled: false },
 			false,
 		);

@@ -29,6 +29,7 @@ vi.mock('../../../src/utils/logger', () => ({
 
 import { registerProjectSkillTools } from '../../../src/mcp/tools/project-skills';
 import { skillService } from '../../../src/services/skill';
+import type { McpEndpointSettings } from '../../../src/types/mcp-endpoint';
 import type {
 	ResolvedFilesContextAccess,
 	ResolvedSkillsAccess,
@@ -108,6 +109,19 @@ describe('MCP list_nao_skills', () => {
 	});
 });
 
+describe('MCP project skill tools with the context layer mode off', () => {
+	it.each([
+		['list_nao_skills', {}],
+		['get_nao_skill', { name: 'revenue' }],
+	])('refuses %s', async (name, args) => {
+		const result = await callTool(name, args, { contextLayerModeEnabled: false });
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toEqual([{ type: 'text', text: 'This MCP mode is disabled by your admin.' }]);
+		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+	});
+});
+
 describe('MCP get_nao_skill', () => {
 	it('returns the instructions without the frontmatter', async () => {
 		const result = await callTool('get_nao_skill', { name: 'revenue' });
@@ -163,13 +177,13 @@ function docsOnlyFiles(): ResolvedFilesContextAccess {
 	return { enforced: true, access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'docs' }] } };
 }
 
-async function callTool(name: string, args: Record<string, unknown>) {
+async function callTool(name: string, args: Record<string, unknown>, settings: Partial<McpEndpointSettings> = {}) {
 	const server = new McpServer({ name: 'test', version: '0.0.0' });
 	registerProjectSkillTools(server, {
 		userId: 'user-1',
 		projectId: PROJECT_ID,
 		role: 'user',
-		settings: { enabled: true, subAgentModeEnabled: false, contextLayerModeEnabled: false },
+		settings: { enabled: true, subAgentModeEnabled: false, contextLayerModeEnabled: true, ...settings },
 		chartDataMode: false,
 		storyCreationEnabled: false,
 		customStoryCreationEnabled: false,

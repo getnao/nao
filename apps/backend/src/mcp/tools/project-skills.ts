@@ -48,7 +48,7 @@ function registerGetNaoSkill(server: McpServer, ctx: McpContext): void {
 		name: 'get_nao_skill',
 		title: 'Get Project Skill',
 		description: GET_NAO_SKILL_DESCRIPTION,
-		inputSchema: { name: z.string().min(1).describe('A skill name from `list_nao_skills`.') },
+		inputSchema: { name: z.string().trim().min(1).max(200).describe('A skill name from `list_nao_skills`.') },
 		outputSchema: { ...SKILL_SUMMARY_SCHEMA.shape, instructions: z.string() },
 		errorMessage: () => 'get_nao_skill failed. Please try again.',
 		handler: async ({ name }) => {
