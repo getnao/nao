@@ -102,12 +102,17 @@ export async function updateAutomation(
 	id: string,
 	settings: AutomationSettings,
 ): Promise<AutomationWithSchedule | null> {
-	await assertCanManageAutomations(actor, { billing: settings.enabled });
+	await assertCanManageAutomations(actor, { billing: false });
 	assertTriggers(settings, actor.role);
-	if (!(await automationQueries.getAutomation(actor.projectId, actor.userId, id, 'editor'))) {
+	const current = await automationQueries.getAutomation(actor.projectId, actor.userId, id, 'editor');
+	if (!current) {
 		return null;
 	}
-	const { cron, enabled, ...fields } = settings;
+	const enabled = settings.enabled || isAddingSchedule(current, settings.cron);
+	if (enabled) {
+		await assertProjectCloudBillingAccess(actor.projectId);
+	}
+	const { cron, ...fields } = settings;
 	const automation = await automationQueries.updateAutomation(actor.projectId, id, {
 		...toAutomationColumns(fields),
 		title: fields.title,
@@ -228,6 +233,11 @@ function assertTriggers(
 	if (eventTriggers.feedback?.sources.includes('chat') && !canRoleReceiveChatFeedback(role)) {
 		throw new HandlerError('FORBIDDEN', 'Only admins and context admins can trigger automations on chat feedback.');
 	}
+}
+
+/** An automation without a schedule reads as disabled, so a schedule added to it would otherwise start paused. */
+function isAddingSchedule(current: Pick<AutomationWithSchedule, 'cron'>, cron: string): boolean {
+	return !current.cron && cron.trim() !== '';
 }
 
 function hasEnabledEventTrigger(eventTriggers: AutomationEventTriggers): boolean {

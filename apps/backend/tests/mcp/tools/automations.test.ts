@@ -7,6 +7,7 @@ import type { McpUserRole } from '../../../src/types/mcp-endpoint';
 
 const mocks = vi.hoisted(() => ({
 	accessRole: 'owner' as 'owner' | 'editor' | 'viewer',
+	savedChanges: {} as Record<string, unknown>,
 	assertProjectCloudBillingAccess: vi.fn(),
 	assertUserGroupFeature: vi.fn(),
 	createAutomation: vi.fn(),
@@ -29,7 +30,7 @@ vi.mock('../../../src/queries/automation.queries', () => ({
 	getAutomation: vi.fn(async (_projectId: string, _userId: string, _id: string, minimumRole: string) => {
 		const roles = ['viewer', 'editor', 'owner'];
 		return roles.indexOf(mocks.accessRole) >= roles.indexOf(minimumRole)
-			? { ...SAVED_AUTOMATION, accessRole: mocks.accessRole }
+			? { ...SAVED_AUTOMATION, ...mocks.savedChanges, accessRole: mocks.accessRole }
 			: null;
 	}),
 	getAutomationById: mocks.getAutomationById,
@@ -74,6 +75,7 @@ const connections: Array<{ client: Client; server: McpServer }> = [];
 
 beforeEach(() => {
 	mocks.accessRole = 'owner';
+	mocks.savedChanges = {};
 	mocks.createAutomation.mockResolvedValue({ id: 'automation-1' });
 	mocks.updateAutomation.mockResolvedValue({ id: 'automation-1' });
 	mocks.upsertRecurringJob.mockResolvedValue({ id: 'job-1' });
@@ -186,6 +188,29 @@ describe('MCP update_automation', () => {
 		expect(mocks.upsertRecurringJob).toHaveBeenCalledWith(
 			expect.objectContaining({ cron: '0 9 * * *', status: 'pending' }),
 		);
+	});
+
+	it.each([
+		{
+			case: 'starts a schedule added to a webhook-only automation',
+			saved: { cron: '', enabled: false },
+			status: 'pending',
+		},
+		{ case: 'keeps a paused schedule paused', saved: { enabled: false }, status: 'paused' },
+	])('$case', async ({ saved, status }) => {
+		mocks.savedChanges = { ...saved, webhookEnabled: true };
+
+		await (
+			await connect('user')
+		).callTool({
+			name: 'update_automation',
+			arguments: {
+				automation_id: 'automation-1',
+				schedule: { cron: '0 9 * * *', description: 'Every day at 9am' },
+			},
+		});
+
+		expect(mocks.upsertRecurringJob).toHaveBeenCalledWith(expect.objectContaining({ cron: '0 9 * * *', status }));
 	});
 
 	it('refuses users the automation is only shared with as viewers', async () => {
