@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
 	role: 'admin',
 	isCloud: true,
+	cloudBillingEnabled: true,
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -19,7 +20,7 @@ vi.mock('../../src/env', async (importOriginal) => ({
 	get isCloud() {
 		return state.isCloud;
 	},
-	isCloudBillingEnabled: () => state.isCloud,
+	isCloudBillingEnabled: () => state.cloudBillingEnabled,
 }));
 
 vi.mock('../../src/auth', () => ({
@@ -62,6 +63,7 @@ describe('account wallet activity authorization', () => {
 	beforeEach(() => {
 		state.role = 'admin';
 		state.isCloud = true;
+		state.cloudBillingEnabled = true;
 		vi.clearAllMocks();
 		mocks.getCreditSummary.mockResolvedValue({
 			balanceMicroUsd: 20_000_000,
@@ -139,8 +141,8 @@ describe('account wallet activity authorization', () => {
 		expect(mocks.listManagedAiUsage).toHaveBeenCalledWith({ orgId: 'org-id' }, { cursor: undefined, limit: 10 });
 	});
 
-	it('never returns the setup grant without cloud billing, where it is not granted', async () => {
-		state.isCloud = false;
+	it('never returns the setup grant on a cloud-mode instance without cloud billing, where it is not granted', async () => {
+		state.cloudBillingEnabled = false;
 
 		await expect(caller().account.getOrganizationSetupCreditGrant()).resolves.toBeNull();
 		expect(mocks.getOrganizationSetupCreditGrant).not.toHaveBeenCalled();
