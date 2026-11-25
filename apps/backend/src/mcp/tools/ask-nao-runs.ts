@@ -5,6 +5,7 @@ import { repeatInBackground } from '../../utils/effect-runtime';
 
 export interface AskNaoQuery {
 	id: string;
+	sql?: string;
 	columns: string[];
 	row_count: number;
 	preview: Record<string, unknown>[];
