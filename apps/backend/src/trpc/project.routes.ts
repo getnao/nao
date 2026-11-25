@@ -1688,6 +1688,7 @@ export const projectRoutes = {
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z.object({
 				key: z.string().trim().min(1),

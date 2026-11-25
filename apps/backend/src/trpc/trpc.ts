@@ -17,7 +17,7 @@ import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.s
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
 import { isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
-import { consumeRateLimit, type RateLimitBucket } from '../utils/rate-limiter';
+import { consumeRateLimit, type RateLimitBucket, RateLimitExceededError } from '../utils/rate-limiter';
 import { convertHeaders } from '../utils/utils';
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
@@ -101,7 +101,7 @@ const withProcedureSpan = t.middleware(async ({ ctx, path, next }) => {
 /** Every call counts, signed in or not, so a script cannot sweep the API anonymously either. */
 const withCallRateLimit = t.middleware(async ({ ctx, next }) => {
 	const userId = ctx.session?.user.id;
-	consumeRateLimit('trpc', userId ?? `ip:${ctx.clientIp}`, userId);
+	consumeTrpcRateLimit('trpc', userId ?? `ip:${ctx.clientIp}`, userId);
 	return next();
 });
 
@@ -110,9 +110,21 @@ export const publicProcedure = t.procedure.use(withProcedureSpan).use(withHandle
 /** Limits a procedure further, on the key it names: the caller, their organization or the project. */
 export function rateLimitedBy<TContext>(bucket: RateLimitBucket, keyOf: (ctx: TContext) => string) {
 	return t.middleware(async ({ ctx, next }) => {
-		consumeRateLimit(bucket, keyOf(ctx as TContext), ctx.session?.user.id);
+		consumeTrpcRateLimit(bucket, keyOf(ctx as TContext), ctx.session?.user.id);
 		return next();
 	});
+}
+
+/** Thrown as a TRPCError, since `next()` hands a failure back as a result that withHandlerErrors never catches. */
+function consumeTrpcRateLimit(bucket: RateLimitBucket, key: string, userId: string | undefined): void {
+	try {
+		consumeRateLimit(bucket, key, userId);
+	} catch (error) {
+		if (error instanceof RateLimitExceededError) {
+			throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: error.message, cause: error });
+		}
+		throw error;
+	}
 }
 
 /** Signed in, and still reachable by members who must set up two-factor authentication first. */
