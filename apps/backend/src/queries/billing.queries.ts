@@ -16,6 +16,10 @@ export interface SubscriptionProjection {
 	stripeCustomerId: string;
 	stripeSubscriptionId: string;
 	stripePriceId: string;
+	seatQuantity: number | null;
+	stripeSubscriptionScheduleId: string | null;
+	pendingBillingPlan: string | null;
+	pendingSeatQuantity: number | null;
 	trialStartedAt: Date | null;
 	trialEndsAt: Date | null;
 	currentPeriodStartsAt: Date | null;
@@ -236,6 +240,14 @@ export async function updatePaymentMethodProjection(
 		.returning({ orgId: s.organizationBilling.orgId })
 		.execute();
 	return Boolean(updated);
+}
+
+export async function setPendingFreeSeatSelection(orgId: string, pendingFreeSeatUserIds: string[] | null) {
+	await db
+		.update(s.organizationBilling)
+		.set({ pendingFreeSeatUserIds })
+		.where(eq(s.organizationBilling.orgId, orgId))
+		.execute();
 }
 
 export async function insertStripeWebhookEvent(event: NewStripeWebhookEvent): Promise<DBStripeWebhookEvent | null> {
