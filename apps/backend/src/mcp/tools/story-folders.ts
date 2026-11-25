@@ -43,11 +43,7 @@ type StoryFolderListItem = z.infer<typeof STORY_FOLDER_SCHEMA>;
 const HOME_FOLDER: StoryFolderListItem = { id: null, name: 'Home', parentId: null, access: 'project', teams: [] };
 
 export function registerStoryFolderTools(server: McpServer, ctx: McpContext): void {
-	const folderContext: FolderContext = {
-		user: { id: ctx.userId },
-		project: { id: ctx.projectId },
-		userRole: ctx.role,
-	};
+	const folderContext = toFolderContext(ctx);
 
 	registerMcpTool(server, ctx, {
 		name: 'list_story_folders',
@@ -58,9 +54,8 @@ export function registerStoryFolderTools(server: McpServer, ctx: McpContext): vo
 			folders: z.array(STORY_FOLDER_SCHEMA).describe('Home, then the folders the user can see, sorted by name.'),
 		},
 		handler: async () => {
-			await storyFolderQueries.ensurePrivateRoot(ctx.userId, ctx.projectId);
-			const tree = await storyFolderQueries.listFolderTree(await getViewer(folderContext), ctx.projectId);
-			return jsonToolResult({ folders: [HOME_FOLDER, ...tree.filter(isStoryFolder).map(toStoryFolderListItem)] });
+			const { folders } = await listStoryFolders(folderContext);
+			return jsonToolResult({ folders });
 		},
 	});
 
@@ -87,6 +82,17 @@ export function registerStoryFolderTools(server: McpServer, ctx: McpContext): vo
 			return jsonToolResult({ id: story_id, folderId: folder_id });
 		},
 	});
+}
+
+export function toFolderContext(ctx: McpContext): FolderContext {
+	return { user: { id: ctx.userId }, project: { id: ctx.projectId }, userRole: ctx.role };
+}
+
+async function listStoryFolders(folderContext: FolderContext) {
+	const { user, project } = folderContext;
+	await storyFolderQueries.ensurePrivateRoot(user.id, project.id);
+	const tree = await storyFolderQueries.listFolderTree(await getViewer(folderContext), project.id);
+	return { folders: [HOME_FOLDER, ...tree.filter(isStoryFolder).map(toStoryFolderListItem)] };
 }
 
 function isStoryFolder(folder: storyFolderQueries.FolderTreeEntry): folder is storyFolderQueries.StoryFolderWithCount {
