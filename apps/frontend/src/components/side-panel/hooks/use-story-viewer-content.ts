@@ -77,11 +77,12 @@ export const useStoryViewerContent = ({
 		}
 	}, [isBridgingDraft, draftStory, currentVersion, isStoryInterrupted, isViewingLatest]);
 
+	const hasStreamJustEnded = wasStoryStreamingRef.current && !isStoryStreaming;
 	const shouldUseDraftStory = Boolean(
 		isViewingLatest &&
 		!isStoryInterrupted &&
 		draftStory &&
-		(draftStory.isStreaming || isBridgingDraft || !currentVersion),
+		(draftStory.isStreaming || isBridgingDraft || hasStreamJustEnded || !currentVersion),
 	);
 	const canUseDraftFallback = isViewingLatest && !isStoryInterrupted && !currentVersion;
 
@@ -133,6 +134,6 @@ export const useStoryViewerContent = ({
 		lastRefreshFailure,
 		needsRefresh,
 		theme,
-		isLoading: latestStoryQuery.isLoading,
+		isLoading: latestStoryQuery.isLoading && storyCode === undefined,
 	};
 };
