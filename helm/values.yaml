@@ -423,6 +423,20 @@ strategy: {}
 terminationGracePeriodSeconds: null
 
 # =============================================================================
+# Extra objects
+# =============================================================================
+# -- Extra Kubernetes manifests rendered with the release (NetworkPolicy,
+#    ExternalSecret, ...). Each entry is a map or a string, both passed
+#    through `tpl`.
+extraObjects: []
+# extraObjects:
+#   - apiVersion: networking.k8s.io/v1
+#     kind: NetworkPolicy
+#     metadata:
+#       name: '{{ include "nao.fullname" . }}-allow-ingress'
+#     spec: ...
+
+# =============================================================================
 # Persistence — used when config.contextSource = "local"
 # Populated at pod startup by the gitSync initContainer.
 # =============================================================================
