@@ -46,6 +46,25 @@ vi.mock('../../src/services/stripe.service', () => ({
 
 vi.mock('../../src/utils/logger', () => ({
 	logger: { error: mocks.logError },
+	serializeError: (error: unknown) => error,
+}));
+vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	getOrganizationCloudEntitlement: vi.fn(async () => ({
+		tier: 'unlimited',
+		seatLimit: null,
+		paidAccessEndsAt: null,
+	})),
+}));
+vi.mock('../../src/services/membership.service', () => ({ putOrganizationMemberWithSeat: vi.fn() }));
+vi.mock('../../src/services/organization-seat.service', () => ({
+	applyPendingFreeSeatSelection: vi.fn(),
+	syncOrganizationSeats: vi.fn(),
+	withOrganizationSeatLock: (_organizationId: string, operation: () => unknown) => operation(),
+}));
+vi.mock('../../src/services/seat-notification.service', () => ({ notifyAdminsOfReadOnlyMembers: vi.fn() }));
+vi.mock('../../src/services/stripe-subscription-change.service', () => ({
+	clearCloudSubscriptionChangeIntent: vi.fn(),
+	releaseCloudSubscriptionSchedule: vi.fn(),
 }));
 
 import { reconcileCloudBillingCustomer } from '../../src/services/billing-reconciliation.service';

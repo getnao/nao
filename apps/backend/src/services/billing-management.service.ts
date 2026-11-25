@@ -3,15 +3,28 @@ import * as billingQueries from '../queries/billing.queries';
 import { getCreditPurchaseByCheckoutSession } from '../queries/credit-wallet.queries';
 import * as userQueries from '../queries/user.queries';
 import {
+	CLOUD_BILLING_PLANS,
 	type CloudBillingCurrency,
-	type CloudBillingInterval,
+	type CloudBillingPlanKey,
+	findCloudBillingPlan,
+	FREE_TIER_SEAT_LIMIT,
+	isCloudBillingPlanKey,
 	isTerminalBillingStatus,
 	isTrialAvailable,
+	type PaidCloudBillingTier,
+	TEAM_MAX_SEATS,
+	TEAM_MIN_SEATS,
 } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { logger, serializeError } from '../utils/logger';
 import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
-import { isActiveTrialWithoutPaidPlan } from './cloud-billing-access.service';
+import {
+	getOrganizationSeats,
+	hasCloudBillingAccess,
+	isActiveLocalTrial,
+	isActiveTrialWithoutPaidPlan,
+	isExpiredTrialWithoutPaidPlan,
+} from './cloud-billing-access.service';
 import { createCreditTopUpCheckoutSession, getCreditTopUpPurchase } from './credit-top-up.service';
 import { issueCreditPurchase } from './credit-wallet.service';
 import {
@@ -20,12 +33,14 @@ import {
 	createCloudPaymentMethodSession,
 	createCloudPortalSession,
 	createCloudResubscribeSession,
+	getCloudSubscriptionCurrency,
+	getCloudSubscriptionPlan,
 	getCloudUpcomingInvoice,
 	listCloudInvoices,
 	resumeCloudSubscription,
 } from './stripe.service';
 
-interface AdminBillingInput {
+export interface AdminBillingInput {
 	userId: string;
 	organizationId: string;
 }
@@ -35,7 +50,8 @@ interface AdminBillingRequestInput extends AdminBillingInput {
 }
 
 interface AdminBillingCheckoutInput extends AdminBillingInput {
-	billingInterval: CloudBillingInterval;
+	planKey: CloudBillingPlanKey;
+	seats?: number;
 	currency: CloudBillingCurrency;
 }
 
@@ -46,8 +62,88 @@ export class CloudBillingManagementInputError extends HandlerError {
 	}
 }
 
-export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInput): Promise<OrganizationWithBilling> {
-	return loadCloudBillingOrganization(input.organizationId);
+export async function getCloudBillingAccessForUser(input: AdminBillingInput & { canManageBilling: boolean }) {
+	const organization = await loadCloudBillingOrganization(input.organizationId);
+	const billing = organization.billing;
+	const { entitlement, candidates, readOnlyUserIds } = await getOrganizationSeats(organization.id);
+	return {
+		organizationId: organization.id,
+		bypassBilling: organization.bypassBilling,
+		canManageBilling: input.canManageBilling,
+		tier: entitlement.tier,
+		seatLimit: entitlement.seatLimit,
+		seatUserCount: candidates.length,
+		isReadOnly: readOnlyUserIds.has(input.userId),
+		hasAccess: hasCloudBillingAccess(billing),
+		status: billing?.billingStatus ?? null,
+		trialEndsAt: billing?.trialEndsAt ?? null,
+		accessEndsAt: entitlement.paidAccessEndsAt,
+		trialAvailable: isTrialAvailable(billing),
+		requiresBillingAction:
+			billing?.billingStatus === 'trialing' &&
+			billing.hasDefaultPaymentMethod !== true &&
+			candidates.length > FREE_TIER_SEAT_LIMIT,
+	};
+}
+
+export async function getCloudBillingStatusForAdmin(input: AdminBillingInput & { currency: CloudBillingCurrency }) {
+	const organization = await loadCloudBillingOrganization(input.organizationId);
+	const billing = organization.billing;
+	const trialAvailable = isTrialAvailable(billing);
+	const paidPlanSelected = Boolean(billing?.stripeSubscriptionId && billing.billingPlan);
+	const currentPlanLive = paidPlanSelected && !isTerminalBillingStatus(billing?.billingStatus);
+	const [plan, { entitlement, candidates, readOnlyUserIds }] = await Promise.all([
+		currentPlanLive && billing?.stripeSubscriptionId && billing.stripePriceId
+			? getCloudSubscriptionCurrency(billing.stripeSubscriptionId).then((currency) =>
+					getCloudSubscriptionPlan(billing.stripePriceId!, currency),
+				)
+			: null,
+		getOrganizationSeats(organization.id),
+	]);
+	const pendingPlan = findCloudBillingPlan(billing?.pendingBillingPlan);
+	return {
+		currency: (plan?.currency ?? input.currency) as CloudBillingCurrency,
+		plan: plan ? { ...plan, legacy: !isCloudBillingPlanKey(plan.key) } : null,
+		seatQuantity: currentPlanLive ? (billing?.seatQuantity ?? null) : null,
+		pending: pendingPlan
+			? {
+					planKey: pendingPlan.key,
+					seats: billing?.pendingSeatQuantity ?? null,
+					effectiveAt: billing?.currentPeriodEndsAt ?? null,
+				}
+			: null,
+		pendingFreeSeatUserIds: billing?.pendingFreeSeatUserIds ?? null,
+		tier: entitlement.tier,
+		seatLimit: entitlement.seatLimit,
+		members: candidates.map(({ id, name, email, membershipClass }) => ({
+			id,
+			name,
+			email,
+			membershipClass,
+			seated: !readOnlyUserIds.has(id),
+		})),
+		recommendation: recommendTier(candidates.length),
+		status: billing?.billingStatus ?? null,
+		trialStartedAt: billing?.trialStartedAt ?? null,
+		trialEndsAt: billing?.trialEndsAt ?? null,
+		currentPeriodStartsAt: billing?.currentPeriodStartsAt ?? null,
+		currentPeriodEndsAt: billing?.currentPeriodEndsAt ?? null,
+		cancellationScheduled: Boolean(billing?.billingPlan && billing.cancellationScheduled),
+		hasDefaultPaymentMethod: billing?.hasDefaultPaymentMethod ?? null,
+		billingAccessEndsAt: billing?.billingAccessEndsAt ?? null,
+		trialAvailable,
+		needsPaidPlanSelection: isActiveTrialWithoutPaidPlan(billing),
+		paidPlanSelected,
+		portalAvailable: Boolean(billing?.stripeCustomerId && paidPlanSelected),
+		invoiceHistoryAvailable: Boolean(billing?.stripeCustomerId),
+		paymentMethodManagementAvailable: Boolean(billing?.stripeCustomerId && paidPlanSelected),
+		resubscribeAvailable:
+			isExpiredTrialWithoutPaidPlan(billing) ||
+			(!billing?.stripeSubscriptionId && !trialAvailable && !isActiveLocalTrial(billing)) ||
+			(Boolean(billing?.stripeCustomerId && billing?.stripeSubscriptionId) &&
+				isTerminalBillingStatus(billing?.billingStatus)),
+		hasStripeSubscription: Boolean(billing?.stripeSubscriptionId),
+	};
 }
 
 export async function createCloudTrialCheckoutForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
@@ -56,9 +152,11 @@ export async function createCloudTrialCheckoutForAdmin(input: AdminBillingChecko
 	if (!trialEndsAt && !isTrialAvailable(organization.billing)) {
 		throw new CloudBillingManagementInputError('This organization has already used its free trial');
 	}
+	const quantity = planQuantity(input.planKey, input.seats);
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudCheckoutSession({
-		billingInterval: input.billingInterval,
+		planKey: input.planKey,
+		quantity,
 		currency: input.currency,
 		organizationId: organization.id,
 		stripeCustomerId,
@@ -190,9 +288,11 @@ export async function createCloudResubscribeForAdmin(input: AdminBillingCheckout
 	) {
 		throw new CloudBillingManagementInputError('A new subscription is not available');
 	}
+	const quantity = planQuantity(input.planKey, input.seats);
 	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
 	return createCloudResubscribeSession({
-		billingInterval: input.billingInterval,
+		planKey: input.planKey,
+		quantity,
 		currency: input.currency,
 		organizationId: organization.id,
 		stripeCustomerId,
@@ -212,7 +312,23 @@ export async function resumeCloudSubscriptionForAdmin(input: AdminBillingRequest
 	});
 }
 
-async function loadCloudBillingOrganization(organizationId: string): Promise<OrganizationWithBilling> {
+function recommendTier(seatUserCount: number): PaidCloudBillingTier {
+	const teamCost = CLOUD_BILLING_PLANS.cloud_team_monthly_v1.unitAmount * Math.max(TEAM_MIN_SEATS, seatUserCount);
+	return teamCost >= CLOUD_BILLING_PLANS.cloud_unlimited_monthly_v1.unitAmount ? 'unlimited' : 'team';
+}
+
+/** Team is billed per seat within its bounds; Unlimited is a single flat-priced item. */
+export function planQuantity(planKey: CloudBillingPlanKey, seats: number | undefined): number {
+	if (CLOUD_BILLING_PLANS[planKey].tier === 'unlimited') {
+		return 1;
+	}
+	if (seats === undefined || !Number.isInteger(seats) || seats < TEAM_MIN_SEATS || seats > TEAM_MAX_SEATS) {
+		throw new CloudBillingManagementInputError(`Team needs between ${TEAM_MIN_SEATS} and ${TEAM_MAX_SEATS} seats`);
+	}
+	return seats;
+}
+
+export async function loadCloudBillingOrganization(organizationId: string): Promise<OrganizationWithBilling> {
 	const organization = await billingQueries.getOrganizationWithBilling(organizationId);
 	if (!organization) {
 		throw new HandlerError('NOT_FOUND', 'Organization was not found');

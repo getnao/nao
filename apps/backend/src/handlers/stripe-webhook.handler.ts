@@ -11,6 +11,7 @@ import {
 	findCloudSubscription,
 	findManagedCloudSubscription,
 	getCloudCheckoutSubscription,
+	getCloudSubscriptionSchedule,
 	getStripeCharge,
 	getStripeCheckoutSession,
 	getStripeDispute,
@@ -19,7 +20,7 @@ import {
 	getStripePaymentIntent,
 	getStripePaymentMethod,
 } from '../services/stripe.service';
-import { isCloudBillingPlanKey } from '../types/billing';
+import { findCloudBillingPlan } from '../types/billing';
 import { stripeId } from '../utils/stripe';
 
 export const STRIPE_WEBHOOK_PROCESS_JOB_NAME = 'stripe.webhook.process';
@@ -55,6 +56,12 @@ const STRIPE_EVENT_HANDLERS: Record<string, StripeEventHandler> = {
 	'customer.subscription.deleted': processSubscriptionEvent,
 	'customer.subscription.paused': processSubscriptionEvent,
 	'customer.subscription.resumed': processSubscriptionEvent,
+	'customer.subscription.pending_update_applied': processSubscriptionEvent,
+	'customer.subscription.pending_update_expired': processSubscriptionEvent,
+	'subscription_schedule.updated': processSubscriptionScheduleEvent,
+	'subscription_schedule.released': processSubscriptionScheduleEvent,
+	'subscription_schedule.completed': processSubscriptionScheduleEvent,
+	'subscription_schedule.canceled': processSubscriptionScheduleEvent,
 	'invoice.paid': processInvoiceEvent,
 	'invoice.payment_failed': processInvoiceEvent,
 	'invoice.payment_action_required': processInvoiceEvent,
@@ -137,7 +144,7 @@ async function processCheckoutEvent(event: ProcessableStripeEvent): Promise<void
 		await settleCreditTopUpCheckout(event.objectId);
 		return;
 	}
-	if (session.mode === 'subscription' && isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+	if (session.mode === 'subscription' && findCloudBillingPlan(session.metadata?.nao_plan_key)) {
 		await processCheckoutSession(event.objectId);
 	}
 }
@@ -152,6 +159,16 @@ async function processDisputeEvent(event: ProcessableStripeEvent): Promise<void>
 
 async function processSubscriptionEvent(event: ProcessableStripeEvent): Promise<void> {
 	await processSubscription(event.objectId);
+}
+
+async function processSubscriptionScheduleEvent(event: ProcessableStripeEvent): Promise<void> {
+	const schedule =
+		(event.stripeObject as Stripe.SubscriptionSchedule | undefined) ??
+		(await getCloudSubscriptionSchedule(event.objectId));
+	const subscriptionId = schedule.subscription ?? schedule.released_subscription;
+	if (subscriptionId) {
+		await processSubscription(stripeId(subscriptionId));
+	}
 }
 
 async function processInvoiceEvent(event: ProcessableStripeEvent): Promise<void> {
@@ -178,7 +195,7 @@ async function processPaymentMethodEvent(event: ProcessableStripeEvent): Promise
 
 async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<void> {
 	const { session, subscription } = await getCloudCheckoutSubscription(stripeCheckoutSessionId);
-	if (session.mode !== 'subscription' || !isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+	if (session.mode !== 'subscription' || !session.metadata || !findCloudBillingPlan(session.metadata.nao_plan_key)) {
 		return;
 	}
 	const organizationId = session.metadata.nao_org_id ?? session.client_reference_id;

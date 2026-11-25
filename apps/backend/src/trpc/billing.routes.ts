@@ -2,7 +2,15 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { isCloudBillingEnabled } from '../env';
-import { getOrganizationBilling } from '../queries/billing.queries';
+import {
+	cancelPendingCloudChangeForAdmin,
+	confirmCloudChangeForAdmin,
+	keepCloudSubscriptionForAdmin,
+	previewCloudChangeForAdmin,
+	previewCloudMemberSeatForAdmin,
+	selectCloudSeatsForAdmin,
+	switchCloudSubscriptionToFreeForAdmin,
+} from '../services/billing-change.service';
 import {
 	confirmCreditTopUpForAdmin,
 	createCloudPaymentMethodPortalForAdmin,
@@ -10,32 +18,24 @@ import {
 	createCloudResubscribeForAdmin,
 	createCloudTrialCheckoutForAdmin,
 	createCreditTopUpCheckoutForAdmin,
-	getCloudBillingOrganizationForAdmin,
+	getCloudBillingAccessForUser,
+	getCloudBillingStatusForAdmin,
 	getCloudUpcomingInvoiceForAdmin,
 	listCloudInvoicesForAdmin,
 	resumeCloudSubscriptionForAdmin,
 	syncCloudBillingForAdmin,
 } from '../services/billing-management.service';
 import {
-	getCloudBillingAccessEndsAt,
-	hasCloudBillingAccess,
-	isActiveLocalTrial,
-	isActiveTrialWithoutPaidPlan,
-	isExpiredTrialWithoutPaidPlan,
-} from '../services/cloud-billing-access.service';
-import {
 	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
-	getCloudBillingPlans,
-	getCloudSubscriptionCurrency,
 } from '../services/stripe.service';
 import {
 	CLOUD_BILLING_CURRENCIES,
+	CLOUD_BILLING_PLANS,
+	type CloudBillingPlanKey,
 	CREDIT_TOP_UP_MAX_CENTS,
 	CREDIT_TOP_UP_MIN_CENTS,
-	isTerminalBillingStatus,
-	isTrialAvailable,
 } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
@@ -92,87 +92,105 @@ const cloudBillingAccessProcedure = cloudBillingProcedure.use(async ({ ctx, next
 const requestInput = z.object({ requestId: z.uuid() });
 const currencyInput = z.enum(CLOUD_BILLING_CURRENCIES);
 const billingStatusInput = z.object({ currency: currencyInput }).optional();
+const planKeyInput = z.enum(Object.keys(CLOUD_BILLING_PLANS) as [CloudBillingPlanKey, ...CloudBillingPlanKey[]]);
 const checkoutInput = z.object({
-	billingInterval: z.enum(['monthly', 'yearly']),
+	planKey: planKeyInput,
+	seats: z.number().int().optional(),
 	currency: currencyInput.default('usd'),
 });
+const selectedUserIdsInput = z.array(z.string().min(1));
 const creditTopUpInput = z.object({
 	creditAmountCents: z.number().int().min(CREDIT_TOP_UP_MIN_CENTS).max(CREDIT_TOP_UP_MAX_CENTS),
 	requestId: z.uuid(),
 });
 
 export const billingRoutes = {
-	getAccess: cloudBillingAccessProcedure.query(async ({ ctx }) => {
-		const billing = await getOrganizationBilling(ctx.organization.id);
-		return {
-			organizationId: ctx.organization.id,
-			hasAccess: hasCloudBillingAccess(billing),
-			bypassBilling: ctx.organization.bypassBilling,
-			status: billing?.billingStatus ?? null,
-			trialEndsAt: billing?.trialEndsAt ?? null,
-			accessEndsAt: getCloudBillingAccessEndsAt(billing),
-			canManageBilling: ctx.orgRole === 'admin',
-			trialAvailable: isTrialAvailable(billing),
-			requiresBillingAction: billing?.billingStatus === 'trialing' && billing.hasDefaultPaymentMethod !== true,
-		};
-	}),
-
-	getStatus: cloudBillingAdminProcedure.input(billingStatusInput).query(async ({ ctx, input }) => {
-		const organization = await getCloudBillingOrganizationForAdmin({
+	getAccess: cloudBillingAccessProcedure.query(({ ctx }) =>
+		getCloudBillingAccessForUser({
 			userId: ctx.user.id,
 			organizationId: ctx.organization.id,
-		});
-		const billing = organization.billing;
-		const trialAvailable = isTrialAvailable(billing);
-		const localTrialActive = isActiveLocalTrial(billing);
-		const needsPaidPlanSelection = isActiveTrialWithoutPaidPlan(billing);
-		const expiredTrialWithoutPaidPlan = isExpiredTrialWithoutPaidPlan(billing);
-		const paidPlanSelected = Boolean(billing?.stripeSubscriptionId && billing.billingPlan);
-		const { availablePlans, subscriptionPlan } = await (async () => {
-			const subscriptionCurrency =
-				paidPlanSelected && billing?.stripeSubscriptionId
-					? await getCloudSubscriptionCurrency(billing.stripeSubscriptionId)
-					: null;
-			return getCloudBillingPlans(
-				paidPlanSelected ? (billing?.stripePriceId ?? null) : null,
-				input?.currency ?? 'usd',
-				subscriptionCurrency,
-			);
-		})().catch((error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error));
-		const projectedPlan =
-			subscriptionPlan ?? Object.values(availablePlans).find((plan) => plan.key === billing?.billingPlan) ?? null;
-		return {
-			plan: projectedPlan,
-			availablePlans,
-			planKey: billing?.billingPlan ?? null,
-			status: billing?.billingStatus ?? null,
-			trialStartedAt: billing?.trialStartedAt ?? null,
-			trialEndsAt: billing?.trialEndsAt ?? null,
-			currentPeriodEndsAt: billing?.currentPeriodEndsAt ?? null,
-			cancellationScheduled: billing?.cancellationScheduled ?? null,
-			hasDefaultPaymentMethod: billing?.hasDefaultPaymentMethod ?? null,
-			billingAccessEndsAt: billing?.billingAccessEndsAt ?? null,
-			canManageBilling: true,
-			trialAvailable,
-			needsPaidPlanSelection,
-			paidPlanSelected,
-			portalAvailable: Boolean(billing?.stripeCustomerId && paidPlanSelected),
-			invoiceHistoryAvailable: Boolean(billing?.stripeCustomerId),
-			paymentMethodManagementAvailable: Boolean(billing?.stripeCustomerId && paidPlanSelected),
-			resubscribeAvailable:
-				expiredTrialWithoutPaidPlan ||
-				(!billing?.stripeSubscriptionId && !trialAvailable && !localTrialActive) ||
-				(Boolean(billing?.stripeCustomerId && billing.stripeSubscriptionId) &&
-					isTerminalBillingStatus(billing?.billingStatus)),
-			hasStripeSubscription: Boolean(billing?.stripeSubscriptionId),
-		};
-	}),
+			canManageBilling: ctx.orgRole === 'admin',
+		}),
+	),
+
+	getStatus: cloudBillingAdminProcedure.input(billingStatusInput).query(({ ctx, input }) =>
+		getCloudBillingStatusForAdmin({
+			userId: ctx.user.id,
+			organizationId: ctx.organization.id,
+			currency: input?.currency ?? 'usd',
+		}).catch((error: unknown) => throwBillingFailure('status lookup', 'Unable to load billing status', error)),
+	),
+
+	previewChange: cloudBillingAdminProcedure
+		.input(
+			z.object({
+				targetPlanKey: planKeyInput,
+				seats: z.number().int().optional(),
+				promotionCode: z.string().trim().min(1).max(200).optional(),
+			}),
+		)
+		.mutation(({ ctx, input }) =>
+			previewCloudChangeForAdmin({ ...input, userId: ctx.user.id, organizationId: ctx.organization.id }),
+		),
+
+	previewAddMemberWithSeat: cloudBillingAdminProcedure
+		.input(
+			z
+				.object({
+					userId: z.string().min(1).optional(),
+					email: z.email().optional(),
+					role: z.enum(['admin', 'user']),
+				})
+				.refine((input) => Boolean(input.userId) !== Boolean(input.email), {
+					message: 'Provide exactly one of userId or email',
+				}),
+		)
+		.mutation(({ ctx, input }) =>
+			previewCloudMemberSeatForAdmin({
+				memberUserId: input.userId,
+				email: input.email,
+				role: input.role,
+				userId: ctx.user.id,
+				organizationId: ctx.organization.id,
+			}),
+		),
+
+	confirmChange: cloudBillingAdminProcedure
+		.input(z.object({ previewToken: z.string().min(1), requestId: z.uuid() }))
+		.mutation(({ ctx, input }) =>
+			confirmCloudChangeForAdmin({ ...input, userId: ctx.user.id, organizationId: ctx.organization.id }),
+		),
+
+	switchToFree: cloudBillingAdminProcedure
+		.input(z.object({ selectedUserIds: selectedUserIdsInput.optional(), requestId: z.uuid() }))
+		.mutation(({ ctx, input }) =>
+			switchCloudSubscriptionToFreeForAdmin({
+				...input,
+				userId: ctx.user.id,
+				organizationId: ctx.organization.id,
+			}),
+		),
+
+	keepPlan: cloudBillingAdminProcedure
+		.input(requestInput)
+		.mutation(({ ctx, input }) =>
+			keepCloudSubscriptionForAdmin({ ...input, userId: ctx.user.id, organizationId: ctx.organization.id }),
+		),
+
+	cancelPendingChange: cloudBillingAdminProcedure.mutation(({ ctx }) =>
+		cancelPendingCloudChangeForAdmin({ userId: ctx.user.id, organizationId: ctx.organization.id }),
+	),
+
+	selectSeats: cloudBillingAdminProcedure
+		.input(z.object({ selectedUserIds: selectedUserIdsInput }))
+		.mutation(({ ctx, input }) =>
+			selectCloudSeatsForAdmin({ ...input, userId: ctx.user.id, organizationId: ctx.organization.id }),
+		),
 
 	createTrialCheckoutSession: cloudBillingAdminProcedure.input(checkoutInput).mutation(async ({ ctx, input }) => {
 		try {
 			const url = await createCloudTrialCheckoutForAdmin({
-				billingInterval: input.billingInterval,
-				currency: input.currency,
+				...input,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});
@@ -277,8 +295,7 @@ export const billingRoutes = {
 	createResubscribeSession: cloudBillingAdminProcedure.input(checkoutInput).mutation(async ({ ctx, input }) => {
 		try {
 			const url = await createCloudResubscribeForAdmin({
-				billingInterval: input.billingInterval,
-				currency: input.currency,
+				...input,
 				userId: ctx.user.id,
 				organizationId: ctx.organization.id,
 			});

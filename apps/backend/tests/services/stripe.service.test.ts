@@ -20,6 +20,7 @@ const stripeMocks = vi.hoisted(() => ({
 	retrieveCustomer: vi.fn(),
 	retrieveSubscription: vi.fn(),
 	retrieveTaxSettings: vi.fn(),
+	updatePortalConfiguration: vi.fn(),
 	updateSubscription: vi.fn(),
 }));
 
@@ -29,7 +30,13 @@ vi.mock('stripe', () => ({
 			stripeMocks.construct();
 		}
 
-		billingPortal = { sessions: { create: stripeMocks.createPortalSession } };
+		billingPortal = {
+			configurations: {
+				list: vi.fn(async () => ({ data: [{ id: 'bpc_default' }] })),
+				update: stripeMocks.updatePortalConfiguration,
+			},
+			sessions: { create: stripeMocks.createPortalSession },
+		};
 		checkout = {
 			sessions: {
 				create: stripeMocks.createCheckoutSession,
@@ -84,9 +91,9 @@ import {
 	createCloudTrialPlaceholderSubscription,
 	findCloudSubscription,
 	findManagedCloudSubscription,
-	getCloudBillingPlans,
 	getCloudPrice,
 	getCloudSubscriptionCurrency,
+	getCloudSubscriptionPlan,
 	getCloudUpcomingInvoice,
 	getStripeClient,
 	listCloudInvoices,
@@ -103,7 +110,8 @@ const TRIAL_MESSAGE =
 	'Nothing is charged today. Your recurring price, including any promotion code discount, starts when your trial ends on January 15, 2099.';
 const INITIAL_MONTHLY_CHECKOUT_METADATA = {
 	nao_org_id: 'org-id',
-	nao_plan_key: 'cloud_monthly_v2',
+	nao_plan_key: 'cloud_unlimited_monthly_v1',
+	nao_quantity: '1',
 	nao_checkout_kind: 'initial',
 };
 const TRIAL_CHECKOUT_METADATA = { ...INITIAL_MONTHLY_CHECKOUT_METADATA, nao_trial_end: String(TRIAL_END_TIMESTAMP) };
@@ -124,8 +132,12 @@ beforeEach(() => {
 	process.env.STRIPE_CLOUD_PRODUCT_ID = 'prod_cloud';
 	process.env.STRIPE_CLOUD_TRIAL_PRODUCT_ID = 'prod_cloud_trial';
 	process.env.STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY = 'nao_trial';
-	process.env.STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY = 'nao_cloud_monthly_v2';
-	process.env.STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY = 'yearly_sub';
+	process.env.STRIPE_CLOUD_TEAM_PRODUCT_ID = 'prod_team';
+	process.env.STRIPE_CLOUD_UNLIMITED_PRODUCT_ID = 'prod_unlimited';
+	process.env.STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY = 'team_monthly';
+	process.env.STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY = 'team_yearly';
+	process.env.STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY = 'unlimited_monthly';
+	process.env.STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY = 'unlimited_yearly';
 	process.env.STRIPE_CREDIT_PRODUCT_ID = 'prod_credits';
 	process.env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID = 'prod_platform_fee';
 	process.env.STRIPE_SECRET_KEY = 'sk_test_example';
@@ -157,13 +169,14 @@ afterEach(() => {
 
 describe('getCloudPrice', () => {
 	it.each([
-		['monthly', cloudMonthlyPrice, 'nao_cloud_monthly_v2'],
-		['yearly', cloudYearlyPrice, 'yearly_sub'],
-	] as const)('resolves the configured %s Price', async (billingInterval, buildPrice, lookupKey) => {
+		['Unlimited monthly', 'cloud_unlimited_monthly_v1', cloudMonthlyPrice, 'unlimited_monthly'],
+		['Unlimited yearly', 'cloud_unlimited_yearly_v1', cloudYearlyPrice, 'unlimited_yearly'],
+		['Team monthly', 'cloud_team_monthly_v1', cloudTeamMonthlyPrice, 'team_monthly'],
+	] as const)('resolves the configured %s Price', async (_name, planKey, buildPrice, lookupKey) => {
 		const expectedPrice = buildPrice();
 		stripeMocks.listPrices.mockResolvedValue({ data: [expectedPrice] });
 
-		await expect(getCloudPrice(billingInterval)).resolves.toBe(expectedPrice);
+		await expect(getCloudPrice(planKey)).resolves.toBe(expectedPrice);
 		expect(stripeMocks.listPrices).toHaveBeenCalledWith({
 			active: true,
 			expand: ['data.currency_options', 'data.product'],
@@ -175,24 +188,17 @@ describe('getCloudPrice', () => {
 	it('rejects a monthly Price configured as the yearly offer', async () => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice()] });
 
-		await expect(getCloudPrice('yearly')).rejects.toThrow(
-			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD and EUR yearly licensed Price',
+		await expect(getCloudPrice('cloud_unlimited_yearly_v1')).rejects.toThrow(
+			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_unlimited" and be a fixed 2000000 USD and EUR yearly licensed Price',
 		);
 	});
 
 	it('rejects a missing Price', async () => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [] });
 
-		await expect(getCloudPrice('monthly')).rejects.toThrow(
-			'No active Stripe Price found for lookup key "nao_cloud_monthly_v2"',
+		await expect(getCloudPrice('cloud_unlimited_monthly_v1')).rejects.toThrow(
+			'No active Stripe Price found for lookup key "unlimited_monthly"',
 		);
-	});
-
-	it('accepts a replacement Price with a new positive amount', async () => {
-		const replacementPrice = cloudMonthlyPrice({ unit_amount: 250_000 });
-		stripeMocks.listPrices.mockResolvedValue({ data: [replacementPrice] });
-
-		await expect(getCloudPrice('monthly')).resolves.toBe(replacementPrice);
 	});
 
 	it('accepts EUR as the default when the Price also supports USD', async () => {
@@ -202,7 +208,7 @@ describe('getCloudPrice', () => {
 		});
 		stripeMocks.listPrices.mockResolvedValue({ data: [price] });
 
-		await expect(getCloudPrice('monthly')).resolves.toBe(price);
+		await expect(getCloudPrice('cloud_unlimited_monthly_v1')).resolves.toBe(price);
 	});
 
 	it.each([
@@ -210,69 +216,48 @@ describe('getCloudPrice', () => {
 		['inactive product', { product: cloudProduct({ active: false }) }],
 		['tiered', { billing_scheme: 'tiered' }],
 		['missing USD currency option', { currency: 'eur' }],
+		['off-catalog amount', { unit_amount: 250_000 }],
 		['zero amount', { unit_amount: 0 }],
 		['one-time', { type: 'one_time', recurring: null }],
 		['yearly', { recurring: recurring({ interval: 'year' }) }],
 		['multi-month', { recurring: recurring({ interval_count: 2 }) }],
 		['metered', { recurring: recurring({ usage_type: 'metered' }) }],
+		['other Product', { product: cloudProduct({ id: 'prod_other' }) }],
 	] satisfies Array<[string, Partial<Stripe.Price>]>)('rejects an %s Price', async (_name, overrides) => {
 		stripeMocks.listPrices.mockResolvedValue({ data: [cloudMonthlyPrice(overrides)] });
 
-		await expect(getCloudPrice('monthly')).rejects.toThrow(
-			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud" and be a fixed positive USD and EUR monthly licensed Price',
+		await expect(getCloudPrice('cloud_unlimited_monthly_v1')).rejects.toThrow(
+			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_unlimited" and be a fixed 200000 USD and EUR monthly licensed Price',
 		);
 	});
 
-	it('returns the selected currency option for every available plan', async () => {
-		await expect(getCloudBillingPlans(undefined, 'eur')).resolves.toMatchObject({
-			availablePlans: {
-				monthly: { amount: 200_000, currency: 'eur' },
-				yearly: { amount: 2_000_000, currency: 'eur' },
-			},
+	it.each([
+		[
+			'a current',
+			cloudTeamMonthlyPrice({ id: 'price_team' }),
+			{ key: 'cloud_team_monthly_v1', tier: 'team', amount: 5_000 },
+		],
+		[
+			'a legacy',
+			cloudMonthlyPrice({ id: 'price_legacy', active: false, product: 'prod_cloud' }),
+			{ key: 'cloud_monthly_v2', tier: 'unlimited', amount: 200_000 },
+		],
+	] as const)("reads %s subscription's plan from its own Stripe Price", async (_name, price, expected) => {
+		stripeMocks.retrievePrice.mockResolvedValue(price);
+
+		await expect(getCloudSubscriptionPlan(price.id, 'eur')).resolves.toEqual({
+			...expected,
+			interval: 'monthly',
+			currency: 'eur',
 		});
+		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith(price.id, { expand: ['currency_options'] });
 	});
 
-	it('rejects a Price from a different Product', async () => {
-		stripeMocks.listPrices.mockResolvedValue({
-			data: [cloudMonthlyPrice({ product: cloudProduct({ id: 'prod_other' }) })],
-		});
-
-		await expect(getCloudPrice('monthly')).rejects.toThrow(
-			'Stripe Price "price_cloud_monthly" must belong to configured active Product "prod_cloud"',
-		);
-	});
-
-	it("returns an existing subscription's historical Price separately from the current offer", async () => {
-		mockCloudPrices({ monthly: cloudMonthlyPrice({ unit_amount: 250_000 }) });
-		stripeMocks.retrievePrice.mockImplementation((_priceId: string, params?: Stripe.PriceRetrieveParams) =>
-			cloudMonthlyPrice({
-				id: 'price_legacy',
-				active: false,
-				currency_options: params?.expand?.includes('currency_options')
-					? ({ eur: { unit_amount: 200_000 } } as Stripe.Price['currency_options'])
-					: undefined,
-				product: 'prod_cloud',
-				unit_amount: 200_000,
-			}),
-		);
-
-		await expect(getCloudBillingPlans('price_legacy', 'usd', 'eur')).resolves.toMatchObject({
-			availablePlans: {
-				monthly: { amount: 250_000, currency: 'usd' },
-				yearly: { amount: 2_000_000, currency: 'usd' },
-			},
-			subscriptionPlan: { amount: 200_000, currency: 'eur' },
-		});
-		expect(stripeMocks.retrievePrice).toHaveBeenCalledWith('price_legacy', {
-			expand: ['currency_options'],
-		});
-	});
-
-	it('rejects a historical Price from another Product', async () => {
+	it('rejects a subscription Price from another Product', async () => {
 		stripeMocks.retrievePrice.mockResolvedValue(cloudMonthlyPrice({ id: 'price_other', product: 'prod_other' }));
 
-		await expect(getCloudBillingPlans('price_other')).rejects.toThrow(
-			'Stripe Price "price_other" is not a valid historical cloud Price',
+		await expect(getCloudSubscriptionPlan('price_other', 'usd')).rejects.toThrow(
+			'Stripe Price "price_other" is not a valid cloud Price',
 		);
 	});
 
@@ -293,14 +278,7 @@ describe('validateCloudBillingConfiguration', () => {
 	it('validates the configured Price and active Stripe Tax settings', async () => {
 		await expect(validateCloudBillingConfiguration()).resolves.toBeUndefined();
 
-		expect(stripeMocks.listPrices).toHaveBeenCalledTimes(3);
-		expect(stripeMocks.retrieveTaxSettings).toHaveBeenCalledOnce();
-	});
-
-	it('accepts a yearly Price without a discount', async () => {
-		mockCloudPrices({ yearly: cloudYearlyPrice({ unit_amount: 2_400_000 }) });
-
-		await expect(validateCloudBillingConfiguration()).resolves.toBeUndefined();
+		expect(stripeMocks.listPrices).toHaveBeenCalledTimes(5);
 		expect(stripeMocks.retrieveTaxSettings).toHaveBeenCalledOnce();
 	});
 
@@ -601,13 +579,13 @@ describe('cloud Checkout', () => {
 				tax_id_collection: { enabled: true },
 				billing_address_collection: 'required',
 				subscription_data: {
-					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_unlimited_monthly_v1' },
 					trial_end: TRIAL_END_TIMESTAMP,
 					trial_settings: { end_behavior: { missing_payment_method: 'pause' } },
 				},
 			}),
 			{
-				idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
+				idempotencyKey: `cloud-checkout-initial-v13:org-id:cloud_unlimited_monthly_v1:1:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
 			},
 		);
 	});
@@ -619,7 +597,8 @@ describe('cloud Checkout', () => {
 
 		await expect(
 			createCloudCheckoutSession({
-				billingInterval: 'monthly',
+				planKey: 'cloud_unlimited_monthly_v1',
+				quantity: 1,
 				organizationId: 'org-id',
 				stripeCustomerId: 'cus_cloud',
 			}),
@@ -630,13 +609,15 @@ describe('cloud Checkout', () => {
 			{ idempotencyKey: string },
 		];
 		expect(params.subscription_data).toEqual({
-			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_unlimited_monthly_v1' },
 		});
 		expect(params.metadata).not.toHaveProperty('nao_trial_end');
 		expect(params.custom_text?.submit?.message).toBe(
 			'Your free trial has not started. By subscribing now, your subscription starts when you confirm and the recurring price shown, including any promotion code discount, is charged today.',
 		);
-		expect(options.idempotencyKey).toBe('cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:before-trial');
+		expect(options.idempotencyKey).toBe(
+			'cloud-checkout-initial-v13:org-id:cloud_unlimited_monthly_v1:1:usd:before-trial',
+		);
 	});
 
 	it('starts the same EUR trial with the configured yearly Price when selected', async () => {
@@ -645,21 +626,21 @@ describe('cloud Checkout', () => {
 		});
 
 		await expect(
-			createCloudCheckoutSession(checkoutInput({ billingInterval: 'yearly', currency: 'eur' })),
+			createCloudCheckoutSession(checkoutInput({ planKey: 'cloud_unlimited_yearly_v1', currency: 'eur' })),
 		).resolves.toBe('https://checkout.stripe.com/yearly-trial');
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				currency: 'eur',
 				line_items: [{ price: 'price_cloud_yearly', quantity: 1 }],
-				metadata: expect.objectContaining({ nao_plan_key: 'cloud_yearly_v1' }),
+				metadata: expect.objectContaining({ nao_plan_key: 'cloud_unlimited_yearly_v1' }),
 				subscription_data: expect.objectContaining({
-					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_yearly_v1' },
+					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_unlimited_yearly_v1' },
 					trial_end: TRIAL_END_TIMESTAMP,
 				}),
 			}),
 			{
-				idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_yearly_v1:eur:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
+				idempotencyKey: `cloud-checkout-initial-v13:org-id:cloud_unlimited_yearly_v1:1:eur:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
 			},
 		);
 	});
@@ -686,13 +667,15 @@ describe('cloud Checkout', () => {
 			{ idempotencyKey: string },
 		];
 		expect(params.subscription_data).toEqual({
-			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_unlimited_monthly_v1' },
 		});
 		expect(params.metadata).not.toHaveProperty('nao_trial_end');
 		expect(params.custom_text?.submit?.message).toBe(
 			'Not enough time remains to preserve your free trial in Checkout, so your subscription starts when you confirm. The recurring price shown, including any promotion code discount, is charged today.',
 		);
-		expect(options.idempotencyKey).toBe('cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:immediate');
+		expect(options.idempotencyKey).toBe(
+			'cloud-checkout-initial-v13:org-id:cloud_unlimited_monthly_v1:1:usd:immediate',
+		);
 	});
 
 	it('expires an open monthly Checkout before creating a yearly Checkout', async () => {
@@ -710,7 +693,7 @@ describe('cloud Checkout', () => {
 			url: 'https://checkout.stripe.com/yearly',
 		});
 
-		await createCloudCheckoutSession(checkoutInput({ billingInterval: 'yearly' }));
+		await createCloudCheckoutSession(checkoutInput({ planKey: 'cloud_unlimited_yearly_v1' }));
 
 		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_monthly');
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
@@ -737,7 +720,7 @@ describe('cloud Checkout', () => {
 		stripeMocks.retrieveCheckoutSession.mockResolvedValue({ id: 'cs_monthly', status: 'expired' });
 		stripeMocks.createCheckoutSession.mockResolvedValue({ url: 'https://checkout.stripe.com/yearly' });
 
-		await expect(createCloudCheckoutSession(checkoutInput({ billingInterval: 'yearly' }))).resolves.toBe(
+		await expect(createCloudCheckoutSession(checkoutInput({ planKey: 'cloud_unlimited_yearly_v1' }))).resolves.toBe(
 			'https://checkout.stripe.com/yearly',
 		);
 	});
@@ -754,9 +737,9 @@ describe('cloud Checkout', () => {
 		stripeMocks.expireCheckoutSession.mockRejectedValue(new Error('Session is no longer open'));
 		stripeMocks.retrieveCheckoutSession.mockResolvedValue({ id: 'cs_monthly', status: 'complete' });
 
-		await expect(createCloudCheckoutSession(checkoutInput({ billingInterval: 'yearly' }))).rejects.toThrow(
-			'A Stripe Checkout completed while the billing interval was changing',
-		);
+		await expect(
+			createCloudCheckoutSession(checkoutInput({ planKey: 'cloud_unlimited_yearly_v1' })),
+		).rejects.toThrow('A Stripe Checkout completed while the billing interval was changing');
 		expect(stripeMocks.createCheckoutSession).not.toHaveBeenCalled();
 	});
 
@@ -782,7 +765,7 @@ describe('cloud Checkout', () => {
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
 			expect.objectContaining({ allow_promotion_codes: true }),
 			{
-				idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
+				idempotencyKey: `cloud-checkout-initial-v13:org-id:cloud_unlimited_monthly_v1:1:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}`,
 			},
 		);
 	});
@@ -854,7 +837,7 @@ describe('cloud Checkout', () => {
 		);
 
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(expect.anything(), {
-			idempotencyKey: `cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}:cs_expired`,
+			idempotencyKey: `cloud-checkout-initial-v13:org-id:cloud_unlimited_monthly_v1:1:usd:trial-${TRIAL_END_TIMESTAMP}-${TRIAL_END_TIMESTAMP}:cs_expired`,
 		});
 	});
 
@@ -970,15 +953,17 @@ describe('cloud Checkout', () => {
 				payment_method_collection: 'always',
 				metadata: {
 					nao_org_id: 'org-id',
-					nao_plan_key: 'cloud_monthly_v2',
+					nao_plan_key: 'cloud_unlimited_monthly_v1',
+					nao_quantity: '1',
 					nao_checkout_kind: 'resubscribe',
 				},
 				subscription_data: {
-					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_unlimited_monthly_v1' },
 				},
-				success_url: 'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed',
+				success_url:
+					'https://cloud.getnao.io/settings/organization/billing?checkout=subscribed&checkoutPlan=unlimited',
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v12:org-id:cloud_monthly_v2:usd:sub_cloud' },
+			{ idempotencyKey: 'cloud-checkout-resubscribe-v13:org-id:cloud_unlimited_monthly_v1:1:usd:sub_cloud' },
 		);
 	});
 
@@ -1000,10 +985,13 @@ describe('cloud Checkout', () => {
 			expect.objectContaining({
 				customer: 'cus_cloud',
 				subscription_data: {
-					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+					metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_unlimited_monthly_v1' },
 				},
 			}),
-			{ idempotencyKey: 'cloud-checkout-resubscribe-v12:org-id:cloud_monthly_v2:usd:missing-subscription' },
+			{
+				idempotencyKey:
+					'cloud-checkout-resubscribe-v13:org-id:cloud_unlimited_monthly_v1:1:usd:missing-subscription',
+			},
 		);
 	});
 
@@ -1075,7 +1063,7 @@ describe('cloud subscription projection', () => {
 		subscription.items.data[0].price = cloudYearlyPrice();
 
 		await expect(cloudSubscriptionProjection(subscription)).resolves.toMatchObject({
-			billingPlan: 'cloud_yearly_v1',
+			billingPlan: 'cloud_unlimited_yearly_v1',
 			stripePriceId: 'price_cloud_yearly',
 		});
 	});
@@ -1118,7 +1106,7 @@ describe('cloud subscription projection', () => {
 		});
 	});
 
-	it('projects a trial placeholder with its cancellation and Customer payment method', async () => {
+	it('projects a trial placeholder ending at its cancellation without reporting a scheduled cancellation', async () => {
 		const cancellationEndsAt = 1_800_000_000;
 		stripeMocks.retrieveCustomer.mockResolvedValue({
 			deleted: false,
@@ -1131,7 +1119,7 @@ describe('cloud subscription projection', () => {
 		).resolves.toMatchObject({
 			billingPlan: null,
 			billingStatus: 'trialing',
-			cancellationScheduled: true,
+			cancellationScheduled: false,
 			hasDefaultPaymentMethod: true,
 			billingAccessEndsAt: new Date(cancellationEndsAt * 1_000),
 		});
@@ -1167,7 +1155,7 @@ describe('cloud billing recovery', () => {
 		await expect(getCloudUpcomingInvoice('sub_cloud')).resolves.toEqual({
 			amountDue: 100_000,
 			currency: 'usd',
-			nextPaymentAt: new Date(1_796_000_000_000),
+			nextPaymentAt: new Date(1_798_592_000_000),
 			promotionCodes: ['EARLY50'],
 		});
 		expect(stripeMocks.createInvoicePreview).toHaveBeenCalledWith({
@@ -1271,6 +1259,7 @@ describe('cloud billing recovery', () => {
 				id: 'in_cloud',
 				number: 'NAO-0001',
 				invoiceKind: 'subscription',
+				planTier: 'unlimited',
 				promotionCodes: ['EARLY50'],
 				status: 'paid',
 				createdAt: new Date(1_795_000_000_000),
@@ -1283,6 +1272,7 @@ describe('cloud billing recovery', () => {
 				id: 'in_trial',
 				number: 'NAO-0002',
 				invoiceKind: 'trial',
+				planTier: 'unlimited',
 				promotionCodes: [],
 				status: 'paid',
 				createdAt: new Date(1_794_000_000_000),
@@ -1292,21 +1282,10 @@ describe('cloud billing recovery', () => {
 				invoicePdf: 'https://pay.stripe.com/invoice/in_trial/pdf',
 			},
 			{
-				id: 'in_trial_extension',
-				number: 'NAO-0004',
-				invoiceKind: 'no_charge',
-				promotionCodes: [],
-				status: 'paid',
-				createdAt: new Date(1_793_000_000_000),
-				total: 0,
-				currency: 'usd',
-				hostedInvoiceUrl: 'https://invoice.stripe.com/in_trial_extension',
-				invoicePdf: 'https://pay.stripe.com/invoice/in_trial_extension/pdf',
-			},
-			{
 				id: 'in_discounted_resubscription',
 				number: 'NAO-0005',
 				invoiceKind: 'no_charge',
+				planTier: 'unlimited',
 				promotionCodes: ['FREE100'],
 				status: 'paid',
 				createdAt: new Date(1_792_000_000_000),
@@ -1394,11 +1373,16 @@ describe('cloud billing recovery', () => {
 				requestId: 'request-id',
 			}),
 		).resolves.toBe('https://billing.stripe.com/session');
+		expect(stripeMocks.updatePortalConfiguration).toHaveBeenCalledWith(
+			'bpc_default',
+			expect.objectContaining({ features: expect.objectContaining({ subscription_update: { enabled: false } }) }),
+		);
 
 		expect(stripeMocks.createPortalSession).toHaveBeenCalledWith(
 			{
 				customer: 'cus_cloud',
 				return_url: 'https://cloud.getnao.io/settings/organization/billing?portal=returned',
+				configuration: 'bpc_default',
 			},
 			{ idempotencyKey: 'cloud-portal-v2:org-id:request-id' },
 		);
@@ -1428,6 +1412,7 @@ describe('cloud billing recovery', () => {
 						},
 					},
 				},
+				configuration: 'bpc_default',
 			},
 			{ idempotencyKey: 'cloud-payment-method-v2:org-id:request-id' },
 		);
@@ -1505,7 +1490,8 @@ type ResubscribeInput = Parameters<typeof createCloudResubscribeSession>[0];
 
 function checkoutInput(overrides: Partial<CheckoutInput> = {}): CheckoutInput {
 	return {
-		billingInterval: 'monthly',
+		planKey: 'cloud_unlimited_monthly_v1',
+		quantity: 1,
 		organizationId: 'org-id',
 		stripeCustomerId: 'cus_cloud',
 		trialEnd: TRIAL_END,
@@ -1514,16 +1500,31 @@ function checkoutInput(overrides: Partial<CheckoutInput> = {}): CheckoutInput {
 }
 
 function resubscribeInput(overrides: Partial<ResubscribeInput> = {}): ResubscribeInput {
-	return { billingInterval: 'monthly', organizationId: 'org-id', stripeCustomerId: 'cus_cloud', ...overrides };
+	return {
+		planKey: 'cloud_unlimited_monthly_v1',
+		quantity: 1,
+		organizationId: 'org-id',
+		stripeCustomerId: 'cus_cloud',
+		...overrides,
+	};
 }
 
-/** Answers Price lookups by key: the yearly lookup key gets `yearly`, every other key gets `monthly`. */
+/** Answers Price lookups by key; any unknown key gets the Unlimited monthly Price. */
 function mockCloudPrices({
 	monthly = cloudMonthlyPrice(),
 	yearly = cloudYearlyPrice(),
 	trial = cloudTrialPrice(),
 } = {}): void {
-	const pricesByLookupKey: Record<string, Stripe.Price> = { nao_trial: trial, yearly_sub: yearly };
+	const pricesByLookupKey: Record<string, Stripe.Price> = {
+		nao_trial: trial,
+		unlimited_yearly: yearly,
+		team_monthly: cloudTeamMonthlyPrice(),
+		team_yearly: cloudTeamMonthlyPrice({
+			id: 'price_team_yearly',
+			recurring: recurring({ interval: 'year' }),
+			unit_amount: 50_000,
+		}),
+	};
 	stripeMocks.listPrices.mockImplementation(({ lookup_keys }: Stripe.PriceListParams) => ({
 		data: [pricesByLookupKey[lookup_keys?.[0] ?? ''] ?? monthly],
 	}));
@@ -1567,6 +1568,15 @@ function cloudYearlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
 	});
 }
 
+function cloudTeamMonthlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
+	return cloudMonthlyPrice({
+		id: 'price_team_monthly',
+		product: cloudProduct({ id: 'prod_team' }),
+		unit_amount: 5_000,
+		...overrides,
+	});
+}
+
 function cloudTrialPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
 	return cloudMonthlyPrice({
 		currency_options: undefined,
@@ -1581,7 +1591,7 @@ function cloudTrialPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
 function cloudProduct(overrides: Partial<Stripe.Product> = {}): Stripe.Product {
 	return {
 		active: true,
-		id: 'prod_cloud',
+		id: 'prod_unlimited',
 		object: 'product',
 		...overrides,
 	} as Stripe.Product;

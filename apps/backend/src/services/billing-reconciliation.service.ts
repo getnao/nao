@@ -1,9 +1,19 @@
 import type Stripe from 'stripe';
 
+import type { DBOrganizationBilling } from '../db/abstractSchema';
 import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
 import { isTerminalBillingStatus } from '../types/billing';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
+import { readCloudSubscriptionChangeIntent } from '../utils/stripe';
+import { getOrganizationCloudEntitlement } from './cloud-billing-access.service';
+import { putOrganizationMemberWithSeat } from './membership.service';
+import {
+	applyPendingFreeSeatSelection,
+	syncOrganizationSeats,
+	withOrganizationSeatLock,
+} from './organization-seat.service';
+import { notifyAdminsOfReadOnlyMembers } from './seat-notification.service';
 import {
 	cancelCloudTrialPlaceholderSubscription,
 	type ClassifiedCloudSubscription,
@@ -12,6 +22,10 @@ import {
 	listCloudSubscriptions,
 	updateCloudPaidSubscriptionTrialEnd,
 } from './stripe.service';
+import {
+	clearCloudSubscriptionChangeIntent,
+	releaseCloudSubscriptionSchedule,
+} from './stripe-subscription-change.service';
 
 const CURRENT_STATUS_PRIORITY = ['active', 'trialing', 'past_due', 'paused', 'unpaid', 'incomplete'];
 
@@ -21,6 +35,18 @@ interface CloudBillingReconciliationResult {
 }
 
 export async function reconcileCloudBillingCustomer(input: {
+	stripeCustomerId: string;
+	organizationIdHint?: string;
+}): Promise<CloudBillingReconciliationResult> {
+	const organizationId =
+		(await billingQueries.getOrganizationBillingByStripeCustomerId(input.stripeCustomerId))?.orgId ??
+		input.organizationIdHint;
+	return organizationId
+		? withOrganizationSeatLock(organizationId, () => reconcileUnderSeatLock(input))
+		: reconcileUnderSeatLock(input);
+}
+
+async function reconcileUnderSeatLock(input: {
 	stripeCustomerId: string;
 	organizationIdHint?: string;
 }): Promise<CloudBillingReconciliationResult> {
@@ -53,10 +79,66 @@ export async function reconcileCloudBillingCustomer(input: {
 		trialStartedAt: claim.billing.trialStartedAt ?? projection.trialStartedAt,
 		trialEndsAt: projection.trialEndsAt ?? claim.billing.trialEndsAt,
 	});
-	if (applied && selected.kind === 'paid-cloud') {
+	if (!applied) {
+		return { applied, ignored: false };
+	}
+	if (await settleSubscriptionChange(billing.orgId, selected.subscription, claim.billing, projection)) {
+		return reconcileUnderSeatLock(input);
+	}
+	await syncSeatsAfterReconciliation(billing.orgId, claim.billing.pendingFreeSeatUserIds, projection);
+	if (selected.kind === 'paid-cloud') {
 		await cancelCurrentTrialPlaceholders(classified, billing.orgId);
 	}
 	return { applied, ignored: false };
+}
+
+/** Returns whether a released schedule requires another reconciliation pass. */
+async function settleSubscriptionChange(
+	organizationId: string,
+	subscription: Stripe.Subscription,
+	before: DBOrganizationBilling,
+	projection: billingQueries.SubscriptionProjection,
+): Promise<boolean> {
+	const intent = readCloudSubscriptionChangeIntent(subscription.metadata);
+	const scheduleId = projection.stripeSubscriptionScheduleId;
+	const releaseScheduleId =
+		scheduleId &&
+		(intent?.releaseScheduleId === scheduleId ||
+			(before.pendingBillingPlan !== null && !projection.pendingBillingPlan))
+			? scheduleId
+			: null;
+	if (intent) {
+		await clearCloudSubscriptionChangeIntent(subscription.id);
+	}
+	if (intent?.member) {
+		await putOrganizationMemberWithSeat(organizationId, intent.member.userId, intent.member.role).catch((error) =>
+			logger.error(`Paid seat membership activation failed for organization ${organizationId}`, {
+				source: 'system',
+				context: { userId: intent.member?.userId, error: serializeError(error) },
+			}),
+		);
+	}
+	if (releaseScheduleId) {
+		await releaseCloudSubscriptionSchedule(releaseScheduleId);
+	}
+	return releaseScheduleId !== null;
+}
+
+async function syncSeatsAfterReconciliation(
+	organizationId: string,
+	pendingFreeSeatUserIds: string[] | null,
+	projection: billingQueries.SubscriptionProjection,
+): Promise<void> {
+	if (pendingFreeSeatUserIds) {
+		const { tier } = await getOrganizationCloudEntitlement(organizationId);
+		if (tier === 'free') {
+			await applyPendingFreeSeatSelection(organizationId, pendingFreeSeatUserIds);
+		} else if (!projection.cancellationScheduled) {
+			await billingQueries.setPendingFreeSeatSelection(organizationId, null);
+		}
+	}
+	await syncOrganizationSeats(organizationId);
+	await notifyAdminsOfReadOnlyMembers(organizationId);
 }
 
 async function resolveOrganizationBilling(stripeCustomerId: string, organizationIdHint?: string) {
