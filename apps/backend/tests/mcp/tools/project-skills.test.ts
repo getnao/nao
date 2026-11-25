@@ -23,9 +23,7 @@ vi.mock('../../../src/queries/project.queries', () => ({
 	retrieveProjectById: vi.fn(async (projectId: string) => ({ id: projectId, path: mocks.projectPath })),
 }));
 vi.mock('../../../src/services/agent', () => ({ buildMcpToolContext: mocks.buildMcpToolContext }));
-vi.mock('../../../src/utils/logger', () => ({
-	logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock('../../../src/utils/logger', () => import('../../helpers/logger-mock'));
 
 import { registerProjectSkillTools } from '../../../src/mcp/tools/project-skills';
 import { skillService } from '../../../src/services/skill';
