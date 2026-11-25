@@ -293,6 +293,11 @@ export const organizationBilling = pgTable('organization_billing', {
 	stripeCustomerId: text('stripe_customer_id').unique(),
 	stripeSubscriptionId: text('stripe_subscription_id').unique(),
 	stripePriceId: text('stripe_price_id'),
+	seatQuantity: integer('seat_quantity'),
+	stripeSubscriptionScheduleId: text('stripe_subscription_schedule_id'),
+	pendingBillingPlan: text('pending_billing_plan'),
+	pendingSeatQuantity: integer('pending_seat_quantity'),
+	pendingFreeSeatUserIds: jsonb('pending_free_seat_user_ids').$type<string[]>(),
 	currentPeriodStartsAt: timestamp('current_period_starts_at'),
 	currentPeriodEndsAt: timestamp('current_period_ends_at'),
 	cancellationScheduled: boolean('cancellation_scheduled'),
@@ -325,6 +330,24 @@ export const orgMember = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
+);
+
+export const organizationSeatState = pgTable(
+	'organization_seat_state',
+	{
+		orgId: text('org_id')
+			.notNull()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		selectedAt: timestamp('selected_at'),
+		selectionExplicit: boolean('selection_explicit').default(false).notNull(),
+		isReadOnly: boolean('is_read_only').default(false).notNull(),
+		ownerNotifiedAt: timestamp('owner_notified_at'),
+		adminNotifiedAt: timestamp('admin_notified_at'),
+	},
+	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('organization_seat_state_userId_idx').on(t.userId)],
 );
 
 export const project = pgTable(

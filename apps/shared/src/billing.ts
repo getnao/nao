@@ -61,37 +61,40 @@ export function calculateCreditTopUp(creditAmountCents: number): {
 }
 
 export const CLOUD_BILLING_TRIAL_DAYS = 14;
+export const FREE_TIER_SEAT_LIMIT = 3;
+export const TEAM_MIN_SEATS = 4;
+export const TEAM_MAX_SEATS = 40;
 
+/** Unit amounts are in cents and identical in USD and EUR; Stripe Prices are validated against them. */
 export const CLOUD_BILLING_PLANS = {
-	monthly: {
-		key: 'cloud_monthly_v2',
-		name: 'nao Cloud',
-		interval: 'month',
-		intervalCount: 1,
-		userLimit: null,
+	cloud_team_monthly_v1: { key: 'cloud_team_monthly_v1', tier: 'team', interval: 'monthly', unitAmount: 5_000 },
+	cloud_team_yearly_v1: { key: 'cloud_team_yearly_v1', tier: 'team', interval: 'yearly', unitAmount: 50_000 },
+	cloud_unlimited_monthly_v1: {
+		key: 'cloud_unlimited_monthly_v1',
+		tier: 'unlimited',
+		interval: 'monthly',
+		unitAmount: 200_000,
 	},
-	yearly: {
-		key: 'cloud_yearly_v1',
-		name: 'nao Cloud',
-		interval: 'year',
-		intervalCount: 1,
-		userLimit: null,
+	cloud_unlimited_yearly_v1: {
+		key: 'cloud_unlimited_yearly_v1',
+		tier: 'unlimited',
+		interval: 'yearly',
+		unitAmount: 2_000_000,
 	},
 } as const;
 
-export type CloudBillingInterval = keyof typeof CLOUD_BILLING_PLANS;
-export type CloudBillingPlanDefinition = (typeof CLOUD_BILLING_PLANS)[CloudBillingInterval];
-export type CloudBillingPlanKey = CloudBillingPlanDefinition['key'];
+/** Plans of subscribers from before seat-based pricing. They keep unlimited seats and cannot be changed in-app. */
+export const LEGACY_CLOUD_BILLING_PLANS = {
+	cloud_monthly_v2: { key: 'cloud_monthly_v2', tier: 'unlimited', interval: 'monthly' },
+	cloud_yearly_v1: { key: 'cloud_yearly_v1', tier: 'unlimited', interval: 'yearly' },
+} as const;
 
-export interface CloudBillingPlan {
-	key: CloudBillingPlanKey;
-	name: string;
-	amount: number;
-	currency: string;
-	interval: CloudBillingPlanDefinition['interval'];
-	intervalCount: number;
-	userLimit: null;
-}
+export type CloudBillingInterval = 'monthly' | 'yearly';
+export type PaidCloudBillingTier = 'team' | 'unlimited';
+export type CloudBillingTier = 'bypass' | 'trial' | 'free' | PaidCloudBillingTier;
+export type CloudBillingPlanKey = keyof typeof CLOUD_BILLING_PLANS;
+export type LegacyCloudBillingPlanKey = keyof typeof LEGACY_CLOUD_BILLING_PLANS;
+export type CloudBillingPlanDefinition = (typeof CLOUD_BILLING_PLANS)[CloudBillingPlanKey];
 
 export type TrialBillingState = {
 	billingStatus: BillingStatus | null;
@@ -111,5 +114,26 @@ export function isTrialAvailable(billing: TrialBillingState | null | undefined):
 }
 
 export function isCloudBillingPlanKey(value: string | null | undefined): value is CloudBillingPlanKey {
-	return Object.values(CLOUD_BILLING_PLANS).some((plan) => plan.key === value);
+	return typeof value === 'string' && Object.hasOwn(CLOUD_BILLING_PLANS, value);
+}
+
+export function isLegacyCloudBillingPlanKey(value: string | null | undefined): value is LegacyCloudBillingPlanKey {
+	return typeof value === 'string' && Object.hasOwn(LEGACY_CLOUD_BILLING_PLANS, value);
+}
+
+export function getCloudBillingPlan(tier: PaidCloudBillingTier, interval: CloudBillingInterval) {
+	const plan = Object.values(CLOUD_BILLING_PLANS).find((definition) => {
+		return definition.tier === tier && definition.interval === interval;
+	});
+	if (!plan) {
+		throw new Error(`No cloud billing plan exists for ${tier}/${interval}`);
+	}
+	return plan;
+}
+
+export function findCloudBillingPlan(planKey: string | null | undefined) {
+	if (isCloudBillingPlanKey(planKey)) {
+		return { ...CLOUD_BILLING_PLANS[planKey], legacy: false };
+	}
+	return isLegacyCloudBillingPlanKey(planKey) ? { ...LEGACY_CLOUD_BILLING_PLANS[planKey], legacy: true } : null;
 }
