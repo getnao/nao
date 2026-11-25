@@ -31,6 +31,7 @@ import {
 import { getCreditGrant } from '../../src/queries/credit-wallet.queries';
 import { claimDueJobs, enqueueOnceJob } from '../../src/queries/scheduled-job.queries';
 import { createProject, updateProjectEnvVars } from '../../src/services/project.service';
+import { TEST_STRIPE_ENV } from '../helpers/stripe-config';
 
 const tempDirectories: string[] = [];
 
@@ -449,19 +450,7 @@ function enableCloudBillingForTest(): NodeJS.ProcessEnv {
 		SMTP_HOST: 'smtp.example.com',
 		SMTP_MAIL_FROM: 'hello@example.com',
 		SMTP_PASSWORD: 'secret',
-		STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
-		STRIPE_CLOUD_TEAM_PRODUCT_ID: 'prod_team',
-		STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY: 'team_monthly',
-		STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY: 'team_yearly',
-		STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'trial_sub',
-		STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
-		STRIPE_CLOUD_UNLIMITED_PRODUCT_ID: 'prod_unlimited',
-		STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: 'unlimited_monthly',
-		STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY: 'unlimited_yearly',
-		STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
-		STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
-		STRIPE_SECRET_KEY: 'sk_test_example',
-		STRIPE_WEBHOOK_SECRET: 'whsec_example',
+		...TEST_STRIPE_ENV,
 	});
 	__reloadEnvForTesting();
 	return originalEnv;

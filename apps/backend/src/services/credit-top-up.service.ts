@@ -4,7 +4,7 @@ import { env } from '../env';
 import { calculateCreditTopUp, CREDIT_TOP_UP_CURRENCY } from '../types/billing';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { stripeId } from '../utils/stripe';
-import { getStripeClient } from './stripe.service';
+import { getStripeClient, getStripeConfig } from './stripe.service';
 
 const ORGANIZATION_METADATA_KEY = 'nao_org_id';
 const CHECKOUT_KIND_METADATA_KEY = 'nao_checkout_kind';
@@ -97,8 +97,7 @@ export async function getCreditTopUpPurchase(stripeCheckoutSessionId: string): P
 }
 
 export async function validateCreditTopUpConfiguration(): Promise<void> {
-	const creditProductId = configuredCreditProductId();
-	const platformFeeProductId = configuredCreditPlatformFeeProductId();
+	const { credit: creditProductId, platformFee: platformFeeProductId } = getStripeConfig().products;
 	if (creditProductId === platformFeeProductId) {
 		throw new Error('Stripe credit and platform-fee Products must be different');
 	}
@@ -150,7 +149,7 @@ async function createLockedCreditTopUpCheckoutSession(input: {
 				{
 					price_data: {
 						currency: CREDIT_TOP_UP_CURRENCY,
-						product: configuredCreditProductId(),
+						product: getStripeConfig().products.credit,
 						unit_amount: topUp.creditAmountCents,
 					},
 					quantity: 1,
@@ -158,7 +157,7 @@ async function createLockedCreditTopUpCheckoutSession(input: {
 				{
 					price_data: {
 						currency: CREDIT_TOP_UP_CURRENCY,
-						product: configuredCreditPlatformFeeProductId(),
+						product: getStripeConfig().products.platformFee,
 						unit_amount: topUp.platformFeeCents,
 					},
 					quantity: 1,
@@ -245,8 +244,8 @@ function validateCreditTopUpLineItems(
 		).length === 1;
 	if (
 		items.length !== 2 ||
-		!matches(configuredCreditProductId(), creditAmountCents) ||
-		!matches(configuredCreditPlatformFeeProductId(), platformFeeCents)
+		!matches(getStripeConfig().products.credit, creditAmountCents) ||
+		!matches(getStripeConfig().products.platformFee, platformFeeCents)
 	) {
 		throw new Error(`Stripe Checkout Session "${session.id}" has invalid credit top-up line items`);
 	}
@@ -258,20 +257,6 @@ function metadataInteger(session: Stripe.Checkout.Session, key: string): number 
 		throw new Error(`Stripe Checkout Session "${session.id}" has invalid ${key} metadata`);
 	}
 	return value;
-}
-
-function configuredCreditProductId(): string {
-	if (!env.STRIPE_CREDIT_PRODUCT_ID) {
-		throw new Error('STRIPE_CREDIT_PRODUCT_ID is required when cloud billing is enabled');
-	}
-	return env.STRIPE_CREDIT_PRODUCT_ID;
-}
-
-function configuredCreditPlatformFeeProductId(): string {
-	if (!env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID) {
-		throw new Error('STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID is required when cloud billing is enabled');
-	}
-	return env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID;
 }
 
 function stripeProductId(product: string | Stripe.Product | Stripe.DeletedProduct): string {

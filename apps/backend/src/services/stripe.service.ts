@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 
-import { env, isCloudBillingEnabled } from '../env';
+import { env, isCloudBillingEnabled, type StripeConfig } from '../env';
 import type { SubscriptionProjection } from '../queries/billing.queries';
 import {
 	BILLING_STATUSES,
@@ -32,17 +32,6 @@ const CREDIT_TOP_UP_CHECKOUT_KIND = 'credit_top_up';
 const TRIAL_END_METADATA_KEY = 'nao_trial_end';
 const MIN_CHECKOUT_TRIAL_MS = 48 * 60 * 60 * 1000;
 const CHECKOUT_TRIAL_CLOCK_SKEW_MS = 5 * 60 * 1000;
-const PLAN_PRICE_LOOKUP_KEY_VARIABLES = {
-	cloud_team_monthly_v1: 'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
-	cloud_team_yearly_v1: 'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
-	cloud_unlimited_monthly_v1: 'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
-	cloud_unlimited_yearly_v1: 'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
-} as const satisfies Record<CloudBillingPlanKey, keyof typeof env>;
-const PLAN_PRODUCT_ID_VARIABLES = {
-	team: 'STRIPE_CLOUD_TEAM_PRODUCT_ID',
-	unlimited: 'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID',
-} as const satisfies Record<PaidCloudBillingTier, keyof typeof env>;
-
 export type CloudRecurringPriceDetails = Stripe.Price & {
 	recurring: Stripe.Price.Recurring;
 	unit_amount: number;
@@ -385,7 +374,7 @@ function getCloudPortalConfiguration(): Promise<string> {
 async function configureCloudPortal(): Promise<string> {
 	const stripe = getStripeClient();
 	const configurationId =
-		env.STRIPE_PORTAL_CONFIGURATION_ID ??
+		env.STRIPE_CONFIG?.portalConfigurationId ??
 		(await stripe.billingPortal.configurations.list({ is_default: true, limit: 1 })).data[0]?.id;
 	if (!configurationId) {
 		throw new Error('Stripe Customer Portal must have an active default configuration');
@@ -823,8 +812,9 @@ export async function validateCloudBillingConfiguration(): Promise<void> {
 
 export async function getCloudPrice(planKey: CloudBillingPlanKey): Promise<CloudPrice> {
 	const plan = CLOUD_BILLING_PLANS[planKey];
-	const lookupKey = requiredEnv(PLAN_PRICE_LOOKUP_KEY_VARIABLES[planKey]);
-	const productId = requiredEnv(PLAN_PRODUCT_ID_VARIABLES[plan.tier]);
+	const { prices, products } = getStripeConfig();
+	const lookupKey = prices[planKey];
+	const productId = products[plan.tier];
 	const cached = cloudPriceCache.get(planKey);
 
 	if (cached?.lookupKey === lookupKey && cached.productId === productId && cached.expiresAt > Date.now()) {
@@ -849,13 +839,11 @@ export async function getCloudPrice(planKey: CloudBillingPlanKey): Promise<Cloud
 }
 
 async function getCloudTrialPrice(): Promise<CloudTrialPrice> {
-	const lookupKey = env.STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY;
-	if (!lookupKey) {
-		throw new Error('STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY is required when cloud billing is enabled');
-	}
-	const productId = configuredCloudTrialProductId();
-	if (paidCloudProductIds().includes(productId)) {
-		throw new Error('STRIPE_CLOUD_TRIAL_PRODUCT_ID must differ from every paid cloud Product');
+	const { prices, products } = getStripeConfig();
+	const lookupKey = prices.trial;
+	const productId = products.trial;
+	if ([products.legacyUnlimited, products.team, products.unlimited].includes(productId)) {
+		throw new Error('STRIPE_CONFIG products.trial must differ from every paid cloud Product');
 	}
 	if (
 		cloudTrialPriceCache?.lookupKey === lookupKey &&
@@ -970,6 +958,13 @@ export function getStripeClient(): Stripe {
 	});
 
 	return stripeClient;
+}
+
+export function getStripeConfig(): StripeConfig {
+	if (!env.STRIPE_CONFIG) {
+		throw new Error('STRIPE_CONFIG is required when cloud billing is enabled');
+	}
+	return env.STRIPE_CONFIG;
 }
 
 function billingPageUrl(): string {
@@ -1102,7 +1097,7 @@ function invoicePlanTier(invoice: Pick<Stripe.Invoice, 'lines'>): PaidCloudBilli
 }
 
 function isCloudTrialPlaceholderInvoice(invoice: Pick<Stripe.Invoice, 'lines'>): boolean {
-	const trialProductId = configuredCloudTrialProductId();
+	const trialProductId = getStripeConfig().products.trial;
 	return invoice.lines.data.some((line) => line.pricing?.price_details?.product === trialProductId);
 }
 
@@ -1136,7 +1131,7 @@ function cloudPlanForPrice(price: Stripe.Price): CloudPlan | null {
 		return null;
 	}
 	const productId = stripeProductId(price.product);
-	if (productId === env.STRIPE_CLOUD_PRODUCT_ID) {
+	if (productId === env.STRIPE_CONFIG?.products.legacyUnlimited) {
 		const legacyPlan = Object.values(LEGACY_CLOUD_BILLING_PLANS).find((plan) => plan.interval === interval);
 		return legacyPlan ? findCloudBillingPlan(legacyPlan.key) : null;
 	}
@@ -1145,21 +1140,14 @@ function cloudPlanForPrice(price: Stripe.Price): CloudPlan | null {
 }
 
 function paidTierForProduct(productId: string): PaidCloudBillingTier | null {
-	if (productId === env.STRIPE_CLOUD_TEAM_PRODUCT_ID) {
+	const products = env.STRIPE_CONFIG?.products;
+	if (productId === products?.team) {
 		return 'team';
 	}
-	if (productId === env.STRIPE_CLOUD_UNLIMITED_PRODUCT_ID || productId === env.STRIPE_CLOUD_PRODUCT_ID) {
+	if (productId === products?.unlimited || productId === products?.legacyUnlimited) {
 		return 'unlimited';
 	}
 	return null;
-}
-
-function paidCloudProductIds(): string[] {
-	return [
-		env.STRIPE_CLOUD_PRODUCT_ID,
-		env.STRIPE_CLOUD_TEAM_PRODUCT_ID,
-		env.STRIPE_CLOUD_UNLIMITED_PRODUCT_ID,
-	].filter((productId) => productId !== undefined);
 }
 
 function cloudBillingInterval(recurring: Stripe.Price.Recurring | null): CloudBillingInterval | null {
@@ -1169,17 +1157,10 @@ function cloudBillingInterval(recurring: Stripe.Price.Recurring | null): CloudBi
 	return recurring.interval === 'month' ? 'monthly' : recurring.interval === 'year' ? 'yearly' : null;
 }
 
-function requiredEnv(variable: keyof typeof env): string {
-	const value = env[variable];
-	if (typeof value !== 'string' || !value) {
-		throw new Error(`${variable} is required when cloud billing is enabled`);
-	}
-	return value;
-}
-
 function cloudTrialPlaceholderItem(subscription: Stripe.Subscription): Stripe.SubscriptionItem | null {
-	const productId = configuredCloudTrialProductId();
-	const lookupKey = configuredCloudTrialPriceLookupKey();
+	const { prices, products } = getStripeConfig();
+	const productId = products.trial;
+	const lookupKey = prices.trial;
 	return (
 		subscription.items.data.find(
 			(item) =>
@@ -1189,20 +1170,6 @@ function cloudTrialPlaceholderItem(subscription: Stripe.Subscription): Stripe.Su
 				item.price.unit_amount === 0,
 		) ?? null
 	);
-}
-
-function configuredCloudTrialProductId(): string {
-	if (!env.STRIPE_CLOUD_TRIAL_PRODUCT_ID) {
-		throw new Error('STRIPE_CLOUD_TRIAL_PRODUCT_ID is required when cloud billing is enabled');
-	}
-	return env.STRIPE_CLOUD_TRIAL_PRODUCT_ID;
-}
-
-function configuredCloudTrialPriceLookupKey(): string {
-	if (!env.STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY) {
-		throw new Error('STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY is required when cloud billing is enabled');
-	}
-	return env.STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY;
 }
 
 export function assertCloudSubscriptionOrganization(subscription: Stripe.Subscription, organizationId: string): void {

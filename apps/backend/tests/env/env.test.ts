@@ -5,6 +5,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { TEST_STRIPE_CONFIG, TEST_STRIPE_ENV } from '../helpers/stripe-config';
+
 const contextSources = ['local', 'git', 'api'] as const;
 const cloudCompatibleContextSources = ['local', 'api'] as const;
 const gitCloudError = 'NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.';
@@ -62,23 +64,25 @@ describe('cloud billing environment', () => {
 		});
 
 		expect(result.status).toBe(1);
-		for (const variable of [
-			'STRIPE_SECRET_KEY',
-			'STRIPE_WEBHOOK_SECRET',
-			'STRIPE_CLOUD_PRODUCT_ID',
-			'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
-			'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
-			'STRIPE_CLOUD_TEAM_PRODUCT_ID',
-			'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID',
-			'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
-			'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
-			'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
-			'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
-			'STRIPE_CREDIT_PRODUCT_ID',
-			'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
-		]) {
+		for (const variable of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_CONFIG']) {
 			expect(result.stderr).toContain(`${variable} is required when cloud billing is enabled`);
 		}
+	});
+
+	it.each([
+		{ config: '{not json', error: 'STRIPE_CONFIG must be valid JSON' },
+		{
+			config: JSON.stringify({
+				...TEST_STRIPE_CONFIG,
+				products: { ...TEST_STRIPE_CONFIG.products, team: undefined },
+			}),
+			error: 'STRIPE_CONFIG.products.team:',
+		},
+	])('rejects an invalid STRIPE_CONFIG with "$error"', ({ config, error }) => {
+		const result = loadEnvWithOverrides({ NAO_MODE: 'cloud', STRIPE_CONFIG: config });
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(error);
 	});
 
 	it('remains inactive in self-hosted mode', () => {
@@ -94,19 +98,7 @@ describe('cloud billing environment', () => {
 		const result = loadEnvWithOverrides({
 			CLOUD_BILLING_ENABLED: 'true',
 			NAO_MODE: 'cloud',
-			STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
-			STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
-			STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'nao_trial',
-			STRIPE_CLOUD_TEAM_PRODUCT_ID: 'prod_team',
-			STRIPE_CLOUD_UNLIMITED_PRODUCT_ID: 'prod_unlimited',
-			STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY: 'cloud_team_monthly_v1',
-			STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY: 'cloud_team_yearly_v1',
-			STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: 'cloud_unlimited_monthly_v1',
-			STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY: 'cloud_unlimited_yearly_v1',
-			STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
-			STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
-			STRIPE_SECRET_KEY: 'sk_test_sandbox',
-			STRIPE_WEBHOOK_SECRET: 'whsec_sandbox',
+			...TEST_STRIPE_ENV,
 		});
 
 		expect(result.status).toBe(0);

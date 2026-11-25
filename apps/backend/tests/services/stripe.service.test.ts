@@ -103,6 +103,7 @@ import {
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../../src/services/stripe.service';
+import { TEST_STRIPE_ENV } from '../helpers/stripe-config';
 
 const TRIAL_END = new Date('2099-01-15T00:00:00.000Z');
 const TRIAL_END_TIMESTAMP = Math.floor(TRIAL_END.getTime() / 1_000);
@@ -129,19 +130,7 @@ beforeEach(() => {
 	process.env.SMTP_HOST = 'smtp.example.com';
 	process.env.SMTP_MAIL_FROM = 'hello@example.com';
 	process.env.SMTP_PASSWORD = 'secret';
-	process.env.STRIPE_CLOUD_PRODUCT_ID = 'prod_cloud';
-	process.env.STRIPE_CLOUD_TRIAL_PRODUCT_ID = 'prod_cloud_trial';
-	process.env.STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY = 'nao_trial';
-	process.env.STRIPE_CLOUD_TEAM_PRODUCT_ID = 'prod_team';
-	process.env.STRIPE_CLOUD_UNLIMITED_PRODUCT_ID = 'prod_unlimited';
-	process.env.STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY = 'team_monthly';
-	process.env.STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY = 'team_yearly';
-	process.env.STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY = 'unlimited_monthly';
-	process.env.STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY = 'unlimited_yearly';
-	process.env.STRIPE_CREDIT_PRODUCT_ID = 'prod_credits';
-	process.env.STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID = 'prod_platform_fee';
-	process.env.STRIPE_SECRET_KEY = 'sk_test_example';
-	process.env.STRIPE_WEBHOOK_SECRET = 'whsec_example';
+	Object.assign(process.env, TEST_STRIPE_ENV);
 	__reloadEnvForTesting();
 	__resetStripeForTesting();
 	vi.clearAllMocks();
