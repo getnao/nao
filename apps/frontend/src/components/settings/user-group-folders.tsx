@@ -41,6 +41,12 @@ export function UserGroupFolders({
 	const teamFolderIds = new Set([...folderIds, ...listOtherGroupsTeamFolderIds(folders, groupId)]);
 	const openedFolderNames = listFoldersOpenedToEveryone(folders, groupId, savedFolderIds, folderIds);
 
+	const addFolderCreatedForGroup = (folderId: string, createdGroupIds: string[]) => {
+		if (groupId && createdGroupIds.includes(groupId)) {
+			onFolderCreated(folderId);
+		}
+	};
+
 	const toggleFolder = (folderId: string, checked: boolean) => {
 		onFolderIdsChange(checked ? [...folderIds, folderId] : folderIds.filter((id) => id !== folderId));
 	};
@@ -105,7 +111,7 @@ export function UserGroupFolders({
 					onOpenChange={setIsCreateOpen}
 					mode='create'
 					initialGroupIds={newFolderGroupIds}
-					onCreated={onFolderCreated}
+					onCreated={addFolderCreatedForGroup}
 				/>
 			)}
 		</section>

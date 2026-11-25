@@ -31,7 +31,7 @@ export function FolderCreateDialog({
 	folderId?: string;
 	parentId?: string | null;
 	initialGroupIds?: string[];
-	onCreated?: (folderId: string) => void;
+	onCreated?: (folderId: string, groupIds: string[]) => void;
 }) {
 	const [name, setName] = useState(initialName ?? '');
 	const [selectedParentId, setSelectedParentId] = useState<string | null>(parentId ?? null);
@@ -61,9 +61,9 @@ export function FolderCreateDialog({
 
 	const createMutation = useMutation(
 		trpc.storyFolder.create.mutationOptions({
-			onSuccess: (folder) => {
+			onSuccess: (folder, variables) => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
-				onCreated?.(folder.id);
+				onCreated?.(folder.id, variables.groupIds ?? []);
 				onOpenChange(false);
 			},
 		}),
