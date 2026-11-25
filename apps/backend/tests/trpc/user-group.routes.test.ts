@@ -55,7 +55,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
-vi.mock('../../src/env', () => ({ env: mocks.env }));
+vi.mock('../../src/env', () => ({ env: mocks.env, isCloudBillingEnabled: () => false }));
 vi.mock('../../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: mocks.getDatabaseContextCatalog,
 }));
