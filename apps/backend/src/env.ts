@@ -295,6 +295,8 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => parseCommaSeparatedList(val)),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
+	/** `shadow` reports excess calls as security signals without refusing them. Defaults to `shadow` on cloud, `off` elsewhere. */
+	NAO_RATE_LIMIT_MODE: z.enum(['off', 'shadow', 'enforce']).optional(),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
 	NAO_BACKOFFICE_API_KEY: z
