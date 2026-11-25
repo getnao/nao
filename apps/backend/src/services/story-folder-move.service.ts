@@ -16,11 +16,13 @@ export async function moveStoryForUser(storyId: string, folderId: string | null,
 	await storyFolderQueries.moveStoryToFolder(storyId, folderId, {
 		storyOwnerId,
 		projectId: ctx.project.id,
-		assertAllowed: async () => {
-			await resolveMoveTarget(folderId, ctx, 'Folder');
-			await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(folderId), ctx);
-		},
+		assertAllowed: () => assertCanFileStoryIn(folderId, ctx),
 	});
+}
+
+export async function assertCanFileStoryIn(folderId: string | null, ctx: FolderContext) {
+	await resolveMoveTarget(folderId, ctx, 'Folder');
+	await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(folderId), ctx);
 }
 
 export async function assertFolderInProject(folderId: string, ctx: FolderContext, label = 'Folder') {
