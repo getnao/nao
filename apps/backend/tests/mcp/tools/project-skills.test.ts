@@ -29,11 +29,11 @@ vi.mock('../../../src/utils/logger', () => ({
 
 import { registerProjectSkillTools } from '../../../src/mcp/tools/project-skills';
 import { skillService } from '../../../src/services/skill';
-import type { McpEndpointSettings } from '../../../src/types/mcp-endpoint';
 import type {
 	ResolvedFilesContextAccess,
 	ResolvedSkillsAccess,
 } from '../../../src/services/user-group-context-access.service';
+import type { McpEndpointSettings } from '../../../src/types/mcp-endpoint';
 import { createToolContext } from '../../helpers/tool-context';
 
 const PROJECT_ID = 'mcp-project-skills';
