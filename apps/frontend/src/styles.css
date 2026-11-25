@@ -1204,6 +1204,11 @@ code.dollar:before {
 	direction: ltr;
 }
 
+/* dir='auto' wraps each block in a `display: contents` element, which drops Streamdown's space-y margin. */
+.assistant-markdown > [dir]:not(:last-child) > :last-child {
+	margin-block-end: calc(var(--spacing) * 4);
+}
+
 /*
  * Custom story theme. Most slots land through the existing tokens that
  * StoryThemeProvider overrides on its wrapper; these rules cover the slots
