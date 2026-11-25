@@ -1,5 +1,6 @@
 import type { DBStory, DBStoryVersion } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
+import * as sharedStoryQueries from '../queries/shared-story.queries';
 import type { VersionProvenance } from '../queries/story.queries';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
@@ -81,7 +82,7 @@ export async function publishCustomStoryDraft(
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
-		if (cut.version.version === 1) {
+		if (cut.version.version === 1 && !(await isSharedWithProject(story.id, owner.projectId, tx))) {
 			await storyFolderQueries.saveStoryInPrivateRoot(owner.userId, owner.projectId, story.id, tx);
 		}
 		return cut;
@@ -103,4 +104,10 @@ async function dropFrozenNarrativesOfEditedSources(
 	const publishedTexts = new Map(extractStoryNarratives(publishedFiles).map(({ id, text }) => [id, text]));
 	const unchangedIds = previousSources.filter(({ id, text }) => publishedTexts.get(id) === text).map(({ id }) => id);
 	await storyQueries.keepOnlyFrozenStoryNarratives(storyId, unchangedIds);
+}
+
+/** A draft filed in Home before its first publish has no folder, only a share with the whole project. */
+async function isSharedWithProject(storyId: string, projectId: string, executor: DBExecutor): Promise<boolean> {
+	const share = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId, executor);
+	return share?.visibility === 'project';
 }
