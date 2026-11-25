@@ -82,16 +82,14 @@ export function cloudBillingMiddleware<TContext, TInput = unknown>(
 	});
 }
 
-// Map HandlerError to tRPC error
+/** tRPC hands back what the next middlewares throw as an internal error result, with the thrown error as its cause. */
 const withHandlerErrors = t.middleware(async ({ next }) => {
-	try {
-		return await next();
-	} catch (error) {
-		if (error instanceof HandlerError) {
-			throw new TRPCError({ code: error.codeMessage, message: error.message });
-		}
-		throw error;
+	const result = await next();
+	const cause = result.ok ? null : result.error.cause;
+	if (cause instanceof HandlerError) {
+		throw new TRPCError({ code: cause.codeMessage, message: cause.message, cause });
 	}
+	return result;
 });
 
 const withProcedureSpan = t.middleware(async ({ ctx, path, next }) => {
