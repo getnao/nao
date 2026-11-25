@@ -31,7 +31,7 @@ export const StreamingMarkdown = memo(
 		const transformedTail = transform ? transform(tail) : tail;
 
 		return (
-			<>
+			<div className='space-y-4'>
 				{sealedBlocks.map((block, index) => (
 					<StreamingMarkdownBlock
 						key={index}
@@ -56,7 +56,7 @@ export const StreamingMarkdown = memo(
 						{transformedTail}
 					</Streamdown>
 				)}
-			</>
+			</div>
 		);
 	},
 );
