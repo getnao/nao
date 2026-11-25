@@ -155,8 +155,10 @@ function findStoryTabBlocks(code: string): StoryTabBlock[] {
 	return blocks;
 }
 
+const PENDING_BLOCK_START_REGEX = /<(?:chart|table|map|grid)\b/;
+
 function hasVisibleContent(innerCode: string): boolean {
-	return innerCode.replace(/<[^>]*$/, '').trim().length > 0;
+	return PENDING_BLOCK_START_REGEX.test(innerCode) || innerCode.replace(/<[^>]*$/, '').trim().length > 0;
 }
 
 function escapeAttribute(value: string): string {

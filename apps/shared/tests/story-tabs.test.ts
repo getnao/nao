@@ -49,6 +49,11 @@ describe('story tabs', () => {
 		expect(parseStreamingStoryTabs(`${storyCode}\n\n<tab title="Appendix">\n<cha`)).toEqual(
 			parseStoryTabs(storyCode),
 		);
+		expect(
+			parseStreamingStoryTabs(`${storyCode}\n\n<tab title="Appendix">\n<chart query_id="q`)?.map(
+				(tab) => tab.title,
+			),
+		).toEqual(['Overview', 'Details', 'Notes', 'Appendix']);
 		expect(parseStreamingStoryTabs('# Story\n\n<table query_id="details" />')).toBeNull();
 	});
 
