@@ -267,6 +267,7 @@ async function validateBoundarySource(url: string): Promise<number> {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: `Could not load boundaries from URL: ${error instanceof Error ? error.message : String(error)}`,
+			cause: error,
 		});
 	}
 }

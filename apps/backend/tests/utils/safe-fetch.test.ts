@@ -6,6 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchPublicUrl, isPrivateAddress, isPrivateHostname, resolveSafeAddress } from '../../src/utils/safe-fetch';
+import { UnsafeUrlError } from '../../src/utils/security-errors';
 
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('dns/promises', () => ({ default: { lookup } }));
@@ -83,6 +84,7 @@ describe('resolveSafeAddress', () => {
 		resolvesTo('10.0.0.5');
 
 		await expect(resolveSafeAddress('rebinding.example.com')).rejects.toThrow('private IP address');
+		await expect(resolveSafeAddress('rebinding.example.com')).rejects.toBeInstanceOf(UnsafeUrlError);
 	});
 
 	it('rejects a hostname when any of its answers is private', async () => {
