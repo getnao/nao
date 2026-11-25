@@ -268,6 +268,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		needsRefresh,
 		theme,
 		isLoading: isContentLoading,
+		isSaved: isStorySaved,
 	} = useStoryViewerContent({
 		storySlug,
 		resolvedStorySlug,
@@ -600,7 +601,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 									storyId={storyId}
 									storySlug={resolvedStorySlug}
 									versionKey={isViewingLatest ? undefined : currentVersionNumber}
-									filtersEnabled={isViewingLatest && !isStoryUpdating}
+									filtersEnabled={isViewingLatest && isStorySaved && !isStoryUpdating}
 									isStreaming={isStoryStreaming}
 									isDataPending={isVersionQueryDataPending}
 									isViewingLatest={isViewingLatest}

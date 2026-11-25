@@ -135,5 +135,6 @@ export const useStoryViewerContent = ({
 		needsRefresh,
 		theme,
 		isLoading: latestStoryQuery.isLoading && storyCode === undefined,
+		isSaved: Boolean(isReadonlyMode || latestStoryQuery.data),
 	};
 };

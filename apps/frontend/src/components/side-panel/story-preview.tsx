@@ -1,6 +1,6 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { memo, useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
@@ -71,7 +71,11 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
-	const streamingFilterLabels = useStreamingStoryFilterLabels(fullCode ?? code, isStreaming);
+	const isFilterBarPending = isStreaming || (isViewingLatest && !filtersEnabled);
+	const streamingFilterLabels = useStreamingStoryFilterLabels(fullCode ?? code, isFilterBarPending);
+	const hasFilterBar = isFilterBarPending
+		? streamingFilterLabels.length > 0
+		: storyFilters.filters.length > 0 || storyFilters.parameters.length > 0;
 	useShowStoryFilters(storyId, storyFilters.activeSelections);
 	const { code: visibleCode, pendingBlock } = useMemo(
 		() => (isStreaming ? holdBackIncompleteStoryBlock(code) : { code, pendingBlock: null }),
@@ -200,18 +204,22 @@ export const StoryPreview = memo(function StoryPreview({
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
 				<div data-story-content data-story-chat-id={chatId} className='p-6 flex flex-col gap-4'>
-					{isStreaming ? (
-						<StoryFilterBarPlaceholder labels={streamingFilterLabels} />
-					) : (
-						<StoryFilterBar
-							filters={storyFilters.filters}
-							parameters={storyFilters.parameters}
-							skippedFilters={storyFilters.skippedFilters}
-							selections={storyFilters.selections}
-							onSelectionChange={storyFilters.setSelection}
-							onClear={storyFilters.clearSelections}
-							api={filterApi}
-						/>
+					{hasFilterBar && (
+						<StoryFilterBarReveal isStreaming={isStreaming}>
+							{isFilterBarPending ? (
+								<StoryFilterBarPlaceholder labels={streamingFilterLabels} />
+							) : (
+								<StoryFilterBar
+									filters={storyFilters.filters}
+									parameters={storyFilters.parameters}
+									skippedFilters={storyFilters.skippedFilters}
+									selections={storyFilters.selections}
+									onSelectionChange={storyFilters.setSelection}
+									onClear={storyFilters.clearSelections}
+									api={filterApi}
+								/>
+							)}
+						</StoryFilterBarReveal>
 					)}
 					<SegmentList
 						segments={segments}
@@ -227,6 +235,12 @@ export const StoryPreview = memo(function StoryPreview({
 		</StoryQuerySqlProvider>
 	);
 });
+
+/** Opens the filter bar smoothly when it first appears mid-stream, instead of pushing the story down at once. */
+function StoryFilterBarReveal({ isStreaming, children }: { isStreaming: boolean; children: React.ReactNode }) {
+	const [isRevealedMidStream] = useState(isStreaming);
+	return <div className={isRevealedMidStream ? 'story-filter-bar-reveal' : undefined}>{children}</div>;
+}
 
 function PendingStoryBlockSkeleton({ block }: { block: PendingStoryBlock }) {
 	if (block.type === 'table') {
