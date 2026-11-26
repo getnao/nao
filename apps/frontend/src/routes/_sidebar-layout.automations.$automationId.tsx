@@ -240,7 +240,6 @@ function AutomationDetailPage() {
 						modelProvider: automation.modelProvider ?? undefined,
 						modelId: automation.modelId ?? undefined,
 						llmConfigId: automation.llmConfigId ?? undefined,
-						enabled: automation.enabled,
 						mcpEnabled: automation.mcpEnabled,
 						mcpServers: automation.mcpServers ?? undefined,
 						integrations: automation.integrations,
