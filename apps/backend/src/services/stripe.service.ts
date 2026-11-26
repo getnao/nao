@@ -529,7 +529,7 @@ export function stripeDashboardUrl(path: string): string {
 }
 
 export function isStripeLiveMode(): boolean {
-	return /^[rs]k_live_/.test(env.STRIPE_SECRET_KEY ?? '');
+	return /^[rs]k_live_/.test(env.STRIPE_CONFIG?.secretKey ?? '');
 }
 
 export async function resumeCloudSubscription(input: {
@@ -782,7 +782,8 @@ async function cloudTrialPlaceholderProjection(
 		stripeCustomerId: stripeCustomerId(subscription.customer),
 		stripeSubscriptionId: subscription.id,
 		stripePriceId: item.price.id,
-		...EMPTY_SEAT_PROJECTION,
+		seatQuantity: null,
+		...EMPTY_SCHEDULE_PROJECTION,
 		trialStartedAt: stripeDate(subscription.trial_start),
 		trialEndsAt,
 		currentPeriodStartsAt: stripeDate(item.current_period_start),
@@ -793,8 +794,7 @@ async function cloudTrialPlaceholderProjection(
 	};
 }
 
-const EMPTY_SEAT_PROJECTION = {
-	seatQuantity: null,
+const EMPTY_SCHEDULE_PROJECTION = {
 	stripeSubscriptionScheduleId: null,
 	pendingBillingPlan: null,
 	pendingSeatQuantity: null,
@@ -808,11 +808,11 @@ async function cloudScheduleProjection(
 	Pick<SubscriptionProjection, 'stripeSubscriptionScheduleId' | 'pendingBillingPlan' | 'pendingSeatQuantity'>
 > {
 	if (!subscription.schedule) {
-		return EMPTY_SEAT_PROJECTION;
+		return EMPTY_SCHEDULE_PROJECTION;
 	}
 	const schedule = await getCloudSubscriptionSchedule(stripeId(subscription.schedule));
 	if (schedule.status !== 'active' && schedule.status !== 'not_started') {
-		return EMPTY_SEAT_PROJECTION;
+		return EMPTY_SCHEDULE_PROJECTION;
 	}
 	const pendingItem = schedule.phases
 		.find((phase) => phase.start_date >= currentPeriodEnd)
@@ -982,11 +982,7 @@ export function getStripeClient(): Stripe {
 		throw new Error('Stripe is unavailable because cloud billing is disabled');
 	}
 
-	if (!env.STRIPE_SECRET_KEY) {
-		throw new Error('STRIPE_SECRET_KEY is required when cloud billing is enabled');
-	}
-
-	stripeClient ??= new Stripe(env.STRIPE_SECRET_KEY, {
+	stripeClient ??= new Stripe(getStripeConfig().secretKey, {
 		apiVersion: STRIPE_API_VERSION,
 		maxNetworkRetries: 2,
 		timeout: 20_000,

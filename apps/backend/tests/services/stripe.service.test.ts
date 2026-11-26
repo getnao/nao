@@ -1102,6 +1102,18 @@ describe('cloud subscription projection', () => {
 		});
 	});
 
+	it('projects the Team seat quantity of a subscription without a schedule', async () => {
+		const subscription = cloudSubscription();
+		subscription.items.data[0].price = cloudTeamMonthlyPrice();
+		subscription.items.data[0].quantity = 4;
+
+		await expect(cloudSubscriptionProjection(subscription)).resolves.toMatchObject({
+			billingPlan: 'cloud_team_monthly_v1',
+			seatQuantity: 4,
+			stripeSubscriptionScheduleId: null,
+		});
+	});
+
 	it('rejects an unsupported recurring interval on the cloud Product', async () => {
 		const subscription = cloudSubscription();
 		subscription.items.data[0].price = cloudMonthlyPrice({ recurring: recurring({ interval: 'week' }) });

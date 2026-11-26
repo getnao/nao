@@ -287,8 +287,9 @@ describe('billing.getStatus', () => {
 	it.each([
 		['no paid subscription', {}, null],
 		['a placeholder trial', { billingStatus: 'trialing', stripeSubscriptionId: 'sub_cloud_trial' }, null],
-		['a canceled paid subscription', { billingPlan: 'cloud_team_monthly_v1', billingStatus: 'canceled' }, 'eur'],
-	] as const)('locks the currency only once a paid subscription exists (%s)', async (_, overrides, currency) => {
+		['an active paid subscription', { billingPlan: 'cloud_team_monthly_v1', billingStatus: 'active' }, 'eur'],
+		['a canceled paid subscription', { billingPlan: 'cloud_team_monthly_v1', billingStatus: 'canceled' }, null],
+	] as const)('locks the currency only while a paid subscription is live (%s)', async (_, overrides, currency) => {
 		stripeMocks.getSubscriptionCurrency.mockResolvedValue('eur');
 		testState.membership = membership({ stripeSubscriptionId: 'sub_cloud', ...overrides });
 

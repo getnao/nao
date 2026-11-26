@@ -87,7 +87,7 @@ export async function getCloudBillingAccessForUser(input: AdminBillingInput & { 
 	};
 }
 
-/** `currency` is set once a paid subscription exists, because Stripe locks a customer to its first currency. */
+/** `currency` is set while a paid subscription is live, because Stripe never changes a subscription's currency. */
 export async function getCloudBillingStatusForAdmin(input: AdminBillingInput) {
 	const organization = await loadCloudBillingOrganization(input.organizationId);
 	const billing = organization.billing;
@@ -95,12 +95,12 @@ export async function getCloudBillingStatusForAdmin(input: AdminBillingInput) {
 	const paidPlanSelected = Boolean(billing?.stripeSubscriptionId && billing.billingPlan);
 	const currentPlanLive = paidPlanSelected && !isTerminalBillingStatus(billing?.billingStatus);
 	const subscriptionCurrency =
-		paidPlanSelected && billing?.stripeSubscriptionId
+		currentPlanLive && billing?.stripeSubscriptionId
 			? getCloudSubscriptionCurrency(billing.stripeSubscriptionId)
 			: null;
 	const [currency, plan, { entitlement, candidates, readOnlyUserIds }] = await Promise.all([
 		subscriptionCurrency,
-		currentPlanLive && subscriptionCurrency && billing?.stripePriceId
+		subscriptionCurrency && billing?.stripePriceId
 			? subscriptionCurrency.then((currency) => getCloudSubscriptionPlan(billing.stripePriceId!, currency))
 			: null,
 		getOrganizationSeats(organization.id),

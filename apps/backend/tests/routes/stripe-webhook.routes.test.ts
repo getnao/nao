@@ -11,10 +11,9 @@ const testState = vi.hoisted(() => ({ secretKey: 'sk_test_sandbox' }));
 vi.mock('../../src/env', () => ({
 	env: {
 		BETTER_AUTH_URL: 'http://localhost:5005/',
-		get STRIPE_SECRET_KEY() {
-			return testState.secretKey;
+		get STRIPE_CONFIG() {
+			return { secretKey: testState.secretKey, webhookSecret: 'whsec_test' };
 		},
-		STRIPE_WEBHOOK_SECRET: 'whsec_test',
 	},
 }));
 
