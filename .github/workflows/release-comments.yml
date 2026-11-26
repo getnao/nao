@@ -95,7 +95,7 @@ jobs:
                           `query($owner: String!, $repo: String!, $number: Int!) {
                             repository(owner: $owner, name: $repo) {
                               pullRequest(number: $number) {
-                                closingIssuesReferences(first: 25) { nodes { number repository { nameWithOwner } } }
+                                closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } }
                               }
                             }
                           }`,
