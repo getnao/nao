@@ -92,7 +92,14 @@ export async function discardContextFileChange(
 	filePath: string,
 ): Promise<{ hash: string | null }> {
 	const { repo } = await requireContextExplorerGit(context);
-	await discardPath(repo, context.projectFolder, filePath, readChangedPaths(repo));
+	const changedPaths = readChangedPaths(repo);
+	if ([...changedPaths].some(isGeneratedMetadataPath)) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Generated files and metadata must be discarded together. Discard all changes instead.',
+		});
+	}
+	await discardPath(repo, context.projectFolder, filePath, changedPaths);
 	return { hash: readWorkingTreeHash(repo, filePath) };
 }
 
