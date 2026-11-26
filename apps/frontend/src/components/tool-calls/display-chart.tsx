@@ -569,7 +569,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[data, brokenDown.series],
 	);
 
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility, handleIsolateSeries } =
+		useSeriesVisibility(series);
 	const isPercentStacked = isPercentStackedChartType(chartType);
 
 	const isPie = isPieChart(chartType);
@@ -744,6 +745,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 								<ChartLegendContent
 									className={isPie ? 'flex-wrap' : undefined}
 									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
+									onItemDoubleClick={isPie ? undefined : handleIsolateSeries}
 								/>
 							}
 						/>
@@ -786,6 +788,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handlePlotWidthChange,
 			legendPayload,
 			handleToggleSeriesVisibility,
+			handleIsolateSeries,
 			title,
 			isPercentStacked,
 			showLegend,
@@ -826,6 +829,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 						payload={legendPayload}
 						align='right'
 						onItemClick={handleToggleSeriesVisibility}
+						onItemDoubleClick={handleIsolateSeries}
 						className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
 					/>
 				</div>

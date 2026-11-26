@@ -28,12 +28,14 @@ describe('story inspector', () => {
 				<div>Loose layout</div>
 			</main>`;
 		document.body.addEventListener('click', onStoryClick);
+		document.body.addEventListener('dblclick', onStoryClick);
 		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(BOX);
 	});
 
 	afterEach(() => {
 		configureStoryInspector({ onAsk: null, selectsElements: false });
 		document.body.removeEventListener('click', onStoryClick);
+		document.body.removeEventListener('dblclick', onStoryClick);
 		onAsk.mockReset();
 		onStoryClick.mockReset();
 		vi.restoreAllMocks();
@@ -58,6 +60,7 @@ describe('story inspector', () => {
 		it('highlights the whole kit block and quotes it on click instead of letting the story handle it', () => {
 			hover(document.querySelector('h3')!);
 			document.querySelector('h3')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			document.querySelector('h3')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 
 			expect(outline().hidden).toBe(false);
 			expect(onAsk).toHaveBeenCalledWith({
