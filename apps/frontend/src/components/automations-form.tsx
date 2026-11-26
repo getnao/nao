@@ -1783,11 +1783,11 @@ function McpSubMenu({
 
 function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 	const hasSchedule = Boolean(details.cron);
-	const isPaused = hasSchedule && !details.enabled;
+	const isPaused = !details.enabled;
 
 	return (
 		<div className='grid gap-2 rounded-lg'>
-			{hasSchedule && <DetailRow label='Status' value={details.enabled ? 'Enabled' : 'Paused'} />}
+			<DetailRow label='Status' value={isPaused ? 'Paused' : 'Enabled'} />
 			<DetailRow
 				label='Schedule (server time)'
 				value={hasSchedule ? details.scheduleDescription || details.cron || 'Custom schedule' : 'No schedule'}
