@@ -669,6 +669,9 @@ export const updateUserGroup = async (
 								data.preloadedSkills ?? lockedConfig.preloadedSkills,
 								data.shareTargets ?? lockedConfig.shareTargets,
 								data.advancedContextExplorer ?? lockedConfig.advancedContextExplorer,
+								data.semanticLayerMode === undefined
+									? lockedConfig.semanticLayerMode
+									: data.semanticLayerMode,
 							),
 							...(data.databaseAccess === undefined &&
 							data.docsAccess === undefined &&

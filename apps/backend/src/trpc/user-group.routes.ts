@@ -556,12 +556,17 @@ export const userGroupRoutes = {
 					llmAccess.llmConfigIds,
 					llmAccess.llmModelIdsByConfig,
 				] as const;
-				return createUserGroup(
-					...values,
-					rowPoliciesRegistry,
-					columnPoliciesRegistry,
-					input.semanticLayerMode,
-				);
+				if (input.semanticLayerMode !== null) {
+					return createUserGroup(
+						...values,
+						rowPoliciesRegistry,
+						columnPoliciesRegistry,
+						input.semanticLayerMode,
+					);
+				}
+				return rowPoliciesRegistry === undefined && columnPoliciesRegistry === undefined
+					? createUserGroup(...values)
+					: createUserGroup(...values, rowPoliciesRegistry, columnPoliciesRegistry);
 			});
 			await saveGroupBudget(ctx.project.id, group.id, input);
 			return group;
