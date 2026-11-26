@@ -49,6 +49,14 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 
+		if (input.breakdown_key && isPieChart(chartType)) {
+			return {
+				_version: '1',
+				success: false,
+				error: `${chartType} charts take their slices from x_axis_key: drop breakdown_key.`,
+			};
+		}
+
 		// Validate pie and donut charts have exactly one series
 		if (isPieChart(chartType) && series.length !== 1) {
 			return {
@@ -64,11 +72,16 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		// Stacked charts require at least two series
-		if (isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
+		if (
+			isStackedChartType(chartType) &&
+			chartType !== 'horizontal_bar' &&
+			series.length < 2 &&
+			!input.breakdown_key
+		) {
 			return {
 				_version: '1',
 				success: false,
-				error: `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. You may need to pivot the data to create a series for each stack.`,
+				error: `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. Set breakdown_key to the column whose values should each become a stack.`,
 			};
 		}
 

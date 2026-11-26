@@ -156,6 +156,8 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_label,
 		title,
 		show_legend,
+		breakdown_key,
+		breakdown_limit,
 	} = artifact;
 	const block = buildStoryChartBlock({
 		query_id,
@@ -172,6 +174,8 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_label,
 		title,
 		show_legend,
+		breakdown_key,
+		breakdown_limit,
 	});
 
 	const queryData = await resolveChartQueryData({
@@ -215,6 +219,8 @@ export async function buildChartEmbedFromArtifact(
 				yAxisRightLabel: y_axis_right_label,
 				title,
 				showLegend: show_legend,
+				breakdownKey: breakdown_key,
+				breakdownLimit: breakdown_limit,
 			},
 			sourceChatId: effectiveChatId,
 		});

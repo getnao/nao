@@ -189,6 +189,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 					animate
 					normalSize
 					hideTotal={chart.hideTotal}
+					breakdownKey={chart.breakdownKey}
+					breakdownLimit={chart.breakdownLimit}
 				/>
 			</EmbedRefreshing>
 		</StoryChartEmbedShell>

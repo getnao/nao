@@ -96,6 +96,8 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
 					yAxisRightMax={chart.yAxisRightMax}
 					yAxisRightLabel={chart.yAxisRightLabel}
 					showLegend={chart.showLegend}
+					breakdownKey={chart.breakdownKey}
+					breakdownLimit={chart.breakdownLimit}
 				/>
 			</div>
 		</div>

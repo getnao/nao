@@ -36,6 +36,7 @@ import {
 	scaleBubbleRadius,
 	withOpacity,
 } from '@nao/shared';
+import { applyBreakdown } from '@nao/shared/chart-series';
 import type { ChartType } from '@nao/shared/chart-types';
 import {
 	type DateFormatSettings,
@@ -216,12 +217,13 @@ export async function renderStoryVisualImage(
 		const { images } = await generateEmailSegmentsHtml([segment], queryData, dateFormat, undefined, theme);
 		return images[0] ? Buffer.from(images[0].content) : null;
 	}
-	const rows = queryData?.[segment.chart.queryId]?.data as Record<string, unknown>[] | undefined;
-	if (!rows?.length || segment.chart.chartType === 'kpi_card') {
+	const queryRows = queryData?.[segment.chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!queryRows?.length || segment.chart.chartType === 'kpi_card') {
 		return null;
 	}
+	const { chart, rows } = resolveChartData(segment.chart, queryRows);
 	return generateChartImage({
-		config: toChartConfig(resolveChartKeys(segment.chart, rows)),
+		config: toChartConfig(chart),
 		data: rows,
 		width: CHART_WIDTH,
 		height: CHART_HEIGHT,
@@ -241,11 +243,11 @@ export interface KpiCardValue {
 
 /** The latest value of each KPI series, with its change against the previous period when the chart asks for it. */
 export function kpiCardValues(chart: ParsedChartBlock, queryData: QueryDataMap | null): KpiCardValue[] {
-	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
-	if (!rows?.length) {
+	const queryRows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!queryRows?.length) {
 		return [];
 	}
-	const resolved = resolveChartKeys(chart, rows);
+	const { chart: resolved, rows } = resolveChartData(chart, queryRows);
 	const sortedRows = [...rows].sort((a, b) => {
 		const av = a[resolved.xAxisKey];
 		const bv = b[resolved.xAxisKey];
@@ -582,12 +584,12 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	const dateFormat = useContext(DateFormatContext);
 	const emailSink = useContext(EmailImageSinkContext);
 	const palette = useContext(PaletteContext);
-	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
-	if (!rows?.length) {
+	const queryRows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!queryRows?.length) {
 		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
 	}
 
-	const chart = resolveChartKeys(rawChart, rows);
+	const { chart, rows } = resolveChartData(rawChart, queryRows);
 
 	if (chart.chartType === 'kpi_card') {
 		return <KpiCards values={kpiCardValues(rawChart, queryData)} />;
@@ -651,16 +653,23 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 }
 
 /**
- * Query data may come from a re-execution whose column-name casing differs from
- * the one the chart was authored against (e.g. Snowflake uppercases unquoted
- * identifiers, DuckDB preserves them as written). Resolve the configured keys
- * against the actual row keys, mirroring the frontend chart components.
+ * Pivots a breakdown into one series per value, then resolves the configured keys against
+ * the actual row keys: a re-executed query may change column casing (e.g. Snowflake
+ * uppercases unquoted identifiers, DuckDB preserves them as written).
  */
-function resolveChartKeys(chart: ParsedChartBlock, rows: Record<string, unknown>[]): ParsedChartBlock {
+function resolveChartData(
+	chart: ParsedChartBlock,
+	queryRows: Record<string, unknown>[],
+): { chart: ParsedChartBlock; rows: Record<string, unknown>[] } {
+	const { rows, series } = applyBreakdown({ ...chart, rows: queryRows });
 	return {
-		...chart,
-		xAxisKey: resolveDataKey(rows, chart.xAxisKey),
-		series: chart.series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+		rows,
+		chart: {
+			...chart,
+			xAxisKey: resolveDataKey(rows, chart.xAxisKey),
+			series: series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+			breakdownKey: undefined,
+		},
 	};
 }
 

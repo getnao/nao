@@ -49,4 +49,25 @@ describe('display_chart execute', () => {
 		});
 		expect(context.generatedArtifacts.charts).toHaveLength(0);
 	});
+
+	it.each([
+		{ chart_type: 'stacked_area_100', expected: { success: true } },
+		{ chart_type: 'pie', expected: { success: false, error: expect.stringContaining('drop breakdown_key') } },
+	] as const)('checks breakdown_key on $chart_type charts', async ({ chart_type, expected }) => {
+		const output = await executeTool(
+			displayChartTool,
+			{
+				query_id: 'query-1',
+				chart_type,
+				x_axis_key: 'week',
+				x_axis_type: 'date',
+				series: [{ data_key: 'domains' }],
+				breakdown_key: 'nao_version',
+				title: 'Domains by version',
+			},
+			createToolContext(),
+		);
+
+		expect(output).toMatchObject(expected);
+	});
 });

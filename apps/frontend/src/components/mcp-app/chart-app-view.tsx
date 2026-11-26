@@ -77,6 +77,8 @@ export const ChartAppView = memo(function ChartAppView({ config, data, theme, na
 					yAxisRightMax={config.yAxisRightMax}
 					yAxisRightLabel={config.yAxisRightLabel}
 					showLegend={config.showLegend}
+					breakdownKey={config.breakdownKey}
+					breakdownLimit={config.breakdownLimit}
 				/>
 			</div>
 		);

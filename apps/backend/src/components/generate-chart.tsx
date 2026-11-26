@@ -1,4 +1,5 @@
 import { bucketPieData, buildChart, labelize, resolveDataKey, sortByDateKey } from '@nao/shared';
+import { applyBreakdown } from '@nao/shared/chart-series';
 import { isBuiltinChartType } from '@nao/shared/chart-types';
 import type { DateFormatSettings } from '@nao/shared/date';
 import { displayChart } from '@nao/shared/tools';
@@ -32,6 +33,8 @@ export interface RenderChartInput {
 		| 'show_data_labels'
 		| 'show_legend'
 		| 'comparison_mode'
+		| 'breakdown_key'
+		| 'breakdown_limit'
 	>;
 	data: Record<string, unknown>[];
 	width?: number;
@@ -48,7 +51,16 @@ export function generateChartImage(input: RenderChartInput): Buffer {
 }
 
 export function renderChartToSvg(input: RenderChartInput): string {
-	const { config, data, dateFormat } = input;
+	const { config, dateFormat } = input;
+	const brokenDown = applyBreakdown({
+		rows: input.data,
+		chartType: config.chart_type,
+		xAxisKey: config.x_axis_key ?? '',
+		series: config.series,
+		breakdownKey: config.breakdown_key,
+		breakdownLimit: config.breakdown_limit,
+	});
+	const data = brokenDown.rows;
 	const palette = input.palette ?? DEFAULT_EXPORT_PALETTE;
 	if (!isBuiltinChartType(config.chart_type)) {
 		throw new Error(`Custom chart "${config.chart_type}" cannot be rendered on the server.`);
@@ -63,7 +75,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	// preserves them as written), so resolve keys against the actual rows —
 	// mirroring what the frontend chart components do.
 	const xAxisKey = resolveDataKey(data, config.x_axis_key ?? undefined);
-	const series = config.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) }));
+	const series = brokenDown.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) }));
 
 	const colorFor = (key: string, index: number) => {
 		const matched = series.find((s) => s.data_key === key);

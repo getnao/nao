@@ -598,6 +598,23 @@ describe('splitCodeIntoSegments chart total visibility', () => {
 	});
 });
 
+describe('splitCodeIntoSegments chart breakdown', () => {
+	it('round-trips breakdown_key and breakdown_limit through buildStoryChartBlock', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'stacked_area',
+			x_axis_key: 'week',
+			x_axis_type: 'date',
+			series: [{ data_key: 'domains' }],
+			title: 'Domains by version',
+			breakdown_key: 'nao_version',
+			breakdown_limit: 5,
+		});
+
+		expect(chartOf(code)).toMatchObject({ breakdownKey: 'nao_version', breakdownLimit: 5 });
+	});
+});
+
 describe('splitCodeIntoSegments chart legend visibility', () => {
 	const chartWithLegend = (attr: string) =>
 		`<chart query_id="q1" chart_type="bar" x_axis_key="month" series='[{"data_key":"rev"}]'${attr} />`;
