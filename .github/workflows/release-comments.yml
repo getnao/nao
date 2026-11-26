@@ -1,0 +1,119 @@
+name: Release Comments
+
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Release tag to announce (e.g. v0.4.8)'
+                required: true
+            dry_run:
+                description: 'Only log the comments that would be posted'
+                type: boolean
+                default: true
+
+concurrency:
+    group: release-comments-${{ github.event.release.tag_name || inputs.tag }}
+
+permissions: {}
+
+jobs:
+    comment:
+        if: github.repository == 'getnao/nao' && (github.event_name == 'workflow_dispatch' || (startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease))
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+        steps:
+            - name: Comment on released pull requests and issues
+              uses: actions/github-script@v7
+              env:
+                  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+                  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+              with:
+                  script: |
+                      const { owner, repo } = context.repo;
+                      const tag = process.env.TAG;
+                      const dryRun = process.env.DRY_RUN === 'true';
+                      const marker = `<!-- released-in:${tag} -->`;
+
+                      const release = (await github.rest.repos.getReleaseByTag({ owner, repo, tag })).data;
+                      const previousTag = await findPreviousStableTag(release);
+                      if (!previousTag) {
+                        core.setFailed(`No stable release found before ${tag}`);
+                        return;
+                      }
+
+                      const pullRequests = await listReleasedPullRequests(previousTag, tag);
+                      core.info(`${pullRequests.length} pull requests between ${previousTag} and ${tag}`);
+
+                      const releaseLink = `[${tag}](${release.html_url})`;
+                      const upgradeHint = `Upgrade with \`pip install -U nao-core\` or pull \`getnao/nao:${tag.replace(/^v/, '')}\`.`;
+                      const commentedIssues = new Set();
+
+                      for (const pullRequest of pullRequests) {
+                        await commentOnce(pullRequest, `🚀 This pull request was released in ${releaseLink}. ${upgradeHint}`);
+                        for (const issue of await listClosedIssues(pullRequest)) {
+                          if (commentedIssues.has(issue)) continue;
+                          commentedIssues.add(issue);
+                          await commentOnce(issue, `🚀 This issue was addressed in #${pullRequest}, released in ${releaseLink}. ${upgradeHint}`);
+                        }
+                      }
+
+                      async function findPreviousStableTag(current) {
+                        const releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+                        return releases
+                          .filter((candidate) => candidate.tag_name.startsWith('v') && !candidate.draft && !candidate.prerelease)
+                          .filter((candidate) => candidate.published_at < current.published_at)
+                          .sort((left, right) => right.published_at.localeCompare(left.published_at))[0]?.tag_name;
+                      }
+
+                      async function listReleasedPullRequests(base, head) {
+                        const pullRequests = new Set();
+                        for (const commit of await listCommitsBetween(base, head)) {
+                          const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: commit.sha });
+                          data
+                            .filter((pullRequest) => pullRequest.merged_at && pullRequest.base.ref === context.payload.repository.default_branch)
+                            .forEach((pullRequest) => pullRequests.add(pullRequest.number));
+                        }
+                        return [...pullRequests];
+                      }
+
+                      async function listCommitsBetween(base, head) {
+                        const commits = [];
+                        for (let page = 1; ; page++) {
+                          const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${head}`, per_page: 100, page });
+                          commits.push(...data.commits);
+                          if (data.commits.length < 100) return commits;
+                        }
+                      }
+
+                      async function listClosedIssues(pullRequest) {
+                        const { repository } = await github.graphql(
+                          `query($owner: String!, $repo: String!, $number: Int!) {
+                            repository(owner: $owner, name: $repo) {
+                              pullRequest(number: $number) {
+                                closingIssuesReferences(first: 25) { nodes { number repository { nameWithOwner } } }
+                              }
+                            }
+                          }`,
+                          { owner, repo, number: pullRequest },
+                        );
+                        return repository.pullRequest.closingIssuesReferences.nodes
+                          .filter((issue) => issue.repository.nameWithOwner === `${owner}/${repo}`)
+                          .map((issue) => issue.number);
+                      }
+
+                      async function commentOnce(number, text) {
+                        const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+                        if (comments.some((comment) => comment.body?.includes(marker))) {
+                          core.info(`#${number}: already commented`);
+                          return;
+                        }
+                        core.info(`#${number}: ${text}`);
+                        if (!dryRun) {
+                          await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `${text}\n\n${marker}` });
+                        }
+                      }
