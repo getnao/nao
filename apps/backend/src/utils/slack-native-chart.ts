@@ -1,4 +1,5 @@
 import { bucketPieData, labelize, resolveDataKey, sortByDateKey } from '@nao/shared';
+import { applyBreakdown } from '@nao/shared/chart-series';
 import type { DateFormatSettings } from '@nao/shared/date';
 import type { displayChart } from '@nao/shared/tools';
 import {
@@ -32,7 +33,15 @@ const SLACK_CHART_TYPES: Partial<Record<string, ChartDefinition['type']>> = {
 type Row = Record<string, unknown>;
 type ChartConfig = Pick<
 	displayChart.KpiCardInput,
-	'chart_type' | 'title' | 'x_axis_key' | 'x_axis_type' | 'x_axis_label' | 'y_axis_label' | 'series'
+	| 'chart_type'
+	| 'title'
+	| 'x_axis_key'
+	| 'x_axis_type'
+	| 'x_axis_label'
+	| 'y_axis_label'
+	| 'series'
+	| 'breakdown_key'
+	| 'breakdown_limit'
 >;
 
 export interface SlackNativeChartInput {
@@ -45,15 +54,28 @@ export interface SlackNativeChartInput {
  * Builds a hoverable Slack chart (Block Kit `data_visualization`), or returns null when the chart
  * cannot be drawn faithfully within Slack's limits so the caller can fall back to a PNG.
  */
-export function buildSlackNativeChart({ config, data, dateFormat }: SlackNativeChartInput): ChartElement | null {
+export function buildSlackNativeChart({
+	config,
+	data: queryRows,
+	dateFormat,
+}: SlackNativeChartInput): ChartElement | null {
 	const chartType = SLACK_CHART_TYPES[config.chart_type];
 	const title = fitText(config.title, SLACK_CHART_MAX_TITLE_CHARS);
-	if (!chartType || !title || data.length === 0) {
+	if (!chartType || !title || queryRows.length === 0) {
 		return null;
 	}
 
+	const brokenDown = applyBreakdown({
+		rows: queryRows,
+		chartType: config.chart_type,
+		xAxisKey: config.x_axis_key ?? '',
+		series: config.series,
+		breakdownKey: config.breakdown_key,
+		breakdownLimit: config.breakdown_limit,
+	});
+	const data = brokenDown.rows;
 	const xAxisKey = resolveDataKey(data, config.x_axis_key);
-	const series = config.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) }));
+	const series = brokenDown.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) }));
 	const rows = config.x_axis_type === 'date' ? sortByDateKey(data, xAxisKey) : data;
 	const labelFor = (value: unknown) => fitText(labelize(value ?? '', dateFormat), SLACK_CHART_MAX_LABEL_CHARS);
 

@@ -189,7 +189,9 @@ export async function buildChartEmbedFromArtifact(
 		return null;
 	}
 
-	const expectedKeys = x_axis_key ? [x_axis_key, ...series.map((s) => s.data_key)] : series.map((s) => s.data_key);
+	const expectedKeys = [x_axis_key, breakdown_key, ...series.map((s) => s.data_key)].filter((key): key is string =>
+		Boolean(key),
+	);
 	const missingKeys = expectedKeys.filter((k) => !queryData.columns.includes(k));
 	if (missingKeys.length > 0) {
 		return { keyError: { invalidKeys: missingKeys, availableColumns: queryData.columns } };

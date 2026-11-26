@@ -41,12 +41,26 @@ describe('applyBreakdown', () => {
 		expect(rows[1]).toMatchObject({ week: '2026-11-16', [olderKey]: 81, [newestKey]: 3 });
 	});
 
-	it('keeps the values largest in the latest period on a date axis and sums the rest into Other', () => {
-		const rows = [...VERSION_ROWS, { week: '2026-11-16', nao_version: '0.4.11', domains: 90 }];
-		const result = breakdown({ rows, breakdownLimit: 1 });
+	it.each(['', 'T00:00:00', 'T00:00:00.000000'])(
+		'keeps the values largest in the latest period on a date axis ("%s" times) and sums the rest into Other',
+		(time) => {
+			const rows = [...VERSION_ROWS, { week: '2026-11-16', nao_version: '0.4.11', domains: 90 }].map((row) => ({
+				...row,
+				week: `${row.week}${time}`,
+			}));
+			const result = breakdown({ rows, breakdownLimit: 1 });
 
-		expect(result.series.map((item) => item.label)).toEqual(['0.4.11', 'Other']);
-		expect(result.rows.map((row) => row[result.series[1].data_key])).toEqual([148, 95]);
+			expect(result.series.map((item) => item.label)).toEqual(['0.4.11', 'Other']);
+			expect(result.rows.map((row) => row[result.series[1].data_key])).toEqual([148, 95]);
+		},
+	);
+
+	it("keeps a value's series key when new values arrive, so a hidden series stays hidden", () => {
+		const keyOf = (rows: typeof VERSION_ROWS) =>
+			breakdown({ rows }).series.find((item) => item.label === '0.4.2')?.data_key;
+		const withNewVersion = [...VERSION_ROWS, { week: '2026-11-16', nao_version: '0.4.1', domains: 1 }];
+
+		expect(keyOf(withNewVersion)).toBe(keyOf(VERSION_ROWS));
 	});
 
 	it('merges a value already named Other into the Other bucket', () => {
@@ -98,6 +112,7 @@ describe('applyBreakdown', () => {
 	it.each([
 		{ case: 'no breakdown_key', overrides: { breakdownKey: undefined } },
 		{ case: 'a pie chart', overrides: { chartType: 'pie' } },
+		{ case: 'a scatter chart', overrides: { chartType: 'scatter' } },
 	])('leaves rows and series untouched for $case', ({ overrides }) => {
 		const result = breakdown(overrides);
 

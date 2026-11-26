@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { chartBlockConfig, kitBlockFromConfig, resolveShowLegend } from '@/story-runtime/story-kit/block-config';
+import {
+	chartBlockConfig,
+	kitBlockFromConfig,
+	resolveChart,
+	resolveShowLegend,
+} from '@/story-runtime/story-kit/block-config';
 import { diffKitBlock } from '@/lib/story-kit-block-edit';
 
 const RESOLVED = { xAxisKey: 'month', series: [{ key: 'inspections' }] };
@@ -51,5 +56,15 @@ describe('story-kit chart legend config', () => {
 			set: { showLegend: false },
 			unset: [],
 		});
+	});
+});
+
+describe('resolveChart', () => {
+	it('leaves the breakdown column out of the series it picks on its own', () => {
+		const rows = [{ month: 'jan', country_id: 33, revenue: 120 }];
+
+		expect(resolveChart(rows, ['month', 'country_id', 'revenue'], { breakdownKey: 'country_id' }).series).toEqual([
+			{ key: 'revenue' },
+		]);
 	});
 });

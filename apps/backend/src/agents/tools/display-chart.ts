@@ -1,3 +1,4 @@
+import { chartTypeSupportsBreakdown } from '@nao/shared/chart-series';
 import { chartTypeRequiresXAxisKey, isBuiltinChartType, isPieChart, isStackedChartType } from '@nao/shared/chart-types';
 import { displayChart } from '@nao/shared/tools';
 
@@ -49,11 +50,11 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 
-		if (input.breakdown_key && isPieChart(chartType)) {
+		if (input.breakdown_key && !chartTypeSupportsBreakdown(chartType)) {
 			return {
 				_version: '1',
 				success: false,
-				error: `${chartType} charts take their slices from x_axis_key: drop breakdown_key.`,
+				error: `${chartType} charts do not support breakdown_key: drop it (pie and donut slices come from x_axis_key).`,
 			};
 		}
 

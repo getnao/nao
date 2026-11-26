@@ -4,10 +4,10 @@ import {
 	chartTypeSupportsComboSeries,
 	isBuiltinChartType,
 	isPercentStackedChartType,
-	isPieChart,
 	isStackedChartType,
 	resolveShowDataLabels,
 } from '@nao/shared/chart-types';
+import { chartTypeSupportsBreakdown } from '@nao/shared/chart-series';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2, X } from 'lucide-react';
@@ -635,7 +635,7 @@ function ChartConfigEditForm({
 				</div>
 			)}
 
-			{!isPieChart(draft.chart_type) && (
+			{chartTypeSupportsBreakdown(draft.chart_type) && (
 				<BreakdownFields
 					columns={availableColumns}
 					breakdownKey={draft.breakdown_key}

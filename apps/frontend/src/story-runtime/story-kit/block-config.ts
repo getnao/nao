@@ -71,11 +71,13 @@ export function blockRef<Component extends StoryKitEditableBlock>(
 export function resolveChart(
 	rows: Row[],
 	columns: string[],
-	{ xKey, series }: ChartOptions,
+	{ xKey, series, breakdownKey }: ChartOptions,
 	chartType?: ChartType,
 ): ResolvedChart {
 	const xAxisKey = chartType === 'scatter' ? (xKey ?? columns[0]) : resolveXKey(rows, columns, xKey);
-	const inputs = series ?? columns.filter((column) => column !== xAxisKey && isNumericColumn(rows, column));
+	const inputs =
+		series ??
+		columns.filter((column) => column !== xAxisKey && column !== breakdownKey && isNumericColumn(rows, column));
 	return { xAxisKey, series: inputs.map(toSeriesSpec) };
 }
 

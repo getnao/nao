@@ -52,7 +52,14 @@ describe('display_chart execute', () => {
 
 	it.each([
 		{ chart_type: 'stacked_area_100', expected: { success: true } },
-		{ chart_type: 'pie', expected: { success: false, error: expect.stringContaining('drop breakdown_key') } },
+		{
+			chart_type: 'pie',
+			expected: { success: false, error: expect.stringContaining('do not support breakdown_key') },
+		},
+		{
+			chart_type: 'scatter',
+			expected: { success: false, error: expect.stringContaining('do not support breakdown_key') },
+		},
 	] as const)('checks breakdown_key on $chart_type charts', async ({ chart_type, expected }) => {
 		const output = await executeTool(
 			displayChartTool,
