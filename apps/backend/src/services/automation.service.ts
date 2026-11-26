@@ -58,7 +58,6 @@ export async function listAutomations(actor: AutomationActor) {
 	return automationQueries.listAutomations(actor.projectId, actor.userId);
 }
 
-/** Null when the automation does not exist or is not shared with the user. */
 export async function getAutomation(actor: AutomationActor, id: string): Promise<AutomationWithAccess | null> {
 	assertAutomationsEnabled();
 	return automationQueries.getAutomation(actor.projectId, actor.userId, id, 'viewer');
@@ -96,7 +95,6 @@ export async function createAutomation(
 	return syncAutomationJob(automation, cron, enabled);
 }
 
-/** Null when the automation does not exist or the user may not edit it. */
 export async function updateAutomation(
 	actor: AutomationActor,
 	id: string,
@@ -137,7 +135,7 @@ export async function setAutomationEnabled(
 	return setAutomationActive(automation, enabled);
 }
 
-/** Only the owner deletes an automation: false when there was nothing the user could delete. */
+/** Only the owner deletes an automation. */
 export async function deleteAutomation(actor: AutomationActor, id: string): Promise<boolean> {
 	await assertCanManageAutomations(actor, { billing: false });
 	const automation = await automationQueries.getAutomation(actor.projectId, actor.userId, id, 'owner');
