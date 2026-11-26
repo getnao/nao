@@ -55,6 +55,13 @@ describe('applyBreakdown', () => {
 		},
 	);
 
+	it('gives distinct values distinct series keys', () => {
+		const rows = ['UK', 'H6', 'a_b', 'a.b', 'a-b'].map((country) => ({ week: '2026-11-09', country, revenue: 1 }));
+		const { series } = breakdown({ rows, series: [{ data_key: 'revenue' }], breakdownKey: 'country' });
+
+		expect(new Set(series.map((item) => item.data_key)).size).toBe(5);
+	});
+
 	it("keeps a value's series key when new values arrive, so a hidden series stays hidden", () => {
 		const keyOf = (rows: typeof VERSION_ROWS) =>
 			breakdown({ rows }).series.find((item) => item.label === '0.4.2')?.data_key;

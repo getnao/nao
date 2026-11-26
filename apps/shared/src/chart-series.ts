@@ -193,13 +193,13 @@ function emptyPivotRow(
 	return row;
 }
 
-/** Keyed by the value itself so a hidden series stays hidden when new values arrive; hashed to stay a valid CSS name. */
+/**
+ * Keyed by the value itself so a hidden series stays hidden when new values arrive. Characters outside
+ * [A-Za-z0-9] become `_<hex>_`, which keeps the key a valid CSS name and distinct values distinct.
+ */
 function breakdownSeriesKey(metricIndex: number, value: string): string {
-	let hash = 5381;
-	for (let index = 0; index < value.length; index++) {
-		hash = (hash * 33) ^ value.charCodeAt(index);
-	}
-	return `breakdown_${metricIndex}_${(hash >>> 0).toString(36)}`;
+	const encoded = value.replace(/[^A-Za-z0-9]/gu, (character) => `_${character.codePointAt(0)!.toString(16)}_`);
+	return `breakdown_${metricIndex}_${encoded}`;
 }
 
 function breakdownLabel(value: unknown): string {
