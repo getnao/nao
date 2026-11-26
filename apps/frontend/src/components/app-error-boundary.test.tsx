@@ -64,7 +64,7 @@ it('shows the error page and reports the error when a child fails to render', as
 	expect(sentReport.stack).toContain('React component stack:');
 	expect(sentReport.stack).toContain('BrokenComponent');
 
-	fireEvent.click(screen.getByRole('button', { name: 'Copy error details and open the #help-nao Slack channel' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Copy error details and open Slack' }));
 	expect(writeText).toHaveBeenCalledWith(
 		expect.stringMatching(
 			new RegExp(
@@ -85,9 +85,7 @@ it('shows the error page and reports the error when a child fails to render', as
 	expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BrokenComponent'));
 	expect(slackActions).toEqual(['copy', 'open']);
 	await waitFor(() => expect(replace).toHaveBeenCalledWith('https://naolabs.slack.com/channels/help-nao'));
-	expect(
-		screen.getByRole('button', { name: 'Copy error details and open the #help-nao Slack channel' }),
-	).toBeTruthy();
+	expect(screen.getByRole('button', { name: 'Copy error details and open Slack' })).toBeTruthy();
 
 	fireEvent.click(screen.getByRole('button', { name: 'Copy error message' }));
 	expect(await screen.findByRole('button', { name: 'Error message copied' })).toBeTruthy();
@@ -129,7 +127,7 @@ it('shows manual error details when copying for Slack fails', async () => {
 		</AppErrorBoundary>,
 	);
 
-	fireEvent.click(screen.getByRole('button', { name: 'Copy error details and open the #help-nao Slack channel' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Copy error details and open Slack' }));
 
 	expect(await screen.findByText(/Couldn't copy automatically/)).toBeTruthy();
 	expect(screen.getByText(new RegExp(firefoxStack.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy();

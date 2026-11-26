@@ -20,7 +20,7 @@ export function RouteErrorPage({
 	fullScreen?: boolean;
 }) {
 	const isHomePage = window.location.pathname === '/';
-	const pageUrl = window.location.href;
+	const pageUrl = `${window.location.origin}${window.location.pathname}`;
 	const errorReport = getErrorReport(error, componentStack);
 	const errorDetails = getErrorDetails(errorReport, pageUrl);
 	const { copy: copyForSlack } = useCopyToClipboard();

@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -5,6 +6,7 @@ import type { App } from '../app';
 import { env } from '../env';
 import { authMiddleware } from '../middleware/auth';
 import { sendErrorReport } from '../services/error-report';
+import { repeatInBackground } from '../utils/effect-runtime';
 
 const REPORT_LIMIT = 5;
 const SELF_HOSTED_PROCESS_REPORT_LIMIT = 100;
@@ -29,11 +31,13 @@ const errorReportSchema = z.object({
 export const errorReportRoutes = async (app: App) => {
 	// ponytail: these limits protect one relay process; the licenses ingest service enforces shared limits.
 	const reportWindows = new Map<string, ReportWindow>();
-	const cleanupInterval = setInterval(() => removeExpiredReportWindows(reportWindows), REPORT_WINDOW_MS);
-	cleanupInterval.unref();
-	app.addHook('onClose', (_app, done) => {
-		clearInterval(cleanupInterval);
-		done();
+	const stopCleanup = repeatInBackground(
+		'Error report rate limit cleanup',
+		Effect.sync(() => removeExpiredReportWindows(reportWindows)),
+		REPORT_WINDOW_MS,
+	);
+	app.addHook('onClose', async () => {
+		await stopCleanup();
 	});
 
 	app.post(
