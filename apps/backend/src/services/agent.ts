@@ -88,6 +88,7 @@ import {
 } from '../utils/ai';
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { normalizeCitationMarkersStream } from '../utils/citation-markers-stream';
+import { drainUIMessageStream } from '../utils/drain-ui-message-stream';
 import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { HandlerError } from '../utils/error';
 import {
@@ -1617,19 +1618,6 @@ async function safeInitializeSkills(projectId: string): Promise<void> {
 
 function isTableMentionId(mentionId: string): boolean {
 	return !isStoryReferenceMentionId(mentionId) && !isStoryFolderMentionId(mentionId) && !isSchemaMentionId(mentionId);
-}
-
-/**
- * Reads a run's stream to its end without building a snapshot of the message after each chunk, which clones every
- * tool output of the message and blocks the event loop on large query results.
- */
-async function drainUIMessageStream(stream: ReadableStream<InferUIMessageChunk<UIMessage>>): Promise<void> {
-	const reader = stream.getReader();
-	for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
-		if (chunk.value.type === 'error') {
-			throw new Error(chunk.value.errorText);
-		}
-	}
 }
 
 // Singleton instance of the agent service
