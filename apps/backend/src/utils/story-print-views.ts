@@ -6,6 +6,8 @@ export type StoryPrintLayout = 'single' | 'sections' | 'slides';
 export interface ExpandStoryViewsOptions {
 	settleMs: number;
 	slidePageHeightPx: number;
+	pendingChartsAttribute: string;
+	chartsTimeoutMs: number;
 }
 
 /**
@@ -18,7 +20,12 @@ export async function expandStoryViews(page: Page, options: ExpandStoryViewsOpti
 }
 
 /* Runs inside the page, serialized by puppeteer: it must stay self-contained. */
-async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryViewsOptions): Promise<string> {
+async function expandViewsInPage({
+	settleMs,
+	slidePageHeightPx,
+	pendingChartsAttribute,
+	chartsTimeoutMs,
+}: ExpandStoryViewsOptions): Promise<string> {
 	const MAX_VIEWS = 40;
 	const SWITCHER_CONTAINER = /tab|dot|pager|step|section|nav/i;
 	const SWITCHER_LABEL = /slide|tab|page|step|section/i;
@@ -30,7 +37,14 @@ async function expandViewsInPage({ settleMs, slidePageHeightPx }: ExpandStoryVie
 	if (!root) {
 		return 'single';
 	}
-	const wait = () => new Promise((resolve) => setTimeout(resolve, settleMs));
+	const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+	const wait = async () => {
+		await sleep(settleMs);
+		const deadline = Date.now() + chartsTimeoutMs;
+		while (document.documentElement.hasAttribute(pendingChartsAttribute) && Date.now() < deadline) {
+			await sleep(100);
+		}
+	};
 	const labelOf = (element: Element) =>
 		`${element.getAttribute('aria-label') ?? ''} ${element.textContent ?? ''}`.trim();
 	const isUsable = (element: HTMLElement) => {

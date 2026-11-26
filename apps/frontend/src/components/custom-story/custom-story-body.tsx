@@ -3,7 +3,12 @@ import { DEFAULT_STORY_THEME_PAIR } from '@nao/shared/story-theme';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { StoryBlockEditPayload, StoryTableFormatEditRequest, StoryElementCitation } from '@nao/shared/story-app';
+import type {
+	StoryBlockEditPayload,
+	StoryChartSettingsSave,
+	StoryTableFormatEditRequest,
+	StoryElementCitation,
+} from '@nao/shared/story-app';
 import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
 
 import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
@@ -25,6 +30,7 @@ interface CustomStoryBodyProps {
 	editable?: boolean;
 	onEditBlock?: (payload: StoryBlockEditPayload) => void;
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
+	onSaveChartSettings?: (request: StoryChartSettingsSave) => Promise<void>;
 	onAsk?: (citation: StoryElementCitation) => void;
 	isSelectingElements?: boolean;
 	onRememberState?: () => void;
@@ -57,6 +63,7 @@ export function CustomStoryBody({
 	editable = false,
 	onEditBlock,
 	onEditTableFormat,
+	onSaveChartSettings,
 	onAsk,
 	isSelectingElements,
 	onRememberState,
@@ -90,6 +97,7 @@ export function CustomStoryBody({
 						editable={editable}
 						onEditBlock={onEditBlock}
 						onEditTableFormat={onEditTableFormat}
+						onSaveChartSettings={onSaveChartSettings}
 						onAsk={onAsk}
 						isSelectingElements={isSelectingElements}
 						onRememberState={onRememberState}

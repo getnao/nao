@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { StoryBlockEditPayload, StoryTableFormatEditRequest, StoryElementCitation } from '@nao/shared/story-app';
 
 import type {
@@ -10,6 +10,7 @@ import type { CodeSelection } from '@/stores/ask-bar';
 import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
+	useSaveChartSettings,
 } from '@/components/custom-story/custom-story-block-edit';
 import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
@@ -114,6 +115,12 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 		},
 		[chatId, content, storySlug],
 	);
+	const versionNumber = content?.version.number;
+	const chartSettingsTarget = useMemo(
+		() => (versionNumber ? { chatId, storySlug, versionNumber } : null),
+		[chatId, storySlug, versionNumber],
+	);
+	const handleSaveChartSettings = useSaveChartSettings(chartSettingsTarget);
 
 	const handleAsk = useCallback(
 		(citation: StoryElementCitation) => {
@@ -214,6 +221,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 						editable={canEditBlocks && viewMode === 'app'}
 						onEditBlock={handleEditBlock}
 						onEditTableFormat={handleEditTableFormat}
+						onSaveChartSettings={handleSaveChartSettings}
 						onAsk={canAsk ? handleAsk : undefined}
 						isSelectingElements={isSelectingElements && viewMode === 'app'}
 						onRememberState={

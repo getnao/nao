@@ -1,10 +1,22 @@
-import { STORY_PRINT_CANVAS_ATTRIBUTE, STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import {
+	STORY_PENDING_CHARTS_ATTRIBUTE,
+	STORY_PRINT_CANVAS_ATTRIBUTE,
+	STORY_PRINT_SLIDES_ATTRIBUTE,
+	STORY_SLIDE_SIZE,
+} from '@nao/shared/story-app';
 import type { DownloadFormat } from '@nao/shared/types';
 import type { Page, PDFOptions } from 'puppeteer-core';
 
 import { getBrowser } from './headless-browser';
 import { formatDownloadFilename } from './story-download';
-import { delay, isolateStoryPage, STORY_DOCUMENT_URL, waitForStoryReady } from './story-headless-page';
+import {
+	CHARTS_TIMEOUT_MS,
+	delay,
+	isolateStoryPage,
+	STORY_DOCUMENT_URL,
+	waitForChartsDrawn,
+	waitForStoryReady,
+} from './story-headless-page';
 import { expandStoryViews } from './story-print-views';
 
 export const MAX_STORY_SNAPSHOT_BYTES = 24 * 1024 * 1024;
@@ -50,15 +62,19 @@ export async function renderStoryPdf(html: string, fontStylesheets: string[]): P
 /** Decks and canvases print on pages of their own size; other stories are walked through their tabs or slides. */
 async function layOutForPrint(page: Page): Promise<PDFOptions> {
 	await delay(RENDER_SETTLE_MS);
+	await waitForChartsDrawn(page);
 	const fixedPage = await readFixedPageSize(page);
 	if (fixedPage) {
 		await page.setViewport({ ...fixedPage, deviceScaleFactor: 2 });
 		await delay(RENDER_SETTLE_MS);
+		await waitForChartsDrawn(page);
 		return fixedPagePdfOptions(fixedPage);
 	}
 	const layout = await expandStoryViews(page, {
 		settleMs: VIEW_SETTLE_MS,
 		slidePageHeightPx: printableLayoutHeight(true),
+		pendingChartsAttribute: STORY_PENDING_CHARTS_ATTRIBUTE,
+		chartsTimeoutMs: CHARTS_TIMEOUT_MS,
 	}).catch(() => 'single' as const);
 	return a4PdfOptions(layout === 'slides');
 }

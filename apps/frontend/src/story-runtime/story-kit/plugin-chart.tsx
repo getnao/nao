@@ -3,19 +3,27 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import * as Recharts from 'recharts';
 
-import { requestChartPlugin } from '../story-host';
+import { beginChartDrawing, isPrintMode, requestChartPlugin, requestChartSettingsSave } from '../story-host';
 import { resolveSeriesPalette } from '../story-colors';
 import { Block, BlockState } from './block';
 import { resolveChart, toSeriesConfigs } from './block-config';
-import { useStoryTheme } from './hooks';
+import { useStoryEditing, useStoryTheme } from './hooks';
 import { useBlockData } from './use-block-data';
-import type { ChartPluginCleanup, ChartPluginModule, ChartPluginRenderContext } from '@nao/shared/chart-plugin';
+import type {
+	ChartPluginCleanup,
+	ChartPluginMode,
+	ChartPluginModule,
+	ChartPluginRenderContext,
+} from '@nao/shared/chart-plugin';
+import type { StoryChartSettingsSave } from '@nao/shared/story-app';
 import type { ChartProps } from './chart-shared';
 import type { Row } from './use-block-data';
 
 interface PluginChartBlockProps extends ChartProps {
 	kind: string;
 	chartType: string;
+	blockRef: StoryChartSettingsSave['block'];
+	settings?: unknown;
 }
 
 type PluginState =
@@ -31,6 +39,8 @@ const pluginModules = new Map<string, Promise<ChartPluginModule>>();
 export function PluginChartBlock({
 	kind,
 	chartType,
+	blockRef,
+	settings,
 	queryId,
 	data,
 	sql,
@@ -46,6 +56,9 @@ export function PluginChartBlock({
 }: PluginChartBlockProps) {
 	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options) : null;
+	const [isDrawing, setIsDrawing] = React.useState(true);
+	const hasRows = source.status === 'ready' && source.rows.length > 0;
+	useChartDrawingSignal(source.status === 'loading' || (hasRows && isDrawing));
 
 	return (
 		<Block
@@ -63,6 +76,9 @@ export function PluginChartBlock({
 							chartType={chartType}
 							height={height}
 							rows={rows}
+							blockRef={blockRef}
+							settings={settings}
+							onDrawingChange={setIsDrawing}
 							config={{
 								chartType,
 								xAxisKey: resolved.xAxisKey,
@@ -83,25 +99,48 @@ interface PluginChartBodyProps {
 	height: number;
 	rows: Row[];
 	config: ChartPluginRenderContext['config'];
+	blockRef: StoryChartSettingsSave['block'];
+	settings: unknown;
+	onDrawingChange: (isDrawing: boolean) => void;
 }
 
-function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyProps) {
+function PluginChartBody({
+	chartType,
+	height,
+	rows,
+	config,
+	blockRef,
+	settings,
+	onDrawingChange,
+}: PluginChartBodyProps) {
 	const containerRef = React.useRef<HTMLDivElement>(null);
 	const plugin = useChartPlugin(chartType);
 	const theme = useStoryTheme();
+	const mode = useChartPluginMode();
 	const [renderError, setRenderError] = React.useState<string | null>(null);
 	const configKey = JSON.stringify(config);
+	const blockKey = JSON.stringify(blockRef);
+	const settingsKey = JSON.stringify(settings ?? null);
 
 	const context = React.useMemo<ChartPluginRenderContext>(
 		() => ({
 			data: rows,
 			config: JSON.parse(configKey) as ChartPluginRenderContext['config'],
+			settings: JSON.parse(settingsKey) as unknown,
+			mode,
+			saveSettings: mode === 'edit' ? saveSettingsOf(JSON.parse(blockKey)) : undefined,
 			libs: { React, ReactDOM, Recharts },
 			theme: theme ? storyThemeMode(theme) : 'light',
 			colors: resolveSeriesPalette(),
 		}),
-		[rows, configKey, theme],
+		[rows, configKey, settingsKey, blockKey, mode, theme],
 	);
+
+	React.useEffect(() => {
+		if (plugin.error) {
+			onDrawingChange(false);
+		}
+	}, [plugin.error, onDrawingChange]);
 
 	React.useEffect(() => {
 		const container = containerRef.current;
@@ -112,6 +151,7 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 		let disposed = false;
 		let cleanup: ChartPluginCleanup;
 		setRenderError(null);
+		onDrawingChange(true);
 		const { render } = plugin.module;
 		Promise.resolve()
 			.then(() => render(element, context))
@@ -126,13 +166,18 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 				if (!disposed) {
 					setRenderError(describeError(error));
 				}
+			})
+			.finally(() => {
+				if (!disposed) {
+					onDrawingChange(false);
+				}
 			});
 		return () => {
 			disposed = true;
 			cleanup?.();
 			element.remove();
 		};
-	}, [plugin.module, context]);
+	}, [plugin.module, context, onDrawingChange]);
 
 	if (plugin.error) {
 		return <PluginChartError error={plugin.error} />;
@@ -163,6 +208,27 @@ function PluginChartError({ error }: { error: string }) {
 			Could not render custom chart: {error}
 		</div>
 	);
+}
+
+/** While `isDrawing`, the chart counts as still drawing for the PDF renderer. */
+function useChartDrawingSignal(isDrawing: boolean): void {
+	React.useEffect(() => {
+		if (isDrawing) {
+			return beginChartDrawing();
+		}
+	}, [isDrawing]);
+}
+
+function useChartPluginMode(): ChartPluginMode {
+	const editingEnabled = useStoryEditing();
+	if (isPrintMode()) {
+		return 'print';
+	}
+	return editingEnabled ? 'edit' : 'view';
+}
+
+function saveSettingsOf(block: StoryChartSettingsSave['block']): (settings: unknown) => Promise<void> {
+	return (settings) => requestChartSettingsSave({ block, settings });
 }
 
 function useChartPlugin(chartType: string): PluginState {

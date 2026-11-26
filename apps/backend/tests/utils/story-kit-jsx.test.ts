@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	appendKitBlock,
 	applyKitBlockChange,
+	matchesKitBlock,
 	parseKitSource,
 	StoryKitJsxEditError,
 } from '../../src/utils/story-kit-jsx';
@@ -30,6 +31,15 @@ describe('applyKitBlockChange', () => {
 		const edited = editFirstBlock({ set: {}, unset: ['format'] });
 
 		expect(edited).toContain('<KpiCard queryId="query_1" title="Revenue" />');
+	});
+
+	it('writes an object prop that the block is still found by on the next edit', () => {
+		const settings = { palette: 'warm', steps: [{ label: 'Volume', visible: true }] };
+		const edited = editFirstBlock({ set: { settings }, unset: [] });
+		const element = parseKitSource('app.jsx', edited)!.elements[0];
+
+		const props = { queryId: 'query_1', title: 'Revenue', format: 'currency', settings };
+		expect(matchesKitBlock(element, { component: 'KpiCard', props })).toBe(true);
 	});
 });
 

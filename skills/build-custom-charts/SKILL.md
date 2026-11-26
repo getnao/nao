@@ -27,6 +27,27 @@ The context contains:
 - `colors`: nao's default chart palette
 - `theme`: `light` or `dark`
 - `libs`: the installed `React`, `ReactDOM`, and `Recharts` modules
+- `settings`: the `settings` prop of the chart's block in a custom story, or `undefined`
+- `mode`: `view`, `edit` while someone who can change the story has it open, or `print` in PDF exports and deliveries
+- `saveSettings(settings)`: only in `edit` mode; writes `settings` into the block's `settings` prop as a new story version, and resolves once it is published
+
+`render` may return a promise: PDF exports and deliveries wait for it, up to 15 seconds, before printing.
+
+## Save settings from the chart
+
+A chart with its own settings panel keeps what a user changed in the story itself, without asking the agent:
+
+```js
+export function render(element, context) {
+	const palette = context.settings?.palette ?? 'default';
+	draw(element, context.data, palette);
+	if (context.saveSettings) {
+		showPaletteMenu(element, palette, (next) => context.saveSettings({ palette: next }));
+	}
+}
+```
+
+In the story, the settings sit next to the chart's other props, as a JSON value: `<Chart type="waterfall" queryId="..." settings={{ palette: 'warm' }} />`. Saving with `null` removes the prop. Show editing controls only when `saveSettings` is defined, and keep `print` output free of controls and transient messages.
 
 Use plain JavaScript without JSX. Do not import bare package names; use the libraries from `context.libs`. A React chart must return a cleanup function that unmounts its root.
 
@@ -44,7 +65,7 @@ The description tells the agent when to select the chart. Without metadata, nao 
 ## Constraints
 
 - Custom charts render only in authenticated, interactive web chats.
-- Stories, PNG exports, automations, MCP embeds, and messaging channels use built-in charts.
+- Custom stories render custom charts, including their PDF exports and deliveries. PNG exports, automations, MCP embeds, and messaging channels use built-in charts.
 - Keep modules self-contained and treat them as trusted project code.
 - Return cleanup for event listeners, timers, React roots, and other resources.
 - Editing the module reloads active custom charts within a few seconds.
