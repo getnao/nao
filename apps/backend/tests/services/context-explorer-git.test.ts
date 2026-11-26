@@ -1891,6 +1891,36 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect(await getChangedContextFiles(fixture.context)).toEqual([]);
 	});
 
+	it('rejects individual discards while generated .meta changes are pending', async () => {
+		const fixture = createFixture({
+			'nao_config.yaml': 'name: test\n',
+			'context.md': 'original context\n',
+			'other.md': 'original other\n',
+			'.meta/databases/columns.json': '{"version":1}\n',
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'context.md'), 'updated context\n');
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'other.md'), 'updated other\n');
+		fs.writeFileSync(path.join(repo.worktreeRoot, '.meta/databases/columns.json'), '{"version":2}\n');
+
+		await expect(discardContextFileChange(fixture.context, '/context.md')).rejects.toThrow(
+			'Generated files and metadata must be discarded together. Discard all changes instead.',
+		);
+
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'context.md'), 'utf8')).toBe('updated context\n');
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'other.md'), 'utf8')).toBe('updated other\n');
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, '.meta/databases/columns.json'), 'utf8')).toBe(
+			'{"version":2}\n',
+		);
+
+		await discardAllContextChanges(fixture.context);
+
+		expect(await getChangedContextFiles(fixture.context)).toEqual([]);
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, '.meta/databases/columns.json'), 'utf8')).toBe(
+			'{"version":1}\n',
+		);
+	});
+
 	it('commits every change of a large sync together with its metadata', async () => {
 		const fixture = createFixture();
 		const repo = await ensureContextWorktree(fixture.context);
