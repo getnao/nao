@@ -30,7 +30,6 @@ import {
 	type OutputInterface,
 	type PrepareStepResult,
 	pruneMessages,
-	readUIMessageStream,
 	stepCountIs,
 	type StepResult,
 	type StopCondition,
@@ -89,6 +88,7 @@ import {
 } from '../utils/ai';
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { normalizeCitationMarkersStream } from '../utils/citation-markers-stream';
+import { drainUIMessageStream } from '../utils/drain-ui-message-stream';
 import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { HandlerError } from '../utils/error';
 import {
@@ -1155,10 +1155,7 @@ export class AgentManager {
 	 */
 	async streamToCompletion(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
-		const stream = this.stream(uiMessages);
-		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
-			void message;
-		}
+		await drainUIMessageStream(this.stream(uiMessages));
 		await this.waitUntilFinished();
 
 		const result = this._streamResult;
