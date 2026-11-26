@@ -5,15 +5,24 @@ import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
 import {
+	hasNaoInternalMcpTools,
+	isMcpSpecsFolder,
+	isNaoInternalMcpPath,
+	listNaoInternalMcpFolder,
+	naoInternalMcpFolderEntry,
+} from '../../services/nao-internal-mcp';
+import {
 	assertProjectContextPathAllowed,
 	isDocsProjectPath,
-	isProjectContextPathAllowed,
+	isProjectContextPathRenderAllowed,
 } from '../../services/project-context-path-access.service';
 import { toProjectPathError } from '../../services/project-path-error.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
+import { listStoryLibrary } from '../../services/story-library';
 import { isCustomStoriesEnabled, listStoryMount } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoryLibraryPath, STORY_LIBRARY_MOUNT, toStoryLibraryVirtualPath } from '../../utils/story-library';
 import { isStoriesPath, STORIES_MOUNT, toStoriesVirtualPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
@@ -39,12 +48,27 @@ export default createTool<list.Input, list.Output>({
 
 const listAnywhere = (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	if (isStoriesPath(virtualPath)) {
-		return listStoryMount(context.chatId, virtualPath);
+		return listStoryMount(context, virtualPath);
+	}
+	if (isStoryLibraryPath(virtualPath)) {
+		return listStoryLibrary(context, virtualPath);
 	}
 	if (isStoragePath(virtualPath)) {
 		return listStorage(virtualPath, context);
 	}
+	if (isNaoInternalMcpPath(virtualPath)) {
+		return listNaoInternalMcpFolder(context, virtualPath);
+	}
+	if (isMcpSpecsFolder(virtualPath) && hasNaoInternalMcpTools(context)) {
+		return listMcpSpecsFolder(virtualPath, context);
+	}
 	return listProjectFolder(virtualPath, context);
+};
+
+/** nao's own server shows up next to the project's, even in a project that declares none. */
+const listMcpSpecsFolder = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
+	const projectServers = await listProjectFolder(virtualPath, context).catch(() => []);
+	return [...projectServers, naoInternalMcpFolderEntry()];
 };
 
 const listStorage = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
@@ -136,13 +160,13 @@ async function readProjectDirectory(realPath: string, virtualPath: string, conte
 function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
 	try {
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind);
+		return isProjectContextPathRenderAllowed(context, virtualPath, canonical.virtualPath, kind);
 	} catch {
 		return false;
 	}
 }
 
-/** Permanent storage and custom stories show up as ordinary folders at the root of the tree. */
+/** Permanent storage, custom stories's files and story library show up as ordinary folders at the root of the tree. */
 const mountEntries = (): list.Entry[] => {
 	return [
 		...(isStorageEnabled()
@@ -151,5 +175,6 @@ const mountEntries = (): list.Entry[] => {
 		...(isCustomStoriesEnabled()
 			? [{ path: toStoriesVirtualPath(), name: STORIES_MOUNT, type: 'directory' as const }]
 			: []),
+		{ path: toStoryLibraryVirtualPath(), name: STORY_LIBRARY_MOUNT, type: 'directory' as const },
 	];
 };

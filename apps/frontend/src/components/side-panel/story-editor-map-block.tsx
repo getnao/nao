@@ -6,7 +6,7 @@ import { StoryMapEmbed } from './story-map-embed';
 import { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-drag';
 import { decodeFromAttr } from './story-editor-utils';
 import type { ReactNodeViewProps } from '@tiptap/react';
-import { StoryMapFrame } from '@/components/story-block';
+import { mapBlockReference, StoryMapFrame } from '@/components/story-block';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 
 function MapBlockView({ node, editor, getPos, updateAttributes }: ReactNodeViewProps) {
@@ -41,7 +41,7 @@ function MapBlockView({ node, editor, getPos, updateAttributes }: ReactNodeViewP
 			<div className='group relative my-2'>
 				<StoryBlockDropZones node={node} editor={editor} getPos={getPos} />
 				<EditorStoryMapEditProvider onReplaceTag={handleReplaceTag}>
-					<StoryMapFrame>
+					<StoryMapFrame block={mapBlockReference(map)}>
 						<StoryMapEmbed
 							map={map}
 							dragHandle={<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />}

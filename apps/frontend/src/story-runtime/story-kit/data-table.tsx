@@ -46,8 +46,20 @@ const PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export function DataTable(props: DataTableProps) {
-	const { queryId, data, columns, maxRows, maxHeight = 420, conditionalFormats, ...block } = props;
-	const source = useBlockData({ queryId, data });
+	const {
+		queryId,
+		data,
+		sql,
+		databaseId,
+		filters,
+		params,
+		columns,
+		maxRows,
+		maxHeight = 420,
+		conditionalFormats,
+		...block
+	} = props;
+	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const editingEnabled = useStoryEditing();
 	const [fullscreen, setFullscreen] = useState(false);
 	const title = block.title ?? 'table';

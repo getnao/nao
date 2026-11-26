@@ -6,19 +6,23 @@ import os from 'os';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { createRulesPathMatcher, renderRootRulesForAgent } from '../../services/agent-visible-project-file.service';
 import {
-	getAgentVisibleRulesView,
-	isAgentVisibleRootRulesPath,
-} from '../../services/agent-visible-project-file.service';
+	isMcpSpecsFolder,
+	isNaoInternalMcpPath,
+	listNaoInternalMcpSpecFilesUnder,
+} from '../../services/nao-internal-mcp';
 import {
 	assertProjectContextPathAllowed,
 	isProjectContextPathAllowed,
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
+import { storyLibraryFileBatchesToGrep } from '../../services/story-library';
 import { isCustomStoriesEnabled, listStoryMountFilesToGrep } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { getRipgrepPath } from '../../utils/ripgrep';
+import { isStoryLibraryPath } from '../../utils/story-library';
 import { isStoriesPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
@@ -77,6 +81,8 @@ export default createTool<grep.Input, grep.Output>({
 		const results = await Promise.all([
 			...targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
 			searchStories(rgPath, { ...options, max_results }, context),
+			searchStoryLibrary(rgPath, { ...options, max_results }, context),
+			searchNaoInternalMcp(rgPath, { ...options, max_results }, context),
 		]);
 
 		const totalMatches = results.reduce((total, result) => total + result.totalMatches, 0);
@@ -95,7 +101,7 @@ export default createTool<grep.Input, grep.Output>({
 
 /** Disk targets ripgrep walks; a search without a path covers the whole tree, permanent storage included. */
 const resolveTargets = (searchPath: string | undefined, context: ToolContext): SearchTarget[] => {
-	if (isStoriesPath(searchPath)) {
+	if (isStoriesPath(searchPath) || isStoryLibraryPath(searchPath) || isNaoInternalMcpPath(searchPath)) {
 		return [];
 	}
 	if (isStoragePath(searchPath)) {
@@ -115,8 +121,8 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 	const root = searchPath
 		? resolveCanonicalProjectPath(searchPath, projectFolder)
 		: { realPath: canonicalRoot, virtualPath: '/' };
-	let cachedRulesView: SearchRulesView | null | undefined;
-	let rulesViewLoaded = false;
+	const isRulesPath = createRulesPathMatcher(projectFolder);
+	const rulesViews = new Map<string, SearchRulesView | null>();
 	if (searchPath && fs.existsSync(root.realPath)) {
 		const kind = fs.statSync(root.realPath).isDirectory() ? 'directory' : 'file';
 		assertProjectContextPathAllowed(context, searchPath, root.virtualPath, kind);
@@ -137,27 +143,29 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 		toAbsolutePath: (displayPath) => resolveCanonicalProjectPath(displayPath, projectFolder).realPath,
 		isAllowedDisplayPath: () => true,
 		getRulesView: (displayPath) => {
-			if (!isAgentVisibleRootRulesPath(displayPath)) {
+			if (!isRulesPath(displayPath)) {
 				return undefined;
 			}
-			if (!rulesViewLoaded) {
-				rulesViewLoaded = true;
-				try {
-					const canonical = resolveCanonicalProjectPath(displayPath, projectFolder);
-					const rendered = getAgentVisibleRulesView(
-						canonical.virtualPath,
-						fs.readFileSync(canonical.realPath, 'utf-8'),
-						context,
-					);
-					cachedRulesView = rendered ? toSearchRulesView(rendered) : null;
-				} catch {
-					cachedRulesView = null;
-				}
+			if (!rulesViews.has(displayPath)) {
+				rulesViews.set(displayPath, loadRulesView(displayPath, context));
 			}
-			return cachedRulesView;
+			return rulesViews.get(displayPath) ?? null;
 		},
 	};
 };
+
+function loadRulesView(displayPath: string, context: ToolContext): SearchRulesView | null {
+	try {
+		const canonical = resolveCanonicalProjectPath(displayPath, context.projectFolder);
+		const rendered = renderRootRulesForAgent(
+			fs.readFileSync(canonical.realPath, 'utf-8'),
+			context.userRulesGroupAccess,
+		);
+		return rendered ? toSearchRulesView(rendered) : null;
+	} catch {
+		return null;
+	}
+}
 
 function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string, context: ToolContext): string | null {
 	try {
@@ -175,10 +183,7 @@ function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string
 	}
 }
 
-/**
- * Custom story drafts live in the database: they are copied to a temporary folder so ripgrep
- * searches them with the same regex engine and syntax as every other file.
- */
+/** Custom story files are searched when the path targets the stories mount. */
 const searchStories = async (
 	rgPath: string,
 	options: grep.Input & { max_results: number },
@@ -188,7 +193,55 @@ const searchStories = async (
 	if (!covered || !isCustomStoriesEnabled()) {
 		return { matches: [], totalMatches: 0 };
 	}
-	const files = await listStoryMountFilesToGrep(context.chatId, options.path, options.glob);
+	const files = await listStoryMountFilesToGrep(context, options.path, options.glob);
+	return searchVirtualFiles(rgPath, files, options);
+};
+
+/**
+ * The library spans every story the user can see in the project, so it is only searched when the
+ * path targets it: a pathless grep stays focused on the project context.
+ */
+const searchStoryLibrary = async (
+	rgPath: string,
+	options: grep.Input & { max_results: number },
+	context: ToolContext,
+): Promise<TargetResult> => {
+	if (!isStoryLibraryPath(options.path)) {
+		return { matches: [], totalMatches: 0 };
+	}
+	const results: TargetResult[] = [];
+	for await (const files of storyLibraryFileBatchesToGrep(context, options.path!, options.glob)) {
+		results.push(await searchVirtualFiles(rgPath, files, options));
+	}
+	return {
+		matches: results.flatMap((result) => result.matches),
+		totalMatches: results.reduce((total, result) => total + result.totalMatches, 0),
+	};
+};
+
+/** The specs of nao's own server live in memory: they are searched when the path targets them or the MCP folder. */
+const searchNaoInternalMcp = async (
+	rgPath: string,
+	options: grep.Input & { max_results: number },
+	context: ToolContext,
+): Promise<TargetResult> => {
+	const searchPath = options.path;
+	if (!searchPath || !(isNaoInternalMcpPath(searchPath) || isMcpSpecsFolder(searchPath))) {
+		return { matches: [], totalMatches: 0 };
+	}
+	const files = await listNaoInternalMcpSpecFilesUnder(context, searchPath, options.glob);
+	return searchVirtualFiles(rgPath, files, options);
+};
+
+/**
+ * Stories live in the database: their files are copied to a temporary folder so ripgrep
+ * searches them with the same regex engine and syntax as every other file.
+ */
+const searchVirtualFiles = async (
+	rgPath: string,
+	files: { virtualPath: string; content: string }[],
+	options: grep.Input & { max_results: number },
+): Promise<TargetResult> => {
 	if (files.length === 0) {
 		return { matches: [], totalMatches: 0 };
 	}

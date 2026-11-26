@@ -98,8 +98,10 @@ def sync_semantic_layer(
         shutil.copy2(source_manifest, manifest_copy)
 
     _write_metric_docs(output_path / METRICS_DIR, metrics)
-    (output_path / DIMENSIONS_FILENAME).write_text(render_dimensions_index(dimensions))
-    (output_path / README_FILENAME).write_text(render_readme(semantic_layer, len(metrics), len(dimensions)))
+    (output_path / DIMENSIONS_FILENAME).write_text(render_dimensions_index(dimensions), encoding="utf-8")
+    (output_path / README_FILENAME).write_text(
+        render_readme(semantic_layer, len(metrics), len(dimensions)), encoding="utf-8"
+    )
     return metrics, dimensions
 
 
@@ -113,7 +115,7 @@ def _write_metric_docs(metrics_dir: Path, metrics: list[MetricInfo]) -> None:
         shutil.rmtree(metrics_dir)
     metrics_dir.mkdir(parents=True)
     for metric in metrics:
-        (metrics_dir / f"{metric.name}.md").write_text(render_metric_doc(metric))
+        (metrics_dir / f"{metric.name}.md").write_text(render_metric_doc(metric), encoding="utf-8")
 
 
 def render_metric_doc(metric: MetricInfo) -> str:
@@ -129,6 +131,9 @@ def render_metric_doc(metric: MetricInfo) -> str:
         lines.append(f"**Input metrics:** {', '.join(f'`{name}`' for name in metric.input_metrics)}  ")
     if metric.semantic_models:
         lines.append(f"**Semantic models:** {', '.join(f'`{name}`' for name in metric.semantic_models)}  ")
+
+    if metric.meta:
+        lines += ["", "## Meta", "", *_meta_bullets(metric.meta)]
 
     lines += ["", "## Dimensions", ""]
     lines.append(
@@ -152,6 +157,30 @@ def render_metric_doc(metric: MetricInfo) -> str:
     lines.append(json.dumps(_filtered_query_example(metric)))
     lines.append("```")
     return "\n".join(lines) + "\n"
+
+
+def _meta_bullets(meta: dict[str, Any], depth: int = 0) -> list[str]:
+    indent = "  " * depth
+    lines = []
+    for key in sorted(meta):
+        value = meta[key]
+        if isinstance(value, dict) and value:
+            lines += [f"{indent}- `{key}`:", *_meta_bullets(value, depth + 1)]
+        elif _is_list_of_structures(value):
+            lines += [f"{indent}- `{key}`:", *(f"{indent}  - {_meta_value(item)}" for item in value)]
+        else:
+            lines.append(f"{indent}- `{key}`: {_meta_value(value)}")
+    return lines
+
+
+def _is_list_of_structures(value: Any) -> bool:
+    return isinstance(value, list) and any(isinstance(item, (dict, list)) for item in value)
+
+
+def _meta_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True, ensure_ascii=False)
+    return " ".join(str(value).split())
 
 
 def _filtered_query_example(metric: MetricInfo) -> dict[str, Any]:

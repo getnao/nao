@@ -4,25 +4,9 @@ import { and, asc, count, desc, eq, gte, or, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import dbConfig, { Dialect } from '../db/dbConfig';
 import type { ProjectPaginationInput, SearchPaginationInput } from '../types/backoffice';
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
-
-export async function checkDatabaseConnection(): Promise<boolean> {
-	try {
-		if (dbConfig.dialect === Dialect.Postgres) {
-			await (db as unknown as { execute(query: ReturnType<typeof sql>): Promise<unknown> }).execute(
-				sql`select 1`,
-			);
-		} else {
-			await db.run(sql`select 1`);
-		}
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 export async function listOrganizations(input: SearchPaginationInput) {
 	const searchFilter = buildSearchFilter(input.search, s.organization.name, s.organization.slug);
@@ -53,7 +37,9 @@ export async function listOrganizations(input: SearchPaginationInput) {
 				googleAuthDomains: s.organization.googleAuthDomains,
 				bypassBilling: s.organization.bypassBilling,
 				license: s.organization.license,
+				deactivatedAt: s.organization.deactivatedAt,
 				billing: s.organizationBilling,
+				creditBalanceMicroUsd: s.creditWallet.balanceMicroUsd,
 				memberCount: memberCounts.count,
 				projectCount: projectCounts.count,
 				createdAt: s.organization.createdAt,
@@ -61,6 +47,7 @@ export async function listOrganizations(input: SearchPaginationInput) {
 			})
 			.from(s.organization)
 			.leftJoin(s.organizationBilling, eq(s.organizationBilling.orgId, s.organization.id))
+			.leftJoin(s.creditWallet, eq(s.creditWallet.orgId, s.organization.id))
 			.leftJoin(memberCounts, eq(memberCounts.orgId, s.organization.id))
 			.leftJoin(projectCounts, eq(projectCounts.orgId, s.organization.id))
 			.where(searchFilter)
@@ -80,7 +67,9 @@ export async function listOrganizations(input: SearchPaginationInput) {
 			hasGoogleSso: isSet(row.googleClientId) && isSet(row.googleClientSecret),
 			bypassBilling: row.bypassBilling,
 			license: row.license,
+			deactivatedAt: row.deactivatedAt,
 			billing: row.billing,
+			creditBalanceMicroUsd: Number(row.creditBalanceMicroUsd ?? 0),
 			memberCount: Number(row.memberCount ?? 0),
 			projectCount: Number(row.projectCount ?? 0),
 			createdAt: row.createdAt,
@@ -122,6 +111,7 @@ export async function getOrganizationProjects(orgId: string) {
 			type: s.project.type,
 			path: s.project.path,
 			memberCount: memberCounts.count,
+			deactivatedAt: s.project.deactivatedAt,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})
@@ -195,6 +185,7 @@ export async function listProjects(input: ProjectPaginationInput) {
 				memberCount: memberCounts.count,
 				messages30d: messageCounts.messages,
 				errors30d: messageCounts.errors,
+				deactivatedAt: s.project.deactivatedAt,
 				createdAt: s.project.createdAt,
 				updatedAt: s.project.updatedAt,
 			})
@@ -240,6 +231,7 @@ export async function getProjectForBackoffice(projectId: string) {
 			mattermostSettings: s.project.mattermostSettings,
 			whatsappSettings: s.project.whatsappSettings,
 			mcpEndpointSettings: s.project.mcpEndpointSettings,
+			deactivatedAt: s.project.deactivatedAt,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})

@@ -22,7 +22,9 @@ import {
 	modelInferenceSettingsSchema,
 	type ModelSettingsMap,
 } from '../types/llm';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
+import { holdsFileReference, resolveFileReferences } from './nao-config-references';
 
 export type ConfigProviderBudget = {
 	limitUsd: number;
@@ -81,6 +83,7 @@ const modelSchema = z.object({
 	name: z.string().optional(),
 	default: z.boolean().optional(),
 	costs: costsSchema.optional(),
+	context_window: z.number().int().positive().optional(),
 	settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -113,7 +116,7 @@ type RawProvider = z.infer<typeof providerSchema>;
  * sense of, so that callers fall back to the database and the environment.
  */
 export function readProjectConfigLlm(projectPath: string, extraEnv: Record<string, string> = {}): ConfigLlm | null {
-	const raw = loadLlmBlock(projectPath);
+	const raw = loadConfigBlock(projectPath, 'llm');
 	if (!raw) {
 		return null;
 	}
@@ -141,37 +144,48 @@ export function findConfigLlmProvider(config: ConfigLlm | null, provider: LlmPro
 	return config?.providers.find((candidate) => candidate.provider === provider) ?? null;
 }
 
-const rawCache = new Map<string, { mtimeMs: number; llm: unknown }>();
+const rawCache = new Map<string, { mtimeMs: number; block: unknown }>();
 
-/** Parse the config file, caching by modification time so hot paths only pay a stat. */
-function loadLlmBlock(projectPath: string): unknown {
+/**
+ * Read a top-level block of the config file, caching by modification time so hot paths only pay a stat. A block
+ * that reads other files through `from_file` is not cached, as they change without the config file changing.
+ */
+export function loadConfigBlock(projectPath: string, name: 'llm' | 'decision'): unknown {
 	const filePath = configPath(projectPath);
+	const cacheKey = `${name}:${filePath}`;
 
 	let mtimeMs: number;
 	try {
 		mtimeMs = fs.statSync(filePath).mtimeMs;
 	} catch {
-		rawCache.delete(filePath);
+		rawCache.delete(cacheKey);
 		return null;
 	}
 
-	const cached = rawCache.get(filePath);
+	const cached = rawCache.get(cacheKey);
 	if (cached?.mtimeMs === mtimeMs) {
-		return cached.llm;
+		return cached.block;
 	}
 
-	let llm: unknown = null;
+	let block: unknown = null;
+	let dependsOnOtherFiles = false;
 	try {
 		const config = yaml.load(fs.readFileSync(filePath, 'utf-8'));
-		llm = isRecord(config) ? (config.llm ?? null) : null;
+		const rawBlock = isRecord(config) ? (config[name] ?? null) : null;
+		dependsOnOtherFiles = holdsFileReference(rawBlock);
+		block = resolveFileReferences(rawBlock, projectPath);
 	} catch (err) {
 		logger.warn(`Failed to parse ${filePath}: ${err instanceof Error ? err.message : String(err)}`, {
 			source: 'system',
 		});
 	}
 
-	rawCache.set(filePath, { mtimeMs, llm });
-	return llm;
+	if (dependsOnOtherFiles) {
+		rawCache.delete(cacheKey);
+	} else {
+		rawCache.set(cacheKey, { mtimeMs, block });
+	}
+	return block;
 }
 
 /** Treat a single inline provider as the one entry of `providers`. */
@@ -253,7 +267,7 @@ function toCustomModel(model: z.infer<typeof modelSchema>): CustomModelMetadata[
 		...(model.costs.output !== undefined && { output: model.costs.output }),
 	};
 
-	if (!model.name && !costPerM) {
+	if (!model.name && !costPerM && !model.context_window) {
 		return [];
 	}
 
@@ -262,6 +276,7 @@ function toCustomModel(model: z.infer<typeof modelSchema>): CustomModelMetadata[
 			id: model.id,
 			...(model.name && { displayName: model.name }),
 			...(costPerM && Object.keys(costPerM).length > 0 && { costPerM }),
+			...(model.context_window && { contextWindow: model.context_window }),
 		},
 	];
 }
@@ -292,7 +307,7 @@ function toModelSettings(models: z.infer<typeof modelSchema>[]): ModelSettingsMa
  * the file. `aws(...)` and `k8s(...)` are resolved by the CLI only, so a value that still needs
  * them is dropped in favour of the environment.
  */
-function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
+export function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
 	if (typeof value !== 'string') {
 		return null;
 	}
@@ -303,7 +318,7 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 			resolvable = false;
 			return '';
 		}
-		return extraEnv[identifier] || process.env[identifier] || '';
+		return extraEnv[identifier] || getDeploymentEnvVar(identifier) || '';
 	});
 
 	return resolvable && resolved.trim() ? resolved : null;

@@ -1,37 +1,56 @@
 import type { InferUIMessageChunk } from 'ai';
 import { getToolName, isToolUIPart, readUIMessageStream } from 'ai';
 
-import { getTools } from '../agents/tools';
+import { automationAgent } from '../agents/profiles/automation';
 import { renderAutomationRunPrompt } from '../components/ai/automation-run-prompt';
 import type { DBAutomationRun, DBScheduledJob } from '../db/abstractSchema';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as userQueries from '../queries/user.queries';
-import { agentService } from '../services/agent';
+import { type AgentManager, agentService } from '../services/agent';
 import {
 	AUTOMATION_INTEGRATION_TOOL_NAMES,
 	type AutomationIntegrationToolName,
 	createAutomationTools,
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
+	type SlackChannelDelivery,
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import type { AutomationIntegrationResult } from '../types/automation';
+import type { AutomationIntegrationResult, AutomationRunTrigger, AutomationTriggerEvent } from '../types/automation';
 import type { UIMessage, UIMessagePart } from '../types/chat';
 import { logger } from '../utils/logger';
 
 export const AUTOMATION_JOB_NAME = 'automation.run';
 const STREAM_PERSIST_INTERVAL_MS = 1_000;
+const AUTOMATION_RUN_INTERRUPTED_MESSAGE = 'The automation run was interrupted because the server running it stopped.';
+const INTERRUPTED_AGENT_WAIT_MS = 5_000;
+
+interface RunningAutomation {
+	isInterrupted: boolean;
+	agent?: Pick<AgentManager, 'stop' | 'waitUntilFinished'>;
+}
+
+/** The automation runs in progress on this instance, by run id. Each gets its agent once its stream starts. */
+const runningAutomations = new Map<string, RunningAutomation>();
 
 type AutomationJobPayload = {
 	automationId?: string;
 };
 
+type IntegrationToolOutput = {
+	ok?: boolean;
+	url?: string;
+	deliveries?: SlackChannelDelivery[];
+};
+
 type RunAutomationOptions = {
+	trigger: AutomationRunTrigger;
 	billingAccessVerifiedProjectId?: string;
 	requireEnabled?: boolean;
+	triggerEvent?: AutomationTriggerEvent;
 };
 
 export async function automationHandler(payload: AutomationJobPayload, _job?: DBScheduledJob): Promise<void> {
@@ -46,6 +65,7 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	await runAutomation(automationId, {
 		billingAccessVerifiedProjectId: automation.projectId,
 		requireEnabled: true,
+		trigger: 'schedule',
 	});
 }
 
@@ -61,26 +81,37 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 	return automation.projectId;
 }
 
+/** Fails the automation runs of this instance and stops their agents, so a restart never leaves a run going. */
+export async function interruptRunningAutomations(): Promise<void> {
+	const interruptions = [...runningAutomations].map(([runId, running]) => interruptAutomationRun(runId, running));
+	const results = await Promise.allSettled(interruptions);
+	results
+		.filter((result) => result.status === 'rejected')
+		.forEach((result) =>
+			logger.error(`Failed to interrupt an automation run: ${String(result.reason)}`, { source: 'system' }),
+		);
+}
+
 export async function runAutomation(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
-	return finishAutomationRun(automation, run, billingAccessVerifiedProjectId);
+	const { automation, run } = await createAutomationRun(automationId, { requireEnabled, trigger });
+	return finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent });
 }
 
 export async function startAutomationRun(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
-	void finishAutomationRun(automation, run, billingAccessVerifiedProjectId).catch(() => undefined);
+	const { automation, run } = await createAutomationRun(automationId, { requireEnabled, trigger });
+	void finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent }).catch(() => undefined);
 	return run;
 }
 
 async function createAutomationRun(
 	automationId: string,
-	requireEnabled: boolean,
+	{ requireEnabled, trigger }: { requireEnabled: boolean; trigger: AutomationRunTrigger },
 ): Promise<{ automation: AutomationWithSchedule; run: DBAutomationRun }> {
 	const automation = await automationQueries.getAutomationById(automationId);
 	if (!automation) {
@@ -91,7 +122,9 @@ async function createAutomationRun(
 	}
 	const run = await automationQueries.createAutomationRun({
 		automationId,
+		llmConfigId: automation.llmConfigId,
 		status: 'running',
+		trigger,
 		integrationResults: [],
 	});
 
@@ -101,9 +134,14 @@ async function createAutomationRun(
 async function finishAutomationRun(
 	automation: AutomationWithSchedule,
 	run: DBAutomationRun,
-	billingAccessVerifiedProjectId: string | undefined,
+	{
+		billingAccessVerifiedProjectId,
+		triggerEvent,
+	}: Pick<RunAutomationOptions, 'billingAccessVerifiedProjectId' | 'triggerEvent'>,
 ): Promise<DBAutomationRun> {
 	const automationId = automation.id;
+	const running: RunningAutomation = { isInterrupted: false };
+	runningAutomations.set(run.id, running);
 	try {
 		const automationUser = await userQueries.getUser({ id: automation.userId });
 		if (!automationUser) {
@@ -121,8 +159,9 @@ async function finishAutomationRun(
 					prompt: automation.prompt,
 					integrations: automation.integrations,
 					userEmail: automationUser.email,
+					triggerEvent,
 				}),
-				source: 'web',
+				source: 'automation',
 			},
 		);
 		await automationQueries.attachRunChat(run.id, chat.id);
@@ -139,39 +178,27 @@ async function finishAutomationRun(
 
 		const githubToken = await userQueries.getGithubToken(automation.userId);
 		const expectedTools = getAutomationIntegrationToolNames(automation.integrations);
+		const integrationTools = createAutomationTools({
+			automationId: automation.id,
+			currentRunId: run.id,
+			projectId: automation.projectId,
+			chatId: chat.id,
+			githubToken,
+			integrations: automation.integrations,
+		});
 		const agent = await agentService.create(
 			{ ...uiChat, userId: automation.userId, projectId: automation.projectId },
 			automation.modelProvider && automation.modelId
-				? { provider: automation.modelProvider, modelId: automation.modelId }
+				? {
+						provider: automation.modelProvider,
+						modelId: automation.modelId,
+						...(automation.llmConfigId && { llmConfigId: automation.llmConfigId }),
+					}
 				: undefined,
-			{
-				billingAccessVerifiedProjectId,
-				excludeFollowUps: true,
-				supportsCustomCharts: false,
-				tools: ({ agentSettings, toolContext, webTools }) =>
-					getTools(
-						agentSettings,
-						{
-							...(webTools ?? {}),
-							...createAutomationTools({
-								automationId: automation.id,
-								currentRunId: run.id,
-								projectId: automation.projectId,
-								chatId: chat.id,
-								githubToken,
-								integrations: automation.integrations,
-							}),
-						},
-						{
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers,
-							mcpAccess: toolContext.mcpAccess,
-							excludeFollowUps: true,
-							semanticLayerMode: toolContext.semanticLayerMode,
-						},
-					),
-			},
+			automationAgent(automation, integrationTools),
+			{ billingAccessVerifiedProjectId },
 		);
+		await automationQueries.setRunLlmConfig(run.id, agent.getModelSelection().llmConfigId ?? null);
 
 		logger.info('Automation run starting', {
 			source: 'system',
@@ -181,8 +208,12 @@ async function finishAutomationRun(
 
 		// Persist partial UIMessage snapshots while draining server-side so users
 		// can open the automation chat and see progress before the stream finishes.
+		if (running.isInterrupted) {
+			throw new Error(AUTOMATION_RUN_INTERRUPTED_MESSAGE);
+		}
+		running.agent = agent;
 		const stream = agent.stream(uiChat.messages, { timezone: automation.timezone ?? undefined });
-		await drainAndPersistStream(stream, chat.id);
+		await drainAndPersistStream(stream, chat.id, () => agent.isStopped);
 
 		const messages = await chatQueries.getChatMessages(chat.id);
 		const assistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -230,16 +261,54 @@ async function finishAutomationRun(
 			});
 		}
 		throw err;
+	} finally {
+		runningAutomations.delete(run.id);
 	}
 }
 
+/**
+ * Fails the run before stopping its agent, so the failure of the cut agent loop never replaces the reason.
+ * A run still setting up sees the flag and never starts its agent.
+ */
+async function interruptAutomationRun(runId: string, running: RunningAutomation): Promise<void> {
+	running.isInterrupted = true;
+	try {
+		await automationQueries.failAutomationRun(runId, AUTOMATION_RUN_INTERRUPTED_MESSAGE);
+	} finally {
+		running.agent?.stop();
+		await waitForAgentToSettle(runId, running.agent);
+	}
+}
+
+async function waitForAgentToSettle(runId: string, agent: RunningAutomation['agent']): Promise<void> {
+	if (!agent) {
+		return;
+	}
+	let timer: NodeJS.Timeout | undefined;
+	const deadline = new Promise<'timeout'>((resolve) => {
+		timer = setTimeout(() => resolve('timeout'), INTERRUPTED_AGENT_WAIT_MS).unref();
+	});
+	const outcome = await Promise.race([agent.waitUntilFinished(), deadline]);
+	clearTimeout(timer);
+	if (outcome === 'timeout') {
+		logger.error('An interrupted automation agent did not save its answer in time', {
+			source: 'system',
+			context: { runId },
+		});
+	}
+}
+
+/** Stops saving snapshots once the agent is stopped, since the agent then saves the settled answer itself. */
 async function drainAndPersistStream(
 	stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 	chatId: string,
+	isStopped: () => boolean,
 ): Promise<void> {
 	const persistence = createStreamPersistence(chatId);
 	for await (const message of readUIMessageStream<UIMessage>({ stream })) {
-		await persistence.persist(message);
+		if (!isStopped()) {
+			await persistence.persist(message);
+		}
 	}
 }
 
@@ -282,11 +351,21 @@ function extractIntegrationResults(parts: UIMessagePart[]): AutomationIntegratio
 		if (!isAutomationIntegrationTool(name)) {
 			return [];
 		}
-		const output = part.state === 'output-available' ? (part.output as { ok?: boolean; url?: string }) : undefined;
+		const output = part.state === 'output-available' ? (part.output as IntegrationToolOutput) : undefined;
+		const type = integrationTypeFromTool(name);
+		if (output?.deliveries) {
+			return output.deliveries.map((delivery) => ({
+				type,
+				label: name,
+				ok: delivery.ok,
+				message: delivery.error,
+				destination: delivery.channel,
+			}));
+		}
 		const ok = part.state === 'output-error' ? false : output?.ok !== false;
 		return [
 			{
-				type: integrationTypeFromTool(name),
+				type,
 				label: name,
 				ok,
 				url: output?.url,

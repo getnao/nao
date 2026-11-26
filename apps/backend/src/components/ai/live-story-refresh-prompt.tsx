@@ -14,10 +14,12 @@ export function LiveStoryRefreshPrompt({
 	title,
 	originalCode,
 	querySummaries,
+	allowDisplayCopyChanges = false,
 }: {
 	title: string;
 	originalCode: string;
 	querySummaries: QuerySummary[];
+	allowDisplayCopyChanges?: boolean;
 }) {
 	return (
 		<Block>
@@ -30,11 +32,23 @@ export function LiveStoryRefreshPrompt({
 
 			<Title level={2}>Rules</Title>
 			<List>
-				<ListItem>Preserve every heading exactly as written.</ListItem>
-				<ListItem>
-					Preserve every {'<chart ... />'}, {'<table ... />'}, {'<grid ...>'}, {'</grid>'}, {'<tab ...>'}, and{' '}
-					{'</tab>'} tag exactly as written and in the same order.
-				</ListItem>
+				{allowDisplayCopyChanges ? (
+					<>
+						<ListItem>Rewrite headings using only the provided query summaries.</ListItem>
+						<ListItem>
+							You may rewrite human-readable titles and labels in story tags, but preserve their data
+							bindings and configuration.
+						</ListItem>
+					</>
+				) : (
+					<>
+						<ListItem>Preserve every heading exactly as written.</ListItem>
+						<ListItem>
+							Preserve every {'<chart ... />'}, {'<table ... />'}, {'<grid ...>'}, {'</grid>'},{' '}
+							{'<tab ...>'}, and {'</tab>'} tag exactly as written and in the same order.
+						</ListItem>
+					</>
+				)}
 				<ListItem>
 					Do not add, remove, or reorder structural blocks. Try to keep the formatting as close as possible to
 					the original story (bold, italic, etc.).

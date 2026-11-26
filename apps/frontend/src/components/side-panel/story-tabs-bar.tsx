@@ -171,7 +171,7 @@ export function StoryTabsBar({
 				}
 			}}
 		>
-			<div className='pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border' />
+			<div className='nao-story-tabs__rule pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border' />
 			<div
 				className={cn(
 					'flex min-h-10 items-end gap-1 overflow-x-auto pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
@@ -196,7 +196,7 @@ export function StoryTabsBar({
 							}}
 							data-story-block-drop-target={externalDropIndex === index ? '' : undefined}
 							className={cn(
-								'group/tab flex h-9 shrink-0 cursor-pointer items-center rounded-t-md border border-transparent transition-[color,background-color,transform,opacity]',
+								'nao-story-tabs__tab group/tab flex h-9 shrink-0 cursor-pointer items-center rounded-t-md border border-transparent transition-[color,background-color,transform,opacity]',
 								index === activeIndex
 									? 'relative z-10 border-border border-b-0 bg-background text-foreground'
 									: 'text-muted-foreground hover:bg-background/50 hover:text-foreground',

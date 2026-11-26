@@ -21,6 +21,17 @@ const optionalNonEmptyString = z
 	.optional()
 	.transform((value) => value?.trim() || undefined);
 
+function parseCommaSeparatedList(value: string | undefined): string[] {
+	return (value ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
+function blankToUndefined(value: unknown): unknown {
+	return typeof value === 'string' && value.trim() === '' ? undefined : value;
+}
+
 const emittedDeprecationWarnings = new Set<string>();
 
 function resolveOidcGroupNaoRoleMapping(
@@ -125,11 +136,26 @@ const baseRawEnvSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	/**
+	 * GitHub access token every project commits, pushes and opens pull requests with, as when an admin saves one in
+	 * Settings > Git. It takes over from a saved token, and nao Cloud ignores it, as each project saves its own.
+	 */
+	GITHUB_ACCESS_TOKEN: optionalNonEmptyString,
 	GITHUB_SSO: z
 		.enum(['true', 'false'])
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	GITHUB_BASE_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_BASE_URL must be a valid URL' }).optional()),
+	GITHUB_API_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_API_URL must be a valid URL' }).optional()),
 
 	GITLAB_CLIENT_ID: z.string().optional(),
 	GITLAB_CLIENT_SECRET: z.string().optional(),
@@ -149,6 +175,12 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'GITLAB_REDIRECT_URI must be a valid URL' }).optional()),
+
+	CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((value) => value === 'true'),
 
 	CLOUD_GITHUB_PROJECT_ORG: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_APP_ID: optionalNonEmptyString,
@@ -195,6 +227,10 @@ const baseRawEnvSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_PROMPT: z.preprocess(
+		blankToUndefined,
+		z.enum(['select_account', 'login', 'consent', 'none', 'omit']).optional(),
+	),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
 	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
@@ -207,12 +243,21 @@ const baseRawEnvSchema = z.object({
 		}),
 	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
-	SMTP_PASSWORD: z.string().optional(),
-	SMTP_HOST: z.string().optional(),
-	SMTP_PORT: z.string().optional(),
-	SMTP_USER: z.string().optional(),
-	SMTP_MAIL_FROM: z.string().optional(),
-	SMTP_SSL: z.enum(['true', 'false']).optional(),
+	SMTP_PASSWORD: z
+		.string()
+		.optional()
+		.transform((value) => value || undefined),
+	SMTP_HOST: optionalNonEmptyString,
+	SMTP_PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65_535).default(587)),
+	SMTP_USER: optionalNonEmptyString,
+	SMTP_MAIL_FROM: optionalNonEmptyString,
+	SMTP_SSL: z.preprocess(
+		blankToUndefined,
+		z
+			.enum(['true', 'false'])
+			.default('false')
+			.transform((value) => value === 'true'),
+	),
 
 	/**
 	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack
@@ -241,7 +286,17 @@ const baseRawEnvSchema = z.object({
 	APP_BUILD_DATE: z.string().default(''),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
+	/**
+	 * Comma-separated project paths a self-hosted instance starts with, shown in the project selector.
+	 * Loading more than one project requires the Enterprise `multi-project` feature.
+	 */
+	NAO_PROJECT_PATHS: z
+		.string()
+		.optional()
+		.transform((val) => parseCommaSeparatedList(val)),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
+	/** `shadow` reports excess calls as security signals without refusing them. Defaults to `shadow` on cloud, `off` elsewhere. */
+	NAO_RATE_LIMIT_MODE: z.enum(['off', 'shadow', 'enforce']).optional(),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
 	NAO_BACKOFFICE_API_KEY: z
@@ -249,6 +304,7 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.string().min(32).optional()),
+	NAO_MANAGED_OPENAI_API_KEY: optionalNonEmptyString,
 	NAO_CORE_VERSION: z.string().optional(),
 	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
 	NAO_CONTEXT_GIT_URL: z.string().optional(),
@@ -257,6 +313,15 @@ const baseRawEnvSchema = z.object({
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+	/**
+	 * Set to false to turn off branch management of the repositories `nao sync` copies into the context: their branches
+	 * can no longer be picked in the Context Hub changes or tested. Their files stay in the context.
+	 */
+	NAO_CONTEXT_SYNCED_REPOS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
 
 	CLOUD_BILLING_ENABLED: z
 		.enum(['true', 'false'])
@@ -275,11 +340,27 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 	STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: z
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
 	STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CREDIT_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: z
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
@@ -402,12 +483,7 @@ const baseRawEnvSchema = z.object({
 	DISABLED_PROVIDERS: z
 		.string()
 		.optional()
-		.transform((val) =>
-			(val ?? '')
-				.split(',')
-				.map((entry) => entry.trim())
-				.filter(Boolean),
-		)
+		.transform((val) => parseCommaSeparatedList(val))
 		.refine((providers) => providers.every(isLlmProvider), {
 			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
 		}),
@@ -425,6 +501,13 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional()),
+
+	OTEL_EXPORTER_OTLP_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL' }).optional()),
+	OTEL_SERVICE_NAME: z.string().default('nao'),
 
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])
@@ -465,8 +548,12 @@ const envSchema = rawEnvSchema
 				'STRIPE_SECRET_KEY',
 				'STRIPE_WEBHOOK_SECRET',
 				'STRIPE_CLOUD_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
 				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
 				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CREDIT_PRODUCT_ID',
+				'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
 			] as const) {
 				if (!data[variable]) {
 					ctx.addIssue({
@@ -512,7 +599,7 @@ const envSchema = rawEnvSchema
 			'CLOUD_GITHUB_PROJECT_PRIVATE_KEY',
 		] as const;
 		const managedGithubIsConfigured = fields.some((field) => !!data[field]);
-		if (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured) {
+		if (data.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING || (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured)) {
 			return;
 		}
 
@@ -549,6 +636,11 @@ if (!result.success) {
 
 if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	console.error('NAO_DEFAULT_PROJECT_PATH and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
+if (result.data.NAO_PROJECT_PATHS.length > 0 && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_PROJECT_PATHS and NAO_MODE=cloud cannot be set at the same time.');
 	process.exit(1);
 }
 
@@ -593,10 +685,21 @@ export function isCloudBillingEnabled(
 	return data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED;
 }
 
+export function isCloudWelcomeEmailEnabled(
+	data: Pick<
+		z.output<typeof baseRawEnvSchema>,
+		'NAO_MODE' | 'CLOUD_BILLING_ENABLED' | 'SMTP_HOST' | 'SMTP_MAIL_FROM' | 'SMTP_PASSWORD'
+	> = env,
+): boolean {
+	return isCloudBillingEnabled(data) && Boolean(data.SMTP_HOST && data.SMTP_MAIL_FROM && data.SMTP_PASSWORD);
+}
+
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
 
 const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+/** The public MCP origin (MCP_PUBLIC_URL without a trailing slash), when set. */
+export const MCP_PUBLIC_ORIGIN = normalizedMcpPublicUrl;
 /** The `/mcp` URL on the public host, when MCP_PUBLIC_URL is set. */
 export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
 /** OAuth resource identifiers the token endpoint accepts (RFC 8707 audiences). */
@@ -617,14 +720,19 @@ const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).h
  * on it, else BETTER_AUTH_URL — never an arbitrary Host header, so only known origins are advertised.
  */
 export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
-	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+	if (normalizedMcpPublicUrl && isMcpPublicHost(requestHost)) {
 		return normalizedMcpPublicUrl;
 	}
 	return normalizedBaseUrl;
 }
 
+/** Whether the request came in on the public MCP host (MCP_PUBLIC_URL). */
+export function isMcpPublicHost(requestHost: string | undefined): boolean {
+	return Boolean(mcpPublicHost && requestHost && requestHost.toLowerCase() === mcpPublicHost);
+}
+
 export function noProjectMessage(): string {
 	return isCloud
 		? 'No project configured. Create a project or ask your organization admin to add you to one.'
-		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.';
+		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH or NAO_PROJECT_PATHS environment variable.';
 }

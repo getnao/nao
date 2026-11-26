@@ -32,7 +32,7 @@ dependencies = [
     "packaging>=21.3",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
-    "cryptography>=46.0.3",
+    "cryptography>=44.0.1",
     "dotenv>=0.9.9",
     "python-dotenv>=1.2.1",
     "jinja2>=3.1.0",
@@ -55,14 +55,17 @@ dependencies = [
 # Database backends
 postgres = ["ibis-framework[postgres]>=9.0.0"]
 bigquery = ["ibis-framework[bigquery]>=9.0.0", "google-cloud>=0.34.0"]
-snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=4.2.0"]
+# 3.17 is the first connector to accept the lowercase programmatic_access_token authenticator.
+snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=3.17.0"]
 # duckdb>=1.5.2: earlier engines speak DuckLake catalog format 0.4 and refuse to
 # attach a 1.0 catalog outright, so a resolved 1.5.1 fails against any recent lake.
-duckdb = ["ibis-framework[duckdb]>=9.0.0", "duckdb>=1.5.2"]
+# duckdb<2: 2.0 removed DuckDBPyConnection.fetch_arrow_table, which ibis 12's DuckDB backend
+# still calls (ibis-project/ibis#12196). Lift once a released ibis supports duckdb 2.
+duckdb = ["ibis-framework[duckdb]>=9.0.0", "duckdb>=1.5.2,<2"]
 clickhouse = ["ibis-framework[clickhouse]>=9.0.0", "clickhouse-driver>=0.2.9"]
 databricks = ["ibis-framework[databricks]>=9.0.0", "certifi>=2024.0.0"]
 mysql = ["ibis-framework[mysql]>=9.0.0"]
-mssql = ["ibis-framework[mssql]>=9.0.0"]
+mssql = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
 athena = ["ibis-framework[athena]>=9.0.0"]
 trino = ["ibis-framework[trino]>=9.0.0"]
 redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0", "redshift-connector>=2.1.13"]
@@ -107,10 +110,18 @@ nao = "nao_core.main:main"
 
 [project.urls]
 Homepage = "https://getnao.io"
-Repository = "https://github.com/naolabs/chat"
+Repository = "https://github.com/getnao/nao"
+Issues = "https://github.com/getnao/nao/issues"
+Changelog = "https://github.com/getnao/nao/releases"
 
 [dependency-groups]
-dev = ["pytest>=9.0.2", "ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.8.0",
+    "ty>=0.0.9",
+    "nao-core[all]",
+    "watchfiles>=1.3.0",
+]
 
 [build-system]
 requires = ["hatchling"]

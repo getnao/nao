@@ -1,8 +1,7 @@
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
-import { type LlmProvider } from '@nao/shared/types';
+import { type LlmSelectedModel } from '@nao/shared/types';
 import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
-import { getContextWindow } from '../agents/providers';
 import { getTools } from '../agents/tools';
 import { SystemPrompt } from '../components/ai';
 import { renderToMarkdown } from '../lib/markdown';
@@ -14,11 +13,12 @@ import { memoryService } from '../services/memory';
 import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { tokenCounter } from '../services/token-counter';
 import type { ContextUsage, UIMessage } from '../types/chat';
+import { resolveContextWindow } from './llm';
 
 export async function getChatContextUsage(opts: {
 	chatId: string;
 	userId: string;
-	model?: { provider: LlmProvider; modelId: string };
+	model?: LlmSelectedModel;
 	projectId?: string;
 }): Promise<ContextUsage | null> {
 	const projectId = opts.projectId ?? (await chatQueries.getChatProjectId(opts.chatId));
@@ -36,7 +36,7 @@ export async function getChatContextUsage(opts: {
 	const toolTokens = await tokenCounter.estimateTools(tools);
 	return {
 		tokensUsed: messageTokens + toolTokens,
-		contextWindow: opts.model ? getContextWindow(opts.model.provider, opts.model.modelId) : null,
+		contextWindow: opts.model ? await resolveContextWindow(projectId, opts.model) : null,
 	};
 }
 
@@ -46,7 +46,9 @@ export async function getChatAsModelMessages(opts: {
 	projectId: string;
 	tools: Record<string, Tool>;
 }): Promise<ModelMessage[]> {
-	const uiMessages = markSupersededExecuteSqlParts(await chatQueries.getChatMessages(opts.chatId));
+	const uiMessages = markSupersededExecuteSqlParts(
+		await chatQueries.getChatMessages(opts.chatId, { queryResultPreviews: true }),
+	);
 	const [memories, artifacts] = await Promise.all([
 		memoryService.safeGetUserMemories(opts.userId, opts.projectId, opts.chatId),
 		safeGetChatArtifacts(opts.chatId, uiMessages, opts.projectId),

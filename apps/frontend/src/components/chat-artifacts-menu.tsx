@@ -1,18 +1,22 @@
-import { ChevronDown, Layers, Table2 } from 'lucide-react';
+import { AtSign, ChevronDown, Layers, Table2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { ChatArtifacts, FileArtifact, QueryArtifact } from '@/lib/chat-artifacts';
 import type { StorySummary } from '@/lib/story.utils';
+import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 
 import { AttachmentFileIcon } from '@/components/attachment-file-icon';
 import { AttachmentViewer } from '@/components/side-panel/attachment-viewer';
+import { useOpenStoryInSidePanel } from '@/components/side-panel/open-story-in-side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { Button } from '@/components/ui/button';
 import StoryIcon from '@/components/ui/story-icon';
 import { useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
+import { useOpenMentionedStory, useMentionedStories } from '@/hooks/use-mentioned-stories';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { areChatArtifactsEqual, collectChatArtifacts, countChatArtifacts } from '@/lib/chat-artifacts';
+import { revealToolCall } from '@/lib/tool-call-reveal';
 import { cn } from '@/lib/utils';
 
 /** Mirrors `max-w-3xl` on the conversation column. */
@@ -21,12 +25,12 @@ const CHAT_COLUMN_MAX_WIDTH = 768;
 const PANEL_WIDTH = 288;
 /** Right offset of the panel plus the breathing room kept from the chat column. */
 const PANEL_HORIZONTAL_MARGIN = 32;
-const REVEAL_HIGHLIGHT_CLASS = 'chat-artifact-reveal-highlight';
 
 interface ChatArtifactsMenuProps {
 	chatId: string;
 	chatColumnRef?: RefObject<HTMLElement | null>;
 	panelClassName?: string;
+	labelClassName?: string;
 }
 
 /**
@@ -36,16 +40,18 @@ interface ChatArtifactsMenuProps {
  * otherwise it collapses to a header pill the user can expand on demand.
  * The panel is absolutely positioned, so the header rendering the menu must be positioned.
  */
-export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: ChatArtifactsMenuProps) {
+export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName, labelClassName }: ChatArtifactsMenuProps) {
 	const [density] = useToolCallDensity();
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel } = useSidePanelActions();
 	const artifacts = useAgentMessagesSelector(collectChatArtifacts, areChatArtifactsEqual);
 	const showQueries = density !== 'compact';
-	const count = countChatArtifacts(artifacts, showQueries);
+	const mentionedStories = useMentionedStories(chatId, artifacts.mentionedStories);
+	const openMentionedStory = useOpenMentionedStory(useOpenStoryInSidePanel());
+	const count = countChatArtifacts(artifacts, showQueries) + mentionedStories.length;
 	const hasRoom = useHasRoomBesideChat(chatColumnRef);
 	const [isExpanded, setIsExpanded] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
-	const isDocked = hasRoom && artifacts.stories.length > 0;
+	const isDocked = hasRoom && artifacts.stories.length + mentionedStories.length > 0;
 	const isOpen = isDocked || isExpanded;
 
 	const collapse = useCallback(() => setIsExpanded(false), []);
@@ -66,12 +72,16 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 		openSidePanel(<StoryViewer chatId={chatId} storySlug={story.id} />, story.id);
 		setIsExpanded(false);
 	};
+	const openMentioned = (story: ResolvedStory) => {
+		openMentionedStory(story);
+		setIsExpanded(false);
+	};
 	const openFile = (file: FileArtifact) => {
 		openSidePanel(<AttachmentViewer path={file.path} fileName={file.filename} />);
 		setIsExpanded(false);
 	};
 	const revealQuery = (query: QueryArtifact) => {
-		scrollToToolCall(query.toolCallId);
+		revealToolCall(query.toolCallId);
 		setIsExpanded(false);
 	};
 
@@ -87,7 +97,7 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 					aria-label={`Library (${count})`}
 				>
 					<Layers className='size-3' strokeWidth={2.25} />
-					<span className='text-xs'>Library</span>
+					<span className={cn('text-xs', labelClassName)}>Library</span>
 					<span className='rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums'>{count}</span>
 					<ChevronDown className={cn('size-3 transition-transform', isOpen && 'rotate-180')} />
 				</Button>
@@ -102,8 +112,10 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 					{isDocked && <ArtifactsPanelHeading count={count} />}
 					<ChatArtifactsList
 						artifacts={artifacts}
+						mentionedStories={mentionedStories}
 						showQueries={showQueries}
 						onOpenStory={openStory}
+						onOpenMentionedStory={openMentioned}
 						onOpenFile={openFile}
 						onRevealQuery={revealQuery}
 					/>
@@ -125,29 +137,44 @@ function ArtifactsPanelHeading({ count }: { count: number }) {
 
 interface ChatArtifactsListProps {
 	artifacts: ChatArtifacts;
+	mentionedStories: ResolvedStory[];
 	showQueries: boolean;
 	onOpenStory: (story: StorySummary) => void;
+	onOpenMentionedStory: (story: ResolvedStory) => void;
 	onOpenFile: (file: FileArtifact) => void;
 	onRevealQuery: (query: QueryArtifact) => void;
 }
 
 export function ChatArtifactsList({
 	artifacts,
+	mentionedStories,
 	showQueries,
 	onOpenStory,
+	onOpenMentionedStory,
 	onOpenFile,
 	onRevealQuery,
 }: ChatArtifactsListProps) {
+	const storyCount = artifacts.stories.length + mentionedStories.length;
+
 	return (
 		<div className='flex max-h-96 flex-col gap-3 overflow-y-auto'>
-			{artifacts.stories.length > 0 && (
-				<ArtifactSection title='Stories' count={artifacts.stories.length}>
+			{storyCount > 0 && (
+				<ArtifactSection title='Stories' count={storyCount}>
 					{artifacts.stories.map((story) => (
 						<ArtifactItem
 							key={story.id}
 							icon={<StoryIcon className='size-3.5 text-foreground' strokeWidth={2.25} />}
 							label={story.title || story.id}
 							onClick={() => onOpenStory(story)}
+						/>
+					))}
+					{mentionedStories.map((story) => (
+						<ArtifactItem
+							key={story.storyId}
+							icon={<MentionedStoryIcon />}
+							label={story.title}
+							title='Mentioned in this chat'
+							onClick={() => onOpenMentionedStory(story)}
 						/>
 					))}
 				</ArtifactSection>
@@ -224,12 +251,23 @@ function ArtifactItem({ icon, label, detail, title, onClick }: ArtifactItemProps
 			type='button'
 			onClick={onClick}
 			title={title}
-			className='flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent'
+			className='group flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent'
 		>
 			<span className='shrink-0'>{icon}</span>
 			<span className='min-w-0 flex-1 truncate'>{label}</span>
 			{detail && <span className='shrink-0 text-xs text-muted-foreground'>{detail}</span>}
 		</button>
+	);
+}
+
+function MentionedStoryIcon() {
+	return (
+		<span className='relative flex'>
+			<StoryIcon className='size-3.5 text-foreground' strokeWidth={2.25} />
+			<span className='absolute -top-1 -right-1 flex size-2.5 items-center justify-center rounded-full text-foreground bg-background group-hover:bg-accent'>
+				<AtSign className='size-2' strokeWidth={3} />
+			</span>
+		</span>
 	);
 }
 
@@ -291,42 +329,4 @@ function describeQuery(query: QueryArtifact): string {
 	const rows = `${query.rowCount} ${query.rowCount === 1 ? 'row' : 'rows'}`;
 	const columns = `${query.columns.length} ${query.columns.length === 1 ? 'col' : 'cols'}`;
 	return `${rows} · ${columns}`;
-}
-
-function scrollToToolCall(toolCallId: string) {
-	const target = document.querySelector<HTMLElement>(`[data-replay-target-id="${CSS.escape(toolCallId)}"]`);
-	if (!target) {
-		return;
-	}
-
-	expandToolCall(target);
-	target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
-	highlightRevealedElement(target);
-}
-
-function expandToolCall(toolCall: HTMLElement) {
-	const trigger = toolCall.querySelector<HTMLButtonElement>('button[aria-expanded]');
-	if (trigger?.getAttribute('aria-expanded') === 'false') {
-		trigger.click();
-	}
-}
-
-function prefersReducedMotion(): boolean {
-	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-/** Re-adding the class after a reflow restarts the fade when the same element is revealed twice in a row. */
-function highlightRevealedElement(element: HTMLElement) {
-	element.classList.remove(REVEAL_HIGHLIGHT_CLASS);
-	void element.offsetWidth;
-	element.classList.add(REVEAL_HIGHLIGHT_CLASS);
-
-	const removeHighlight = (event: AnimationEvent) => {
-		if (event.target !== element) {
-			return;
-		}
-		element.classList.remove(REVEAL_HIGHLIGHT_CLASS);
-		element.removeEventListener('animationend', removeHighlight);
-	};
-	element.addEventListener('animationend', removeHighlight);
 }

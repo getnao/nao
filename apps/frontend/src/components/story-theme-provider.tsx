@@ -19,7 +19,7 @@ interface StoryThemeProviderProps {
 export function StoryThemeProvider({ theme, children, className }: StoryThemeProviderProps) {
 	useFontStylesheets(theme?.text.fontStylesheets ?? []);
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
-	const style = useMemo(() => (theme ? toReactStyle(storyThemeToCssVars(theme)) : undefined), [theme]);
+	const style = useStoryThemeStyle(theme);
 	const chartStyle = useMemo<ChartStyle>(
 		() => (theme ? { barRadius: theme.charts.barRadius } : DEFAULT_CHART_STYLE),
 		[theme],
@@ -41,6 +41,11 @@ export function StoryThemeProvider({ theme, children, className }: StoryThemePro
 			</div>
 		</ChartStyleContext.Provider>
 	);
+}
+
+/** The CSS variables of a story theme, for an element that sits outside the themed story content. */
+export function useStoryThemeStyle(theme: StoryTheme | null | undefined): CSSProperties | undefined {
+	return useMemo(() => (theme ? toReactStyle(storyThemeToCssVars(theme)) : undefined), [theme]);
 }
 
 export function useStoryThemeForCurrentMode(pair: StoryThemePair | null | undefined): StoryTheme | null {

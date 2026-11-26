@@ -1,20 +1,36 @@
+from typing import Any
 from unittest.mock import MagicMock
 
-from nao_core.config.databases.redshift import RedshiftConfig, RedshiftDatabaseContext
+import pytest
+
+from nao_core.config.databases.redshift import (
+    RedshiftAuthMode,
+    RedshiftConfig,
+    RedshiftDatabaseContext,
+    _RedshiftBackend,
+)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "requires_token", "has_sync_credentials"),
+    [
+        ({}, False, True),
+        ({"auth_mode": RedshiftAuthMode.AZURE_ENTRA_ID}, True, True),
+        ({"auth_mode": RedshiftAuthMode.AZURE_ENTRA_ID, "user": None, "password": None}, True, False),
+        ({"auth_mode": RedshiftAuthMode.IAM, "password": None, "region_name": "us-east-1"}, False, True),
+    ],
+)
+def test_user_access_token_mode(overrides: dict[str, Any], requires_token: bool, has_sync_credentials: bool):
+    cfg = _redshift_config(**overrides)
+
+    assert cfg.requires_user_access_token() is requires_token
+    assert cfg.has_sync_credentials() is has_sync_credentials
 
 
 def test_get_schemas_uses_datashare_visible_catalog_view():
-    cfg = RedshiftConfig(
-        name="rs",
-        host="redshift.example",
-        database="analytics",
-        user="alice",
-        password="secret",
-    )
+    cfg = _redshift_config()
     conn = MagicMock()
-    cursor = MagicMock()
-    cursor.fetchall.return_value = [("marts",), ("public",)]
-    conn.raw_sql.return_value = cursor
+    conn.raw_sql.return_value.fetchall.return_value = [("marts",), ("public",)]
 
     schemas = cfg.get_schemas(conn)
 
@@ -28,14 +44,7 @@ def test_get_schemas_uses_datashare_visible_catalog_view():
 
 
 def test_get_schemas_returns_configured_schema_without_querying():
-    cfg = RedshiftConfig(
-        name="rs",
-        host="redshift.example",
-        database="analytics",
-        user="alice",
-        password="secret",
-        schema_name="marts",
-    )
+    cfg = _redshift_config(schema_name="marts")
     conn = MagicMock()
 
     schemas = cfg.get_schemas(conn)
@@ -52,9 +61,7 @@ class TestRedshiftClusteringColumns:
 
     def test_returns_sortkey_columns_in_order(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.fetchall.return_value = [("customer_id",), ("created_at",)]
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchall.return_value = [("customer_id",), ("created_at",)]
 
         cols = ctx.clustering_columns()
 
@@ -66,9 +73,7 @@ class TestRedshiftClusteringColumns:
 
     def test_returns_empty_when_no_sortkeys(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.fetchall.return_value = []
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchall.return_value = []
 
         assert ctx.clustering_columns() == []
 
@@ -81,12 +86,135 @@ class TestRedshiftClusteringColumns:
     def test_escapes_single_quotes_in_identifiers(self):
         conn = MagicMock()
         ctx = RedshiftDatabaseContext(conn, "pub'lic", "or'ders")
-        cursor = MagicMock()
-        cursor.fetchall.return_value = []
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchall.return_value = []
 
         ctx.clustering_columns()
 
         sql = conn.raw_sql.call_args[0][0]
         assert "'pub''lic'" in sql
         assert "'or''ders'" in sql
+
+
+class TestRedshiftBackendListTables:
+    def test_adds_datashare_tables_to_local_tables(self):
+        backend = _catalog_backend({"svv_all_tables": [("orders",), ("shared_payments",), ("shared_accounts",)]})
+        backend.list_tables.return_value = ["orders"]
+
+        tables = _RedshiftBackend(backend).list_tables(database="marts")
+
+        assert tables == ["orders", "shared_accounts", "shared_payments"]
+        sql = _sql_containing(backend, "svv_all_tables")
+        assert "schema_name = 'marts'" in sql
+        assert "database_name = current_database()" in sql
+
+    def test_keeps_local_tables_when_catalog_view_fails(self):
+        backend = MagicMock()
+        backend.list_tables.return_value = ["orders"]
+        backend.raw_sql.side_effect = Exception("permission denied for svv_all_tables")
+
+        assert _RedshiftBackend(backend).list_tables(database="marts") == ["orders"]
+
+    @pytest.mark.parametrize(
+        ("catalog_columns", "expected"),
+        [
+            ([("id",), ("amount",)], ["id", "amount"]),
+            ([], ["local_id"]),
+        ],
+        ids=["datashare_catalog", "ibis_fallback"],
+    )
+    def test_lists_live_columns(self, catalog_columns, expected):
+        backend = _catalog_backend({"svv_all_columns": catalog_columns})
+        backend.table.return_value.schema.return_value.items.return_value = [("local_id", None)]
+
+        columns = _RedshiftBackend(backend).list_live_columns("payments", database="marts")
+
+        assert columns == expected
+        sql = _sql_containing(backend, "svv_all_columns")
+        assert "schema_name = 'marts'" in sql
+        assert "table_name = 'payments'" in sql
+
+    def test_delegates_other_attributes(self):
+        backend = MagicMock()
+
+        _RedshiftBackend(backend).disconnect()
+
+        backend.disconnect.assert_called_once()
+
+
+class TestRedshiftDatashareColumns:
+    @pytest.mark.parametrize(
+        ("local_rows", "all_rows", "expected"),
+        [
+            (
+                [("id", "integer", "NO", None, 32, 0)],
+                [("ignored", "integer", "NO", None, 32, 0, None)],
+                [("id", "int32 NOT NULL", None)],
+            ),
+            (
+                [],
+                [("amount", "double precision", "YES", None, 53, None, "Amount in cents ")],
+                [("amount", "float64", "Amount in cents")],
+            ),
+        ],
+        ids=["local_catalog", "datashare_fallback"],
+    )
+    def test_reads_columns_from_the_catalog_that_sees_the_table(self, local_rows, all_rows, expected):
+        conn = _catalog_backend({"information_schema.columns": local_rows, "svv_all_columns": all_rows})
+        ctx = RedshiftDatabaseContext(conn, "marts", "payments")
+
+        columns = ctx.columns()
+
+        assert [(col["name"], col["type"], col["description"]) for col in columns] == expected
+
+    def test_datashare_column_lookup_error_propagates(self):
+        conn = _catalog_backend({"information_schema.columns": []})
+        catalog_raw_sql = conn.raw_sql.side_effect
+
+        def raw_sql(query: str):
+            if "svv_all_columns" in query:
+                raise RuntimeError("permission denied for svv_all_columns")
+            return catalog_raw_sql(query)
+
+        conn.raw_sql.side_effect = raw_sql
+        ctx = RedshiftDatabaseContext(conn, "marts", "payments")
+
+        with pytest.raises(RuntimeError, match="permission denied for svv_all_columns"):
+            ctx.columns()
+        assert ctx.all_columns() is None
+
+    def test_table_description_falls_back_to_datashare_remarks(self):
+        conn = _catalog_backend({"pg_catalog.pg_description": [], "svv_all_tables": [("Payments shared by finance",)]})
+        ctx = RedshiftDatabaseContext(conn, "marts", "payments")
+
+        assert ctx.description() == "Payments shared by finance"
+
+
+def _catalog_backend(rows_by_source: dict[str, list[tuple]]) -> MagicMock:
+    conn = MagicMock()
+
+    def raw_sql(query: str) -> MagicMock:
+        rows = next((rows for source, rows in rows_by_source.items() if source in query), [])
+        result = MagicMock()
+        result.fetchall.return_value = rows
+        result.fetchone.return_value = rows[0] if rows else None
+        return result
+
+    conn.raw_sql.side_effect = raw_sql
+    return conn
+
+
+def _sql_containing(conn: MagicMock, fragment: str) -> str:
+    queries = [" ".join(call.args[0].split()) for call in conn.raw_sql.call_args_list]
+    return next(query for query in queries if fragment in query)
+
+
+def _redshift_config(**overrides: Any) -> RedshiftConfig:
+    fields: dict[str, Any] = {
+        "name": "rs",
+        "host": "redshift.example",
+        "database": "analytics",
+        "user": "alice",
+        "password": "secret",
+        **overrides,
+    }
+    return RedshiftConfig(**fields)

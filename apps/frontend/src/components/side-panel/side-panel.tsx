@@ -1,7 +1,7 @@
 import { memo, useEffect } from 'react';
 
 import { ResizableHandle } from '@/components/ui/resizable';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useSidePanelResize } from '@/hooks/use-side-panel-resize';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { cn } from '@/lib/utils';
@@ -12,7 +12,6 @@ type SidePanelProps = {
 	resizeHandleRef: React.RefObject<HTMLDivElement | null>;
 	children: React.ReactNode;
 	isAnimating: boolean;
-	chatPanelMinWidth?: number;
 	variant?: SidePanelVariant;
 	className?: string;
 };
@@ -30,13 +29,12 @@ export const SidePanel = memo(function SidePanel({
 	resizeHandleRef,
 	children,
 	isAnimating,
-	chatPanelMinWidth,
 	variant = 'floating',
 	className,
 }: SidePanelProps) {
 	const isMobile = useIsMobile();
-	const { close } = useSidePanel();
-	useSidePanelResize(sidePanelRef, containerRef, resizeHandleRef, !isAnimating && !isMobile, chatPanelMinWidth);
+	const { close } = useSidePanelActions();
+	useSidePanelResize(sidePanelRef, containerRef, resizeHandleRef, !isAnimating && !isMobile);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {

@@ -1,19 +1,24 @@
-import type { McpAccess, UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
+import type { McpAccess, UserGroupFeature, WarehouseColumnSecurity, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
-import type { displayChart, displayMap } from '@nao/shared/tools';
-import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
+import type { displayChart, displayMap, executeSemanticQuery } from '@nao/shared/tools';
+import type { LlmSelectedModel, SemanticLayerMode, StoryFormat } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
+import type { RunSqlQueryTag } from '../services/sql-query-tag.service';
 import type {
 	ResolvedDocsContextAccess,
 	ResolvedFilesContextAccess,
+	ResolvedSkillsAccess,
 } from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
+import type { PersonalSkill } from './user-skill';
 
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
-	compiledBySemanticLayer?: boolean;
+	accessDenied?: true;
+	/** Set when the semantic layer compiled the SQL from this metric query. */
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
 	/** The SQL as the model wrote it (filter templates included), set for results produced in the current run. */
 	sqlQuery?: string;
 	databaseId?: string;
@@ -34,6 +39,8 @@ export interface ToolContext {
 	agentSettings: AgentSettings | null;
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
 	modelSelection?: LlmSelectedModel;
+	usageRunId?: string;
+	managedAiBillingMode?: 'wallet' | 'unbilled';
 	/**
 	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
 	 * and the admin settings. Null (or absent) when the project declares no semantic layer.
@@ -41,21 +48,29 @@ export interface ToolContext {
 	semanticLayerMode?: SemanticLayerMode | null;
 	envVars: Record<string, string>;
 	warehouseTableAccess: WarehouseTableAccess;
+	warehouseColumnSecurity: WarehouseColumnSecurity;
 	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	filesContextAccess: ResolvedFilesContextAccess;
 	/** MCP servers and tools the user's groups grant; spec files of other servers are hidden too. */
 	mcpAccess: McpAccess;
+	/** Project skills the user's groups grant; files of other skills under agent/skills/ are hidden too. */
+	skillsAccess: ResolvedSkillsAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
 	/** Project skills the user's groups load in full into the system prompt. */
 	preloadedSkillNames?: string[];
+	/** The user's own skills, stored in nao rather than in the context files and offered to nobody else. */
+	personalSkills?: PersonalSkill[];
+	/** Whether the user may write personal skills, which gives the run the tools of nao's own MCP server. */
+	canManagePersonalSkills?: boolean;
 	/**
-	 * Database federation access token. Populated by the EE Microsoft/Azure AD
-	 * integration when the user signs in via Microsoft; always null in the
-	 * open-source edition.
+	 * The user's identity provider access token (Microsoft Entra ID or OIDC, EE only), forwarded to
+	 * warehouses that run queries as the signed-in user; always null in the open-source edition.
 	 */
-	azureAccessToken: string | null;
+	warehouseAccessToken: string | null;
+	/** The comment tagging every warehouse query of the run, null (or absent) when the project tags none. */
+	sqlQueryTag?: RunSqlQueryTag | null;
 	/**
 	 * In-memory cache for query results within a single agent run.
 	 * For queries from earlier turns in the same chat, prefer
@@ -69,9 +84,23 @@ export interface ToolContext {
 	 * project-scoped app-database views instead of the user's warehouse.
 	 */
 	adminMode?: boolean;
+	/** The story a quick question is about; the story tool edits it in its own chat when `canEdit`. */
+	linkedStory?: LinkedStory;
 }
 
-export type McpToolContext = Omit<ToolContext, 'chatId'> & {
+export type ChatlessToolContext = Omit<ToolContext, 'chatId'> & {
 	chatId: null;
+};
+
+export type McpToolContext = ChatlessToolContext & {
 	storyCreationEnabled?: boolean;
 };
+
+export interface LinkedStory {
+	storyId: string;
+	slug: string;
+	chatId: string;
+	title: string;
+	format: StoryFormat;
+	canEdit: boolean;
+}

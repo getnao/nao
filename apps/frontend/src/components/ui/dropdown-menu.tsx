@@ -22,6 +22,7 @@ function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof DropdownM
 function DropdownMenuContent({
 	className,
 	sideOffset = 4,
+	onPointerDownOutside,
 	...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
 	return (
@@ -29,6 +30,10 @@ function DropdownMenuContent({
 			<DropdownMenuPrimitive.Content
 				data-slot='dropdown-menu-content'
 				sideOffset={sideOffset}
+				onPointerDownOutside={(event) => {
+					keepPageTextUnselected(event);
+					onPointerDownOutside?.(event);
+				}}
 				className={cn(
 					'bg-background text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border p-1 shadow-lg min-w-36',
 					className,
@@ -136,7 +141,7 @@ function DropdownMenuLabel({
 		<DropdownMenuPrimitive.Label
 			data-slot='dropdown-menu-label'
 			data-inset={inset}
-			className={cn('px-2 py-1 text-xs text-muted-foreground/70 font-bold data-inset:pl-8', className)}
+			className={cn('px-2 py-1 text-xs text-muted-foreground/70 font-medium data-inset:pl-8', className)}
 			{...props}
 		/>
 	);
@@ -179,7 +184,7 @@ function DropdownMenuSubTrigger({
 			data-slot='dropdown-menu-sub-trigger'
 			data-inset={inset}
 			className={cn(
-				"focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-foreground relative flex w-full items-center gap-2 rounded-sm py-2 pr-2 pl-2 text-xs font-medium leading-none outline-hidden cursor-pointer select-none not-last:mb-[2px] data-disabled:pointer-events-none data-disabled:opacity-50 data-inset:pl-8 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+				"focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-foreground relative flex w-full items-center gap-2 rounded-sm py-2 pr-2 pl-2 text-xs font-medium leading-none outline-hidden cursor-pointer select-none not-last:mb-[2px] [&:has(+[data-radix-popper-content-wrapper]:last-child)]:mb-0 data-disabled:pointer-events-none data-disabled:opacity-50 data-inset:pl-8 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
 				className,
 			)}
 			{...props}
@@ -204,6 +209,18 @@ function DropdownMenuSubContent({
 			{...props}
 		/>
 	);
+}
+
+type PointerDownOutsideEvent = Parameters<
+	NonNullable<React.ComponentProps<typeof DropdownMenuPrimitive.Content>['onPointerDownOutside']>
+>[0];
+
+/** an open modal menu turns off pointer events on the page */
+function keepPageTextUnselected(event: PointerDownOutsideEvent) {
+	const { originalEvent } = event.detail;
+	if (originalEvent.target === document.documentElement) {
+		originalEvent.preventDefault();
+	}
 }
 
 export {

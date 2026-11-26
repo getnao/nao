@@ -85,6 +85,7 @@ export type StoryItem = {
 	storySlug?: string;
 	summary: StorySummary;
 	kpiPreviewData: QueryDataMap | null;
+	canShowThumbnail: boolean;
 	format: StoryFormat;
 	version: number;
 	isLive: boolean;
@@ -115,6 +116,21 @@ export type SharedStoryListItem = RouterOutputs['storyShare']['list'][number];
 export function getStoredSetting<T extends string>(key: string, allowed: T[], fallback: T): T {
 	const value = localStorage.getItem(key);
 	return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+export function getFolderSubtreeIds(rootFolderIds: string[], folders: FolderItem[]): Set<string> {
+	const result = new Set<string>();
+	const queue = [...rootFolderIds];
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+		result.add(current);
+		for (const folder of folders) {
+			if (folder.parentId === current) {
+				queue.push(folder.id);
+			}
+		}
+	}
+	return result;
 }
 
 export function isSystemFolder(folder: FolderItem): boolean {
@@ -187,6 +203,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+			canShowThumbnail: true,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -216,6 +233,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+			canShowThumbnail: true,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -246,6 +264,7 @@ export function buildStoryItems({
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
 				kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+				canShowThumbnail: story.canShowThumbnail,
 				format: story.format,
 				version: story.version,
 				isLive: story.isLive,

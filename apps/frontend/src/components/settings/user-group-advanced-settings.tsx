@@ -9,8 +9,10 @@ import { cn } from '@/lib/utils';
 interface UserGroupAdvancedSettingsProps {
 	showAllSettings: boolean;
 	onShowAllSettingsChange: (showAllSettings: boolean) => void;
+	advancedContextExplorer: boolean;
+	onAdvancedContextExplorerChange: (advancedContextExplorer: boolean) => void;
 	isDefaultGroup: boolean;
-	allUsersGroup: { id: string; showAllSettings: boolean } | null;
+	allUsersGroup: { id: string; showAllSettings: boolean; advancedContextExplorer: boolean } | null;
 }
 
 interface AccessSummaryRow {
@@ -22,13 +24,93 @@ interface AccessSummaryRow {
 export function UserGroupAdvancedSettings({
 	showAllSettings,
 	onShowAllSettingsChange,
+	advancedContextExplorer,
+	onAdvancedContextExplorerChange,
 	isDefaultGroup,
 	allUsersGroup,
 }: UserGroupAdvancedSettingsProps) {
 	const isCoveredByAllUsers = !isDefaultGroup && allUsersGroup?.showAllSettings === true;
+	const isContextExplorerCoveredByAllUsers = !isDefaultGroup && allUsersGroup?.advancedContextExplorer === true;
 	const membersSeeAllSettings = showAllSettings || isCoveredByAllUsers;
 	const summaryRows = useAccessSummaryRows(membersSeeAllSettings);
 
+	return (
+		<div className='flex flex-col gap-8'>
+			<ContextEditingSettings
+				advancedContextExplorer={advancedContextExplorer}
+				onAdvancedContextExplorerChange={onAdvancedContextExplorerChange}
+				isDefaultGroup={isDefaultGroup}
+				coveringAllUsersGroupId={isContextExplorerCoveredByAllUsers ? (allUsersGroup?.id ?? null) : null}
+			/>
+			<SettingsVisibility
+				showAllSettings={showAllSettings}
+				onShowAllSettingsChange={onShowAllSettingsChange}
+				isDefaultGroup={isDefaultGroup}
+				coveringAllUsersGroupId={isCoveredByAllUsers ? (allUsersGroup?.id ?? null) : null}
+				summaryRows={summaryRows}
+				membersSeeAllSettings={membersSeeAllSettings}
+			/>
+		</div>
+	);
+}
+
+function ContextEditingSettings({
+	advancedContextExplorer,
+	onAdvancedContextExplorerChange,
+	isDefaultGroup,
+	coveringAllUsersGroupId,
+}: {
+	advancedContextExplorer: boolean;
+	onAdvancedContextExplorerChange: (advancedContextExplorer: boolean) => void;
+	isDefaultGroup: boolean;
+	coveringAllUsersGroupId: string | null;
+}) {
+	return (
+		<div className='flex flex-col gap-5'>
+			<div>
+				<h3 className='text-sm font-medium'>Context editing</h3>
+				<p className='text-xs text-muted-foreground'>
+					Choose how members with the Context Admin role see the Context Hub. The doc view shows the tables,
+					docs and skills only, for people who do not work with files and branches.
+				</p>
+			</div>
+			<UserGroupSwitchRow
+				id='user-group-advanced-context-explorer'
+				label='Allow the file tree view'
+				description={
+					isDefaultGroup
+						? 'Applies to every context admin in the project. When off, they only get the doc view unless another of their groups turns this on.'
+						: 'Context admins in this group can switch the Context Hub to the file tree, with every file, branches and tests.'
+				}
+				checked={advancedContextExplorer}
+				onCheckedChange={onAdvancedContextExplorerChange}
+			/>
+			{coveringAllUsersGroupId && (
+				<CoveredByAllUsersNotice
+					allUsersGroupId={coveringAllUsersGroupId}
+					coveredSetting='gives the file tree view to every context admin'
+				/>
+			)}
+			<p className='text-xs text-muted-foreground'>Admins can always switch to the file tree.</p>
+		</div>
+	);
+}
+
+function SettingsVisibility({
+	showAllSettings,
+	onShowAllSettingsChange,
+	isDefaultGroup,
+	coveringAllUsersGroupId,
+	summaryRows,
+	membersSeeAllSettings,
+}: {
+	showAllSettings: boolean;
+	onShowAllSettingsChange: (showAllSettings: boolean) => void;
+	isDefaultGroup: boolean;
+	coveringAllUsersGroupId: string | null;
+	summaryRows: AccessSummaryRow[];
+	membersSeeAllSettings: boolean;
+}) {
 	return (
 		<div className='flex flex-col gap-5'>
 			<div>
@@ -49,7 +131,12 @@ export function UserGroupAdvancedSettings({
 				checked={showAllSettings}
 				onCheckedChange={onShowAllSettingsChange}
 			/>
-			{isCoveredByAllUsers && allUsersGroup && <CoveredByAllUsersNotice allUsersGroupId={allUsersGroup.id} />}
+			{coveringAllUsersGroupId && (
+				<CoveredByAllUsersNotice
+					allUsersGroupId={coveringAllUsersGroupId}
+					coveredSetting='already shows all settings to everyone'
+				/>
+			)}
 			<AccessSummary rows={summaryRows} showAllSettings={membersSeeAllSettings} />
 		</div>
 	);
@@ -92,10 +179,16 @@ function AccessSummary({ rows, showAllSettings }: { rows: AccessSummaryRow[]; sh
 	);
 }
 
-function CoveredByAllUsersNotice({ allUsersGroupId }: { allUsersGroupId: string }) {
+function CoveredByAllUsersNotice({
+	allUsersGroupId,
+	coveredSetting,
+}: {
+	allUsersGroupId: string;
+	coveredSetting: string;
+}) {
 	return (
 		<p className='rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground'>
-			All Users already shows all settings to everyone, so this toggle only takes effect once it is turned off for{' '}
+			All Users {coveredSetting}, so this toggle only takes effect once it is turned off for{' '}
 			<Link
 				to='/settings/project/user-groups/$groupId'
 				params={{ groupId: allUsersGroupId }}
@@ -114,6 +207,7 @@ function useAccessSummaryRows(showAllSettings: boolean): AccessSummaryRow[] {
 	const userRoleNavGroups = getVisibleSettingsNavGroups({
 		canSeeAdvancedSettings: true,
 		isAdmin: false,
+		isAutomationsEnabled: false,
 		isCloudBillingEnabled: false,
 		isContextAdmin: false,
 		isCloud,

@@ -1,5 +1,5 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Globe, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Archive, ArchiveRestore, CopyPlus, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useDuplicateStory } from '@/hooks/use-duplicate-story';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -32,15 +34,39 @@ export function ShareButton({ isShared, onShare, disabled = false }: ShareButton
 					disabled={disabled}
 					aria-label='Share'
 				>
-					{isShared ? (
-						<Globe className='size-3.5 text-primary' strokeWidth={2.25} />
-					) : (
-						<Upload className='size-3.5' strokeWidth={2.25} />
-					)}
+					<Upload className={cn('size-3.5', isShared && 'text-primary')} strokeWidth={2.25} />
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>Share</TooltipContent>
 		</Tooltip>
+	);
+}
+
+/** Copies the viewed version when given, the latest one otherwise. */
+export function StoryDuplicateMenuItem({ storyId, versionNumber }: { storyId: string; versionNumber?: number }) {
+	const { data: resolvedStory } = useQuery(trpc.story.resolve.queryOptions({ storyId }));
+	const { duplicate, isPending } = useDuplicateStory(resolvedStory?.projectId);
+
+	return (
+		<DropdownMenuItem onSelect={() => duplicate(storyId, versionNumber)} disabled={!resolvedStory || isPending}>
+			<CopyPlus strokeWidth={2.25} />
+			<span>Duplicate</span>
+		</DropdownMenuItem>
+	);
+}
+
+export function StoryArchiveMenuItem({ storyId }: { storyId: string }) {
+	const { canToggle, isArchived, isPending, toggle } = useStoryArchiveToggle(storyId);
+
+	if (!canToggle) {
+		return null;
+	}
+
+	return (
+		<DropdownMenuItem onSelect={toggle} disabled={isPending}>
+			{isArchived ? <ArchiveRestore strokeWidth={2.25} /> : <Archive strokeWidth={2.25} />}
+			<span>{isArchived ? 'Unarchive' : 'Archive'}</span>
+		</DropdownMenuItem>
 	);
 }
 
@@ -126,8 +152,8 @@ export function StoryFeedbackButtons({ storyId }: { storyId: string }) {
 		setIsDialogOpen(true);
 	};
 
-	const handleSubmit = (explanation?: string) => {
-		submitFeedback.mutate({ storyId, vote: dialogVote, explanation });
+	const handleSubmit = (explanation: string | undefined, vote: FeedbackVote) => {
+		submitFeedback.mutate({ storyId, vote, explanation });
 		setIsDialogOpen(false);
 	};
 
@@ -157,7 +183,7 @@ export function StoryFeedbackButtons({ storyId }: { storyId: string }) {
 				onOpenChange={setIsDialogOpen}
 				onSubmit={handleSubmit}
 				isPending={submitFeedback.isPending}
-				vote={dialogVote}
+				defaultVote={dialogVote}
 				subject='story'
 			/>
 		</>
@@ -186,12 +212,30 @@ function StoryFeedbackButton({ Icon, label, isActive, activeClassName, disabled,
 					aria-label={label}
 					aria-pressed={isActive}
 				>
-					<Icon className='size-3.5' strokeWidth={2.25} />
+					<Icon className='size-4' strokeWidth={1.75} />
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>{label}</TooltipContent>
 		</Tooltip>
 	);
+}
+
+function useStoryArchiveToggle(storyId: string) {
+	const queryClient = useQueryClient();
+	const { isAdmin, isViewer } = usePermissions();
+	const { data: story } = useQuery({ ...trpc.story.resolve.queryOptions({ storyId }), retry: false });
+	const { data: project } = useQuery(trpc.project.getCurrent.queryOptions());
+	const mutationOptions = { onSuccess: () => invalidateStoryArchiveCaches(queryClient) };
+	const archive = useMutation(trpc.story.archiveShared.mutationOptions(mutationOptions));
+	const unarchive = useMutation(trpc.story.unarchiveShared.mutationOptions(mutationOptions));
+	const isArchived = story?.isArchived ?? false;
+
+	return {
+		canToggle: !!story && story.projectId === project?.id && (story.isOwner || isAdmin) && !isViewer,
+		isArchived,
+		isPending: archive.isPending || unarchive.isPending,
+		toggle: () => (isArchived ? unarchive : archive).mutate({ storyId }),
+	};
 }
 
 function useStoryFavorite(storyId: string) {

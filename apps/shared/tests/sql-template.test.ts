@@ -63,13 +63,42 @@ describe('renderFilterSqlValue', () => {
 	it('omits whitespace-only multi-select values', () => {
 		expect(renderFilterSqlValue('multi_select', ['US', '  '])).toBe("'US'");
 	});
+
+	it('renders text filters as exact values, unquoted when numeric', () => {
+		expect(renderFilterSqlValue('text', ' 12345 ')).toBe("'12345'");
+		expect(renderFilterSqlValue('text', "O'Reilly")).toBe("'O''Reilly'");
+		expect(renderFilterSqlValue('text', '12345', 'number')).toBe('12345');
+		expect(renderFilterSqlValue('text', '-12.5', 'number')).toBe('-12.5');
+		expect(renderFilterSqlValue('select', '1e-7', 'number')).toBe('1e-7');
+		expect(renderFilterSqlValue('text', '1e', 'number')).toBeNull();
+	});
+
+	it('ignores numeric text values that are not numbers', () => {
+		expect(renderFilterSqlValue('text', '12a', 'number')).toBeNull();
+		expect(renderFilterSqlValue('text', '1; DROP TABLE x', 'number')).toBeNull();
+		expect(renderFilterSqlValue('text', '   ')).toBeNull();
+	});
+
+	it('renders typed select values unquoted', () => {
+		expect(renderFilterSqlValue('select', 'true', 'boolean')).toBe('true');
+		expect(renderFilterSqlValue('select', 'FALSE', 'boolean')).toBe('false');
+		expect(renderFilterSqlValue('select', '2026', 'number')).toBe('2026');
+		expect(renderFilterSqlValue('multi_select', ['true', 'false'], 'boolean')).toBe('true, false');
+		expect(renderFilterSqlValue('multi_select', ['1', 'x', '2'], 'number')).toBe('1, 2');
+	});
+
+	it('ignores select values that do not match their value type', () => {
+		expect(renderFilterSqlValue('select', 'yes', 'boolean')).toBeNull();
+		expect(renderFilterSqlValue('select', "true' OR '1'='1", 'boolean')).toBeNull();
+		expect(renderFilterSqlValue('multi_select', ['open'], 'boolean')).toBeNull();
+	});
 });
 
 describe('renderSqlTemplate', () => {
 	const types = {
-		country: 'multi_select',
-		q: 'search',
-		period: 'date_range',
+		country: { type: 'multi_select' },
+		q: { type: 'search' },
+		period: { type: 'date_range' },
 	} as const;
 
 	it('keeps only active filter blocks and interpolates .sql placeholders', () => {
@@ -93,16 +122,30 @@ describe('renderSqlTemplate', () => {
 		expect(renderSqlTemplate(SAMPLE_SQL, {}, types)).toBe(stripSqlFilterBlocks(SAMPLE_SQL));
 	});
 
+	it('renders numeric text filters unquoted for exact matching', () => {
+		const sql = 'SELECT 1 WHERE 1 = 1 {% filter user %} AND user_id = {{ filters.user.sql }} {% endfilter %}';
+		expect(renderSqlTemplate(sql, { user: '12345' }, { user: { type: 'text', valueType: 'number' } })).toContain(
+			'AND user_id = 12345',
+		);
+		expect(renderSqlTemplate(sql, { user: '12a' }, { user: { type: 'text', valueType: 'number' } })).not.toContain(
+			'user_id',
+		);
+	});
+
 	it('rejects unknown filter ids and misplaced placeholders', () => {
 		expect(() => renderSqlTemplate(SAMPLE_SQL, { country: ['US'] }, {})).toThrow(/undeclared filter/);
 		expect(() =>
-			renderSqlTemplate('SELECT 1 WHERE x = {{ filters.country.sql }}', { country: 'US' }, { country: 'select' }),
+			renderSqlTemplate(
+				'SELECT 1 WHERE x = {{ filters.country.sql }}',
+				{ country: 'US' },
+				{ country: { type: 'select' } },
+			),
 		).toThrow(/must appear inside/);
 		expect(() =>
 			renderSqlTemplate(
 				'{% filter country %} AND country = {{ filters.country.sql.extra }} {% endfilter %}',
 				{ country: 'US' },
-				{ country: 'select' },
+				{ country: { type: 'select' } },
 			),
 		).toThrow(/Only \{\{ filters\.country\.sql \}\} is supported/);
 	});
@@ -151,6 +194,26 @@ SELECT 1 FROM orders WHERE 1 = 1
 			'{% endfilter %} SELECT 1 {% filter country %} AND country = {{ filters.country.sql }}',
 		);
 		expect(delimiterIssues.some((issue) => /Unexpected "\{% endfilter %\}"/.test(issue))).toBe(true);
+	});
+
+	it('flags search filters compared without LIKE', () => {
+		const sql = '{% filter user %} AND user_id = {{ filters.user.sql }} {% endfilter %}';
+		const issues = validateSqlFilterTemplate(sql, { filterTypes: { user: 'search' } });
+		expect(issues.some((issue) => /type="search", which renders '%value%'/.test(issue))).toBe(true);
+	});
+
+	it('flags text filters compared with LIKE', () => {
+		const sql = '{% filter user %} AND user_id LIKE {{ filters.user.sql }} {% endfilter %}';
+		const issues = validateSqlFilterTemplate(sql, { filterTypes: { user: 'text' } });
+		expect(issues.some((issue) => /type="text", which renders the exact value/.test(issue))).toBe(true);
+	});
+
+	it('accepts operators that match the filter type', () => {
+		const sql = `
+{% filter user %} AND user_id = {{ filters.user.sql }} {% endfilter %}
+{% filter q %} AND name ILIKE {{ filters.q.sql }} {% endfilter %}
+`.trim();
+		expect(validateSqlFilterTemplate(sql, { filterTypes: { user: 'text', q: 'search' } })).toEqual([]);
 	});
 
 	it('flags placeholders with a trailing dot and no property', () => {

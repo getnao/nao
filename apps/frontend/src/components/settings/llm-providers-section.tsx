@@ -1,8 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { PROVIDER_META } from '@nao/backend/provider-meta';
+import { formatMicroUsd } from '@nao/shared/billing';
 import { providerLabel, providerLabels } from '@nao/shared/types';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+
+import { LlmAccessModeSummary } from './llm-access-mode-control';
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
 import type { LlmProvider } from '@nao/shared/types';
+import { trpc } from '@/main';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 
 export type ProviderToEdit = { provider: LlmProvider; modelId?: string };
@@ -13,14 +20,25 @@ interface LlmProvidersSectionProps {
 	onProviderToEditOpened?: () => void;
 }
 
+const managedModelIds = PROVIDER_META.nao.models.map((model) => model.id);
+
 export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditOpened }: LlmProvidersSectionProps) {
+	const { isOrgAdmin } = usePermissions();
+	const managedCreditStatus = useQuery(trpc.account.getManagedCreditStatus.queryOptions());
+	const managedCreditSummary = useQuery({
+		...trpc.account.getCreditSummary.queryOptions(),
+		enabled: isOrgAdmin,
+	});
+	const isSummaryOfProjectOrganization =
+		managedCreditSummary.data?.organizationId === managedCreditStatus.data?.organization?.id;
+	const projectCreditSummary = isSummaryOfProjectOrganization ? managedCreditSummary.data : undefined;
 	const {
 		projectConfigs,
 		configProviders,
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
-		takenProviderNames,
+		takenConfigNames,
 		unconfiguredEnvProviders,
 		unconfiguredConfigProviders,
 		currentModels,
@@ -54,7 +72,9 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 	const projectConfigBadges = (config: (typeof projectConfigs)[number]) => {
 		const badges: string[] = [];
 		const hasOwnCredentials = !!(config.apiKeyPreview || config.credentialPreviews);
-		if (envProviders.includes(config.provider)) {
+		if (config.credentialSource === 'env') {
+			badges.push(envProviders.includes(config.provider) ? 'ENV' : 'ENV (missing)');
+		} else if (envProviders.includes(config.provider)) {
 			badges.push(hasOwnCredentials ? 'ENV (overridden)' : 'ENV');
 		}
 		if (configProviders.some((c) => c.provider === config.provider)) {
@@ -65,6 +85,27 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 
 	return (
 		<div className='grid gap-4'>
+			{isAdmin && <LlmAccessModeSummary />}
+
+			{managedCreditStatus.data?.enabled && (
+				<ProviderCard
+					provider='nao'
+					enabledModels={managedModelIds}
+					status={
+						projectCreditSummary
+							? `Remaining credits: ${formatMicroUsd(projectCreditSummary.balanceMicroUsd)} of ${formatMicroUsd(projectCreditSummary.lifetimeCreditedMicroUsd)}.`
+							: managedCreditStatus.data.hasCredits
+								? 'Credits available.'
+								: 'No credits remaining.'
+					}
+					linkStatusToWallet={isOrgAdmin}
+					badges={['MANAGED']}
+					isAdmin={isAdmin}
+					isFormActive={!!editingState}
+					getModelDisplayName={getModelDisplayName}
+				/>
+			)}
+
 			{/* Unconfigured env providers */}
 			{unconfiguredEnvProviders.map((provider) => {
 				if (editingState?.isEditing && editingState.provider === provider) {
@@ -74,6 +115,7 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 							provider={provider}
 							isEditing={true}
 							inheritedKeySource='env'
+							initialName={editingState.configName}
 							initialValues={editingState.initialValues}
 							initialEditedModelId={editingState.focusedModelId}
 							currentModels={currentModels}
@@ -108,6 +150,7 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 							provider={configProvider.provider}
 							isEditing={true}
 							inheritedKeySource='config'
+							initialName={editingState.configName}
 							initialValues={editingState.initialValues}
 							initialEditedModelId={editingState.focusedModelId}
 							currentModels={currentModels}
@@ -138,21 +181,25 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 
 			{/* Project configs */}
 			{projectConfigs.map((config) => {
-				if (editingState?.isEditing && editingState.provider === config.provider) {
+				const configName =
+					config.credentialSource === 'env' ? config.name.replace(/ \(ENV\)$/, '') : config.name;
+				if (editingState?.isEditing && editingState.configId === config.id) {
 					return (
 						<LlmProviderForm
 							key={config.id}
 							provider={config.provider}
 							isEditing={true}
 							inheritedKeySource={editingState.inheritedKeySource}
+							initialName={config.name}
 							initialValues={editingState.initialValues}
 							initialEditedModelId={editingState.focusedModelId}
 							currentModels={currentModels}
+							takenNames={takenConfigNames.filter((name) => name !== config.name)}
 							onSubmit={handleSubmit}
 							onCancel={handleCancel}
 							isPending={upsertPending}
 							error={upsertError}
-							title={`Edit ${providerLabel(config.provider)}`}
+							title={`Edit ${configName}`}
 						/>
 					);
 				}
@@ -160,6 +207,8 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 					<ProviderCard
 						key={config.id}
 						provider={config.provider}
+						configId={config.id}
+						name={configName}
 						apiKeyPreview={config.apiKeyPreview}
 						credentialPreviews={config.credentialPreviews}
 						baseUrl={config.baseUrl}
@@ -169,7 +218,7 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
 						onEdit={() => handleEditConfig(config)}
-						onDelete={() => handleDeleteConfig(config.provider)}
+						onDelete={() => handleDeleteConfig(config.id)}
 						isDeleting={deletePending}
 						getModelDisplayName={getModelDisplayName}
 					/>
@@ -202,8 +251,9 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 							provider={editingState.provider}
 							isEditing={false}
 							inheritedKeySource={editingState.inheritedKeySource}
+							initialName={editingState.configName}
 							currentModels={currentModels}
-							takenNames={takenProviderNames}
+							takenNames={takenConfigNames}
 							onSubmit={handleSubmit}
 							onCancel={handleCancel}
 							isPending={upsertPending}

@@ -1,17 +1,39 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
-import type { LlmSelectedModel } from '@nao/shared/types';
+import { isSameModel } from '@nao/shared/types';
 import { useAgentContext } from '@/contexts/agent.provider';
+import { findAvailableModel, toLlmSelectedModel } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 export function useModelSelection() {
 	const { selectedModel, usesDefaultModel, setSelectedModel } = useAgentContext();
-	const availableModelsQuery = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const defaultModelQuery = useQuery(trpc.project.getDefaultChatModel.queryOptions());
-	const availableModels = availableModelsQuery.data;
-	const isPending = availableModelsQuery.isPending;
+	const currentProjectQuery = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = currentProjectQuery.isError || currentProjectQuery.data != null;
+	const availableModelsQuery = useQuery({
+		...trpc.project.listAvailableTranscribeModels.queryOptions(),
+		enabled: hasProject,
+	});
+	const defaultModelQuery = useQuery({
+		...trpc.project.getDefaultChatModel.queryOptions(),
+		enabled: hasProject,
+	});
+	const availableModels = hasProject ? availableModelsQuery.data : undefined;
+	const isPending = currentProjectQuery.isPending || (hasProject && availableModelsQuery.isPending);
 	const canCycleModels = (availableModels?.length ?? 0) > 1;
+
+	useEffect(() => {
+		if (
+			usesDefaultModel ||
+			!selectedModel ||
+			!availableModels ||
+			availableModels.some((model) => isSameModel(model, selectedModel))
+		) {
+			return;
+		}
+		const availableModel = findAvailableModel(availableModels, selectedModel);
+		setSelectedModel(availableModel ? toLlmSelectedModel(availableModel) : null);
+	}, [availableModels, selectedModel, setSelectedModel, usesDefaultModel]);
 
 	/** Cycles through "nao default" followed by every available model. */
 	const cycleModel = useCallback(() => {
@@ -22,24 +44,22 @@ export function useModelSelection() {
 			setSelectedModel(availableModels[0]);
 			return;
 		}
-		const currentIndex = availableModels.findIndex((model) => isSameModel(model, selectedModel));
+		const currentIndex = selectedModel
+			? availableModels.findIndex((model) => isSameModel(model, selectedModel))
+			: -1;
 		const nextModel = availableModels[currentIndex + 1] ?? null;
 		setSelectedModel(nextModel);
 	}, [availableModels, usesDefaultModel, selectedModel, setSelectedModel]);
 
 	return {
 		availableModels,
-		defaultModel: defaultModelQuery.data ?? null,
-		isDefaultModelPending: defaultModelQuery.isPending,
+		defaultModel: hasProject ? (defaultModelQuery.data ?? null) : null,
 		selectedModel,
 		usesDefaultModel,
 		setSelectedModel,
 		isPending,
 		canCycleModels,
 		cycleModel,
+		hasProject,
 	};
-}
-
-export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel | null): boolean {
-	return !!other && model.provider === other.provider && model.modelId === other.modelId;
 }

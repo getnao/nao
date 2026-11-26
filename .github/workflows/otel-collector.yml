@@ -1,0 +1,84 @@
+name: Deploy telemetry agent
+
+on:
+    pull_request:
+        paths:
+            - 'otel-collector/config.yaml'
+            - '.github/workflows/otel-collector.yml'
+    push:
+        branches:
+            - main
+        paths:
+            - 'otel-collector/config.yaml'
+            - '.github/workflows/otel-collector.yml'
+
+env:
+    COLLECTOR_IMAGE: otel/opentelemetry-collector-contrib:0.165.0
+
+jobs:
+    validate:
+        name: Validate collector config
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v4
+
+            - name: Validate
+              run: |
+                  mkdir -p hostfs storage
+                  docker run --rm \
+                    -e SIGNOZ_INGESTION_ENDPOINT=https://ingest.eu.signoz.cloud:443 \
+                    -e SIGNOZ_INGESTION_KEY=validation \
+                    -v "$PWD/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+                    -v "$PWD/hostfs:/hostfs:ro" \
+                    -v "$PWD/storage:/var/lib/otelcol" \
+                    ${{ env.COLLECTOR_IMAGE }} validate --config /etc/otelcol-contrib/config.yaml
+
+    deploy:
+        name: Deploy to GCP instance
+        runs-on: ubuntu-latest
+        needs: validate
+        if: github.event_name == 'push'
+
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v4
+
+            - name: Copy collector config
+              uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  source: otel-collector/config.yaml
+                  target: /home/github-actions-demo/
+
+            - name: Restart collector
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      set -e
+                      docker pull ${{ env.COLLECTOR_IMAGE }}
+                      docker rm -f otel-collector 2>/dev/null || true
+                      # Root reads the Docker socket and the other containers' log files, all mounted read-only.
+                      docker run -d --name otel-collector --restart unless-stopped \
+                        --hostname "$(hostname)" \
+                        --user 0:0 \
+                        --memory 512m \
+                        -e "SIGNOZ_INGESTION_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                        -e "SIGNOZ_INGESTION_KEY=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                        -v /home/github-actions-demo/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro \
+                        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                        -v /var/lib/docker/containers:/var/lib/docker/containers:ro \
+                        -v /:/hostfs:ro \
+                        -v caddy_data:/var/lib/caddy:ro \
+                        -v otel_collector_storage:/var/lib/otelcol \
+                        ${{ env.COLLECTOR_IMAGE }}
+
+                      sleep 5
+                      docker logs --tail 30 otel-collector
+                      [ "$(docker inspect -f '{{.State.Running}}' otel-collector)" = "true" ]

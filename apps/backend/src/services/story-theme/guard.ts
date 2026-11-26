@@ -72,6 +72,7 @@ const PURE_BLACK = '#000000';
 const GOOGLE_FONT_FAMILY = /^[A-Za-z][A-Za-z0-9 ]{1,40}$/;
 const MAX_FIGURE_TRACKING = 0.04;
 const MIN_ACCENT_CHROMA = 0.03;
+const DECLARED_SOURCES = new Set(['brand-document', 'white-label']);
 const PILL_RADIUS = 999;
 const PILL_RADIUS_THRESHOLD = 24;
 const MIN_BAND_STEP = 1.15;
@@ -237,7 +238,7 @@ function guardAccent(theme: StoryTheme, candidates: BrandCandidate[], notes: str
 	const isNeutralInk =
 		hexToOklch(theme.accent.color).c < MIN_ACCENT_CHROMA &&
 		deltaE(theme.accent.color, theme.text.headingColor) < 12;
-	if (strongest && !isNeutralInk) {
+	if (strongest && !isNeutralInk && !isDeclaredByBrand(theme.accent.color, candidates)) {
 		const onThePage = candidates.some((candidate) => deltaE(candidate.color, theme.accent.color) < 12);
 		const tooDull = hexToOklch(theme.accent.color).c < strongest.chroma * 0.6;
 		if (!onThePage || tooDull) {
@@ -254,6 +255,14 @@ function guardAccent(theme: StoryTheme, candidates: BrandCandidate[], notes: str
 		notes.push('The accent could not be told from the page or the blocks, so the nao accent is kept.');
 	}
 	theme.accent.ink = readableInkFor(theme.accent.color, [theme.text.headingColor, PURE_WHITE, PURE_BLACK]);
+}
+
+/** A document lists palettes without saying which hex is the primary, so an accent the brand itself declares is never traded for a brighter one. */
+function isDeclaredByBrand(accent: string, candidates: BrandCandidate[]): boolean {
+	return candidates.some(
+		(candidate) =>
+			candidate.sources.some((source) => DECLARED_SOURCES.has(source)) && deltaE(candidate.color, accent) < 12,
+	);
 }
 
 /** Borders and grid lines are structure: neutral, and a soft step off the block. */

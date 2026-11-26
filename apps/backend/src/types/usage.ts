@@ -85,6 +85,9 @@ export interface UserProjectPreferences {
 
 export interface StoredUserPreferences extends UserPreferences {
 	projectPreferences?: Record<string, UserProjectPreferences>;
+	supportRequestSentAt?: number;
+	githubStarPromptDismissedAt?: number;
+	webConversationsStarted?: number;
 }
 
 export function resolveUsagePeriod(
@@ -160,6 +163,7 @@ const usageFilterObjectSchema = z.object({
 	period: usagePeriodRangeSchema,
 	granularity: granularitySchema.optional(),
 	provider: llmProviderSchema.optional(),
+	llmConfigIds: z.array(z.string().min(1)).optional(),
 	userNames: z.array(z.string()).optional(),
 	sources: z.array(z.enum(USAGE_SOURCES)).optional(),
 });
@@ -200,6 +204,9 @@ export interface UsageRecord {
 	date: string;
 	messageCount: number;
 	webMessageCount: number;
+	automationEditorMessageCount: number;
+	contextEditorMessageCount: number;
+	automationMessageCount: number;
 	slackMessageCount: number;
 	teamsMessageCount: number;
 	telegramMessageCount: number;
@@ -209,6 +216,7 @@ export interface UsageRecord {
 	adminMessageCount: number;
 	mcpMessageCount: number;
 	contextRecommendationsMessageCount: number;
+	testMessageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

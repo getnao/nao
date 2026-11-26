@@ -1,3 +1,4 @@
+import { capitalizeWords } from '@nao/shared';
 import { isTerminalBillingStatus } from '@nao/shared/billing';
 
 type BillingStatusView = {
@@ -10,6 +11,7 @@ export function getBillingStatusView(
 	status: string | null,
 	cancellationScheduled: boolean,
 	hasDefaultPaymentMethod: boolean,
+	hasPaidPlan: boolean,
 ): BillingStatusView {
 	switch (status) {
 		case 'trialing':
@@ -61,6 +63,13 @@ export function getBillingStatusView(
 				variant: 'outline',
 			};
 		case 'canceled':
+			if (!hasPaidPlan) {
+				return {
+					label: 'Free trial ended',
+					description: 'Your free trial has ended. Subscribe to restore access.',
+					variant: 'outline',
+				};
+			}
 			return {
 				label: 'Canceled',
 				description:
@@ -120,9 +129,7 @@ export function formatBillingInterval(interval: string, intervalCount: number): 
 }
 
 export function formatBillingStatus(status: string | null): string {
-	return status
-		? status.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase())
-		: 'Not configured';
+	return status ? capitalizeWords(status.replaceAll('_', ' ')) : 'Not configured';
 }
 
 export function formatInvoiceLabel(date: Date): string {

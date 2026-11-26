@@ -14,9 +14,11 @@ export async function listOrganizationsWithBilling() {
 			bypassBilling: s.organization.bypassBilling,
 			createdAt: s.organization.createdAt,
 			billing: s.organizationBilling,
+			creditBalanceMicroUsd: s.creditWallet.balanceMicroUsd,
 		})
 		.from(s.organization)
 		.leftJoin(s.organizationBilling, eq(s.organizationBilling.orgId, s.organization.id))
+		.leftJoin(s.creditWallet, eq(s.creditWallet.orgId, s.organization.id))
 		.orderBy(desc(s.organization.createdAt))
 		.execute();
 }

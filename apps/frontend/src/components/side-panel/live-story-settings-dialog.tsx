@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Activity, Loader2, Wand2 } from 'lucide-react';
 import { StoryDeliverySection } from './story-delivery-section';
 import type { StoryDeliveryHandle, StoryDeliveryStatus } from './story-delivery-section';
+import type { LiveStoryTarget } from './hooks/use-story-viewer-live-settings';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -22,8 +23,7 @@ import { trpc } from '@/main';
 interface LiveStorySettingsDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	chatId: string;
-	storySlug: string;
+	story: LiveStoryTarget;
 	isLive: boolean;
 	isLiveTextDynamic: boolean;
 	cacheSchedule: string | null;
@@ -62,8 +62,7 @@ function resolvePresetValue(cacheSchedule: string | null, fallbackPreset: string
 export function LiveStorySettingsDialog({
 	open,
 	onOpenChange,
-	chatId,
-	storySlug,
+	story,
 	isLive,
 	isLiveTextDynamic,
 	cacheSchedule,
@@ -83,6 +82,7 @@ export function LiveStorySettingsDialog({
 	const deliveryRef = useRef<StoryDeliveryHandle>(null);
 	const [deliveryStatus, setDeliveryStatus] = useState<StoryDeliveryStatus>({ dirty: false, valid: true });
 	const [isSaving, setIsSaving] = useState(false);
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const handleDeliveryStatusChange = useCallback((status: StoryDeliveryStatus) => setDeliveryStatus(status), []);
 	const isBusy = isUpdating || isSaving;
 
@@ -135,6 +135,7 @@ export function LiveStorySettingsDialog({
 
 	const handleSave = useCallback(async () => {
 		setIsSaving(true);
+		setSaveError(null);
 		try {
 			if (hasLiveChanges) {
 				await onSaveSettings({
@@ -149,7 +150,7 @@ export function LiveStorySettingsDialog({
 			}
 			onOpenChange(false);
 		} catch (error) {
-			console.error('Failed to save story settings', error);
+			setSaveError(error instanceof Error ? error.message : 'The settings could not be saved.');
 		} finally {
 			setIsSaving(false);
 		}
@@ -333,8 +334,7 @@ export function LiveStorySettingsDialog({
 
 							<StoryDeliverySection
 								ref={deliveryRef}
-								chatId={chatId}
-								storySlug={storySlug}
+								story={story}
 								open={open}
 								refreshCron={resolvedCron}
 								onStatusChange={handleDeliveryStatusChange}
@@ -342,6 +342,8 @@ export function LiveStorySettingsDialog({
 						</>
 					)}
 				</fieldset>
+
+				{saveError && <p className='text-[11px] text-destructive'>{saveError}</p>}
 
 				<DialogFooter>
 					<Button

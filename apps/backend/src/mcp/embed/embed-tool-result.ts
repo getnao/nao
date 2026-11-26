@@ -10,6 +10,7 @@ import type { McpEmbedKind } from '@nao/shared/types';
 import { z } from 'zod';
 
 import type { ToolResult } from '../logging';
+import type { StoryLiveOutput } from '../tools/story-live-settings';
 import { chatUrl } from '../urls';
 import { attachSandboxToAppPayload } from './embed-payload';
 
@@ -29,6 +30,7 @@ export type CustomStoryMcpToolPayload = {
 	version?: number;
 	buildErrors?: string[];
 	sourceFiles?: CustomStorySourceFile[];
+	live?: StoryLiveOutput;
 };
 
 const CUSTOM_STORY_FIELDS = {
@@ -61,6 +63,15 @@ export const STORY_OUTPUT_SCHEMA = {
 		.string()
 		.optional()
 		.describe('Self-contained HTML for inline rendering when small enough; omitted for large stories.'),
+	live: z
+		.object({
+			enabled: z.boolean(),
+			refreshSchedule: z.string().nullable(),
+			refreshScheduleDescription: z.string().nullable(),
+			regenerateText: z.boolean(),
+		})
+		.optional()
+		.describe('The live settings of the story.'),
 };
 
 export function buildStoryToolResult(
@@ -83,7 +94,7 @@ export function buildStoryToolResult(
 		embedUrl: output.embedUrl,
 		naoUrl,
 		jsonPayload: output,
-		structuredBase: slimPayload,
+		structuredBase: { ...slimPayload, ...(output.live !== undefined && { live: output.live }) },
 		sandboxHtml: options?.sandboxStoryHtml,
 	});
 }

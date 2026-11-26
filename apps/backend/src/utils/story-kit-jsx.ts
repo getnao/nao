@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import { parse } from '@babel/parser';
-import type { Expression, ImportDeclaration, JSXAttribute, JSXElement, Node } from '@babel/types';
+import type { Expression, ImportDeclaration, JSXAttribute, JSXElement, Node, Program, Statement } from '@babel/types';
 import { traverseFast } from '@babel/types';
 import type { StoryKitBlockChange, StoryKitBlockRef, StoryKitEditableBlock } from '@nao/shared/story-app';
 import { isStoryKitEditableBlock } from '@nao/shared/story-app';
@@ -25,9 +25,15 @@ interface SourceRange {
 }
 
 interface KitImport {
-	localNames: Map<StoryKitEditableBlock, string>;
+	localNames: Map<string, string>;
 	namespace: string | null;
 	lastSpecifierEnd: number | null;
+	takenNames: Set<string>;
+}
+
+interface RenderedRoot {
+	isDeck: boolean;
+	childrenEnd: number;
 }
 
 export interface KitSource {
@@ -46,6 +52,8 @@ const DYNAMIC = Symbol('dynamic');
 const IGNORED_ATTRIBUTES = new Set(['key', 'ref']);
 const JS_IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 const PLAIN_JSX_STRING = /^[^"\\{}<>&\r\n]*$/;
+const DECK_COMPONENT = 'Slides';
+const SLIDE_COMPONENT = 'Slide';
 
 /** Every kit block rendered by a script file, with where its tag name and props sit in the source. */
 export function parseKitSource(path: string, source: string): KitSource | null {
@@ -124,6 +132,34 @@ export function applyKitBlockChange(
 	return applyEdits(source, edits);
 }
 
+/**
+ * Adds a kit block after the last child of the element the file's default export renders, like a block
+ * appended at the end of a markdown story. In a deck, the block gets a slide of its own.
+ */
+export function appendKitBlock(path: string, source: string, block: StoryKitBlockRef): string {
+	const program = parseScript(path, source);
+	if (program?.type !== 'Program') {
+		throw new StoryKitJsxEditError(`${path} could not be read.`);
+	}
+	const kitImport = readKitImport(program);
+	const root = findRenderedRoot(program, kitImport);
+	if (!root) {
+		throw new StoryKitJsxEditError(
+			`Could not find the layout ${path} renders, so the block was not added. Ask the agent to add it.`,
+		);
+	}
+
+	const edits: SourceEdit[] = [];
+	const blockName = referenceKitComponent(kitImport, block.component, edits);
+	let element = `<${blockName}${toJsxAttributes(block.props)} />`;
+	if (root.isDeck) {
+		const slideName = referenceKitComponent(kitImport, SLIDE_COMPONENT, edits);
+		element = `<${slideName}${toJsxAttributes({ title: block.props.title })}>\n${element}\n</${slideName}>`;
+	}
+	edits.push({ start: root.childrenEnd, end: root.childrenEnd, text: `\n${element}\n` });
+	return applyEdits(source, edits);
+}
+
 export function parseScript(path: string, source: string): Node | null {
 	const isTypeScript = /\.tsx?$/i.test(path);
 	const hasJsx = !/\.ts$/i.test(path);
@@ -138,32 +174,45 @@ export function parseScript(path: string, source: string): Node | null {
 }
 
 function readKitImport(program: Node): KitImport {
-	const kitImport: KitImport = { localNames: new Map(), namespace: null, lastSpecifierEnd: null };
+	const kitImport: KitImport = {
+		localNames: new Map(),
+		namespace: null,
+		lastSpecifierEnd: null,
+		takenNames: collectIdentifierNames(program),
+	};
 	if (program.type !== 'Program') {
 		return kitImport;
 	}
-	const declarations = program.body.filter(
-		(statement): statement is ImportDeclaration =>
-			statement.type === 'ImportDeclaration' && statement.source.value === STORY_KIT_MODULE,
-	);
+	const declarations = program.body.filter(isKitValueImport);
 	for (const declaration of declarations) {
 		for (const specifier of declaration.specifiers) {
 			if (specifier.type === 'ImportNamespaceSpecifier') {
 				kitImport.namespace = specifier.local.name;
 				continue;
 			}
-			if (specifier.type !== 'ImportSpecifier') {
+			if (specifier.type !== 'ImportSpecifier' || isTypeOnly(specifier.importKind)) {
 				continue;
 			}
 			kitImport.lastSpecifierEnd = specifier.end ?? kitImport.lastSpecifierEnd;
 			const imported =
 				specifier.imported.type === 'Identifier' ? specifier.imported.name : specifier.imported.value;
-			if (isStoryKitEditableBlock(imported)) {
-				kitImport.localNames.set(imported, specifier.local.name);
-			}
+			kitImport.localNames.set(imported, specifier.local.name);
 		}
 	}
 	return kitImport;
+}
+
+/** Type-only imports vanish from the build, so a component referenced through one would be undefined at runtime. */
+function isKitValueImport(statement: Statement): statement is ImportDeclaration {
+	return (
+		statement.type === 'ImportDeclaration' &&
+		statement.source.value === STORY_KIT_MODULE &&
+		!isTypeOnly(statement.importKind)
+	);
+}
+
+function isTypeOnly(importKind: ImportDeclaration['importKind']): boolean {
+	return importKind === 'type' || importKind === 'typeof';
 }
 
 function toKitElement(node: JSXElement, kitImport: KitImport): KitElement | null {
@@ -200,7 +249,7 @@ function toKitElement(node: JSXElement, kitImport: KitImport): KitElement | null
 function resolveComponent(name: JSXElement['openingElement']['name'], kitImport: KitImport) {
 	if (name.type === 'JSXIdentifier') {
 		for (const [component, localName] of kitImport.localNames) {
-			if (localName === name.name) {
+			if (localName === name.name && isStoryKitEditableBlock(component)) {
 				return component;
 			}
 		}
@@ -286,21 +335,143 @@ function findEditableAttribute(element: KitElement, name: string): KitAttribute 
 
 function renameElement(kitImport: KitImport, element: KitElement, component: StoryKitEditableBlock): SourceEdit[] {
 	const edits: SourceEdit[] = [];
-	let localName = kitImport.localNames.get(component);
-	if (!localName && kitImport.namespace) {
-		localName = `${kitImport.namespace}.${component}`;
-	}
-	if (!localName) {
-		if (kitImport.lastSpecifierEnd === null) {
-			throw new StoryKitJsxEditError(`Could not import ${component} from ${STORY_KIT_MODULE}.`);
-		}
-		edits.push({ start: kitImport.lastSpecifierEnd, end: kitImport.lastSpecifierEnd, text: `, ${component}` });
-		localName = component;
-	}
+	const localName = referenceKitComponent(kitImport, component, edits);
 	for (const range of element.nameRanges) {
 		edits.push({ ...range, text: localName });
 	}
 	return edits;
+}
+
+/** The name the file can render a kit component by, importing it first when it is not imported yet. */
+function referenceKitComponent(kitImport: KitImport, component: string, edits: SourceEdit[]): string {
+	const localName = kitImport.localNames.get(component);
+	if (localName) {
+		return localName;
+	}
+	if (kitImport.namespace) {
+		return `${kitImport.namespace}.${component}`;
+	}
+	const name = unusedName(component, kitImport.takenNames);
+	const specifier = name === component ? component : `${component} as ${name}`;
+	if (kitImport.lastSpecifierEnd === null) {
+		edits.push({ start: 0, end: 0, text: `import { ${specifier} } from "${STORY_KIT_MODULE}";\n` });
+	} else {
+		edits.push({ start: kitImport.lastSpecifierEnd, end: kitImport.lastSpecifierEnd, text: `, ${specifier}` });
+	}
+	kitImport.localNames.set(component, name);
+	kitImport.takenNames.add(name);
+	return name;
+}
+
+/** The file may already declare a name of its own like `Chart`, so the kit's is then imported under an alias. */
+function unusedName(component: string, takenNames: Set<string>): string {
+	if (!takenNames.has(component)) {
+		return component;
+	}
+	let candidate = `Kit${component}`;
+	for (let suffix = 2; takenNames.has(candidate); suffix++) {
+		candidate = `Kit${component}${suffix}`;
+	}
+	return candidate;
+}
+
+function collectIdentifierNames(program: Node): Set<string> {
+	const names = new Set<string>();
+	traverseFast(program, (node) => {
+		if (node.type === 'Identifier' || node.type === 'JSXIdentifier') {
+			names.add(node.name);
+		}
+	});
+	return names;
+}
+
+function findRenderedRoot(program: Program, kitImport: KitImport): RenderedRoot | null {
+	const component = findDefaultExportedFunction(program);
+	const rendered = component ? renderedExpression(component) : null;
+	if (rendered?.type === 'JSXFragment') {
+		const deck = findFragmentDeck(rendered.children, kitImport);
+		return deck ? deckRoot(deck) : { isDeck: false, childrenEnd: rendered.closingFragment.start! };
+	}
+	if (rendered?.type !== 'JSXElement' || !rendered.closingElement) {
+		return null;
+	}
+	return isKitDeck(rendered, kitImport)
+		? deckRoot(rendered)
+		: { isDeck: false, childrenEnd: rendered.closingElement.start! };
+}
+
+/** A fragment wrapping a deck (with a header beside it, say) still adds its blocks as slides of that deck. */
+function findFragmentDeck(children: Node[], kitImport: KitImport): JSXElement | null {
+	const deck = children.find(
+		(child): child is JSXElement => child.type === 'JSXElement' && isKitDeck(child, kitImport),
+	);
+	return deck?.closingElement ? deck : null;
+}
+
+function deckRoot(deck: JSXElement): RenderedRoot {
+	return { isDeck: true, childrenEnd: deck.closingElement!.start! };
+}
+
+function findDefaultExportedFunction(program: Program): Node | null {
+	const exported = program.body.find((statement) => statement.type === 'ExportDefaultDeclaration')?.declaration;
+	if (exported?.type !== 'Identifier') {
+		return exported ?? null;
+	}
+	return program.body.map((statement) => declaredFunction(statement, exported.name)).find(Boolean) ?? null;
+}
+
+function declaredFunction(statement: Statement, name: string): Node | null {
+	if (statement.type === 'FunctionDeclaration') {
+		return statement.id?.name === name ? statement : null;
+	}
+	if (statement.type !== 'VariableDeclaration') {
+		return null;
+	}
+	const declarator = statement.declarations.find(
+		(candidate) => candidate.id.type === 'Identifier' && candidate.id.name === name,
+	);
+	return declarator?.init ?? null;
+}
+
+/** What a component returns last at the top of its body, the layout its other blocks sit in. */
+function renderedExpression(component: Node): Node | null {
+	if (
+		component.type !== 'FunctionDeclaration' &&
+		component.type !== 'FunctionExpression' &&
+		component.type !== 'ArrowFunctionExpression'
+	) {
+		return null;
+	}
+	if (component.body.type !== 'BlockStatement') {
+		return component.body;
+	}
+	const lastReturn = component.body.body.filter((statement) => statement.type === 'ReturnStatement').at(-1);
+	return lastReturn?.type === 'ReturnStatement' ? (lastReturn.argument ?? null) : null;
+}
+
+function isKitDeck(element: JSXElement, kitImport: KitImport): boolean {
+	const name = element.openingElement.name;
+	if (name.type === 'JSXIdentifier') {
+		return kitImport.localNames.get(DECK_COMPONENT) === name.name;
+	}
+	return (
+		name.type === 'JSXMemberExpression' &&
+		name.object.type === 'JSXIdentifier' &&
+		name.object.name === kitImport.namespace &&
+		name.property.name === DECK_COMPONENT
+	);
+}
+
+function toJsxAttributes(props: Record<string, unknown>): string {
+	return Object.entries(props)
+		.filter(([, value]) => value !== undefined)
+		.map(([name, value]) => {
+			if (!JS_IDENTIFIER.test(name)) {
+				throw new StoryKitJsxEditError(`"${name}" is not a valid prop name.`);
+			}
+			return ` ${name}=${toJsxAttributeValue(value)}`;
+		})
+		.join('');
 }
 
 function applyEdits(source: string, edits: SourceEdit[]): string {

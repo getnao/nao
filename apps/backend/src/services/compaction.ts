@@ -1,7 +1,8 @@
-import type { LlmProvider } from '@nao/shared/types';
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import type { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
@@ -14,9 +15,10 @@ import {
 	findLastUserMessageIndex,
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
-import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId } from '../utils/llm';
 import { sanitizeToolCalls } from '../utils/model-message';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { resolveUserBackgroundModel } from './background-model.service';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
 const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
@@ -33,8 +35,9 @@ interface CompactionResult {
 
 interface CompactConversationOptions {
 	chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>;
-	provider: LlmProvider;
-	modelId: string;
+	modelSelection: LlmSelectedModel;
+	runId?: string;
+	billingMode?: ManagedAiUsageContext['billingMode'];
 	messages: ModelMessage[];
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
@@ -44,6 +47,7 @@ interface CompactConversationOptions {
 interface ResolvedCompactionLLM {
 	llm: ICompactionLLM;
 	provider: LlmProvider;
+	llmConfigId?: string;
 }
 
 interface CompactionServiceOptions {
@@ -200,13 +204,18 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const compaction = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
+		const compaction = await this._resolveCompactionLLM(
+			opts.chat,
+			opts.modelSelection,
+			opts.runId,
+			opts.billingMode,
+		);
 		if (!compaction) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
 
 		const result = await this._compactUpToLastUserMessage(compaction, opts, firstNonSystemIndex, lastUserIndex);
-		this._trackInference(opts, compaction.llm.modelId, result.usage);
+		this._trackInference(opts, compaction.provider, compaction.llm.modelId, result.usage, compaction.llmConfigId);
 
 		return result;
 	}
@@ -228,26 +237,38 @@ export class CompactionService {
 	}
 
 	private async _resolveCompactionLLM(
-		projectId: string,
-		provider: LlmProvider,
-		selectedModelId: string,
+		chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>,
+		selectedModel: LlmSelectedModel,
+		runId?: string,
+		billingMode?: ManagedAiUsageContext['billingMode'],
 	): Promise<ResolvedCompactionLLM | undefined> {
-		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
-		const effectiveProvider = pinned?.provider ?? provider;
-		const modelId =
-			pinned?.modelId ??
-			(await resolveAnnotationModelId(
-				projectId,
-				{ provider, modelId: selectedModelId },
-				getProviderMeta(provider).extractorModelId,
-			));
-		const model = await resolveProviderModel(projectId, effectiveProvider, modelId, false);
-		if (!model) {
+		const resolved = await resolveUserBackgroundModel({
+			projectId: chat.projectId,
+			userId: chat.userId,
+			defaultCategory: 'compaction',
+			fallback: selectedModel,
+			preferredModelId: (selection) =>
+				resolveAnnotationModelId(
+					chat.projectId,
+					selection,
+					getProviderMeta(selection.provider).extractorModelId,
+				),
+			usageContext: {
+				userId: chat.userId,
+				projectId: chat.projectId,
+				chatId: chat.id,
+				runId,
+				category: 'compaction',
+				billingMode,
+			},
+		});
+		if (!resolved) {
 			return undefined;
 		}
 		return {
-			llm: this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc),
-			provider: effectiveProvider,
+			llm: this.options.createCompactionLlm(disableModelReasoning(resolved.provider, resolved.model), this._tc),
+			provider: resolved.provider,
+			llmConfigId: resolved.llmConfigId,
 		};
 	}
 
@@ -281,14 +302,21 @@ export class CompactionService {
 		};
 	}
 
-	private _trackInference(opts: CompactConversationOptions, modelId: string, usage: TokenUsage) {
+	private _trackInference(
+		opts: CompactConversationOptions,
+		provider: LlmProvider,
+		modelId: string,
+		usage: TokenUsage,
+		llmConfigId?: string,
+	) {
 		scheduleSaveLlmInferenceRecord({
 			type: 'compaction',
 			projectId: opts.chat.projectId,
 			userId: opts.chat.userId,
 			chatId: opts.chat.id,
-			llmProvider: opts.provider,
+			llmProvider: provider,
 			llmModelId: modelId,
+			llmConfigId,
 			...usage,
 		});
 	}

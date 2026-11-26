@@ -8,12 +8,14 @@ from time import sleep
 from typing import Annotated, Optional
 
 from cyclopts import Parameter
+from rich.markup import escape
 
 from nao_core import __version__, native
 from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderConfig
 from nao_core.mode import MODE
+from nao_core.text_files import read_text
 from nao_core.tracking import track_command
 from nao_core.ui import UI, console
 
@@ -107,7 +109,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
     # Try to load existing secret from file
     if secret_path.exists():
         try:
-            secret = secret_path.read_text().strip()
+            secret = read_text(secret_path).strip()
             if secret:
                 console.print(f"[bold green]✓[/bold green] Loaded auth secret from {secret_path}")
                 return secret
@@ -117,7 +119,7 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
     # Generate and save new secret
     new_secret = secrets.token_urlsafe(32)
     try:
-        secret_path.write_text(new_secret)
+        secret_path.write_text(new_secret, encoding="utf-8")
         # Set restrictive permissions (owner read/write only)
         secret_path.chmod(0o600)
         console.print(f"[bold green]✓[/bold green] Generated new auth secret and saved to {secret_path}")
@@ -358,6 +360,6 @@ def chat(
         sys.exit(0)
 
     except Exception as e:
-        console.print(f"[bold red]✗[/bold red] Failed to start servers: {e}")
+        console.print(f"[bold red]✗[/bold red] Failed to start servers: {escape(str(e))}")
         shutdown_servers()
         sys.exit(1)

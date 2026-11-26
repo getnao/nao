@@ -4,20 +4,19 @@ import { type LlmSelectedModel, STORY_FORMATS } from '@nao/shared/types';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
-import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
+import { mcpAgent } from '../../agents/profiles/mcp';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
-import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
+import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
+import { getAvailableModelsForUser, getDefaultChatModelForUser } from '../../services/user-group-llm-access.service';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
 import {
 	describeModelInput,
-	getProjectAvailableModels,
+	pickRequestedModel,
 	RequestedModelError,
-	resolveDefaultChatModel,
-	resolvePinnedModel,
-	resolveRequestedModel,
+	resolveAvailableModelSelection,
 } from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
@@ -26,6 +25,13 @@ import { type AskNaoClarification, type AskNaoResult, askNaoRuns, type AskNaoSto
 import { registerMcpTool } from './register-mcp-tool';
 
 type Agent = Awaited<ReturnType<typeof agentService.create>>;
+
+interface AskNaoRun {
+	chatId: string;
+	naoChatUrl: string;
+	model: string;
+	isNewChat: boolean;
+}
 
 /**
  * Time `ask_nao` waits for the run to finish before returning a `running` status.
@@ -77,6 +83,7 @@ const ASK_NAO_QUERIES_SCHEMA = z
 	.array(
 		z.object({
 			id: z.string().describe('`query_id` to pass to `display_chart`.'),
+			sql: z.string().optional().describe('The SQL that produced this result.'),
 			columns: z
 				.array(z.string())
 				.describe('Column names in the result — use these for `x_axis_key` and `series[].data_key`.'),
@@ -178,22 +185,27 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 			const modelSelection = await agentService.resolveModelSelection(
 				ctx.projectId,
 				model !== undefined
-					? await resolveRequestedModel(ctx.projectId, model)
+					? pickRequestedModel(await getAvailableModelsForUser(ctx.projectId, ctx.userId), model)
 					: await resolveSubAgentModel(ctx),
+				ctx.userId,
 			);
 			const modelLabel = `${modelSelection.provider}/${modelSelection.modelId}`;
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 
-			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
+			const { chat, uiMessages, isNewChat } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 			const naoChatUrl = chatUrl(chat.id);
 
-			const agent = await agentService.create(chat, modelSelection, {
+			const agent = await agentService.create(chat, modelSelection, mcpAgent, {
 				billingAccessVerifiedProjectId: ctx.projectId,
-				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id, modelLabel);
-			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl, modelLabel);
+			const runPromise = runAskNaoInBackground(agent, uiMessages, {
+				chatId: chat.id,
+				naoChatUrl,
+				model: modelLabel,
+				isNewChat,
+			});
 
 			const outcome = await waitForResultOrBudget(runPromise, ASK_NAO_SYNC_BUDGET_MS);
 			if (outcome.kind === 'error') {
@@ -240,10 +252,10 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 async function describeAvailableModels(ctx: McpContext): Promise<string> {
 	try {
 		const [available, pinned] = await Promise.all([
-			getProjectAvailableModels(ctx.projectId),
+			getAvailableModelsForUser(ctx.projectId, ctx.userId),
 			resolveSubAgentModel(ctx),
 		]);
-		const defaultModel = pinned ?? (await resolveDefaultChatModel(ctx.projectId));
+		const defaultModel = pinned ?? (await getDefaultChatModelForUser(ctx.projectId, ctx.userId));
 		return describeModelInput(available, defaultModel);
 	} catch (error) {
 		// The catalog is a convenience for the caller; a failed lookup must not keep `ask_nao` from registering.
@@ -253,15 +265,16 @@ async function describeAvailableModels(ctx: McpContext): Promise<string> {
 }
 
 /**
- * The model pinned for `ask_nao` in the MCP settings; undefined lets the agent use the project's
- * chat default. A `model` named by the caller takes precedence over both.
+ * The model pinned for `ask_nao` in the MCP settings, when the user can run it; undefined lets the
+ * agent use the user's chat default. A `model` named by the caller takes precedence over both.
  */
 async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel | undefined> {
 	const pinned = ctx.settings.subAgentModel;
 	if (!pinned) {
 		return undefined;
 	}
-	return (await resolvePinnedModel(ctx.projectId, pinned)) ?? undefined;
+	const available = await getAvailableModelsForUser(ctx.projectId, ctx.userId);
+	return resolveAvailableModelSelection(available, pinned) ?? undefined;
 }
 
 /**
@@ -271,12 +284,11 @@ async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel |
 async function runAskNaoInBackground(
 	agent: Agent,
 	uiMessages: UIMessage[],
-	chatId: string,
-	naoChatUrl: string,
-	model: string,
+	{ chatId, naoChatUrl, model, isNewChat }: AskNaoRun,
 ): Promise<AskNaoResult> {
 	try {
-		let answer = await drainStream(agent.stream(uiMessages));
+		const tracking = { isNewChat, domainHost: new URL(naoChatUrl).host };
+		let answer = await drainStream(agent.stream(uiMessages, { tracking }));
 		if (!answer.text && !answer.clarification) {
 			answer = await extractAnswerFromChat(chatId);
 		}
@@ -538,7 +550,7 @@ async function buildChatContext(
 	userId: string,
 	question: string,
 	chatId: string | undefined,
-): Promise<{ chat: { id: string; projectId: string; userId: string }; uiMessages: UIMessage[] }> {
+): Promise<{ chat: { id: string; projectId: string; userId: string }; uiMessages: UIMessage[]; isNewChat: boolean }> {
 	const userMessage: UIMessage = {
 		id: crypto.randomUUID(),
 		role: 'user',
@@ -555,6 +567,7 @@ async function buildChatContext(
 			return {
 				chat: { id: chatId, projectId, userId },
 				uiMessages: [...history, userMessage],
+				isNewChat: false,
 			};
 		}
 	}
@@ -567,6 +580,7 @@ async function buildChatContext(
 	return {
 		chat: { id: newChatId, projectId, userId },
 		uiMessages: [userMessage],
+		isNewChat: true,
 	};
 }
 

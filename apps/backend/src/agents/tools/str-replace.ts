@@ -12,6 +12,7 @@ import {
 } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { withKeyedLock } from '../../utils/keyed-lock';
+import { isStoryLibraryPath, STORY_LIBRARY_READ_ONLY } from '../../utils/story-library';
 import { isStoriesPath, STORIES_MOUNT } from '../../utils/story-mount';
 import {
 	createTool,
@@ -51,6 +52,9 @@ export default createTool<strReplace.Input, strReplace.Output>({
 		if (isStoragePath(file_path)) {
 			return { _version: '1' as const, ...(await editStorageFile(file_path, edit, context)) };
 		}
+		if (isStoryLibraryPath(file_path)) {
+			throw new Error(`Cannot edit '${file_path}': ${STORY_LIBRARY_READ_ONLY}`);
+		}
 		throw new Error(`Cannot edit '${file_path}': ${editableTargetsHint()}. Project context files are read-only.`);
 	},
 
@@ -61,10 +65,10 @@ type Edit = Omit<strReplace.Input, 'file_path'>;
 type Edited = Omit<strReplace.Output, '_version'>;
 
 const editStoryFile = async (filePath: string, edit: Edit, context: ToolContext): Promise<Edited> => {
-	return withKeyedLock(`str-replace:story:${context.chatId}:${filePath}`, async () => {
-		const current = await readStoryMountFile(context.chatId, filePath);
+	return withKeyedLock(`str-replace:story:${filePath}`, async () => {
+		const current = await readStoryMountFile(context, filePath);
 		const { content, replacements } = strReplace.applyReplacement(current, edit);
-		return { ...(await writeStoryMountFile(context.chatId, filePath, content)), replacements };
+		return { ...(await writeStoryMountFile(context, filePath, content)), replacements };
 	});
 };
 

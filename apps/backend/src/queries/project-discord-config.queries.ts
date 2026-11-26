@@ -4,9 +4,9 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import type { DiscordSettings } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectDiscordConfig = async (projectId: string): Promise<DiscordConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -20,6 +20,7 @@ export const upsertProjectDiscordConfig = async (data: {
 	publicKey: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 	mentionRoleIds?: string[];
 	respondToChannelIds?: string[];
 	fallbackUserId?: string;
@@ -36,6 +37,7 @@ export const upsertProjectDiscordConfig = async (data: {
 					discordPublicKey: data.publicKey,
 					discordLlmProvider: data.modelProvider ?? '',
 					discordLlmModelId: data.modelId ?? '',
+					discordLlmConfigId: data.llmConfigId,
 					discordMentionRoleIds: data.mentionRoleIds,
 					discordRespondToChannelIds: data.respondToChannelIds,
 					discordFallbackUserId: data.fallbackUserId,
@@ -60,29 +62,17 @@ export const updateProjectDiscordModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.discordSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				discordSettings: {
-					...existing,
-					discordBotToken: existing?.discordBotToken ?? '',
-					discordApplicationId: existing?.discordApplicationId ?? '',
-					discordPublicKey: existing?.discordPublicKey ?? '',
-					discordLlmProvider: modelProvider ?? '',
-					discordLlmModelId: modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'discordSettings', (existing) => ({
+		...existing,
+		discordBotToken: existing?.discordBotToken ?? '',
+		discordApplicationId: existing?.discordApplicationId ?? '',
+		discordPublicKey: existing?.discordPublicKey ?? '',
+		discordLlmProvider: modelProvider ?? '',
+		discordLlmModelId: modelId ?? '',
+		discordLlmConfigId: llmConfigId ?? undefined,
+	}));
 };
 
 export const deleteProjectDiscordConfig = async (projectId: string): Promise<void> => {
@@ -107,24 +97,17 @@ function toDiscordConfig(projectId: string, settings: DiscordSettings | null | u
 		applicationId: settings.discordApplicationId,
 		publicKey: settings.discordPublicKey ?? '',
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.discordLlmProvider, settings.discordLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings.discordLlmProvider,
+			settings.discordLlmModelId,
+			settings.discordLlmConfigId,
+		),
 		mentionRoleIds: settings.discordMentionRoleIds,
 		respondToChannelIds: settings.discordRespondToChannelIds,
 		fallbackUserId: settings.discordFallbackUserId,
 		fallbackUserEmail: settings.discordFallbackUserEmail,
 		hideAnswerLink: settings.discordHideAnswerLink,
 	};
-}
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
 }
 
 export interface DiscordConfig {

@@ -40,6 +40,7 @@ const SOURCE_STYLES: Record<string, string> = {
 	agent: 'text-chart-1',
 	tool: 'text-chart-2',
 	system: 'text-chart-4',
+	security: 'text-destructive',
 };
 
 type LogEntry = {
@@ -269,6 +270,7 @@ function LogsPage() {
 									<SelectItem value='agent'>Agent</SelectItem>
 									<SelectItem value='tool'>Tool</SelectItem>
 									<SelectItem value='system'>System</SelectItem>
+									<SelectItem value='security'>Security</SelectItem>
 								</SelectContent>
 							</Select>
 

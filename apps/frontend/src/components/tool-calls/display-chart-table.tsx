@@ -13,10 +13,11 @@ import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { useAgentMessagesGetter, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useStoryIds } from '@/hooks/use-story-ids';
 import { useSourceQuery } from '@/hooks/use-source-query';
+import { useAppendCustomStoryBlock } from '@/hooks/use-append-custom-story-block';
 import { trpc } from '@/main';
 
 const EMPTY_COLUMNS: string[] = [];
@@ -33,7 +34,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 	const getMessages = useAgentMessagesGetter();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
+	const { open: openSidePanel, getState: getSidePanelState } = useSidePanelActions();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 
 	const storyIds = useStoryIds();
@@ -66,6 +67,11 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 			},
 		}),
 	);
+	const {
+		mutate: addToCustomStory,
+		error: addToCustomStoryError,
+		isPending: isAddingToCustomStory,
+	} = useAppendCustomStoryBlock();
 	const columns = sourceData?.columns ?? EMPTY_COLUMNS;
 	const rows = (sourceData?.data as Record<string, unknown>[] | undefined) ?? EMPTY_ROWS;
 	const conditionalFormats = useMemo(
@@ -74,6 +80,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 	);
 
 	const handleAddToStory = useCallback(async () => {
+		const { isVisible, currentStorySlug, currentStoryTabIndex } = getSidePanelState();
 		const latestStoryId = storyIds[storyIds.length - 1];
 		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
 		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
@@ -87,6 +94,26 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
+			return;
+		}
+
+		if (data.format === 'custom') {
+			addToCustomStory({
+				chatId,
+				storySlug: targetId,
+				versionNumber: latest.version,
+				block: {
+					component: 'DataTable',
+					props: {
+						queryId: config.query_id,
+						title: config.title || undefined,
+						conditionalFormats: sanitizeConditionalFormats(config.conditional_formats),
+					},
+				},
+			});
+			if (!usingVisibleStory) {
+				openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+			}
 			return;
 		}
 
@@ -110,17 +137,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 				targetId,
 			);
 		}
-	}, [
-		storyIds,
-		isVisible,
-		currentStorySlug,
-		chatId,
-		config,
-		queryClient,
-		currentStoryTabIndex,
-		addToStory,
-		openSidePanel,
-	]);
+	}, [storyIds, getSidePanelState, chatId, config, queryClient, addToStory, addToCustomStory, openSidePanel]);
 	const headerActions = useMemo(
 		() =>
 			isEditable ? (
@@ -131,7 +148,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 							size='icon-xs'
 							className='hover:rounded-full hover:bg-accent/70'
 							onClick={handleAddToStory}
-							disabled={isAddingToStory}
+							disabled={isAddingToStory || isAddingToCustomStory}
 							title='Add to story'
 						>
 							<FilePlus className='size-3 text-muted-foreground/70' />
@@ -148,7 +165,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 					</Button>
 				</>
 			) : null,
-		[isEditable, storyIds.length, handleAddToStory, isAddingToStory],
+		[isEditable, storyIds.length, handleAddToStory, isAddingToStory, isAddingToCustomStory],
 	);
 
 	const persistFormats = async (nextFormats: ColumnConditionalFormats) => {
@@ -200,6 +217,12 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 				headerActions={headerActions}
 				className='-mx-3'
 			/>
+
+			{addToCustomStoryError && (
+				<div className='mt-1 text-xs text-red-400' role='alert'>
+					Could not add the table to the story: {addToCustomStoryError.message}
+				</div>
+			)}
 
 			{isEditable && (
 				<TableFormatEditDialog

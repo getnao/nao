@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as usageQueries from '../queries/usage.queries';
 import {
 	assertSavedPeriodExists,
@@ -17,10 +18,10 @@ import {
 	usageFilterSchema,
 	usagePeriodSelectionSchema,
 } from '../types/usage';
-import { adminProtectedProcedure } from './trpc';
+import { adminProtectedProcedure, nonViewerProtectedProcedure } from './trpc';
 
 const projectPreferenceInputSchema = z.object({ projectId: z.string().min(1) });
-const usagePeriodPreferenceProcedure = adminProtectedProcedure
+const usagePeriodPreferenceProcedure = nonViewerProtectedProcedure
 	.input(projectPreferenceInputSchema)
 	.use(async ({ ctx, input, next }) => {
 		assertPreferenceProject(input.projectId, ctx.project.id);
@@ -37,20 +38,33 @@ const deleteSavedPeriodInputSchema = z.object({
 });
 
 export const usageRoutes = {
-	getMessagesUsage: adminProtectedProcedure.input(usageChartFilterSchema).query(async ({ ctx, input }) => {
-		return usageQueries.getMessagesUsage(ctx.project.id, input);
+	getMessagesUsage: nonViewerProtectedProcedure.input(usageChartFilterSchema).query(async ({ ctx, input }) => {
+		return usageQueries.getMessagesUsage(ctx.project.id, input, ctx.userRole === 'admin' ? undefined : ctx.user.id);
 	}),
 
-	getMessagesUsageByUser: adminProtectedProcedure.input(usageChartFilterSchema).query(async ({ ctx, input }) => {
-		return usageQueries.getMessagesUsageByUser(ctx.project.id, input);
+	getMessagesUsageByUser: nonViewerProtectedProcedure.input(usageChartFilterSchema).query(async ({ ctx, input }) => {
+		return usageQueries.getMessagesUsageByUser(
+			ctx.project.id,
+			input,
+			ctx.userRole === 'admin' ? undefined : ctx.user.id,
+		);
 	}),
 
-	getTotalUsage: adminProtectedProcedure.input(usageFilterSchema).query(async ({ ctx, input }) => {
-		return usageQueries.getTotalUsage(ctx.project.id, input);
+	getTotalUsage: nonViewerProtectedProcedure.input(usageFilterSchema).query(async ({ ctx, input }) => {
+		return usageQueries.getTotalUsage(ctx.project.id, input, ctx.userRole === 'admin' ? undefined : ctx.user.id);
 	}),
 
-	getUsedProviders: adminProtectedProcedure.query(async ({ ctx }) => {
-		return usageQueries.getUsedProviders(ctx.project.id);
+	getUsedProviders: nonViewerProtectedProcedure.query(async ({ ctx }) => {
+		return usageQueries.getUsedProviders(ctx.project.id, ctx.userRole === 'admin' ? undefined : ctx.user.id);
+	}),
+
+	getLlmCredentials: adminProtectedProcedure.query(async ({ ctx }) => {
+		return (await llmConfigQueries.getAllProjectLlmConfigs(ctx.project.id)).map((config) => ({
+			id: config.id,
+			name: config.name,
+			provider: config.provider,
+			disabled: config.disabledAt !== null,
+		}));
 	}),
 
 	getPeriodSettings: usagePeriodPreferenceProcedure.query(async ({ ctx }) => {

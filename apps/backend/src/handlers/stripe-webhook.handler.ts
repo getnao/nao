@@ -1,41 +1,69 @@
 import type Stripe from 'stripe';
 
 import * as billingQueries from '../queries/billing.queries';
+import { getCreditPurchaseByPaymentIntent } from '../queries/credit-wallet.queries';
+import { settleCreditTopUpCheckout } from '../services/billing-management.service';
 import { reconcileCloudBillingCustomer } from '../services/billing-reconciliation.service';
+import { isCreditTopUpCheckoutSession, isCreditTopUpPaymentIntent } from '../services/credit-top-up.service';
+import { setCreditPurchaseMovement } from '../services/credit-wallet.service';
 import type { JobHandler } from '../services/scheduler.service';
 import {
 	findCloudSubscription,
+	findManagedCloudSubscription,
 	getCloudCheckoutSubscription,
+	getStripeCharge,
 	getStripeCheckoutSession,
+	getStripeDispute,
 	getStripeEvent,
 	getStripeInvoice,
+	getStripePaymentIntent,
 	getStripePaymentMethod,
 } from '../services/stripe.service';
 import { isCloudBillingPlanKey } from '../types/billing';
+import { stripeId } from '../utils/stripe';
 
 export const STRIPE_WEBHOOK_PROCESS_JOB_NAME = 'stripe.webhook.process';
 
-const SUBSCRIPTION_EVENTS = new Set([
-	'customer.subscription.created',
-	'customer.subscription.updated',
-	'customer.subscription.deleted',
-	'customer.subscription.paused',
-	'customer.subscription.resumed',
+const DISPUTE_STATUSES_WITHOUT_WITHDRAWN_FUNDS = new Set([
+	'warning_needs_response',
+	'warning_under_review',
+	'warning_closed',
+	'won',
+	'prevented',
 ]);
 
-const INVOICE_EVENTS = new Set([
-	'invoice.paid',
-	'invoice.payment_failed',
-	'invoice.payment_action_required',
-	'invoice.finalization_failed',
-]);
+interface ProcessableStripeEvent {
+	type: string;
+	objectId: string;
+	stripeObject?: Stripe.Event['data']['object'];
+	previousAttributes?: Stripe.Event['data']['previous_attributes'];
+}
 
-const PAYMENT_METHOD_EVENTS = new Set([
-	'customer.updated',
-	'payment_method.attached',
-	'payment_method.detached',
-	'payment_method.updated',
-]);
+type StripeEventHandler = (event: ProcessableStripeEvent) => Promise<void>;
+
+const STRIPE_EVENT_HANDLERS: Record<string, StripeEventHandler> = {
+	'checkout.session.completed': processCheckoutEvent,
+	'checkout.session.async_payment_succeeded': processCheckoutEvent,
+	'charge.refunded': processRefundEvent,
+	'charge.dispute.created': processDisputeEvent,
+	'charge.dispute.updated': processDisputeEvent,
+	'charge.dispute.closed': processDisputeEvent,
+	'charge.dispute.funds_withdrawn': processDisputeEvent,
+	'charge.dispute.funds_reinstated': processDisputeEvent,
+	'customer.subscription.created': processSubscriptionEvent,
+	'customer.subscription.updated': processSubscriptionEvent,
+	'customer.subscription.deleted': processSubscriptionEvent,
+	'customer.subscription.paused': processSubscriptionEvent,
+	'customer.subscription.resumed': processSubscriptionEvent,
+	'invoice.paid': processInvoiceEvent,
+	'invoice.payment_failed': processInvoiceEvent,
+	'invoice.payment_action_required': processInvoiceEvent,
+	'invoice.finalization_failed': processInvoiceEvent,
+	'customer.updated': processPaymentMethodEvent,
+	'payment_method.attached': processPaymentMethodEvent,
+	'payment_method.detached': processPaymentMethodEvent,
+	'payment_method.updated': processPaymentMethodEvent,
+};
 
 export const stripeWebhookProcessHandler: JobHandler<{ eventId?: unknown }> = async (payload) => {
 	if (typeof payload.eventId !== 'string') {
@@ -73,78 +101,79 @@ export const stripeWebhookProcessHandler: JobHandler<{ eventId?: unknown }> = as
 };
 
 async function processStripeEvent(event: Stripe.Event): Promise<void> {
-	if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
-		const eventSession = event.data.object as Stripe.Checkout.Session;
-		if (eventSession.mode !== 'subscription' || !isCloudBillingPlanKey(eventSession.metadata?.nao_plan_key)) {
-			return;
-		}
-		await processCheckoutSession(eventSession.id);
+	const handler = STRIPE_EVENT_HANDLERS[event.type];
+	if (!handler) {
 		return;
 	}
-
-	if (SUBSCRIPTION_EVENTS.has(event.type)) {
-		const eventSubscription = event.data.object as Stripe.Subscription;
-		await processSubscription(eventSubscription.id);
-		return;
-	}
-
-	if (INVOICE_EVENTS.has(event.type)) {
-		await processInvoice(event.data.object as Stripe.Invoice);
-		return;
-	}
-
-	if (PAYMENT_METHOD_EVENTS.has(event.type)) {
-		await processPaymentMethodEvent(
-			event.type,
-			event.data.object as Stripe.Customer | Stripe.PaymentMethod,
-			event.data.previous_attributes as { customer?: string | Stripe.Customer | null } | undefined,
-		);
-	}
+	const stripeObject = event.data.object;
+	await handler({
+		type: event.type,
+		objectId: (stripeObject as { id: string }).id,
+		stripeObject,
+		previousAttributes: event.data.previous_attributes,
+	});
 }
 
 async function processStoredStripeEvent(event: { type: string; stripeObjectId: string | null }): Promise<void> {
-	const checkoutEvent =
-		event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded';
-	if (
-		!checkoutEvent &&
-		!SUBSCRIPTION_EVENTS.has(event.type) &&
-		!INVOICE_EVENTS.has(event.type) &&
-		!PAYMENT_METHOD_EVENTS.has(event.type)
-	) {
+	const handler = STRIPE_EVENT_HANDLERS[event.type];
+	if (!handler) {
 		return;
 	}
 	const objectId = event.stripeObjectId;
 	if (!objectId) {
 		throw new Error(`Stored Stripe event "${event.type}" has no object ID`);
 	}
+	await handler({ type: event.type, objectId });
+}
 
-	if (checkoutEvent) {
-		const session = await getStripeCheckoutSession(objectId);
-		if (session.mode !== 'subscription' || !isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+async function processCheckoutEvent(event: ProcessableStripeEvent): Promise<void> {
+	const session = event.stripeObject
+		? (event.stripeObject as Stripe.Checkout.Session)
+		: await getStripeCheckoutSession(event.objectId);
+	if (isCreditTopUpCheckoutSession(session)) {
+		if (event.type === 'checkout.session.completed' && session.payment_status !== 'paid') {
 			return;
 		}
-		await processCheckoutSession(objectId);
+		await settleCreditTopUpCheckout(event.objectId);
 		return;
 	}
-	if (SUBSCRIPTION_EVENTS.has(event.type)) {
-		await processSubscription(objectId);
-		return;
+	if (session.mode === 'subscription' && isCloudBillingPlanKey(session.metadata?.nao_plan_key)) {
+		await processCheckoutSession(event.objectId);
 	}
-	if (INVOICE_EVENTS.has(event.type)) {
-		await processInvoice(await getStripeInvoice(objectId));
-		return;
-	}
+}
+
+async function processRefundEvent(event: ProcessableStripeEvent): Promise<void> {
+	await processRefundedCharge(event.objectId);
+}
+
+async function processDisputeEvent(event: ProcessableStripeEvent): Promise<void> {
+	await processDispute(event.objectId);
+}
+
+async function processSubscriptionEvent(event: ProcessableStripeEvent): Promise<void> {
+	await processSubscription(event.objectId);
+}
+
+async function processInvoiceEvent(event: ProcessableStripeEvent): Promise<void> {
+	const invoice = event.stripeObject
+		? (event.stripeObject as Stripe.Invoice)
+		: await getStripeInvoice(event.objectId);
+	await processInvoice(invoice);
+}
+
+async function processPaymentMethodEvent(event: ProcessableStripeEvent): Promise<void> {
 	if (event.type === 'customer.updated') {
-		await reconcileCloudBillingCustomer({ stripeCustomerId: objectId });
+		await reconcileCloudBillingCustomer({ stripeCustomerId: event.objectId });
 		return;
 	}
-	if (event.type === 'payment_method.detached') {
+	if (event.type === 'payment_method.detached' && !event.stripeObject) {
 		await reconcileAllMappedCustomers();
 		return;
 	}
-	if (event.type === 'payment_method.attached' || event.type === 'payment_method.updated') {
-		await processPaymentMethodEvent(event.type, await getStripePaymentMethod(objectId));
-	}
+	const stripeObject =
+		(event.stripeObject as Stripe.PaymentMethod | undefined) ?? (await getStripePaymentMethod(event.objectId));
+	const previousAttributes = event.previousAttributes as { customer?: string | Stripe.Customer | null } | undefined;
+	await reconcilePaymentMethod(stripeObject, previousAttributes);
 }
 
 async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<void> {
@@ -165,8 +194,81 @@ async function processCheckoutSession(stripeCheckoutSessionId: string): Promise<
 	});
 }
 
+async function processRefundedCharge(stripeChargeId: string): Promise<void> {
+	const charge = await getStripeCharge(stripeChargeId);
+	const paymentIntentId = optionalStripeId(charge.payment_intent);
+	if (!paymentIntentId || charge.amount <= 0 || charge.amount_refunded <= 0) {
+		return;
+	}
+	const purchase = await getCreditPurchaseForClawback(paymentIntentId);
+	if (!purchase) {
+		return;
+	}
+	const targetRefundMicroUsd = Math.min(
+		purchase.entry.deltaMicroUsd,
+		Math.floor((purchase.entry.deltaMicroUsd * charge.amount_refunded) / charge.amount),
+	);
+	await setCreditPurchaseMovement({
+		paymentIntentId,
+		movementGroupId: `refund:${charge.id}`,
+		targetDeltaMicroUsd: -targetRefundMicroUsd,
+		idempotencyKey: `refund:stripe:${charge.id}:${charge.amount_refunded}`,
+		externalReference: charge.id,
+		entryType: 'refund',
+		metadata: {
+			refundedAmountCents: charge.amount_refunded,
+			paidAmountCents: charge.amount,
+		},
+	});
+}
+
+async function processDispute(stripeDisputeId: string): Promise<void> {
+	const dispute = await getStripeDispute(stripeDisputeId);
+	const charge = typeof dispute.charge === 'string' ? await getStripeCharge(dispute.charge) : dispute.charge;
+	const paymentIntentId = optionalStripeId(charge.payment_intent);
+	if (!paymentIntentId) {
+		return;
+	}
+	const purchase = await getCreditPurchaseForClawback(paymentIntentId);
+	if (!purchase) {
+		return;
+	}
+	const fundsWithdrawn = !DISPUTE_STATUSES_WITHOUT_WITHDRAWN_FUNDS.has(dispute.status);
+	if (fundsWithdrawn && (dispute.amount <= 0 || charge.amount <= 0)) {
+		return;
+	}
+	const disputedCreditMicroUsd = fundsWithdrawn
+		? Math.min(
+				purchase.entry.deltaMicroUsd,
+				Math.floor((purchase.entry.deltaMicroUsd * dispute.amount) / charge.amount),
+			)
+		: 0;
+	await setCreditPurchaseMovement({
+		paymentIntentId,
+		movementGroupId: `dispute:${dispute.id}`,
+		targetDeltaMicroUsd: fundsWithdrawn ? -disputedCreditMicroUsd : 0,
+		idempotencyKey: `dispute:stripe:${dispute.id}:${dispute.status}`,
+		externalReference: dispute.id,
+		entryType: 'adjustment',
+		metadata: {
+			adjustmentType: fundsWithdrawn ? 'dispute_opened' : 'dispute_won',
+			disputeStatus: dispute.status,
+			disputedAmountCents: dispute.amount,
+			paidAmountCents: charge.amount,
+		},
+	});
+}
+
+async function getCreditPurchaseForClawback(paymentIntentId: string) {
+	const purchase = await getCreditPurchaseByPaymentIntent(paymentIntentId);
+	if (purchase || !isCreditTopUpPaymentIntent(await getStripePaymentIntent(paymentIntentId))) {
+		return purchase;
+	}
+	throw new Error(`Credit purchase for Stripe PaymentIntent "${paymentIntentId}" has not been credited yet`);
+}
+
 async function processSubscription(stripeSubscriptionId: string): Promise<void> {
-	const subscription = await findCloudSubscription(stripeSubscriptionId);
+	const subscription = await findManagedCloudSubscription(stripeSubscriptionId);
 	if (!subscription) {
 		return;
 	}
@@ -195,17 +297,11 @@ async function processInvoice(invoice: Stripe.Invoice): Promise<void> {
 	});
 }
 
-async function processPaymentMethodEvent(
-	eventType: string,
-	stripeObject: Stripe.Customer | Stripe.PaymentMethod,
+async function reconcilePaymentMethod(
+	stripeObject: Stripe.PaymentMethod,
 	previousAttributes?: { customer?: string | Stripe.Customer | null },
 ): Promise<void> {
-	if (eventType === 'customer.updated') {
-		await reconcileCloudBillingCustomer({ stripeCustomerId: stripeObject.id });
-		return;
-	}
-
-	const customer = (stripeObject as Stripe.PaymentMethod).customer ?? previousAttributes?.customer;
+	const customer = stripeObject.customer ?? previousAttributes?.customer;
 	if (customer) {
 		await reconcileCloudBillingCustomer({ stripeCustomerId: stripeId(customer) });
 		return;
@@ -244,9 +340,6 @@ function isMissingStripeEvent(error: unknown): boolean {
 	);
 }
 
-function stripeId(value: string | { id: string } | null): string {
-	if (!value) {
-		throw new Error('Stripe object reference is missing');
-	}
-	return typeof value === 'string' ? value : value.id;
+function optionalStripeId(value: string | { id: string } | null): string | null {
+	return value ? (typeof value === 'string' ? value : value.id) : null;
 }

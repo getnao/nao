@@ -49,6 +49,69 @@ class TestDatabaseContext:
         assert rows[0]["name"] == "Alice"
         mock_table.limit.assert_called_once_with(2)
 
+    def test_preview_caps_oversized_values_and_keeps_other_columns(self):
+        ctx, mock_table = self._make_context()
+        ctx.set_preview_max_value_length(300)
+        huge = "x" * 100_000
+        df = pd.DataFrame({"id": [1], "name": ["Alice"], "area_geojson": [huge]})
+        mock_table.limit.return_value.execute.return_value = df
+
+        row = ctx.preview(limit=1)[0]
+
+        assert row["id"] == 1
+        assert row["name"] == "Alice"
+        assert len(row["area_geojson"]) <= 300
+        assert "…[truncated, 100000 chars]…" in row["area_geojson"]
+        assert row["area_geojson"].startswith("xxx")
+        assert row["area_geojson"].endswith("xxx")
+
+    def test_preview_leaves_values_under_cap_untouched(self):
+        ctx, mock_table = self._make_context()
+        ctx.set_preview_max_value_length(300)
+        value = "y" * 300
+        df = pd.DataFrame({"id": [1], "name": [value]})
+        mock_table.limit.return_value.execute.return_value = df
+
+        row = ctx.preview(limit=1)[0]
+
+        assert row["name"] == value
+
+    def test_preview_caps_oversized_json_values(self):
+        ctx, mock_table = self._make_context()
+        ctx.set_preview_max_value_length(100)
+        geometry = {"type": "Polygon", "coordinates": [[i, i] for i in range(500)]}
+        df = pd.DataFrame({"id": [1], "name": ["Alice"]})
+        df["geometry"] = [geometry]
+        mock_table.limit.return_value.execute.return_value = df
+
+        row = ctx.preview(limit=1)[0]
+
+        assert isinstance(row["geometry"], str)
+        assert len(row["geometry"]) <= 100
+        assert row["geometry"].startswith('{"type": "Polygon"')
+
+    def test_prepare_preview_row_filters_and_caps_for_backend_overrides(self):
+        ctx, _ = self._make_context(exclude_columns=["*.secret"])
+        ctx.set_preview_max_value_length(50)
+
+        row = ctx._prepare_preview_row({"id": 1, "secret": "hidden", "blob": "z" * 500})
+
+        assert "secret" not in row
+        assert row["id"] == 1
+        assert len(row["blob"]) <= 50
+        assert "…[truncated, 500 chars]…" in row["blob"]
+
+    def test_preview_cap_disabled_with_zero(self):
+        ctx, mock_table = self._make_context()
+        ctx.set_preview_max_value_length(0)
+        huge = "x" * 100_000
+        df = pd.DataFrame({"id": [1], "name": [huge]})
+        mock_table.limit.return_value.execute.return_value = df
+
+        row = ctx.preview(limit=1)[0]
+
+        assert row["name"] == huge
+
     def test_row_count(self):
         ctx, mock_table = self._make_context()
         mock_table.count.return_value.execute.return_value = 42
@@ -112,6 +175,22 @@ class TestDatabaseContext:
 
         assert _should_refresh(profiling_file, config) is False
 
+    def test_should_refresh_once_when_previous_render_failed(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        profiling_file.write_text("# orders\n\nprofiling not generated: query timed out\n")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.ONCE, interval_days=1)
+
+        assert _should_refresh(profiling_file, config) is True
+
+    def test_should_not_refresh_once_when_file_is_not_decodable(self, tmp_path):
+        profiling_file = tmp_path / "profiling.md"
+        profiling_file.write_bytes(b"\xff\xfe\xfa invalid")
+
+        config = ProfilingConfig(refresh_policy=ProfilingRefreshPolicy.ONCE, interval_days=1)
+
+        assert _should_refresh(profiling_file, config) is False
+
     def test_interval_days_valid_with_interval_policy(self):
         config = ProfilingConfig(
             refresh_policy=ProfilingRefreshPolicy.INTERVAL,
@@ -126,11 +205,26 @@ class TestDatabaseContext:
                 interval_days=0,  # interdit par ge=1
             )
 
-    def test_columns_filters_out_excluded_columns(self):
-        ctx, _ = self._make_context(exclude_columns=["*.name"])
+    @pytest.mark.parametrize(
+        ("pattern", "expected_columns"),
+        [
+            ("*.name", ["id"]),
+            ("*.something_else", ["id", "name"]),
+            ("my_schema.my_table.id", ["name"]),
+            ("*.*.id", ["name"]),
+        ],
+        ids=[
+            "filters_out_excluded_columns",
+            "returns_all_when_pattern_does_not_match",
+            "supports_schema_table_column_pattern",
+            "supports_wildcard_table_segment",
+        ],
+    )
+    def test_columns_exclude_pattern(self, pattern, expected_columns):
+        ctx, _ = self._make_context(exclude_columns=[pattern])
         columns = ctx.columns()
 
-        assert [c["name"] for c in columns] == ["id"]
+        assert [c["name"] for c in columns] == expected_columns
 
     def test_all_columns_returns_unfiltered_columns(self):
         ctx, _ = self._make_context(exclude_columns=["*.name"])
@@ -151,24 +245,6 @@ class TestDatabaseContext:
         mock_table.schema.return_value.items.return_value = []
 
         assert ctx.all_columns() == []
-
-    def test_columns_returns_all_when_pattern_does_not_match(self):
-        ctx, _ = self._make_context(exclude_columns=["*.something_else"])
-        columns = ctx.columns()
-
-        assert [c["name"] for c in columns] == ["id", "name"]
-
-    def test_columns_supports_schema_table_column_pattern(self):
-        ctx, _ = self._make_context(exclude_columns=["my_schema.my_table.id"])
-        columns = ctx.columns()
-
-        assert [c["name"] for c in columns] == ["name"]
-
-    def test_columns_supports_wildcard_table_segment(self):
-        ctx, _ = self._make_context(exclude_columns=["*.*.id"])
-        columns = ctx.columns()
-
-        assert [c["name"] for c in columns] == ["name"]
 
     def test_preview_filters_out_excluded_columns(self):
         ctx, mock_table = self._make_context(exclude_columns=["*._peerdb_*", "*.name"])

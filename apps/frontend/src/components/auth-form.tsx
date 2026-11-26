@@ -27,21 +27,24 @@ import { cn } from '@/lib/utils';
 const CompactFieldsContext = createContext({ compact: false, emailLastUsed: false });
 
 interface AuthFormProps {
-	form: any;
+	form?: any;
 	title: string;
-	submitText: string;
-	children: React.ReactNode;
+	titleClassName?: string;
+	submitText?: string;
+	children?: React.ReactNode;
 	serverError?: string;
 	displaySocialProviders?: boolean;
 	socialCallbackUrl?: string;
 	displayEmailPasswordForm?: boolean;
 	emailPasswordDisabledMessage?: string;
 	footer?: React.ReactNode;
+	content?: React.ReactNode;
 }
 
 export function AuthForm({
 	form,
 	title,
+	titleClassName,
 	submitText,
 	children,
 	serverError,
@@ -50,6 +53,7 @@ export function AuthForm({
 	displayEmailPasswordForm = true,
 	emailPasswordDisabledMessage,
 	footer,
+	content,
 }: AuthFormProps) {
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
 	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
@@ -139,7 +143,9 @@ export function AuthForm({
 		<div className='flex min-h-screen w-full' style={lastUsedPillVars}>
 			<div className='flex w-full items-center justify-center lg:w-1/2'>
 				<div className='mx-auto w-full max-w-md p-8 my-auto gap-4'>
-					<div className='flex flex-col items-center start mb-10 pb-2 gap-8'>
+					<div
+						className={cn('flex flex-col items-center start pb-2', content ? 'mb-7 gap-6' : 'mb-10 gap-8')}
+					>
 						{branding.enabled && branding.hasLogo ? (
 							<img
 								src={brandingAssetUrl('logo', branding.updatedAt)}
@@ -157,7 +163,7 @@ export function AuthForm({
 								}
 							/>
 						)}
-						<h1 className='font-borna text-2xl font-medium text-center'>{title}</h1>
+						<h1 className={cn('font-borna text-2xl font-medium text-center', titleClassName)}>{title}</h1>
 					</div>
 
 					{showsProviders && (
@@ -189,7 +195,9 @@ export function AuthForm({
 
 					{serverError && <p className='text-red-500 text-center text-sm mb-4'>{serverError}</p>}
 
-					{showEmailForm ? (
+					{content ? (
+						content
+					) : showEmailForm && form && submitText ? (
 						<CompactFieldsContext.Provider
 							value={{
 								compact: showsProviders,

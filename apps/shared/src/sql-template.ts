@@ -1,12 +1,24 @@
-export const STORY_FILTER_TYPES = ['select', 'multi_select', 'search', 'date_range'] as const;
+export const STORY_FILTER_TYPES = ['select', 'multi_select', 'text', 'search', 'date_range'] as const;
 
 export type StoryFilterType = (typeof STORY_FILTER_TYPES)[number];
+
+export const STORY_FILTER_VALUE_TYPES = ['string', 'number', 'boolean'] as const;
+
+export type StoryFilterValueType = (typeof STORY_FILTER_VALUE_TYPES)[number];
+
+/** Filter types whose values `value_type` renders unquoted (number, boolean) or as SQL strings. */
+export const TYPED_VALUE_FILTER_TYPES: readonly StoryFilterType[] = ['select', 'multi_select', 'text'];
+
+export interface StoryFilterSpec {
+	type: StoryFilterType;
+	valueType?: StoryFilterValueType;
+}
+
+export type StoryFilterSpecById = Record<string, StoryFilterSpec>;
 
 export type StoryFilterSelection = string | string[];
 
 export type StoryFilterSelections = Record<string, StoryFilterSelection>;
-
-export type StoryFilterTypeById = Record<string, StoryFilterType>;
 
 export const STORY_FILTER_ID_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -16,6 +28,9 @@ const ANY_FILTER_PLACEHOLDER_REGEX = /\{\{\s*filters\.([^\s.{}]+)(?:\.([^\s{}]*)
 const FILTER_OPEN_REGEX = /\{%\s*filter\b[^%}]*%\}/g;
 const FILTER_CLOSE_REGEX = /\{%\s*endfilter\s*%\}/g;
 const FILTER_DELIMITER_REGEX = /\{%\s*(?:filter\b([^%}]*)|(endfilter))\s*%\}/g;
+const LIKE_OPERATOR_REGEX = /\bI?LIKE\b/i;
+const FILTER_NUMBER_REGEX = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i;
+const FILTER_BOOLEAN_REGEX = /^(true|false)$/i;
 
 const INVALID_PLACEHOLDER_HINTS: Record<string, string> = {
 	start: "date_range exposes a single {{ filters.<id>.sql }} value that already expands to 'start' AND 'end' — use AND col BETWEEN {{ filters.<id>.sql }}",
@@ -71,7 +86,10 @@ export function extractSqlFilterIds(sql: string): string[] {
  * Validates story-filter SQL template syntax.
  * Returns human-readable issues the agent can use to self-heal incorrect templates.
  */
-export function validateSqlFilterTemplate(sql: string, options?: { knownFilterIds?: Iterable<string> }): string[] {
+export function validateSqlFilterTemplate(
+	sql: string,
+	options?: { knownFilterIds?: Iterable<string>; filterTypes?: Record<string, StoryFilterType> },
+): string[] {
 	if (!sqlIncludesFilterTemplate(sql)) {
 		return [];
 	}
@@ -116,6 +134,11 @@ export function validateSqlFilterTemplate(sql: string, options?: { knownFilterId
 			const placeholderId = placeholder[1];
 			const property = placeholder[2];
 			issues.push(...describePlaceholderIssues(placeholder[0], placeholderId, property, filterId));
+		}
+
+		const filterType = options?.filterTypes?.[filterId];
+		if (filterType) {
+			issues.push(...describeOperatorIssues(filterId, filterType, inner));
 		}
 	}
 
@@ -197,6 +220,22 @@ function describePlaceholderIssues(
 	return issues;
 }
 
+/** Catches templates whose comparison operator contradicts how the filter type renders its value. */
+function describeOperatorIssues(filterId: string, filterType: StoryFilterType, blockSql: string): string[] {
+	const usesLike = LIKE_OPERATOR_REGEX.test(blockSql);
+	if (filterType === 'search' && !usesLike) {
+		return [
+			`Filter "${filterId}" is type="search", which renders '%value%' (already wrapped and escaped) — compare it with LIKE/ILIKE, e.g. AND col ILIKE {{ filters.${filterId}.sql }}. For exact matches (IDs, codes) use type="text" with =.`,
+		];
+	}
+	if (filterType === 'text' && usesLike) {
+		return [
+			`Filter "${filterId}" is type="text", which renders the exact value — compare it with =, e.g. AND col = {{ filters.${filterId}.sql }}. Use type="search" for substring matching.`,
+		];
+	}
+	return [];
+}
+
 function countMatches(sql: string, regex: RegExp): number {
 	return [...sql.matchAll(new RegExp(regex.source, 'g'))].length;
 }
@@ -205,20 +244,20 @@ function uniqueIssues(issues: string[]): string[] {
 	return [...new Set(issues)];
 }
 
-export function renderSqlTemplate(sql: string, selections: StoryFilterSelections, types: StoryFilterTypeById): string {
-	const templateIssues = validateSqlFilterTemplate(sql, { knownFilterIds: Object.keys(types) });
+export function renderSqlTemplate(sql: string, selections: StoryFilterSelections, specs: StoryFilterSpecById): string {
+	const templateIssues = validateSqlFilterTemplate(sql, { knownFilterIds: Object.keys(specs) });
 	if (templateIssues.length > 0) {
 		throw new Error(templateIssues.join(' '));
 	}
 
 	const rendered = sql.replace(FILTER_BLOCK_REGEX, (_full, filterId: string, inner: string) => {
-		const filterType = types[filterId];
-		if (!filterType) {
+		const spec = specs[filterId];
+		if (!spec) {
 			throw new Error(`Unknown story filter "${filterId}" referenced in SQL template.`);
 		}
 
 		const selection = selections[filterId];
-		const sqlValue = renderFilterSqlValue(filterType, selection);
+		const sqlValue = renderFilterSqlValue(spec.type, selection, spec.valueType);
 		if (sqlValue === null) {
 			return '';
 		}
@@ -246,18 +285,21 @@ export function renderSqlTemplate(sql: string, selections: StoryFilterSelections
 export function renderFilterSqlValue(
 	type: StoryFilterType,
 	selection: StoryFilterSelection | undefined,
+	valueType: StoryFilterValueType = 'string',
 ): string | null {
-	if (!isFilterSelectionActive(type, selection)) {
+	if (!isFilterSelectionActive(type, selection, valueType)) {
 		return null;
 	}
 
 	switch (type) {
 		case 'select':
-			return quoteSqlString(selection as string);
+			return renderTypedSqlValue(selection as string, valueType);
+		case 'text':
+			return renderTypedSqlValue((selection as string).trim(), valueType);
 		case 'multi_select':
 			return (selection as string[])
-				.filter((value) => value.trim() !== '')
-				.map(quoteSqlString)
+				.filter((value) => isValidFilterTextValue(value, valueType))
+				.map((value) => renderTypedSqlValue(value, valueType))
 				.join(', ');
 		case 'search':
 			return quoteSqlString(`%${escapeLikePattern(selection as string)}%`);
@@ -268,17 +310,23 @@ export function renderFilterSqlValue(
 	}
 }
 
-export function isFilterSelectionActive(type: StoryFilterType, selection: StoryFilterSelection | undefined): boolean {
+export function isFilterSelectionActive(
+	type: StoryFilterType,
+	selection: StoryFilterSelection | undefined,
+	valueType: StoryFilterValueType = 'string',
+): boolean {
 	if (selection === undefined) {
 		return false;
 	}
 
 	switch (type) {
+		case 'text':
 		case 'select':
+			return typeof selection === 'string' && isValidFilterTextValue(selection, valueType);
 		case 'search':
 			return typeof selection === 'string' && selection.trim() !== '';
 		case 'multi_select':
-			return Array.isArray(selection) && selection.some((value) => value.trim() !== '');
+			return Array.isArray(selection) && selection.some((value) => isValidFilterTextValue(value, valueType));
 		case 'date_range':
 			return (
 				Array.isArray(selection) &&
@@ -289,11 +337,38 @@ export function isFilterSelectionActive(type: StoryFilterType, selection: StoryF
 	}
 }
 
-function quoteSqlString(value: string): string {
+export function isValidFilterTextValue(value: string, valueType: StoryFilterValueType): boolean {
+	const trimmed = value.trim();
+	if (trimmed === '') {
+		return false;
+	}
+	switch (valueType) {
+		case 'number':
+			return FILTER_NUMBER_REGEX.test(trimmed);
+		case 'boolean':
+			return FILTER_BOOLEAN_REGEX.test(trimmed);
+		case 'string':
+			return true;
+	}
+}
+
+export function quoteSqlString(value: string): string {
 	if (value.includes('\0')) {
 		throw new Error('Filter values cannot contain null bytes.');
 	}
 	return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Numbers and booleans render bare so the warehouse compares them to typed columns (BigQuery rejects BOOL = 'true'). */
+function renderTypedSqlValue(value: string, valueType: StoryFilterValueType): string {
+	switch (valueType) {
+		case 'number':
+			return value.trim();
+		case 'boolean':
+			return value.trim().toLowerCase();
+		case 'string':
+			return quoteSqlString(value);
+	}
 }
 
 function escapeLikePattern(value: string): string {

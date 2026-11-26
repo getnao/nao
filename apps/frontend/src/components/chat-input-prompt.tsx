@@ -1,27 +1,44 @@
 import 'prompt-mentions/style.css';
 
-import { useQuery } from '@tanstack/react-query';
-import { AppWindow, Table } from 'lucide-react';
-import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@nao/shared';
+import { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER, STORY_REFERENCE_MENTION_TRIGGER } from '@nao/shared';
 import { story } from '@nao/shared/tools';
+import { useQuery } from '@tanstack/react-query';
+import { useRouterState } from '@tanstack/react-router';
+import { Plus } from 'lucide-react';
 import { Prompt } from 'prompt-mentions';
-import StoryIcon from './ui/story-icon';
+import { useId, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
+import AppWindow from './icons/app-window.svg';
+import Slash from './icons/slash.svg';
+import SquarePlay from './icons/square-play.svg';
+import { MentionOriginPreview, withOriginMarker } from './mention-origin-preview';
 import type { MentionOption, PromptHandle, PromptTheme, SelectedMention } from 'prompt-mentions';
 import type { RefObject } from 'react';
+
+import type { CreatedSkill, ListedSkill } from '@/components/personal-skills';
+import { NewSkillDialog, useNewSkillScope } from '@/components/personal-skills';
+import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
+import { useOpenSkillInContextHub } from '@/hooks/use-context-hub-view';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCustomStoriesEnabled } from '@/hooks/use-custom-stories-enabled';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { isMenuItemMarkedWith } from '@/hooks/use-highlighted-mention';
+import { useReferenceableStories, useReferenceMentionMenu } from '@/hooks/use-reference-mention-menu';
+import { useActiveProjectId } from '@/lib/active-project';
+import { CITATION_MENTION_TRIGGER, writeCitedText } from '@/lib/citation-mention';
+import { toStoryReferenceOption } from '@/lib/reference-mention-menu';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const STORY_MENTION_ID = story.MENTION_ID;
 export const CUSTOM_STORY_MENTION_ID = story.CUSTOM_MENTION_ID;
-export { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER };
+export { DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER, STORY_REFERENCE_MENTION_TRIGGER };
 
 export const storyMentionOption: MentionOption = {
 	id: STORY_MENTION_ID,
 	label: 'Story mode',
 	labelRight: 'Create a new story',
-	icon: <StoryIcon className='size-4' strokeWidth={2.25} />,
+	icon: <SquarePlay className='size-4' strokeWidth={2.25} />,
 };
 
 export const customStoryMentionOption: MentionOption = {
@@ -41,16 +58,31 @@ export function useStoryMentionOptions(storyCreationEnabled: boolean): MentionOp
 	return customStoriesEnabled ? [storyMentionOption, customStoryMentionOption] : [storyMentionOption];
 }
 
+/** Existing stories the user can reference with @, pinned and certified first. */
+export function useStoryReferenceOptions({ excludeCurrentChat = false } = {}) {
+	const { stories, isLoaded } = useReferenceableStories({ excludeCurrentChat });
+	const options = useMemo(() => stories.map(toStoryReferenceOption), [stories]);
+	return { options, isLoaded };
+}
+
 type ChatPromptProps = {
 	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
 	initialValue?: string;
 	minHeight?: string;
-	resizable?: boolean;
+	/** Only applies with growWithContent: past it the editor scrolls. */
+	maxHeight?: string;
+	compact?: boolean;
+	/** Grows with its content up to maxHeight, instead of the usual chat input max height. */
+	growWithContent?: boolean;
 	submitOnEnter?: boolean;
 	storyCreationEnabled: boolean;
+	citationOptions?: MentionOption[];
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
+	onMentionDeleted?: (mention: SelectedMention) => void;
+	/** Opens the new skill dialog from outside the prompt, such as the + menu; the prompt keeps it to itself otherwise. */
+	newSkillDialog?: { isOpen: boolean; onOpenChange: (isOpen: boolean) => void };
 };
 
 const theme: PromptTheme = {
@@ -66,91 +98,307 @@ const theme: PromptTheme = {
 	fontSize: '14px',
 	menu: {
 		minWidth: '400px',
+		maxHeight: '360px',
 		backgroundColor: 'var(--popover)',
 		borderColor: 'var(--border)',
 		color: 'var(--popover-foreground)',
 		itemHoverColor: 'var(--accent)',
-	},
-	pill: {
-		backgroundColor: 'var(--background)',
-		color: 'var(--foreground)',
-		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
-		borderRadius: '9999px',
+		chevronColor: 'var(--color-muted-foreground)',
+		chevronHoverColor: 'var(--color-foreground)',
+		title: {
+			labelColor: 'var(--color-muted-foreground)',
+		},
 	},
 };
 
-const tableIcon = <Table className='size-4' />;
-
-function buildDatabaseObjectOptions(
-	objects: { type: string; database: string; schema: string; table: string; fqdn: string }[],
-): MentionOption[] {
-	return objects.map((obj) => ({
-		id: obj.fqdn,
-		label: obj.table,
-		labelRight: `${obj.database}.${obj.schema}`,
-		icon: tableIcon,
-	}));
-}
+const COMPACT_MIN_HEIGHT = '32px';
+const COMPACT_PADDING = '6px 8px';
+const COMPACT_LINE_HEIGHT = '20px';
 
 export function ChatPrompt({
 	promptRef,
 	placeholder,
 	initialValue,
 	minHeight,
-	resizable = false,
+	maxHeight,
+	compact = false,
+	growWithContent = false,
 	submitOnEnter = true,
 	storyCreationEnabled,
+	citationOptions = [],
 	onChange,
 	onEnter,
+	onMentionDeleted,
+	newSkillDialog,
 }: ChatPromptProps) {
-	const { data: skills } = useQuery(trpc.skill.list.queryOptions());
-	const { data: databaseObjects } = useQuery(trpc.project.getDatabaseObjects.queryOptions());
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const skillsQuery = useQuery({
+		...trpc.skill.list.queryOptions(),
+		enabled: hasProject,
+	});
+	const skills = hasProject && !skillsQuery.isFetching ? skillsQuery.data : undefined;
+	const canCreateSkill = useCanManagePersonalSkills();
+	const { canExploreContext } = usePermissions();
+	const [isOwnNewSkillOpen, setIsOwnNewSkillOpen] = useState(false);
+	const isNewSkillOpen = newSkillDialog?.isOpen ?? isOwnNewSkillOpen;
+	const setIsNewSkillOpen = newSkillDialog?.onOpenChange ?? setIsOwnNewSkillOpen;
+	const [newSkillScope, setNewSkillScope] = useNewSkillScope();
+	const openSkillInContextHub = useOpenSkillInContextHub();
+	const isInContextHub = useRouterState({ select: (state) => isContextHubPathname(state.location.pathname) });
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
-	const promptTheme = minHeight ? { ...theme, minHeight } : theme;
+	const referenceOptions = useReferenceOptions();
+	const promptTheme = compact
+		? {
+				...theme,
+				minHeight: minHeight ?? COMPACT_MIN_HEIGHT,
+				padding: COMPACT_PADDING,
+				lineHeight: COMPACT_LINE_HEIGHT,
+			}
+		: minHeight
+			? { ...theme, minHeight }
+			: theme;
+
+	const handleChange = (value: string, mentions: SelectedMention[]) => {
+		referenceOptions.setIsSearching(isTypingMentionQuery(DATABASE_MENTION_TRIGGER));
+		onChange(
+			value.replaceAll(CREATE_SKILL_TOKEN, ''),
+			mentions.filter((mention) => mention.id !== CREATE_SKILL_MENTION_ID),
+		);
+	};
+
+	/** "Create a skill" is an action, not a mention: it opens the new skill dialog and leaves the message as it was. */
+	/** "Create a skill" is an action, not a mention: it opens the new skill dialog over the message being written. */
+	const handleMentionAdded = (mention: SelectedMention) => {
+		if (mention.id !== CREATE_SKILL_MENTION_ID) {
+			return;
+		}
+		setTimeout(() => promptRef.current && removeCreateSkillPill(promptRef.current));
+		setIsNewSkillOpen(true);
+	};
+
+	/** A new personal skill is mentioned in the message, ready to use; a team skill only exists once published. */
+	const handleSkillCreated = (skill: CreatedSkill) => {
+		if (skill.scope === 'personal') {
+			promptRef.current?.appendMention(
+				{ id: skill.name, label: skill.name, icon: <Slash className='skill-mention-icon' /> },
+				SKILL_MENTION_TRIGGER,
+			);
+		}
+	};
 
 	return (
-		<Prompt
-			ref={promptRef}
-			initialValue={initialValue}
-			placeholder={placeholder}
-			mentionConfigs={[
-				{
-					trigger: SKILL_MENTION_TRIGGER,
-					menuPosition: 'above',
-					options: [
-						...(skills?.map((skill) => ({
-							id: skill.name,
-							label: skill.name,
-							labelRight: skill.description ?? undefined,
-							icon: <span>{SKILL_MENTION_TRIGGER}</span>,
-						})) ?? []),
-					],
-				},
-				...(storyMentionOptions.length > 0
-					? [
-							{
-								trigger: story.MENTION_TRIGGER,
-								menuPosition: 'above' as const,
-								options: storyMentionOptions,
-							},
-						]
-					: []),
-				{
-					trigger: DATABASE_MENTION_TRIGGER,
-					menuPosition: 'above',
-					options: buildDatabaseObjectOptions(databaseObjects ?? []),
-				},
-			]}
-			onChange={onChange}
-			onEnter={onEnter}
-			submitOnEnter={submitOnEnter}
-			className={cn('w-full nao-input', resizable && 'nao-input-resizable')}
-			style={
-				{
-					'--prompt-min-height': minHeight || '70px',
-				} as React.CSSProperties
-			}
-			theme={promptTheme}
-		/>
+		<>
+			<Prompt
+				ref={promptRef}
+				initialValue={initialValue}
+				placeholder={placeholder}
+				mentionConfigs={[
+					{
+						trigger: SKILL_MENTION_TRIGGER,
+						menuPosition: 'above',
+						options: [
+							...toSkillMentionOptions(skills ?? []),
+							...(canCreateSkill ? [CREATE_SKILL_OPTION] : []),
+						],
+					},
+					...(storyMentionOptions.length > 0
+						? [
+								{
+									trigger: story.MENTION_TRIGGER,
+									menuPosition: 'above' as const,
+									options: storyMentionOptions,
+								},
+							]
+						: []),
+					{
+						trigger: DATABASE_MENTION_TRIGGER,
+						menuPosition: 'above',
+						options: referenceOptions.options,
+					},
+					...(citationOptions.length > 0
+						? [
+								{
+									trigger: CITATION_MENTION_TRIGGER,
+									menuPosition: 'above' as const,
+									options: citationOptions,
+								},
+							]
+						: []),
+				]}
+				onChange={handleChange}
+				onEnter={onEnter}
+				onMentionAdded={handleMentionAdded}
+				onMentionDeleted={onMentionDeleted}
+				submitOnEnter={submitOnEnter}
+				className={cn('w-full nao-input', growWithContent && 'nao-input-grow')}
+				style={
+					{
+						'--prompt-min-height': promptTheme.minHeight,
+						'--prompt-max-height': maxHeight,
+					} as React.CSSProperties
+				}
+				theme={promptTheme}
+			/>
+			<MentionOriginPreview owner={referenceOptions.originOwner} origins={referenceOptions.origins} />
+			<NewSkillDialog
+				open={isNewSkillOpen}
+				scope={newSkillScope}
+				canCreateTeamSkill={canExploreContext}
+				onScopeChange={setNewSkillScope}
+				onClose={() => setIsNewSkillOpen(false)}
+				onCreated={handleSkillCreated}
+				onOpenInEditor={canExploreContext && !isInContextHub ? openSkillInContextHub : undefined}
+			/>
+		</>
 	);
+}
+
+/** The Context Hub opens a new skill in place, beside this chat: leaving for the editor would drop unsaved edits. */
+function isContextHubPathname(pathname: string): boolean {
+	return CONTEXT_HUB_PATHNAMES.some((hubPathname) => pathname.startsWith(hubPathname));
+}
+
+const CONTEXT_HUB_PATHNAMES = ['/context-hub', '/settings/context-explorer'];
+
+/**
+ * The prompt cannot drop one mention, so it is rewritten without the "Create a skill" pill. Citation pills cannot be
+ * rebuilt from the text alone, so a prompt holding one keeps the pill, which the change handler leaves out anyway.
+ */
+function removeCreateSkillPill(prompt: PromptHandle): void {
+	const mentions = prompt.getMentions().filter((mention) => mention.id !== CREATE_SKILL_MENTION_ID);
+	if (mentions.some((mention) => mention.trigger === CITATION_MENTION_TRIGGER)) {
+		return;
+	}
+	const text = prompt.getValue().replaceAll(CREATE_SKILL_TOKEN, '');
+	prompt.clear();
+	writeCitedText(prompt, text, [], mentions);
+	prompt.focus();
+}
+
+/**
+ * The menu searches every level of the options it is given, which would list the quick picks twice and
+ * offer the browse-only containers. So it browses the tree, and searches a flat list of mentionable items.
+ */
+function useReferenceOptions() {
+	const [isSearching, setIsSearching] = useState(false);
+	const { browseOptions, searchOptions, origins } = useReferenceMentionMenu({ excludeCurrentChat: true });
+	const originOwner = useId();
+	const shownOptions = isSearching ? searchOptions : browseOptions;
+	const options = useMemo(
+		() => shownOptions.map((option) => withOriginMarker(option, originOwner)),
+		[shownOptions, originOwner],
+	);
+	return {
+		options,
+		setIsSearching,
+		origins,
+		originOwner,
+	};
+}
+
+/** Puts the trigger at the end of the input and opens its menu, whatever the caret was. */
+export function openMentionMenuAtEnd(prompt: PromptHandle, trigger: string) {
+	prompt.focus();
+	if (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable) {
+		placeCaretAtEnd(document.activeElement);
+	}
+	const value = prompt.getValue();
+	prompt.insertText(value.length > 0 && !/\s$/.test(value) ? ` ${trigger}` : trigger);
+}
+
+/** Opens the `@` menu with one of its roots selected, such as the Stories or Tables submenu. */
+export function openReferenceMenuAtEnd(prompt: PromptHandle, rootId: string) {
+	openMentionMenuAtEnd(prompt, DATABASE_MENTION_TRIGGER);
+	const editor = document.activeElement;
+	if (editor instanceof HTMLElement && editor.isContentEditable) {
+		keepOptionSelected(editor, rootId);
+	}
+}
+
+const OPTION_SELECTION_WINDOW_MS = 300;
+
+function keepOptionSelected(editor: HTMLElement, optionId: string) {
+	const selectOption = () => {
+		const items = [...document.querySelectorAll('.mention-menu .mention-menu-item')];
+		const targetIndex = items.findIndex((item) => isMenuItemMarkedWith(item, optionId));
+		const selectedIndex = items.findIndex((item) => item.classList.contains('mention-menu-item-selected'));
+		if (targetIndex < 0 || selectedIndex < 0 || targetIndex === selectedIndex) {
+			return;
+		}
+		const key = targetIndex > selectedIndex ? 'ArrowDown' : 'ArrowUp';
+		flushSync(() => pressKey(editor, key, Math.abs(targetIndex - selectedIndex)));
+	};
+	const observer = new MutationObserver(selectOption);
+	observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+	selectOption();
+	setTimeout(() => observer.disconnect(), OPTION_SELECTION_WINDOW_MS);
+}
+
+/** The menu only exposes keyboard navigation, which skips dividers and section titles. */
+function pressKey(editor: HTMLElement, key: string, times = 1) {
+	for (let press = 0; press < times; press++) {
+		editor.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+	}
+}
+
+/** Mirrors how the menu reads its search: the trigger, then non-blank text, right before the caret. */
+function isTypingMentionQuery(trigger: string): boolean {
+	const selection = window.getSelection();
+	const node = selection?.anchorNode;
+	if (!selection || node?.nodeType !== Node.TEXT_NODE) {
+		return false;
+	}
+	const textBeforeCaret = (node.textContent ?? '').slice(0, selection.anchorOffset);
+	const lastToken = textBeforeCaret.split(/\s/).pop() ?? '';
+	return lastToken.length > trigger.length && lastToken.startsWith(trigger);
+}
+
+/** A trailing `<br>` only keeps the last line visible, so text typed at the end goes before it. */
+function placeCaretAtEnd(editor: HTMLElement) {
+	const range = document.createRange();
+	if (editor.lastChild?.nodeName === 'BR') {
+		range.setStartBefore(editor.lastChild);
+	} else {
+		range.selectNodeContents(editor);
+		range.collapse(false);
+	}
+	const selection = window.getSelection();
+	selection?.removeAllRanges();
+	selection?.addRange(range);
+}
+
+/** Skill names are lowercase letters, digits and dashes, so this id never collides with a skill. */
+const CREATE_SKILL_MENTION_ID = ':create-skill';
+const CREATE_SKILL_TOKEN = `${SKILL_MENTION_TRIGGER}[${CREATE_SKILL_MENTION_ID}]`;
+const CREATE_SKILL_OPTION: MentionOption = {
+	id: CREATE_SKILL_MENTION_ID,
+	label: 'Create a skill',
+	icon: (
+		<span className='skill-mention-icon text-muted-foreground'>
+			<Plus className='mr-1 size-3.5' />
+		</span>
+	),
+};
+
+/** Personal skills come after the project ones, their teal trigger telling them apart. */
+function toSkillMentionOptions(skills: ListedSkill[]): MentionOption[] {
+	const projectSkills = skills.filter((skill) => skill.scope === 'project');
+	const personalSkills = skills.filter((skill) => skill.scope === 'personal');
+	return [...projectSkills, ...personalSkills].map(toSkillMentionOption);
+}
+
+function toSkillMentionOption(skill: ListedSkill): MentionOption {
+	return {
+		id: skill.name,
+		label: skill.name,
+		labelRight: skill.description || undefined,
+		icon: (
+			<Slash
+				className={cn('skill-mention-icon', skill.scope === 'personal' && 'text-teal-700 dark:text-teal-400')}
+			/>
+		),
+	};
 }

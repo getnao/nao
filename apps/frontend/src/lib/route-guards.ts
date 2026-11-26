@@ -1,5 +1,7 @@
 import { redirect } from '@tanstack/react-router';
 
+import { canRoleManagePersonalSkills } from '@nao/shared';
+
 import { queryClient, trpc } from '@/main';
 
 export async function requireAdvancedSettingsAccess(pathname: string) {
@@ -30,19 +32,20 @@ export async function requireNonCloud() {
 	}
 }
 
-export async function requireCloudBilling() {
-	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+export async function requireOrganizationAdminCloudBilling() {
+	const config = await requireCloud();
 	if (!config.cloudBillingEnabled) {
 		throw redirect({ to: '/settings/account' });
 	}
+	await requireOrganizationAdmin();
 }
 
-export async function requireOrganizationAdminCloudBilling() {
-	await requireCloudBilling();
-	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
-	if (organization.role !== 'admin') {
+export async function requireCloud() {
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (config.naoMode !== 'cloud') {
 		throw redirect({ to: '/settings/account' });
 	}
+	return config;
 }
 
 export async function requireAdminNonCloud() {
@@ -62,6 +65,21 @@ export async function requireContextAdminOrAdmin() {
 	}
 }
 
+/** The Context Hub opens to context editors, and to members whose groups grant personal skills, on those alone. */
+export async function requireContextHubOrPersonalSkillsAccess() {
+	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
+	const access = await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
+	if (!project || !canRoleManagePersonalSkills(project.userRole, access.features.personalSkills)) {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
+/** Loads whether the file tree is granted before the Context Hub renders, so it opens in the right view. */
+export async function requireContextHubAccess() {
+	await requireContextAdminOrAdmin();
+	await queryClient.ensureQueryData(trpc.userGroup.effectiveAccess.queryOptions());
+}
+
 export async function requireNonViewer() {
 	const project = await queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions());
 	if (!project || project.userRole === 'viewer') {
@@ -73,5 +91,12 @@ export async function requireAutomationsEnabled() {
 	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
 	if (!config.betaAutomationsEnabled) {
 		throw redirect({ to: '/' });
+	}
+}
+
+async function requireOrganizationAdmin() {
+	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
+	if (organization.role !== 'admin') {
+		throw redirect({ to: '/settings/account' });
 	}
 }

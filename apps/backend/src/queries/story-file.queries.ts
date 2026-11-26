@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { StoryApp } from '@nao/shared/story-app';
-import { and, asc, eq, getTableColumns, lt, notExists, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, inArray, lt, notExists, sql } from 'drizzle-orm';
 
 import s, {
 	type DBStoryBundle,
@@ -11,6 +11,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
+import type { VersionProvenance } from './story.queries';
 
 export interface StoryFileInput {
 	path: string;
@@ -109,11 +110,21 @@ export async function seedDraftFiles(
 }
 
 export function listVersionFiles(storyVersionId: string, executor: DBExecutor = db): Promise<StoryFileWithContent[]> {
+	return listFilesOfVersions([storyVersionId], executor);
+}
+
+export function listFilesOfVersions(
+	storyVersionIds: string[],
+	executor: DBExecutor = db,
+): Promise<StoryFileWithContent[]> {
+	if (storyVersionIds.length === 0) {
+		return Promise.resolve([]);
+	}
 	return executor
 		.select({ ...getTableColumns(s.storyFile), content: s.storyFileBlob.content })
 		.from(s.storyFile)
 		.innerJoin(s.storyFileBlob, eq(s.storyFile.contentHash, s.storyFileBlob.contentHash))
-		.where(eq(s.storyFile.storyVersionId, storyVersionId))
+		.where(inArray(s.storyFile.storyVersionId, storyVersionIds))
 		.orderBy(asc(s.storyFile.path))
 		.execute();
 }
@@ -132,12 +143,12 @@ export async function getVersionFile(
 	return row ?? null;
 }
 
-interface CutVersionInput {
+type CutVersionInput = {
 	storyId: string;
 	action: DBStoryVersion['action'];
 	source: DBStoryVersion['source'];
 	versionNumber?: number;
-}
+} & VersionProvenance;
 
 /** Runs inside the caller's transaction when given one, so a draft write and its version land together. */
 export async function cutVersionFromDraft(
@@ -173,6 +184,9 @@ async function cutVersion(
 			code: '',
 			action: data.action,
 			source: data.source,
+			origin: data.origin,
+			authorId: data.authorId,
+			sourceChatId: data.sourceChatId,
 			version: data.versionNumber ?? sql`(${nextVersion})`,
 		})
 		.returning()

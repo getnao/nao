@@ -4,19 +4,8 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
-}
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectWhatsappConfig = async (projectId: string): Promise<WhatsappConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -38,7 +27,11 @@ export const getProjectWhatsappConfig = async (projectId: string): Promise<Whats
 		phoneNumberId: settings.whatsappPhoneNumberId,
 		verifyToken: settings.whatsappVerifyToken,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.whatsappLlmProvider, settings.whatsappLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings.whatsappLlmProvider,
+			settings.whatsappLlmModelId,
+			settings.whatsappLlmConfigId,
+		),
 	};
 };
 
@@ -50,6 +43,7 @@ export const upsertProjectWhatsappConfig = async (data: {
 	verifyToken: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 }): Promise<{
 	accessToken: string;
 	appSecret: string;
@@ -68,6 +62,7 @@ export const upsertProjectWhatsappConfig = async (data: {
 					whatsappVerifyToken: data.verifyToken,
 					whatsappLlmProvider: data.modelProvider ?? '',
 					whatsappLlmModelId: data.modelId ?? '',
+					whatsappLlmConfigId: data.llmConfigId,
 				},
 			})
 			.where(eq(s.project.id, data.projectId))
@@ -82,7 +77,11 @@ export const upsertProjectWhatsappConfig = async (data: {
 		appSecret: settings?.whatsappAppSecret || '',
 		phoneNumberId: settings?.whatsappPhoneNumberId || '',
 		verifyToken: settings?.whatsappVerifyToken || '',
-		modelSelection: toLlmSelectedModel(settings?.whatsappLlmProvider, settings?.whatsappLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings?.whatsappLlmProvider,
+			settings?.whatsappLlmModelId,
+			settings?.whatsappLlmConfigId,
+		),
 	};
 };
 
@@ -90,29 +89,17 @@ export const updateProjectWhatsappModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.whatsappSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				whatsappSettings: {
-					whatsappAccessToken: existing?.whatsappAccessToken ?? '',
-					whatsappAppSecret: existing?.whatsappAppSecret ?? '',
-					whatsappPhoneNumberId: existing?.whatsappPhoneNumberId ?? '',
-					whatsappVerifyToken: existing?.whatsappVerifyToken ?? '',
-					whatsappLlmProvider: modelProvider ?? '',
-					whatsappLlmModelId: modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'whatsappSettings', (existing) => ({
+		whatsappAccessToken: existing?.whatsappAccessToken ?? '',
+		whatsappAppSecret: existing?.whatsappAppSecret ?? '',
+		whatsappPhoneNumberId: existing?.whatsappPhoneNumberId ?? '',
+		whatsappVerifyToken: existing?.whatsappVerifyToken ?? '',
+		whatsappLlmProvider: modelProvider ?? '',
+		whatsappLlmModelId: modelId ?? '',
+		whatsappLlmConfigId: llmConfigId ?? undefined,
+	}));
 };
 
 export const deleteProjectWhatsappConfig = async (projectId: string): Promise<void> => {

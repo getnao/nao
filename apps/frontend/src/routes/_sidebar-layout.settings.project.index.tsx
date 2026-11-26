@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 
+import { EditableProjectName } from '@/components/settings/editable-project-name';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { ProjectIdentifier } from '@/components/settings/project-identifier';
+import { WarehouseCredentialsSection } from '@/components/settings/warehouse-credentials-section';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -30,7 +32,17 @@ function ProjectSettingsPage() {
 					</>
 				) : project.data ? (
 					<>
-						<DetailRow label='Name' value={project.data.name} />
+						<DetailRow
+							label='Name'
+							value={
+								<EditableProjectName
+									key={project.data.id}
+									projectId={project.data.id}
+									name={project.data.name}
+									canEdit={isAdmin}
+								/>
+							}
+						/>
 						{project.data.path && (
 							<DetailRow
 								label='Path'
@@ -42,6 +54,7 @@ function ProjectSettingsPage() {
 				) : null}
 			</SettingsCard>
 
+			<WarehouseCredentialsSection isAdmin={isAdmin} />
 			<EnvVarsSection isAdmin={isAdmin} />
 		</>
 	);

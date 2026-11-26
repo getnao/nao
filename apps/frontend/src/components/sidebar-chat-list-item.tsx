@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { EllipsisVertical, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
 import { useState } from 'react';
-import { ShareChatDialog } from './share-dialog.chat';
+import { ShareDialog } from './share-dialog';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -22,6 +22,7 @@ import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useToggleStarred } from '@/hooks/use-toggle-starred';
 import { useSession } from '@/lib/auth-client';
+import { allowConversationFeedbackNavigationAfterDeletion } from '@/lib/conversation-feedback-navigation';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -50,6 +51,7 @@ export function ChatListItem({ chat, needsAttention = false, resumeOnboarding = 
 						storage.set(null);
 					}
 				}
+				allowConversationFeedbackNavigationAfterDeletion(vars.chatId);
 				navigate({ to: '/' });
 				ctx.client.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
 			},
@@ -197,7 +199,13 @@ export function ChatListItem({ chat, needsAttention = false, resumeOnboarding = 
 				)}
 			</Link>
 
-			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chat.id} />
+			{isShareDialogOpen && (
+				<ShareDialog
+					open={isShareDialogOpen}
+					onOpenChange={setIsShareDialogOpen}
+					target={{ kind: 'chat', chatId: chat.id }}
+				/>
+			)}
 		</>
 	);
 }

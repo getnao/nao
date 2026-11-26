@@ -1,7 +1,5 @@
-import type { LlmProvider } from '@nao/shared/types';
-
 import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
-import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
@@ -14,8 +12,9 @@ import type {
 	UserMemory,
 	UserProfile,
 } from '../types/memory';
-import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId } from '../utils/llm';
 import { logger } from '../utils/logger';
+import { type BackgroundModel, resolveUserBackgroundModel } from './background-model.service';
 import { posthog, PostHogEvent } from './posthog';
 
 /**
@@ -61,14 +60,12 @@ class MemoryService {
 			return;
 		}
 
-		const pinned = await resolveDefaultModelSelection(opts.projectId, 'other');
-		const provider = pinned?.provider ?? opts.provider;
-		const modelId =
-			pinned?.modelId ?? (await this._getExtractorModelId(opts.projectId, opts.provider, opts.modelId));
-		const model = await this._resolveModel(opts.projectId, provider, modelId);
-		if (!model) {
+		const resolved = await this._resolveModel(opts);
+		if (!resolved) {
 			return;
 		}
+		const { provider, modelId, llmConfigId } = resolved;
+		const model = disableModelReasoning(provider, resolved.model);
 
 		const existingMemories = await memoryQueries.getUserMemories(opts.userId);
 		const extractor = new MemoryExtractorLLM(model);
@@ -88,6 +85,7 @@ class MemoryService {
 			...opts,
 			provider,
 			modelId,
+			llmConfigId,
 			usage: extractorResult.usage,
 			newCount,
 			supersededCount,
@@ -97,29 +95,26 @@ class MemoryService {
 			...opts,
 			provider,
 			modelId,
+			llmConfigId,
 			usage: extractorResult.usage,
 		});
 	}
 
-	private async _resolveModel(
-		projectId: string,
-		provider: LlmProvider,
-		modelId: string,
-	): Promise<ProviderModelResult | null> {
-		const model = await resolveProviderModel(projectId, provider, modelId, false);
-		return model ? disableModelReasoning(provider, model) : null;
-	}
-
-	private async _getExtractorModelId(
-		projectId: string,
-		provider: LlmProvider,
-		selectedModelId: string,
-	): Promise<string> {
-		return resolveAnnotationModelId(
+	private _resolveModel(opts: MemoryExtractionOptions): Promise<BackgroundModel | null> {
+		const { projectId, userId, chatId, runId, billingMode } = opts;
+		return resolveUserBackgroundModel({
 			projectId,
-			{ provider, modelId: selectedModelId },
-			getProviderMeta(provider).extractorModelId,
-		);
+			userId,
+			defaultCategory: 'other',
+			fallback: {
+				provider: opts.provider,
+				modelId: opts.modelId,
+				...(opts.llmConfigId && { llmConfigId: opts.llmConfigId }),
+			},
+			preferredModelId: (selection) =>
+				resolveAnnotationModelId(projectId, selection, getProviderMeta(selection.provider).extractorModelId),
+			usageContext: { userId, projectId, chatId, runId, billingMode, category: 'memory' },
+		});
 	}
 
 	private async _persistExtractedMemories(opts: {
@@ -209,6 +204,7 @@ class MemoryService {
 			type: 'memory_extraction',
 			llmProvider: opts.provider,
 			llmModelId: opts.modelId,
+			llmConfigId: opts.llmConfigId,
 			...opts.usage,
 		});
 	}

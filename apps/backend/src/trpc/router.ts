@@ -14,6 +14,7 @@ import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
 import { contextRecommendationRoutes } from './context-recommendation.routes';
 import { customStoryViewerRoutes } from './custom-story-viewer.routes';
+import { decisionRoutes } from './decision.routes';
 import { embedRoutes } from './embed.routes';
 import { favoriteRoutes } from './favorite.routes';
 import { feedbackRoutes } from './feedback.routes';
@@ -27,6 +28,7 @@ import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { mcpOAuthClientsRoutes } from './mcp-oauth-clients.routes';
 import { memberBudgetRoutes } from './member-budget.routes';
 import { memoryRoutes } from './memory.routes';
+import { monitoringRoutes } from './monitoring.routes';
 import { notificationRoutes } from './notification.routes';
 import { onboardingRoutes } from './onboarding.routes';
 import { organizationRoutes } from './organization.routes';
@@ -35,13 +37,17 @@ import { projectRoutes } from './project.routes';
 import { sandboxSecretRoutes } from './sandbox-secret.routes';
 import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
+import { sidebarMenuRoutes } from './sidebar-menu.routes';
 import { skillRoutes } from './skill.routes';
 import { sqlRoutes } from './sql.routes';
+import { standaloneCustomStoryRoutes } from './standalone-custom-story.routes';
 import { storageRoutes } from './storage.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
 import { storyThemeRoutes } from './story-theme.routes';
+import { supportRoutes } from './support.routes';
 import { systemRoutes } from './system.routes';
+import { testRunRoutes } from './test-run.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
 import { usageRoutes } from './usage.routes';
@@ -61,8 +67,11 @@ export const trpcRouter = router({
 	map: mapRoutes,
 	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
+	sidebarMenu: sidebarMenuRoutes,
 	customStoryViewer: customStoryViewerRoutes,
+	standaloneCustomStory: standaloneCustomStoryRoutes,
 	automation: automationRoutes,
+	monitoring: monitoringRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
 	contextExplorer: contextExplorerRoutes,
@@ -94,9 +103,12 @@ export const trpcRouter = router({
 	mcpEndpoint: mcpEndpointRoutes,
 	mcpOAuthClients: mcpOAuthClientsRoutes,
 	sandboxSecret: sandboxSecretRoutes,
+	support: supportRoutes,
 	system: systemRoutes,
 	skill: skillRoutes,
+	testRun: testRunRoutes,
 	transcribe: transcribeRoutes,
+	decision: decisionRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;

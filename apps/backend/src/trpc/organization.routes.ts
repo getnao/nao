@@ -5,16 +5,20 @@ import { z } from 'zod/v4';
 import { env, isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
+import * as twoFactorQueries from '../queries/two-factor.queries';
 import * as usageQueries from '../queries/usage.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
-import { putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
-import { addTeamMember } from '../services/team-member';
-import { ORG_ROLES } from '../types/organization';
+import { addOrganizationMember, putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
+import { configureOrganizationSso, getOrganizationSso } from '../services/organization-sso.service';
+import { addTeamMembers } from '../services/team-member';
+import { ORG_ROLES, organizationSsoConfigInputSchema } from '../types/organization';
+import { teamMembersInputSchema } from '../types/team-member';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import {
+	assertCanManageUserAccount,
 	assertCanRenameUser,
 	assertOrganizationRolesAreEditable,
 	protectedProcedure,
@@ -60,8 +64,25 @@ export const organizationRoutes = {
 	}),
 
 	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
-		return orgQueries.listOrgMembersWithUsers(ctx.org.id);
+		const members = await orgQueries.listOrgMembersWithUsers(ctx.org.id);
+		const canSeeTwoFactor = ctx.orgRole === 'admin';
+		return members.map((member) => ({
+			...member,
+			twoFactorEnabled: canSeeTwoFactor ? member.twoFactorEnabled : undefined,
+		}));
 	}),
+
+	getTwoFactorPolicy: orgAdminProcedure.query(({ ctx }) => ({
+		required: ctx.org.twoFactorRequired,
+		emailCodes: ctx.org.twoFactorEmailCodes,
+		emailAvailable: emailService.isEnabled(),
+	})),
+
+	updateTwoFactorPolicy: orgAdminOnlyProcedure
+		.input(z.object({ required: z.boolean(), emailCodes: z.boolean() }))
+		.mutation(async ({ input, ctx }) => {
+			await twoFactorQueries.updateOrganizationPolicy(ctx.org.id, input);
+		}),
 
 	getUserCounts: orgAdminProcedure.query(async ({ ctx }) => {
 		const [totalUsers, activeUsers] = await Promise.all([
@@ -95,6 +116,12 @@ export const organizationRoutes = {
 			return { domains: requestedDomains };
 		}),
 
+	getSso: orgAdminOnlyProcedure.query(async ({ ctx }) => (isCloud ? getOrganizationSso(ctx.org.id) : null)),
+
+	configureSso: orgAdminOnlyProcedure
+		.input(organizationSsoConfigInputSchema)
+		.mutation(async ({ input, ctx }) => configureOrganizationSso(ctx.org.id, input)),
+
 	updateMemberRole: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string(), role: z.enum(ORG_ROLES) }))
 		.mutation(async ({ input, ctx }) => {
@@ -103,16 +130,15 @@ export const organizationRoutes = {
 		}),
 
 	addMember: orgAdminOnlyProcedure
-		.input(z.object({ email: z.string().min(1), name: z.string().min(1).optional() }))
+		.input(z.object({ members: teamMembersInputSchema }))
 		.mutation(async ({ input, ctx }) => {
 			const orgId = ctx.org.id;
 
-			return addTeamMember({
-				email: input.email,
-				name: input.name,
+			return addTeamMembers({
+				members: input.members,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
-					await orgQueries.addOrgMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
+					await addOrganizationMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.org.name, 'organization', password, ctx.user.email),
@@ -182,6 +208,21 @@ export const organizationRoutes = {
 			}
 
 			return { password };
+		}),
+
+	resetMemberTwoFactor: orgAdminOnlyProcedure
+		.input(z.object({ userId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			if (!(await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId))) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this organization.' });
+			}
+			await assertCanManageUserAccount(
+				ctx.user.id,
+				input.userId,
+				ctx.org.id,
+				'reset their two-factor authentication',
+			);
+			await twoFactorQueries.resetUserTwoFactor(input.userId);
 		}),
 
 	removeMember: orgAdminOnlyProcedure.input(z.object({ userId: z.string() })).mutation(async ({ input, ctx }) => {

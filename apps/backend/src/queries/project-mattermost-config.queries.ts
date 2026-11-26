@@ -4,9 +4,9 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import type { MattermostSettings } from '../types/messaging-provider';
 import { takeFirstOrThrow } from '../utils/queries';
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectMattermostConfig = async (projectId: string): Promise<MattermostConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -19,6 +19,7 @@ export const upsertProjectMattermostConfig = async (data: {
 	botToken: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 	interactiveButtonsEnabled?: boolean;
 	callbackUrl?: string;
 }): Promise<MattermostConfig> => {
@@ -31,6 +32,7 @@ export const upsertProjectMattermostConfig = async (data: {
 					mattermostBotToken: data.botToken,
 					mattermostLlmProvider: data.modelProvider ?? '',
 					mattermostLlmModelId: data.modelId ?? '',
+					mattermostLlmConfigId: data.llmConfigId,
 					mattermostInteractiveButtonsEnabled: data.interactiveButtonsEnabled ?? false,
 					mattermostCallbackUrl: data.callbackUrl || undefined,
 				},
@@ -52,29 +54,17 @@ export const updateProjectMattermostModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.mattermostSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				mattermostSettings: {
-					mattermostBaseUrl: existing?.mattermostBaseUrl ?? '',
-					mattermostBotToken: existing?.mattermostBotToken ?? '',
-					mattermostLlmProvider: modelProvider ?? '',
-					mattermostLlmModelId: modelId ?? '',
-					mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? false,
-					mattermostCallbackUrl: existing?.mattermostCallbackUrl,
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'mattermostSettings', (existing) => ({
+		mattermostBaseUrl: existing?.mattermostBaseUrl ?? '',
+		mattermostBotToken: existing?.mattermostBotToken ?? '',
+		mattermostLlmProvider: modelProvider ?? '',
+		mattermostLlmModelId: modelId ?? '',
+		mattermostLlmConfigId: llmConfigId ?? undefined,
+		mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? false,
+		mattermostCallbackUrl: existing?.mattermostCallbackUrl,
+	}));
 };
 
 export const deleteProjectMattermostConfig = async (projectId: string): Promise<void> => {
@@ -101,21 +91,14 @@ function toMattermostConfig(
 		baseUrl: settings.mattermostBaseUrl,
 		botToken: settings.mattermostBotToken,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.mattermostLlmProvider, settings.mattermostLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings.mattermostLlmProvider,
+			settings.mattermostLlmModelId,
+			settings.mattermostLlmConfigId,
+		),
 		interactiveButtonsEnabled: settings.mattermostInteractiveButtonsEnabled ?? false,
 		callbackUrl: settings.mattermostCallbackUrl,
 	};
-}
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
 }
 
 export interface MattermostConfig {

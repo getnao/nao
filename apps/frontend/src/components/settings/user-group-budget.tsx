@@ -27,6 +27,7 @@ interface UserGroupBudgetGroup {
 	id: string;
 	isDefault: boolean;
 	limitUsd: number | null;
+	spendUsd: number;
 }
 
 interface UserGroupBudgetProps {
@@ -36,11 +37,13 @@ interface UserGroupBudgetProps {
 	isLoading: boolean;
 	isError: boolean;
 	limitUsd: number | null;
+	sharedLimitUsd: number | null;
 	defaultLimitUsd: number;
 	period: MemberBudgetPeriod;
 	members: UserGroupBudgetMember[];
 	groups: UserGroupBudgetGroup[];
 	onLimitChange: (limitUsd: number | null) => void;
+	onSharedLimitChange: (limitUsd: number | null) => void;
 }
 
 export function UserGroupBudget({
@@ -50,11 +53,13 @@ export function UserGroupBudget({
 	isLoading,
 	isError,
 	limitUsd,
+	sharedLimitUsd,
 	defaultLimitUsd,
 	period,
 	members,
 	groups,
 	onLimitChange,
+	onSharedLimitChange,
 }: UserGroupBudgetProps) {
 	const applicableMembers = groupId
 		? listMembersCoveredByGroupBudget({
@@ -66,6 +71,11 @@ export function UserGroupBudget({
 				groups,
 			})
 		: [];
+	const isBudgetReady = !isLicensed || (!isLoading && !isError);
+	const groupMembers = isDefaultGroup
+		? members
+		: members.filter((member) => groupId !== null && member.groupIds.includes(groupId));
+	const groupSpendUsd = groups.find((group) => group.id === groupId)?.spendUsd ?? 0;
 
 	return (
 		<section className='flex min-h-64 flex-col gap-4'>
@@ -119,7 +129,11 @@ export function UserGroupBudget({
 					</BudgetLimitRow>
 					<GroupBudgetUsage
 						members={applicableMembers}
-						limitUsd={limitUsd ?? defaultLimitUsd}
+						spendUsd={sumSpend(applicableMembers)}
+						limitUsd={(limitUsd ?? defaultLimitUsd) * applicableMembers.length}
+						memberLimitUsd={limitUsd ?? defaultLimitUsd}
+						membersLabel='covered members'
+						caption={formatMemberCount(applicableMembers.length, 'covered')}
 						period={period}
 					/>
 				</LockedFieldset>
@@ -128,22 +142,88 @@ export function UserGroupBudget({
 				A member&apos;s personal budget always wins, and members in several groups get the most generous group
 				budget.
 			</p>
+			{isBudgetReady && (
+				<GroupSharedBudget
+					isLicensed={isLicensed}
+					sharedLimitUsd={sharedLimitUsd}
+					spendUsd={groupSpendUsd}
+					members={groupMembers}
+					period={period}
+					onSharedLimitChange={onSharedLimitChange}
+				/>
+			)}
 		</section>
+	);
+}
+
+function GroupSharedBudget({
+	isLicensed,
+	sharedLimitUsd,
+	spendUsd,
+	members,
+	period,
+	onSharedLimitChange,
+}: {
+	isLicensed: boolean;
+	sharedLimitUsd: number | null;
+	spendUsd: number;
+	members: UserGroupBudgetMember[];
+	period: MemberBudgetPeriod;
+	onSharedLimitChange: (limitUsd: number | null) => void;
+}) {
+	return (
+		<div className='flex flex-col gap-4 border-t pt-4'>
+			<div>
+				<h3 className='text-sm font-medium'>Shared budget</h3>
+				<p className='mt-1 text-xs text-muted-foreground'>
+					One cap on the combined spend of all members of this group. Members are blocked as soon as their own
+					budget or this shared budget is used up, until it resets.
+				</p>
+			</div>
+			<LockedFieldset disabled={!isLicensed}>
+				<BudgetLimitRow
+					label='Shared limit'
+					description='Applies to the combined spend of the whole group.'
+					unitLabel={`/group per ${PERIOD_LABELS[period].toLowerCase()}`}
+				>
+					<BudgetCell
+						limitUsd={sharedLimitUsd ?? 0}
+						onChange={(value) => onSharedLimitChange(value || null)}
+						className='w-36'
+					/>
+				</BudgetLimitRow>
+				<GroupBudgetUsage
+					members={members}
+					spendUsd={spendUsd}
+					limitUsd={sharedLimitUsd ?? 0}
+					memberLimitUsd={null}
+					membersLabel='group members'
+					caption={formatMemberCount(members.length, 'sharing this budget')}
+					period={period}
+				/>
+			</LockedFieldset>
+		</div>
 	);
 }
 
 function GroupBudgetUsage({
 	members,
+	spendUsd,
 	limitUsd,
+	memberLimitUsd,
+	membersLabel,
+	caption,
 	period,
 }: {
 	members: UserGroupBudgetMember[];
+	spendUsd: number;
 	limitUsd: number;
+	memberLimitUsd: number | null;
+	membersLabel: string;
+	caption: string;
 	period: MemberBudgetPeriod;
 }) {
-	const totalSpendUsd = members.reduce((total, member) => total + member.spendUsd, 0);
-	const totalLimitUsd = limitUsd * members.length;
-	const status = getMemberBudgetStatus(totalSpendUsd, totalLimitUsd);
+	const status = getMemberBudgetStatus(spendUsd, limitUsd);
 	const periodLabel = PERIOD_LABELS[period].toLowerCase();
 
 	return (
@@ -151,20 +231,25 @@ function GroupBudgetUsage({
 			<div className='flex flex-col gap-3'>
 				<div className='flex items-center justify-between gap-2'>
 					<span className='text-sm tabular-nums'>
-						<span className='text-lg font-semibold'>{formatUsd(totalSpendUsd, 2)}</span>
+						<span className='text-lg font-semibold'>{formatUsd(spendUsd, 2)}</span>
 						<span className='text-muted-foreground'>
 							{status === 'unlimited'
 								? ` spent this ${periodLabel}`
-								: ` of ${formatUsd(totalLimitUsd)} / ${periodLabel}`}
+								: ` of ${formatUsd(limitUsd)} / ${periodLabel}`}
 						</span>
 					</span>
 					<Badge variant='ghost' className={cn('text-[11px]', STATUS_META[status].className)}>
 						{STATUS_META[status].label}
 					</Badge>
 				</div>
-				<GroupBudgetUsageBar members={members} limitUsd={limitUsd} />
+				<GroupBudgetUsageBar
+					members={members}
+					limitUsd={limitUsd}
+					memberLimitUsd={memberLimitUsd}
+					membersLabel={membersLabel}
+				/>
 				<div className='flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground'>
-					<span>{members.length === 1 ? '1 member covered' : `${members.length} members covered`}</span>
+					<span>{caption}</span>
 					<span>Resets on {toUtcDateString(getNextPeriodStart(period))}</span>
 				</div>
 			</div>
@@ -172,22 +257,30 @@ function GroupBudgetUsage({
 	);
 }
 
-function GroupBudgetUsageBar({ members, limitUsd }: { members: UserGroupBudgetMember[]; limitUsd: number }) {
+function GroupBudgetUsageBar({
+	members,
+	limitUsd,
+	memberLimitUsd,
+	membersLabel,
+}: {
+	members: UserGroupBudgetMember[];
+	limitUsd: number;
+	memberLimitUsd: number | null;
+	membersLabel: string;
+}) {
 	if (members.length === 0) {
 		return <div className='h-2 w-full rounded-full bg-muted' />;
 	}
 
 	const sortedMembers = [...members].sort((left, right) => right.spendUsd - left.spendUsd);
-	const totalSpendUsd = sortedMembers.reduce((total, member) => total + member.spendUsd, 0);
-	const totalLimitUsd = limitUsd * members.length;
-	const spendSegments = limitUsd > 0 ? buildSpendSegments(sortedMembers, totalLimitUsd) : [];
+	const spendSegments = limitUsd > 0 ? buildSpendSegments(sortedMembers, limitUsd) : [];
 
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<div
 					className='flex h-2 w-full overflow-hidden rounded-full bg-muted'
-					aria-label={`${formatUsd(totalSpendUsd, 2)} spent across ${members.length} covered members`}
+					aria-label={`${formatUsd(sumSpend(members), 2)} spent across ${members.length} ${membersLabel}`}
 				>
 					{limitUsd <= 0 ? (
 						sortedMembers.map((member, index) => (
@@ -214,7 +307,11 @@ function GroupBudgetUsageBar({ members, limitUsd }: { members: UserGroupBudgetMe
 				</div>
 			</TooltipTrigger>
 			<TooltipContent className='w-72 max-w-72 p-3'>
-				<GroupBudgetUsageTooltip members={sortedMembers} limitUsd={limitUsd} />
+				<GroupBudgetUsageTooltip
+					members={sortedMembers}
+					memberLimitUsd={memberLimitUsd ?? 0}
+					membersLabel={membersLabel}
+				/>
 			</TooltipContent>
 		</Tooltip>
 	);
@@ -239,17 +336,25 @@ function buildSpendSegments(
 	return segments;
 }
 
-function GroupBudgetUsageTooltip({ members, limitUsd }: { members: UserGroupBudgetMember[]; limitUsd: number }) {
+function GroupBudgetUsageTooltip({
+	members,
+	memberLimitUsd,
+	membersLabel,
+}: {
+	members: UserGroupBudgetMember[];
+	memberLimitUsd: number;
+	membersLabel: string;
+}) {
 	if (members.length === 0) {
 		return <span>No members are currently covered by this budget.</span>;
 	}
 
 	return (
 		<div className='flex flex-col gap-2'>
-			<div className='font-medium text-foreground'>Covered members</div>
+			<div className='font-medium text-foreground first-letter:uppercase'>{membersLabel}</div>
 			<div className='grid gap-1.5'>
 				{members.map((member, index) => {
-					const status = getMemberBudgetStatus(member.spendUsd, limitUsd);
+					const status = getMemberBudgetStatus(member.spendUsd, memberLimitUsd);
 					return (
 						<div key={member.id} className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3'>
 							<span className='flex min-w-0 items-center gap-1.5'>
@@ -315,6 +420,14 @@ function listGroupLimitsForMember(
 		.filter((group) => !group.isDefault && member.groupIds.includes(group.id))
 		.map((group) => (group.id === selectedGroupId ? selectedLimitUsd : group.limitUsd))
 		.filter((limitUsd): limitUsd is number => limitUsd !== null);
+}
+
+function sumSpend(members: UserGroupBudgetMember[]): number {
+	return members.reduce((total, member) => total + member.spendUsd, 0);
+}
+
+function formatMemberCount(count: number, suffix: string): string {
+	return `${count} ${count === 1 ? 'member' : 'members'} ${suffix}`;
 }
 
 function memberSegmentClassName(index: number): string {

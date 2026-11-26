@@ -1,6 +1,4 @@
-import type { generateOnboardingRules } from '@nao/shared/tools';
 import { requestWarehouseCredentials } from '@nao/shared/tools';
-import type { LlmSelectedModel } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
 export const warehouseProviderSchema = z.enum(requestWarehouseCredentials.PROVIDERS);
@@ -12,28 +10,6 @@ export const warehouseCredentialsSchema = z.object({
 	credentials: warehouseConnectionCredentialsSchema,
 });
 
-export const warehouseProvisioningInputSchema = warehouseCredentialsSchema.extend({
-	onboardingChatId: z.uuid().optional(),
-});
-
-export const WAREHOUSE_PROVISIONING_STATUSES = [
-	'queued',
-	'initializing',
-	'debugging',
-	'syncing',
-	'registering',
-	'awaiting_context',
-	'finalizing',
-	'publishing',
-	'ready',
-	'failed',
-	'cancelled',
-] as const;
-
-export type WarehouseProvisioningStatus = (typeof WAREHOUSE_PROVISIONING_STATUSES)[number];
-export type WarehouseProvisioningBusinessContext = generateOnboardingRules.Input['businessContext'];
-export type WarehouseProvisioningModelSelection = LlmSelectedModel;
 export type WarehouseProvider = z.infer<typeof warehouseProviderSchema>;
 export type WarehouseConnectionCredentials = z.infer<typeof warehouseConnectionCredentialsSchema>;
 export type ProjectWarehouseCredentials = z.infer<typeof warehouseCredentialsSchema>;
-export type WarehouseProvisioningInput = z.infer<typeof warehouseProvisioningInputSchema>;

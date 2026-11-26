@@ -1,7 +1,12 @@
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, ToolResultPart } from 'ai';
 
 import type { QueryResult } from '../types/tools';
+import { truncateMiddle } from '../utils/utils';
 
+const TOOL_RESULT_MAX_CHARS = 2000;
+const EMPTY_RESPONSE_PLACEHOLDER = '[No visible response]';
+
+/** Replays the response as text: verbatim thinking blocks are rejected once tools differ from the agent's call. */
 export function buildVerificationMessages(
 	prompt: string,
 	responseMessages: ModelMessage[],
@@ -10,9 +15,47 @@ export function buildVerificationMessages(
 ): ModelMessage[] {
 	return [
 		{ role: 'user', content: prompt },
-		...responseMessages,
+		{ role: 'assistant', content: renderTranscript(responseMessages) },
 		{ role: 'user', content: buildVerificationPrompt(expectedColumns, queryResults) },
 	];
+}
+
+function renderTranscript(messages: ModelMessage[]): string {
+	return messages.flatMap(renderMessage).join('\n\n') || EMPTY_RESPONSE_PLACEHOLDER;
+}
+
+function renderMessage(message: ModelMessage): string[] {
+	if (message.role !== 'assistant' && message.role !== 'tool') {
+		return [];
+	}
+	if (typeof message.content === 'string') {
+		return message.content ? [message.content] : [];
+	}
+	return message.content.flatMap((part): string[] => {
+		switch (part.type) {
+			case 'text':
+				return part.text ? [part.text] : [];
+			case 'tool-call':
+				return [`Tool call ${part.toolName}: ${JSON.stringify(part.input)}`];
+			case 'tool-result':
+				return [
+					`Tool result ${part.toolName}:\n${truncateMiddle(renderToolOutput(part), TOOL_RESULT_MAX_CHARS)}`,
+				];
+			default:
+				return [];
+		}
+	});
+}
+
+function renderToolOutput(part: ToolResultPart): string {
+	const { output } = part;
+	if (output.type === 'text' || output.type === 'error-text') {
+		return output.value;
+	}
+	if ('value' in output) {
+		return JSON.stringify(output.value) ?? '';
+	}
+	return output.type;
 }
 
 function buildVerificationPrompt(columns: string[], queryResults: Map<string, QueryResult>): string {

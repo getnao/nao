@@ -4,17 +4,21 @@ import { getCustomBoundaries, getProjectById } from '../queries/project.queries'
 import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
 import { isCustomStoriesEnabled } from '../services/story-mount';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
-import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import type { McpEndpointSettings, McpUserRole } from '../types/mcp-endpoint';
 import { extractConfiguredDatabases } from '../utils/nao-config';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
+import { registerContextAdminTools } from './tools/context-admin-tools';
 import { registerContextLayerTools } from './tools/context-layer';
+import { registerMemberBudgetTools } from './tools/member-budget';
+import { registerPersonalSkillTools } from './tools/personal-skills';
 import { registerSubAgentTools } from './tools/sub-agent';
 
 export async function createMcpServer(
 	userId: string,
 	projectId: string,
+	role: McpUserRole,
 	settings: McpEndpointSettings,
 	chartDataMode = false,
 ): Promise<McpServer> {
@@ -30,7 +34,7 @@ export async function createMcpServer(
 		storyCreationEnabled &&
 		isCustomStoriesEnabled() &&
 		(await hasUserGroupFeature(projectId, userId, 'customStoryCreation'));
-	const ctx = { userId, projectId, settings, chartDataMode, storyCreationEnabled, customStoryCreationEnabled };
+	const ctx = { userId, projectId, role, settings, chartDataMode, storyCreationEnabled, customStoryCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {
 		await registerSubAgentTools(server, ctx);
@@ -47,6 +51,9 @@ export async function createMcpServer(
 		registerAssetTools(server, ctx, customBoundaries);
 	}
 
+	registerContextAdminTools(server, ctx);
+	await registerMemberBudgetTools(server, ctx);
+	await registerPersonalSkillTools(server, ctx);
 	registerNaoMcpApps(server);
 
 	return server;

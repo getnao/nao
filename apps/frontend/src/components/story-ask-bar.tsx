@@ -1,0 +1,123 @@
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { CSSProperties } from 'react';
+import type { UIMessage } from '@nao/backend/chat';
+
+import { AskBar } from '@/components/ask-bar';
+import { useAgentContext, useAgentMessagesGetter, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
+import { trpc } from '@/main';
+import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
+import { getShownStoryFiltersRequestBody } from '@/stores/shown-story-filters';
+
+export const STORY_ASK_BAR_INSET = '6rem';
+export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
+
+export function StoryAskBar({
+	storyId,
+	canEdit,
+	isInputHidden = false,
+	onChatChange,
+}: {
+	storyId: string;
+	canEdit: boolean;
+	isInputHidden?: boolean;
+	onChatChange?: (chatId: string | null) => void;
+}) {
+	const [handedOverQuestion] = useState(() => getHandedOverQuestion(storyId));
+	const queryClient = useQueryClient();
+	const askMutation = useMutation(
+		trpc.chatFork.askStory.mutationOptions({
+			onSuccess: () =>
+				queryClient.invalidateQueries({ queryKey: trpc.story.listQuickQuestions.queryKey({ storyId }) }),
+		}),
+	);
+
+	useEffect(() => {
+		forgetHandedOverQuestion(storyId);
+	}, [storyId]);
+
+	const [hasAttachedStoryChat, setHasAttachedStoryChat] = useState(false);
+	const refreshStoryPage = () =>
+		queryClient.invalidateQueries({ queryKey: trpc.story.resolve.queryKey({ storyId }) });
+
+	const askStory = async () => {
+		const response = await askMutation.mutateAsync({ storyId });
+		if (response.hasAttachedStoryChat) {
+			handOverQuestion(storyId, { chatId: response.chatId });
+			setHasAttachedStoryChat(true);
+		}
+		return response.chatId;
+	};
+
+	const endQuestion = () => {
+		forgetHandedOverQuestion(storyId);
+		if (hasAttachedStoryChat) {
+			void refreshStoryPage();
+		}
+	};
+
+	return (
+		<AskBar
+			placeholder={canEdit ? 'Ask a question, edit story' : 'Ask a question about the story'}
+			isInputHidden={isInputHidden}
+			isAsking={askMutation.isPending}
+			hasAskFailed={askMutation.isError}
+			resumedQuestion={handedOverQuestion}
+			getRequestBody={getShownStoryFiltersRequestBody}
+			onAsk={askStory}
+			onEnd={endQuestion}
+			onChatChange={onChatChange}
+		>
+			<StoryRefreshAfterEdit />
+			{hasAttachedStoryChat && <StoryPageRefreshAfterAnswer onAnswered={refreshStoryPage} />}
+		</AskBar>
+	);
+}
+
+/** The agent may edit the story from a quick question: the page shows the new version once it answered. */
+function StoryRefreshAfterEdit() {
+	const queryClient = useQueryClient();
+	const getMessages = useAgentMessagesGetter();
+	const { isRunning } = useAgentContext();
+	const editMessageId = useAgentMessagesSelector((messages) => (isRunning ? null : findStoryEditMessageId(messages)));
+	const handledMessageId = useRef<string | null>(null);
+
+	useEffect(() => {
+		if (!editMessageId || handledMessageId.current === editMessageId) {
+			return;
+		}
+		handledMessageId.current = editMessageId;
+		const edit = readStoryEdit(getMessages());
+		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
+	}, [editMessageId, getMessages, queryClient]);
+
+	return null;
+}
+
+/**
+ * Asking about a standalone story attaches a chat to it, which replaces its page by the owned one.
+ * The page waits for the answer to end, so the running answer keeps streaming in the panel.
+ */
+function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void }) {
+	const { isRunning } = useAgentContext();
+	const wasRunning = useRef(false);
+
+	useEffect(() => {
+		if (isRunning) {
+			wasRunning.current = true;
+			return;
+		}
+		if (wasRunning.current) {
+			wasRunning.current = false;
+			onAnswered();
+		}
+	}, [isRunning, onAnswered]);
+
+	return null;
+}
+
+function findStoryEditMessageId(messages: UIMessage[]): string | null {
+	const lastMessage = messages.at(-1);
+	return lastMessage && hasStoryEdit(lastMessage) ? lastMessage.id : null;
+}

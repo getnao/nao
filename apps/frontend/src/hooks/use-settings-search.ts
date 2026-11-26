@@ -52,12 +52,13 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 }
 
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
-	const { isAdmin, isContextAdmin, isOrgAdmin } = usePermissions();
+	const { canViewUsage, isAdmin, isContextAdmin, isOrgAdmin } = usePermissions();
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
 	const isCloud = useIsCloud();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
-	const cloudBillingEnabled = config.data?.cloudBillingEnabled === true;
+	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const cloudBillingEnabled = config.data?.cloudBillingEnabled;
 	const licenseFeatures = useLicenseFeatures();
 	const enabledLicenseFeatures = licenseFeatures.data as Record<string, boolean> | undefined;
 
@@ -71,14 +72,18 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.licenseFeature || enabledLicenseFeatures?.[entry.licenseFeature] === true) &&
 						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
+						(!entry.requiresUsageAccess || canViewUsage) &&
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud) &&
-						(!entry.cloudBillingOnly || cloudBillingEnabled) &&
-						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
+						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
+						(!entry.betaSubagentsOnly || betaSubagentsEnabled) &&
+						(!entry.betaAutomationsOnly || betaAutomationsEnabled),
 				)
-				.filter((entry) => canSeeAdvancedSettings || accountPages.includes(entry.page)),
+				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),
 		[
+			betaAutomationsEnabled,
 			betaSubagentsEnabled,
+			canViewUsage,
 			canSeeAdvancedSettings,
 			cloudBillingEnabled,
 			enabledLicenseFeatures,
@@ -112,4 +117,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const accountPages = ['/settings/account'];
+const viewerVisiblePages = ['/settings/account', '/settings/usage'];

@@ -1,6 +1,8 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 
+import { getActualUserRoleInProject } from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import { getImpersonatedGroupIds } from '../queries/user-group-impersonation.queries';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 export const LOCKED_USER_GROUP_MESSAGE =
@@ -43,12 +45,44 @@ export async function listActiveUserGroups(projectId: string): Promise<userGroup
 	return groups.filter((group): group is userGroupQueries.UserGroup & { isLocked: false } => !group.isLocked);
 }
 
+/** Locked groups keep their saved shares, but grant nothing until the plan reactivates them. */
+export async function listLockedUserGroupIds(projectId: string): Promise<string[]> {
+	return lockedCustomGroupIds(projectId, await userGroupQueries.listCustomUserGroupSummaries(projectId));
+}
+
+/** One query for every project of the user; the license is only checked where groups exceed the free limit. */
+export async function listLockedUserGroupIdsOfMember(userId: string): Promise<string[]> {
+	const groups = await userGroupQueries.listCustomUserGroupSummariesAroundMember(userId);
+	const groupsByProject = groupByProject(groups);
+	const lockedGroupIds = await Promise.all(
+		[...groupsByProject].map(([projectId, projectGroups]) => lockedCustomGroupIds(projectId, projectGroups)),
+	);
+	return lockedGroupIds.flat();
+}
+
 export async function resolveAvailableUserGroupAccess(
 	projectId: string,
 	userId: string,
 ): Promise<userGroupQueries.EffectiveUserGroupAccess> {
-	const activeGroupIds = getActiveUserGroupIds(await listUserGroupsWithAvailability(projectId));
-	return userGroupQueries.resolveUserGroupAccess(projectId, userId, activeGroupIds);
+	const [groups, impersonatedGroupIds] = await Promise.all([
+		listUserGroupsWithAvailability(projectId),
+		getActiveGroupImpersonation(projectId, userId),
+	]);
+	return userGroupQueries.resolveUserGroupAccess(
+		projectId,
+		userId,
+		getActiveUserGroupIds(groups),
+		impersonatedGroupIds,
+	);
+}
+
+/** A stored impersonation only counts while its owner is still an admin, so a demoted admin keeps no borrowed access. */
+export async function getActiveGroupImpersonation(projectId: string, userId: string): Promise<string[] | null> {
+	const groupIds = await getImpersonatedGroupIds(projectId, userId);
+	if (!groupIds) {
+		return null;
+	}
+	return (await getActualUserRoleInProject(projectId, userId)) === 'admin' ? groupIds : null;
 }
 
 export async function assertUserGroupManageable(projectId: string, groupId: string): Promise<void> {
@@ -77,12 +111,7 @@ export async function applyCurrentUserGroupAvailability(
 	}
 
 	const activeCustomGroupIds = new Set(
-		groups
-			.filter((group) => !group.isDefault)
-			.sort(
-				(left, right) =>
-					left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
-			)
+		sortOldestFirst(groups.filter((group) => !group.isDefault))
 			.slice(0, FREE_CUSTOM_USER_GROUP_LIMIT)
 			.map((group) => group.id),
 	);
@@ -99,6 +128,38 @@ export async function applyCurrentUserGroupAvailability(
 					createdAt: group.createdAt,
 					updatedAt: group.updatedAt,
 				},
+	);
+}
+
+async function lockedCustomGroupIds(
+	projectId: string,
+	customGroups: userGroupQueries.CustomUserGroupSummary[],
+): Promise<string[]> {
+	if (customGroups.length <= FREE_CUSTOM_USER_GROUP_LIMIT) {
+		return [];
+	}
+	if (await hasFeature(LICENSE_FEATURES.userGroups, { projectId })) {
+		return [];
+	}
+	return sortOldestFirst(customGroups)
+		.slice(FREE_CUSTOM_USER_GROUP_LIMIT)
+		.map((group) => group.id);
+}
+
+function groupByProject(
+	groups: userGroupQueries.CustomUserGroupSummary[],
+): Map<string, userGroupQueries.CustomUserGroupSummary[]> {
+	const groupsByProject = new Map<string, userGroupQueries.CustomUserGroupSummary[]>();
+	for (const group of groups) {
+		groupsByProject.set(group.projectId, [...(groupsByProject.get(group.projectId) ?? []), group]);
+	}
+	return groupsByProject;
+}
+
+/** The free plan keeps the oldest custom groups active, so this order decides which ones it locks. */
+function sortOldestFirst<Group extends { id: string; createdAt: Date }>(groups: Group[]): Group[] {
+	return [...groups].sort(
+		(left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
 	);
 }
 

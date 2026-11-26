@@ -5,10 +5,7 @@ import os from 'os';
 import path from 'path';
 
 import { ChatImage, getImagesByChatId } from '../../queries/image.queries';
-import {
-	getAgentVisibleRulesView,
-	isAgentVisibleRootRulesPath,
-} from '../../services/agent-visible-project-file.service';
+import { createRulesPathMatcher, renderRootRulesForAgent } from '../../services/agent-visible-project-file.service';
 import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { getQueryResult } from '../../services/query-result.service';
 import { sandboxRuntime } from '../../services/sandbox-runtime';
@@ -182,6 +179,7 @@ const OUTPUT_DIR = `${WORKING_DIR}/${schemas.SANDBOX_OUTPUT_DIR}`;
 
 async function copyProjectToSandbox(box: ContextSandbox, context: ToolContext, tmpDir: string): Promise<void> {
 	const projectFolder = context.projectFolder;
+	const isRulesPath = createRulesPathMatcher(projectFolder);
 	const contextTmpDir = path.join(tmpDir, 'context');
 	fs.rmSync(contextTmpDir, { recursive: true, force: true });
 	const walkDir = (dir: string, relativeDir: string): void => {
@@ -208,18 +206,14 @@ async function copyProjectToSandbox(box: ContextSandbox, context: ToolContext, t
 				}
 				const tmpPath = path.join(tmpDir, 'context', relativePath);
 				fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
-				if (!isAgentVisibleRootRulesPath(canonical.virtualPath)) {
+				if (!isRulesPath(canonical.virtualPath)) {
 					fs.copyFileSync(fullPath, tmpPath);
 					continue;
 				}
-				const rulesView = getAgentVisibleRulesView(
-					canonical.virtualPath,
+				const rulesView = renderRootRulesForAgent(
 					fs.readFileSync(fullPath, 'utf-8'),
-					context,
+					context.userRulesGroupAccess,
 				);
-				if (rulesView === null) {
-					continue;
-				}
 				if (rulesView) {
 					fs.writeFileSync(tmpPath, rulesView.content, 'utf-8');
 				}

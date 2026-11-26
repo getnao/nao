@@ -37,16 +37,10 @@ export async function resolveChartChatId(chatId: string | undefined, ctx: McpCon
 	return chatId;
 }
 
-export function generateStorySlug(title: string): string {
-	return (
-		title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-|-$/g, '') || `untitled-${randomUUID().slice(0, 8)}`
-	);
-}
-
-export async function resolveStory(storyId: string, ctx: McpContext): Promise<UserStoryRow> {
+export async function resolveStory(
+	storyId: string,
+	ctx: Pick<McpContext, 'projectId' | 'userId'>,
+): Promise<UserStoryRow> {
 	const story = await storyQueries.getStoryByIdForUser(storyId, ctx.userId);
 	if (!story) {
 		throw new Error(`Story not found: ${storyId}`);
@@ -161,6 +155,7 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_max,
 		y_axis_right_label,
 		title,
+		show_legend,
 	} = artifact;
 	const block = buildStoryChartBlock({
 		query_id,
@@ -176,6 +171,7 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_max,
 		y_axis_right_label,
 		title,
+		show_legend,
 	});
 
 	const queryData = await resolveChartQueryData({
@@ -218,6 +214,7 @@ export async function buildChartEmbedFromArtifact(
 				yAxisRightMax: y_axis_right_max,
 				yAxisRightLabel: y_axis_right_label,
 				title,
+				showLegend: show_legend,
 			},
 			sourceChatId: effectiveChatId,
 		});

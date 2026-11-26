@@ -17,9 +17,7 @@ export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 export const ValueFormatSchema = z.object({
 	d3_format: z
 		.string()
-		.describe(
-			'd3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s". Do not use d3\'s "%" type: for a percentage already stored as 42.5, use { d3_format: ".1f", suffix: "%" } so the value is not multiplied by 100.',
-		)
+		.describe('d3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s".')
 		.optional(),
 	compact: z
 		.enum(['financial', 'si'])
@@ -27,18 +25,8 @@ export const ValueFormatSchema = z.object({
 			'How d3 SI-prefix "s" output is displayed. Defaults to "financial", which maps k to K and G to B while leaving M and T unchanged. Use "si" for scientific units such as bytes so d3 letters remain unchanged.',
 		)
 		.optional(),
-	prefix: z
-		.string()
-		.describe(
-			'Free text placed before the number. Use for any currency symbol, such as "$", "€", "¥", or "£". Example USD money: { d3_format: ",.2f", prefix: "$", compact: "financial" }.',
-		)
-		.optional(),
-	suffix: z
-		.string()
-		.describe(
-			'Free text placed after the number. Use for percentages and any unit. Examples: { d3_format: ".1f", suffix: "%" } for 42.5 as 42.5%; { d3_format: ",.0f", suffix: " V" } for volts; { d3_format: ".2s", suffix: "B", compact: "si" } for bytes.',
-		)
-		.optional(),
+	prefix: z.string().describe('Free text placed before the number, such as a currency symbol.').optional(),
+	suffix: z.string().describe('Free text placed after the number, such as "%" or a unit.').optional(),
 });
 
 export const ComparisonModeEnum = z.enum(['percentage', 'variation', 'absolute', 'none']);
@@ -129,7 +117,9 @@ export const ColumnConditionalFormatsSchema = z
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
 export const ChartInputObjectSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 	x_axis_type: XAxisTypeEnum.nullable().describe(
@@ -176,6 +166,12 @@ export const ChartInputObjectSchema = z.object({
 			'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
 		)
 		.optional(),
+	show_legend: z
+		.boolean()
+		.describe(
+			'Explicitly show (true) or hide (false) the chart legend, regardless of how many series the chart has. Set to false when the legend would only repeat the title, e.g. a single-series chart such as "Total inspections". Leave unset to keep the default legend behavior.',
+		)
+		.optional(),
 	hide_total: z
 		.boolean()
 		.describe(
@@ -217,7 +213,9 @@ const KpiCardInputSchema = ChartInputObjectSchema.extend({
 	.refine(rightYAxisBoundsValid, RIGHT_Y_AXIS_BOUNDS_MESSAGE);
 
 export const TableInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: z.literal('table').describe('Display the SQL result as a table.'),
 	title: z.string().describe('A concise, descriptive title of what the table shows.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.optional(),
@@ -231,7 +229,9 @@ export type Input = ChartInput | KpiCardInput | TableInput;
 const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
 const BaseInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: DisplayTypeSchema.describe(
 		'Type of visualization to display. Use "table" for tabular results or an available custom chart type.',
 	),
@@ -255,6 +255,7 @@ const BaseInputSchema = z.object({
 	y_axis_right_max: ChartInputObjectSchema.shape.y_axis_right_max,
 	y_axis_right_label: ChartInputObjectSchema.shape.y_axis_right_label,
 	show_data_labels: ChartInputObjectSchema.shape.show_data_labels,
+	show_legend: ChartInputObjectSchema.shape.show_legend,
 	hide_total: z
 		.boolean()
 		.describe(

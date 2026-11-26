@@ -3,8 +3,15 @@ import { z } from 'zod/v4';
 export const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-export const LOG_SOURCES = ['http', 'agent', 'tool', 'system'] as const;
+export const LOG_SOURCES = ['http', 'agent', 'tool', 'system', 'security'] as const;
 export type LogSource = (typeof LOG_SOURCES)[number];
+
+declare module 'fastify' {
+	interface FastifyRequest {
+		/** The user who made the request, recorded on its logs. For an API-key request, the user who created the key. */
+		actorUserId?: string;
+	}
+}
 
 export const logFilterSchema = z.object({
 	level: z.enum(LOG_LEVELS).optional(),

@@ -29,6 +29,20 @@ export function renderConditionalGroupBlocksWithSourceLines(
 	return renderRulesTemplate(source, access, (conditionalStack) => shouldInclude(conditionalStack));
 }
 
+/** The lines of the rendered rules showing source lines `start` to `end`, or null when none of them is rendered. */
+export function findRenderedRulesLines(
+	rendered: RenderedConditionalGroupBlocks,
+	{ start, end }: { start: number; end: number },
+): { start: number; end: number } | null {
+	const renderedLineNumbers = rendered.lines.flatMap(({ sourceLineNumber }, index) =>
+		sourceLineNumber >= start && sourceLineNumber <= end ? [index + 1] : [],
+	);
+	if (renderedLineNumbers.length === 0) {
+		return null;
+	}
+	return { start: renderedLineNumbers[0], end: renderedLineNumbers[renderedLineNumbers.length - 1] };
+}
+
 export function extractConditionalGroupContent(source: string, groupName: string): string {
 	return renderRulesTemplate(
 		source,
@@ -105,12 +119,27 @@ function renderRulesTemplate(
 	return { content: renderedLines.join(''), lines: sourceLines };
 }
 
+export const DEFAULT_RULES_FILE = 'RULES.md';
+
 export function isRootRulesPath(filePath: string): boolean {
-	const segments = filePath
+	return isRulesFilePath(filePath, DEFAULT_RULES_FILE);
+}
+
+/** The project-root RULES.md stays a rules file when nao_config.yaml sets `rules_file` elsewhere. */
+export function isRulesFilePath(filePath: string, rulesFile: string): boolean {
+	const segments = toPathSegments(filePath);
+	if (segments.includes('..')) {
+		return false;
+	}
+	const path = segments.join('/');
+	return path === DEFAULT_RULES_FILE || path === toPathSegments(rulesFile).join('/');
+}
+
+function toPathSegments(filePath: string): string[] {
+	return filePath
 		.replaceAll('\\', '/')
 		.split('/')
 		.filter((segment) => segment !== '' && segment !== '.');
-	return !segments.includes('..') && segments.length === 1 && segments[0] === 'RULES.md';
 }
 
 function parseDirective(line: string): { type: 'if'; groupNames: string[] } | { type: 'endif' } | undefined {

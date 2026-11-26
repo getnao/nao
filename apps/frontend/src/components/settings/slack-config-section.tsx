@@ -12,6 +12,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { llmModelValue } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
@@ -32,6 +33,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
 	const transportMode = projectConfig?.transportMode ?? 'webhook';
 	const replyMode = projectConfig?.replyMode ?? 'thread';
+	const dmThreadsEnabled = projectConfig?.dmThreadsEnabled ?? false;
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -40,13 +42,19 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
 
 	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
 	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const updateSlackReplyMode = useMutation(trpc.project.updateSlackReplyMode.mutationOptions());
+	const updateSlackDmThreads = useMutation(trpc.project.updateSlackDmThreads.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
 	const handleSubmit = async (values: {
@@ -59,6 +67,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 			...values,
 			modelProvider: selectedModel?.provider,
 			modelId: selectedModel?.modelId,
+			llmConfigId: selectedModel?.llmConfigId,
 		});
 		queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
 		setIsEditing(false);
@@ -81,17 +90,26 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels?.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels?.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
 	const handleModelChange = useCallback(
 		async (value: string) => {
-			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 			if (model) {
 				setSelectedModel(model);
-				await updateSlackModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+				await updateSlackModel.mutateAsync({
+					modelProvider: model.provider,
+					modelId: model.modelId,
+					llmConfigId: model.llmConfigId,
+				});
 				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
 			}
 		},
@@ -112,6 +130,17 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 		},
 		[queryClient, updateSlackReplyMode],
 	);
+
+	const handleDmThreadsChange = (enabled: boolean) => {
+		updateSlackDmThreads.mutate(
+			{ enabled },
+			{
+				onSuccess: () => {
+					void queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+				},
+			},
+		);
+	};
 
 	if (!isAdmin) {
 		return (
@@ -256,6 +285,19 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 							/>
 						}
 					/>
+					<SettingsControlRow
+						id='slack-dm-threads'
+						label='Start a new thread for each direct message'
+						description='When enabled, every message sent to nao in a direct message starts its own chat and nao answers in a thread, like in channels.'
+						control={
+							<Switch
+								id='slack-dm-threads'
+								checked={dmThreadsEnabled}
+								onCheckedChange={handleDmThreadsChange}
+								disabled={updateSlackDmThreads.isPending}
+							/>
+						}
+					/>
 					<div className='grid gap-2'>
 						<label className='text-sm font-medium text-foreground'>Model</label>
 						<p className='text-xs text-muted-foreground'>
@@ -263,7 +305,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 						</p>
 						{hasMultipleModels ? (
 							<Select
-								value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+								value={selectedModel ? llmModelValue(selectedModel) : undefined}
 								onValueChange={handleModelChange}
 								disabled={updateSlackModel.isPending}
 							>
@@ -277,22 +319,27 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 													className='size-4'
 												/>
 												{selectedModel.name}
+												{selectedModel.llmConfigName && (
+													<span className='text-muted-foreground'>
+														{selectedModel.llmConfigName}
+													</span>
+												)}
 											</div>
 										)}
 									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{availableModels?.map((model) => (
-										<SelectItem
-											key={`${model.provider}-${model.modelId}`}
-											value={`${model.provider}:${model.modelId}`}
-										>
+										<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 											<LlmProviderIcon
 												provider={model.provider}
 												baseUrl={model.baseUrl}
 												className='size-4'
 											/>
 											{model.name}
+											{model.llmConfigName && (
+												<span className='text-muted-foreground'>{model.llmConfigName}</span>
+											)}
 										</SelectItem>
 									))}
 								</SelectContent>
@@ -306,6 +353,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 										className='size-4'
 									/>
 									<span>{selectedModel.name}</span>
+									{selectedModel.llmConfigName && <span>{selectedModel.llmConfigName}</span>}
 								</div>
 							)
 						)}

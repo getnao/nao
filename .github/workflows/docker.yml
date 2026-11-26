@@ -224,6 +224,7 @@ jobs:
                       docker run -p "127.0.0.1:$NEW_PORT:5005" \
                         --restart unless-stopped \
                         --stop-timeout 150 \
+                        --memory 2g \
                         -v nao-chat-storage:/app/storage \
                         -e "NAO_STORAGE_LOCAL_PATH=/app/storage" \
                         -e "SHUTDOWN_DRAIN_DELAY_MS=10000" \
@@ -240,6 +241,9 @@ jobs:
                         -e "LANGFUSE_PUBLIC_KEY=${{ secrets.MOON_LANGFUSE_PUBLIC_KEY }}" \
                         -e "LANGFUSE_SECRET_KEY=${{ secrets.MOON_LANGFUSE_SECRET_KEY }}" \
                         -e "LANGFUSE_BASE_URL=${{ secrets.MOON_LANGFUSE_BASE_URL }}" \
+                        -e "OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                        -e "OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                        -e "OTEL_SERVICE_NAME=moon" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                         -e "ENABLE_USER_SIGNUP=false" \
                         -e "BETA_AUTOMATIONS_ENABLED=true" \
@@ -255,6 +259,7 @@ jobs:
                         -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
                         -e "GITHUB_CLIENT_ID=${{ secrets.MOON_GITHUB_CLIENT_ID }}" \
                         -e "GITHUB_CLIENT_SECRET=${{ secrets.MOON_GITHUB_CLIENT_SECRET }}" \
+                        -e "NAO_LICENSE=${{ secrets.MOON_NAO_LICENSE }}" \
                         --device /dev/kvm \
                         --name "$NEW" \
                         -d "$IMAGE"
@@ -319,6 +324,7 @@ jobs:
                           --name "$NEW" \
                           --restart unless-stopped \
                           --stop-timeout 150 \
+                          --memory 12g \
                           --network nao-internal \
                           --network-alias "$APP" \
                           -p "127.0.0.1:$NEW_PORT:5005" \
@@ -330,6 +336,7 @@ jobs:
                           -e "BETTER_AUTH_URL=https://${{ env.CLOUD_DOMAIN }}" \
                           -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                           -e "NAO_BACKOFFICE_API_KEY=${{ secrets.NAO_BACKOFFICE_API_KEY }}" \
+                          -e "NAO_MANAGED_OPENAI_API_KEY=${{ secrets.NAO_MANAGED_OPENAI_API_KEY }}" \
                           -e "DB_SSL=true" \
                           -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/app" \
                           -e "NAO_MODE=cloud" \
@@ -338,7 +345,10 @@ jobs:
                           -e "LANGFUSE_PUBLIC_KEY=${{ secrets.CLOUD_LANGFUSE_PUBLIC_KEY }}" \
                           -e "LANGFUSE_SECRET_KEY=${{ secrets.CLOUD_LANGFUSE_SECRET_KEY }}" \
                           -e "LANGFUSE_BASE_URL=${{ secrets.CLOUD_LANGFUSE_BASE_URL }}" \
-                          -e "GITHUB_SSO=true" \
+                          -e "OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.SIGNOZ_INGESTION_ENDPOINT }}" \
+                          -e "OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=${{ secrets.SIGNOZ_INGESTION_KEY }}" \
+                          -e "OTEL_SERVICE_NAME=$APP" \
+                          -e "GITHUB_SSO=false" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \
                           -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
@@ -353,12 +363,17 @@ jobs:
                           -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
                           -e "BETA_STORY_FILTERS_ENABLED=true" \
                           -e "BETA_CUSTOM_STORIES_ENABLED=true" \
+                          -e "BETA_SUBAGENTS_ENABLED=true" \
                           -e "CLOUD_BILLING_ENABLED=true" \
                           -e "STRIPE_SECRET_KEY=${{ secrets.NAOCLOUD_STRIPE_SECRET_KEY }}" \
                           -e "STRIPE_WEBHOOK_SECRET=${{ secrets.NAOCLOUD_STRIPE_WEBHOOK_SECRET }}" \
                           -e "STRIPE_CLOUD_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CLOUD_PRODUCT_ID }}" \
+                          -e "STRIPE_CLOUD_TRIAL_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CLOUD_TRIAL_PRODUCT_ID }}" \
+                          -e "STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY }}" \
                           -e "STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY }}" \
                           -e "STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY=${{ secrets.NAOCLOUD_STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY }}" \
+                          -e "STRIPE_CREDIT_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CREDIT_PRODUCT_ID }}" \
+                          -e "STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID }}" \
                           -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
                           -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
                           -e "CLOUD_GITHUB_PROJECT_ORG=${{ secrets.NAOCLOUD_GITHUB_PROJECT_ORG }}" \

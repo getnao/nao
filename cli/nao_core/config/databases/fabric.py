@@ -10,7 +10,7 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_select, ask_text
 
 if TYPE_CHECKING:
-    from azure.identity import AzureCliCredential, InteractiveBrowserCredential
+    from azure.core.credentials import TokenCredential
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
@@ -99,6 +99,10 @@ class FabricConfig(DatabaseConfig):
     driver: str = Field(
         default_factory=_detect_fabric_driver,
         description="ODBC driver — must be 'ODBC Driver 17/18 for SQL Server' (not FreeTDS)",
+    )
+    trust_server_certificate: bool = Field(
+        default=False,
+        description="Skip server certificate validation (e.g. for private endpoints whose certificate names another host)",
     )
 
     @model_validator(mode="after")
@@ -225,9 +229,7 @@ class FabricConfig(DatabaseConfig):
         conn = pyodbc.connect(self.build_odbc_string())
         return MSSQLBackend.from_connection(conn)
 
-    def _connect_via_aad_token_injection(
-        self, credential: AzureCliCredential | InteractiveBrowserCredential, message: str
-    ) -> BaseBackend:
+    def _connect_via_aad_token_injection(self, credential: TokenCredential, message: str) -> BaseBackend:
         """Connect using an Azure AD token injected via SQL_COPT_SS_ACCESS_TOKEN."""
         UI.info(f"[yellow]{message}[/yellow]")
 
@@ -247,7 +249,7 @@ class FabricConfig(DatabaseConfig):
             f"Server={self.host},{self.port}",
             f"Database={_odbc_escape(self.database)}",
             "Encrypt=yes",
-            "TrustServerCertificate=no",
+            f"TrustServerCertificate={'yes' if self.trust_server_certificate else 'no'}",
         ]
 
     def get_database_name(self) -> str:

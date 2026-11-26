@@ -4,19 +4,8 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
-}
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectTeamsConfig = async (projectId: string): Promise<TeamsConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -32,7 +21,11 @@ export const getProjectTeamsConfig = async (projectId: string): Promise<TeamsCon
 		appPassword: settings.teamsAppPassword,
 		tenantId: settings.teamsTenantId,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.teamsLlmProvider, settings.teamsLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings.teamsLlmProvider,
+			settings.teamsLlmModelId,
+			settings.teamsLlmConfigId,
+		),
 	};
 };
 
@@ -43,6 +36,7 @@ export const upsertProjectTeamsConfig = async (data: {
 	tenantId: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 }): Promise<{
 	appId: string;
 	appPassword: string;
@@ -59,6 +53,7 @@ export const upsertProjectTeamsConfig = async (data: {
 					teamsTenantId: data.tenantId,
 					teamsLlmProvider: data.modelProvider ?? '',
 					teamsLlmModelId: data.modelId ?? '',
+					teamsLlmConfigId: data.llmConfigId,
 				},
 			})
 			.where(eq(s.project.id, data.projectId))
@@ -72,7 +67,11 @@ export const upsertProjectTeamsConfig = async (data: {
 		appId: settings?.teamsAppId || '',
 		appPassword: settings?.teamsAppPassword || '',
 		tenantId: settings?.teamsTenantId || '',
-		modelSelection: toLlmSelectedModel(settings?.teamsLlmProvider, settings?.teamsLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings?.teamsLlmProvider,
+			settings?.teamsLlmModelId,
+			settings?.teamsLlmConfigId,
+		),
 	};
 };
 
@@ -80,28 +79,16 @@ export const updateProjectTeamsModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
-	await db.transaction(async (tx) => {
-		const project = await takeFirstOrThrow(
-			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
-			`Project not found: ${projectId}`,
-		);
-		const existing = project.teamsSettings;
-
-		await tx
-			.update(s.project)
-			.set({
-				teamsSettings: {
-					teamsAppId: existing?.teamsAppId ?? '',
-					teamsAppPassword: existing?.teamsAppPassword ?? '',
-					teamsTenantId: existing?.teamsTenantId ?? '',
-					teamsLlmProvider: modelProvider ?? '',
-					teamsLlmModelId: modelId ?? '',
-				},
-			})
-			.where(eq(s.project.id, projectId))
-			.execute();
-	});
+	await updateProjectSettings(projectId, 'teamsSettings', (existing) => ({
+		teamsAppId: existing?.teamsAppId ?? '',
+		teamsAppPassword: existing?.teamsAppPassword ?? '',
+		teamsTenantId: existing?.teamsTenantId ?? '',
+		teamsLlmProvider: modelProvider ?? '',
+		teamsLlmModelId: modelId ?? '',
+		teamsLlmConfigId: llmConfigId ?? undefined,
+	}));
 };
 
 export const deleteProjectTeamsConfig = async (projectId: string): Promise<void> => {

@@ -1,3 +1,4 @@
+import { formatCount } from '@nao/shared';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Code, Copy, Download, Layers, Palette, PanelRight, Table as TableIcon } from 'lucide-react';
@@ -11,11 +12,12 @@ import type { ToolCallComponentProps } from '.';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows';
 import { useToolCallContext } from '@/contexts/tool-call';
+import { SemanticQuerySidePanelContent } from '@/components/side-panel/semantic-query-editor';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
-import { semanticQueryAsSql } from '@/lib/execute-sql-messages';
+import { isSemanticSourceQuery, semanticQueryAsSql } from '@/lib/execute-sql-messages';
 import { trpc } from '@/main';
 
 type ViewMode = 'results' | 'definition' | 'sql';
@@ -27,20 +29,25 @@ export const ExecuteSemanticQueryToolCall = ({
 	const [conditionalFormats, setConditionalFormats] = useState<ColumnConditionalFormats>({});
 	const [isFormatOpen, setIsFormatOpen] = useState(false);
 	const { isSettled } = useToolCallContext();
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel } = useSidePanelActions();
 	const agent = useOptionalAgentContext();
 	const chatId = agent?.chatId;
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && output?.id);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 	const rowsSource = useQueryRowsSource(toolCallId, output);
 	const loadAllRows = useLoadAllQueryRows(rowsSource);
 
-	const openViewer = () => {
+	const openEditor = () => {
 		if (state === 'input-streaming' || !output) {
 			return;
 		}
-		const asSql = semanticQueryAsSql(input, output);
+		const sourceQuery = { ...semanticQueryAsSql(input, output), toolCallId };
 		openSidePanel(
-			<SidePanelContent input={asSql.input!} output={output} toolCallId={toolCallId} editable={false} />,
+			isSemanticSourceQuery(sourceQuery) ? (
+				<SemanticQuerySidePanelContent sourceQuery={sourceQuery} editable={isEditable} />
+			) : (
+				<SidePanelContent input={sourceQuery.input!} output={output} toolCallId={toolCallId} editable={false} />
+			),
 		);
 	};
 
@@ -114,8 +121,8 @@ export const ExecuteSemanticQueryToolCall = ({
 		{
 			id: 'open',
 			label: <PanelRight className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
-			onClick: openViewer,
-			title: 'Open in side panel',
+			onClick: openEditor,
+			title: isEditable ? 'Edit in side panel' : 'Open in side panel',
 		},
 	];
 
@@ -131,7 +138,7 @@ export const ExecuteSemanticQueryToolCall = ({
 					</span>
 				</span>
 			}
-			badge={output?.row_count && `${output.row_count} rows`}
+			badge={output && formatCount(output.row_count, 'row')}
 			actions={isSettled ? actions : []}
 		>
 			{viewMode === 'definition' && input ? (
@@ -161,7 +168,14 @@ export const ExecuteSemanticQueryToolCall = ({
 /** The input as the UI sees it, possibly still streaming: every field and array item may be missing. */
 type PartialSemanticQuery = NonNullable<ToolCallComponentProps<'execute_semantic_query'>['toolPart']['input']>;
 
-function SemanticQueryDefinition({ query }: { query: PartialSemanticQuery }) {
+/** `isAddedWhere` flags the where conditions story filters add to the saved query. */
+export function SemanticQueryDefinition({
+	query,
+	isAddedWhere,
+}: {
+	query: PartialSemanticQuery;
+	isAddedWhere?: (index: number) => boolean;
+}) {
 	const rows: { label: string; values: string[] }[] = [
 		{ label: 'Metrics', values: definedValues(query.metrics) },
 		{ label: 'Group by', values: definedValues(query.group_by) },
@@ -180,11 +194,22 @@ function SemanticQueryDefinition({ query }: { query: PartialSemanticQuery }) {
 					<div key={row.label} className='contents'>
 						<dt className='text-muted-foreground'>{row.label}</dt>
 						<dd className='flex flex-wrap gap-1'>
-							{row.values.map((value) => (
-								<code key={value} className='rounded bg-muted px-1.5 py-0.5 font-mono'>
-									{value}
-								</code>
-							))}
+							{row.values.map((value, index) =>
+								row.label === 'Where' && isAddedWhere?.(index) ? (
+									<span key={value} className='inline-flex items-center gap-1.5'>
+										<code className='rounded bg-primary/15 px-1.5 py-0.5 font-mono text-foreground'>
+											{value}
+										</code>
+										<span className='rounded-full border px-1.5 text-[10px] text-muted-foreground'>
+											story filter
+										</span>
+									</span>
+								) : (
+									<code key={value} className='rounded bg-muted px-1.5 py-0.5 font-mono'>
+										{value}
+									</code>
+								),
+							)}
 						</dd>
 					</div>
 				))}

@@ -2,16 +2,87 @@ import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
+import { isManagedAiEnabled } from '../agents/managed-ai';
+import type { DBProject } from '../db/abstractSchema';
 import { isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
+import * as creditWalletQueries from '../queries/credit-wallet.queries';
+import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
+import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
+import { getTwoFactorStatus } from '../services/two-factor.service';
 import { buildResetPasswordEmail } from '../utils/email-builders';
 import { regexPassword } from '../utils/utils';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import {
+	adminProtectedProcedure,
+	projectProtectedProcedure,
+	protectedProcedure,
+	resolveOrganizationMembership,
+	sessionProcedure,
+} from './trpc';
+
+const creditLedgerPaginationInput = z
+	.object({
+		cursor: z.object({ createdAt: z.date(), id: z.string() }).optional(),
+		limit: z.number().int().min(1).max(100).default(25),
+	})
+	.default({ limit: 25 });
+
+const managedAiUsagePaginationInput = z
+	.object({
+		cursor: z.object({ startedAt: z.date(), id: z.string() }).optional(),
+		limit: z.number().int().min(1).max(100).default(25),
+	})
+	.default({ limit: 25 });
+
+/** Resolves the organization as the billing routes do, so the wallet and the plan of one page never differ. */
+const walletProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+	const membership = await resolveOrganizationMembership(
+		ctx.user.id,
+		ctx.selectedProjectId,
+		ctx.selectedOrganizationId,
+	);
+	return next({ ctx: { membership } });
+});
+
+const walletMemberProcedure = walletProcedure.use(async ({ ctx, next }) => {
+	if (!ctx.membership) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Organization membership is required' });
+	}
+	return next({ ctx: { membership: ctx.membership } });
+});
+
+const walletAdminProcedure = walletMemberProcedure.use(async ({ ctx, next }) => {
+	if (ctx.membership.role !== 'admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only organization admins can view wallet activity' });
+	}
+	return next({ ctx: { membership: ctx.membership } });
+});
 
 export const accountRoutes = {
+	getManagedCreditStatus: projectProtectedProcedure.query(({ ctx }) => getManagedCreditStatus(ctx.project)),
+	getCreditSummary: walletAdminProcedure.query(async ({ ctx }) => {
+		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
+		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled() };
+	}),
+	/** Setup credits are only granted in cloud mode, so a self-hosted instance never welcomes anyone to them. */
+	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>
+		isCloud ? creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId) : null,
+	),
+	listCreditLedger: walletAdminProcedure.input(creditLedgerPaginationInput).query(({ ctx, input }) => {
+		return creditWalletQueries.listCreditLedger(ctx.membership.orgId, input);
+	}),
+	listManagedAiUsage: walletMemberProcedure.input(managedAiUsagePaginationInput).query(({ ctx, input }) => {
+		return managedAiUsageQueries.listManagedAiUsage(
+			{
+				orgId: ctx.membership.orgId,
+				userId: ctx.membership.role === 'admin' ? undefined : ctx.user.id,
+			},
+			input,
+		);
+	}),
 	resetPassword: adminProtectedProcedure
 		.input(
 			z.object({
@@ -56,7 +127,10 @@ export const accountRoutes = {
 
 			return { password };
 		}),
-	modifyPassword: protectedProcedure
+	getTwoFactorStatus: sessionProcedure.query(async ({ ctx }) => {
+		return getTwoFactorStatus(ctx.user.id);
+	}),
+	modifyPassword: sessionProcedure
 		.input(
 			z.object({
 				newPassword: z.string(),
@@ -92,3 +166,24 @@ export const accountRoutes = {
 			await accountQueries.updateAccountPassword(account.id, hashedPassword, ctx.user.id, false);
 		}),
 };
+
+async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
+	if (!project.orgId) {
+		return {
+			enabled: isManagedAiEnabled(),
+			organization: null,
+			hasCredits: false,
+			balanceMicroUsd: 0,
+		};
+	}
+	const [organization, summary] = await Promise.all([
+		orgQueries.getOrganizationById(project.orgId),
+		creditWalletQueries.getCreditSummary(project.orgId),
+	]);
+	return {
+		enabled: isManagedAiEnabled(),
+		organization: organization ? { id: organization.id, name: organization.name } : null,
+		hasCredits: summary.balanceMicroUsd > 0,
+		balanceMicroUsd: summary.balanceMicroUsd,
+	};
+}

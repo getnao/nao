@@ -11,19 +11,26 @@ import {
 import path from 'path';
 
 import type { ToolContext } from '../types/tools';
-import { isContextPathAllowed } from './context-access';
-import type { ResolvedFileTreeAccess } from './user-group-context-access.service';
+import { isColumnSecurityTableFilePath } from './column-security-context.service';
+import { getColumnSecurityContextAccess, isContextPathAllowed } from './context-access';
+import type { ResolvedFileTreeAccess, ResolvedSkillsAccess } from './user-group-context-access.service';
 
 export type ProjectPathKind = 'file' | 'directory';
 type ProjectPath = { kind: 'root' | 'docs' | 'files' | 'database'; relativePath: string } | { kind: 'invalid' };
 
 type ProjectPathAccessContext = Pick<
 	ToolContext,
-	'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess'
+	| 'warehouseTableAccess'
+	| 'warehouseColumnSecurity'
+	| 'docsContextAccess'
+	| 'filesContextAccess'
+	| 'mcpAccess'
+	| 'skillsAccess'
 >;
 
 const MCP_SPECS_DIRECTORY = 'agent/mcps/';
 const MCP_CONFIG_PATH = `${MCP_SPECS_DIRECTORY}mcp.json`;
+const SKILLS_DIRECTORY = 'agent/skills/';
 
 export function assertProjectContextPathAllowed(
 	context: ProjectPathAccessContext,
@@ -36,7 +43,34 @@ export function assertProjectContextPathAllowed(
 	}
 }
 
+export function assertProjectContextPathRenderAllowed(
+	context: ProjectPathAccessContext,
+	requestedVirtualPath: string,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): void {
+	if (!isProjectContextPathRenderAllowed(context, requestedVirtualPath, canonicalVirtualPath, kind)) {
+		throw new Error(`Access denied: ${requestedVirtualPath}`);
+	}
+}
+
 export function isProjectContextPathAllowed(
+	context: ProjectPathAccessContext,
+	requestedVirtualPath: string,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): boolean {
+	if (!isProjectContextPathRenderAllowed(context, requestedVirtualPath, canonicalVirtualPath, kind)) {
+		return false;
+	}
+	if (kind === 'directory') {
+		return true;
+	}
+	const access = getColumnSecurityContextAccess(context.warehouseColumnSecurity, canonicalVirtualPath);
+	return access !== 'restricted' && access !== 'blocked';
+}
+
+export function isProjectContextPathRenderAllowed(
 	context: ProjectPathAccessContext,
 	requestedVirtualPath: string,
 	canonicalVirtualPath: string,
@@ -61,7 +95,7 @@ export function isProjectContextPathAllowed(
 		case 'root':
 			return kind === 'directory';
 		case 'database':
-			return true;
+			return isDatabasePathAllowed(context, canonicalVirtualPath, kind);
 		case 'docs':
 			return isFileTreePathAllowed(
 				context.docsContextAccess,
@@ -80,7 +114,9 @@ export function isProjectContextPathAllowed(
 					kind,
 				) &&
 				isMcpSpecPathAllowed(context.mcpAccess, requestedPath.relativePath, kind) &&
-				isMcpSpecPathAllowed(context.mcpAccess, canonicalPath.relativePath, kind)
+				isMcpSpecPathAllowed(context.mcpAccess, canonicalPath.relativePath, kind) &&
+				isSkillPathAllowed(context.skillsAccess, requestedPath.relativePath, kind) &&
+				isSkillPathAllowed(context.skillsAccess, canonicalPath.relativePath, kind)
 			);
 	}
 }
@@ -92,6 +128,21 @@ export function isDocsProjectPath(virtualPath: string): boolean {
 /** `nao_config.yaml` can hold plaintext LLM keys and warehouse credentials, so the agent never sees it. */
 function isProjectConfigPath(virtualPath: string): boolean {
 	return path.posix.basename(virtualPath).toLowerCase() === CONTEXT_CONFIG_FILENAME;
+}
+
+function isDatabasePathAllowed(
+	context: ProjectPathAccessContext,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): boolean {
+	if (kind === 'directory') {
+		return true;
+	}
+	const access = getColumnSecurityContextAccess(context.warehouseColumnSecurity, canonicalVirtualPath);
+	if (access === 'blocked') {
+		return false;
+	}
+	return access !== 'restricted' || isColumnSecurityTableFilePath(canonicalVirtualPath);
 }
 
 /** The agent reaches MCP servers through the per-server tool specs; the raw server config only misleads it and can hold auth headers. */
@@ -141,6 +192,14 @@ function isMcpSpecPathAllowed(access: McpAccess, relativePath: string, kind: Pro
 	}
 	const tool = decodeSpecFileName(specFile.slice(0, -'.json'.length));
 	return tool !== null && isMcpToolGranted(access, server, tool);
+}
+
+/** Skills are granted by name, so a restricted run only reaches the files its granted skills were loaded from. */
+function isSkillPathAllowed(access: ResolvedSkillsAccess, relativePath: string, kind: ProjectPathKind): boolean {
+	if (!relativePath.toLowerCase().startsWith(SKILLS_DIRECTORY) || access.mode === 'all') {
+		return true;
+	}
+	return kind === 'file' && access.grantedFiles.includes(relativePath);
 }
 
 function decodeSpecFileName(fileName: string): string | null {

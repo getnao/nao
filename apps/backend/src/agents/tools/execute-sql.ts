@@ -9,10 +9,9 @@ import {
 	getExecuteSqlPartByQueryIdInChat,
 	updateExecuteSqlPart,
 } from '../../queries/execute-sql.queries';
-import { SYSTEM_EXAMPLE_PROJECT_ID } from '../../services/example-project';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
-import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
+import { isWarehouseSqlEnabled, type SemanticQuery } from '../../services/semantic-layer.service';
 import { executeWarehouseSql } from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
 import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
@@ -26,8 +25,8 @@ type SameTurnQueryOptions = {
 };
 
 type ExecuteQueryOptions = {
-	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
-	compiledBySemanticLayer?: boolean;
+	/** The metric query the semantic layer compiled this SQL from: it may reach the warehouse even when hand-written SQL may not. */
+	semanticQuery?: SemanticQuery;
 };
 
 export async function executeQuery(
@@ -35,7 +34,7 @@ export async function executeQuery(
 	context: ToolContext,
 	options: ExecuteQueryOptions = {},
 ): Promise<executeSql.Output> {
-	if (!options.compiledBySemanticLayer) {
+	if (!options.semanticQuery) {
 		assertWarehouseSqlAllowed(database_id, context);
 	}
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
@@ -49,14 +48,10 @@ export async function executeQuery(
 				"blocked regardless of write permissions, since these open a connection to another server rather than write to this database's data.",
 		);
 	}
-	const writePermEnabled =
-		context.projectId !== SYSTEM_EXAMPLE_PROJECT_ID &&
-		(context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false);
+	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
 	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
 		throw new Error(
-			context.projectId === SYSTEM_EXAMPLE_PROJECT_ID
-				? 'Write SQL operations are disabled for the example project. Only SELECT queries are allowed.'
-				: 'Write SQL operations are disabled. Only SELECT queries are allowed. Enable "Dangerous write permissions" in the admin panel to allow INSERT, UPDATE, DELETE and DDL queries.',
+			'Write SQL operations are disabled. Only SELECT queries are allowed. Enable "Dangerous write permissions" in the admin panel to allow INSERT, UPDATE, DELETE and DDL queries.',
 		);
 	}
 
@@ -89,10 +84,12 @@ export async function executeQuery(
 		projectFolder: context.projectFolder,
 		databaseId: database_id,
 		envVars: context.envVars,
-		azureAccessToken: context.azureAccessToken,
+		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
+		queryTag: context.sqlQueryTag,
 	});
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
@@ -101,7 +98,7 @@ export async function executeQuery(
 		data: data.data,
 		sqlQuery: sql_query,
 		...(database_id && { databaseId: database_id }),
-		...(options.compiledBySemanticLayer && { compiledBySemanticLayer: true }),
+		...(options.semanticQuery && { semanticQuery: options.semanticQuery }),
 	});
 
 	const appliedLimit = detectQueryRowLimit(effectiveSql);
@@ -209,7 +206,7 @@ async function updateSameTurnQuery(
 			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
 		);
 	}
-	if (sameTurnResult.compiledBySemanticLayer) {
+	if (sameTurnResult.semanticQuery) {
 		throw semanticQueryNotEditableError(input.query_id);
 	}
 	return executeQuery(input, context);
@@ -242,11 +239,8 @@ function buildExecuteSqlToolDescription() {
 		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
 		...(env.BETA_STORY_FILTERS_ENABLED
 			? [
-					'Story filters may be embedded as SQL template blocks that are stripped when this tool runs in chat.',
-					'Correct syntax: WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
-					"For date_range filters, {{ filters.<id>.sql }} already expands to 'start' AND 'end', so write: {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}.",
-					'Never use filters.<id>.start, .end, .value, or placeholders outside {% filter %} blocks — placeholders outside blocks are rejected; other invalid templates return template_warnings.',
-					'Prefer query_id when adding story filter templates so existing <chart>/<table> tags keep working.',
+					'Story filters may be embedded as {% filter <id> %} ... {% endfilter %} SQL template blocks, which are stripped when this tool runs in chat; the story tool describes their syntax.',
+					'Placeholders outside a block are rejected; other invalid templates return template_warnings.',
 				]
 			: []),
 		'To edit a previous query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',

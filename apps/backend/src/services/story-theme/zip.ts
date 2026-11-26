@@ -2,12 +2,14 @@ import { MAX_IMAGE_BYTES, MAX_SOURCE_IMAGES, type SourceImageMediaType } from '@
 import * as cheerio from 'cheerio';
 import { type UnzipFileFilter, unzipSync } from 'fflate';
 
+import type { SourceDocument } from './document';
 import { type DesignSignals, DesignSourceError, emptySignals, normalizeColor, signalsFromCss } from './signals';
 
 /**
  * Reads design signals from a ZIP of brand assets: stylesheets and token
- * files are parsed as text, and the largest raster images are kept as visual
- * evidence for a vision-capable model or for pixel sampling.
+ * files are parsed as text, written guidelines are kept for the model, and the
+ * largest raster images are kept as visual evidence for a vision-capable model
+ * or for pixel sampling.
  */
 
 export interface ZipImage {
@@ -19,9 +21,10 @@ export interface ZipImage {
 export interface ZipSignals {
 	signals: DesignSignals;
 	images: ZipImage[];
+	documents: SourceDocument[];
 }
 
-type EntryKind = 'style' | 'markup' | 'token' | 'image';
+type EntryKind = 'style' | 'markup' | 'token' | 'document' | 'image';
 
 interface ZipScan {
 	entries: Record<string, Uint8Array>;
@@ -42,6 +45,9 @@ const ZIP_DEFLATED = 8;
 const STYLE_EXTENSIONS = /\.(css|scss|sass|less|styl)$/i;
 const MARKUP_EXTENSIONS = /\.(html?|svg)$/i;
 const TOKEN_EXTENSIONS = /\.(json|tokens|ya?ml)$/i;
+const DOCUMENT_EXTENSIONS = /\.(md|markdown|txt)$/i;
+/** Font packages ship their licence as text; it says nothing about the brand. */
+const LICENSE_NAMES = /^(licen[cs]e|ofl|copying|notice)\b/i;
 const PDF_EXTENSION = /\.pdf$/i;
 const IMAGE_EXTENSIONS: Record<string, ZipImage['mediaType']> = {
 	png: 'image/png',
@@ -57,6 +63,7 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 	const styleText: string[] = [];
 	const tokenColors: Record<string, string> = {};
 	const images: ZipImage[] = [];
+	const documents: SourceDocument[] = [];
 	const skippedEmpty: string[] = [];
 	const unread = [...scan.unread];
 
@@ -72,6 +79,13 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 			case 'token':
 				Object.assign(tokenColors, collectTokenColors(decodeText(bytes), base));
 				break;
+			case 'document': {
+				const text = decodeText(bytes).trim();
+				if (text) {
+					documents.push({ fileName: base, text });
+				}
+				break;
+			}
 			case 'image': {
 				const image = readImage(base, bytes);
 				if (image) {
@@ -86,14 +100,16 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 		}
 	}
 
-	const hasText = styleText.some((text) => text.trim().length > 0) || Object.keys(tokenColors).length > 0;
-	if (!hasText && images.length === 0) {
+	const hasStyles = styleText.some((text) => text.trim().length > 0) || Object.keys(tokenColors).length > 0;
+	if (!hasStyles && images.length === 0 && documents.length === 0) {
 		throw new DesignSourceError(emptyZipMessage(scan.skippedLarge, skippedEmpty, unread));
 	}
 
 	const warnings: string[] = [];
-	if (!hasText) {
-		warnings.push('No stylesheets or token files were found; the theme is read from the images alone.');
+	if (!hasStyles) {
+		warnings.push(
+			`No stylesheets or token files were found; the theme is read from the ${describeReadInstead(images, documents)}.`,
+		);
 	}
 	if (scan.skippedLarge.length > 0) {
 		warnings.push(`Images larger than ${MAX_IMAGE_MB} MB were skipped: ${scan.skippedLarge.join(', ')}.`);
@@ -114,7 +130,14 @@ export function extractSignalsFromZip(zip: Uint8Array, label: string): ZipSignal
 		);
 	}
 
-	return { signals: { ...signals, warnings }, images: keptImages };
+	return { signals: { ...signals, warnings }, images: keptImages, documents };
+}
+
+function describeReadInstead(images: ZipImage[], documents: SourceDocument[]): string {
+	if (images.length > 0 && documents.length > 0) {
+		return 'images and written guidelines';
+	}
+	return images.length > 0 ? 'images alone' : 'written guidelines alone';
 }
 
 function emptyZipMessage(skippedLarge: string[], skippedEmpty: string[], unread: string[]): string {
@@ -130,7 +153,7 @@ function emptyZipMessage(skippedLarge: string[], skippedEmpty: string[], unread:
 	}
 	const found = unread.slice(0, 6);
 	const extra = found.length > 0 ? ` Found ${found.join(', ')}.` : '';
-	return `The ZIP contains no stylesheets, token files or images that nao can read (css, scss, json, html, svg, png, jpg, webp).${extra}`;
+	return `The ZIP contains no stylesheets, token files, guidelines or images that nao can read (css, scss, json, html, svg, md, txt, png, jpg, webp).${extra}`;
 }
 
 function readEntries(zip: Uint8Array): ZipScan {
@@ -221,6 +244,9 @@ function kindOf(base: string): EntryKind | null {
 	}
 	if (TOKEN_EXTENSIONS.test(base)) {
 		return 'token';
+	}
+	if (DOCUMENT_EXTENSIONS.test(base) && !LICENSE_NAMES.test(base)) {
+		return 'document';
 	}
 	return Object.hasOwn(IMAGE_EXTENSIONS, extensionOf(base)) ? 'image' : null;
 }

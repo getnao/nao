@@ -1,107 +1,56 @@
 import { JsonToSseTransformStream, UI_MESSAGE_STREAM_HEADERS } from 'ai';
 import type { IncomingHttpHeaders } from 'http';
+import { z } from 'zod/v4';
 
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
-import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
-import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
-import {
-	getExampleProjectForUser,
-	getSystemExampleProject,
-	SYSTEM_EXAMPLE_PROJECT_ID,
-} from '../services/example-project';
+import { getChatOwnerId } from '../queries/chat.queries';
+import { authorizeAgentRun } from '../services/agent-run';
+import { agentStreamService, type OpenAgentStream } from '../services/agent-stream';
 import { AgentRequestSchema } from '../types/chat';
 import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
+import { HandlerError } from '../utils/error';
 import { withQueryResultPreviewsInStream } from '../utils/query-result-preview';
+import { consumeRateLimit } from '../utils/rate-limiter';
 import { withSseKeepAlive } from '../utils/sse-keep-alive';
 
 const DEBUG_CHUNKS = false;
 const KEEP_ALIVE_INTERVAL_MS = 10_000;
+
+const streamParamsSchema = z.object({
+	chatId: z.string(),
+});
 
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
 
 	app.post('/', { schema: { body: AgentRequestSchema } }, async (request, reply) => {
 		const { user, project, body, headers } = request;
-
-		const isOnboarding = body.mode === 'onboarding';
-		const isExampleMode = body.mode === 'example';
-		const chatModeError = body.chatId
-			? getChatModeMismatchError(isOnboarding, await chatQueries.isOnboardingChat(body.chatId))
-			: null;
-		if (chatModeError) {
-			return reply.status(403).send({ error: chatModeError });
-		}
-
-		const onboardingProject = isOnboarding ? await projectQueries.getProjectById(SYSTEM_EXAMPLE_PROJECT_ID) : null;
-
-		const exampleProject =
-			!isOnboarding && (isExampleMode || !project)
-				? isExampleMode
-					? await getSystemExampleProject()
-					: await getExampleProjectForUser(user.id)
-				: null;
-
-		const projectId = body.chatId
-			? await chatQueries.getChatProjectId(body.chatId)
-			: isOnboarding
-				? onboardingProject?.id
-				: isExampleMode
-					? exampleProject?.id
-					: (project?.id ?? exampleProject?.id);
-
-		if (isExampleMode && projectId !== SYSTEM_EXAMPLE_PROJECT_ID) {
-			return reply
-				.status(body.chatId ? 403 : 503)
-				.send({ error: body.chatId ? 'Invalid example conversation' : 'Example project is unavailable' });
-		}
-
-		const isExampleProject = projectId === SYSTEM_EXAMPLE_PROJECT_ID;
-		const exampleChatOwnerId =
-			isExampleProject && body.chatId ? await chatQueries.getChatOwnerId(body.chatId) : undefined;
-
-		let canChatWithNaoData = false;
-		if (isOnboarding) {
-			if (!onboardingProject) {
-				return reply.status(503).send({ error: 'Onboarding is unavailable' });
-			}
-			if (projectId !== SYSTEM_EXAMPLE_PROJECT_ID && !body.chatId) {
-				return reply.status(403).send({ error: 'Invalid onboarding conversation' });
-			}
-		} else if (isExampleProject) {
-			if (
-				!canAccessExampleChat({
-					chatId: body.chatId,
-					chatOwnerId: exampleChatOwnerId,
-					userId: user.id,
-					exampleProjectAvailable: exampleProject?.id === SYSTEM_EXAMPLE_PROJECT_ID,
-				})
-			) {
-				return reply.status(403).send({ error: 'Example project access is unavailable' });
-			}
-		} else if (projectId) {
-			const userRole = await projectQueries.getUserRoleInProject(projectId, user.id);
-			if (!userRole || userRole === 'viewer') {
-				return reply.status(403).send({ error: 'Viewers cannot send messages' });
-			}
-			canChatWithNaoData = userRole === 'admin' || userRole === 'context_admin';
-			await assertProjectCloudBillingAccess(projectId);
-		}
+		consumeRateLimit('agent', user.id, user.id);
+		const run = await authorizeAgentRun({ userId: user.id, currentProject: project, body });
+		let answer: OpenAgentStream | undefined;
 
 		const result = await handleAgentRoute({
-			userId: user.id,
-			projectId,
 			...body,
-			isOnboarding,
-			billingAccessVerifiedProjectId: projectId,
-			adminMode: body.adminMode && canChatWithNaoData,
+			userId: user.id,
+			projectId: run.projectId,
+			profile: run.profile,
+			model: run.model,
+			unbilledManagedAiUsage: run.unbilledManagedAiUsage,
+			billingAccessVerifiedProjectId: run.projectId,
 			domainHost: getDomainHost(headers),
-			projectAccessAlreadyAuthorized: isExampleProject,
+			onUserMessageSaved: (chatId) => {
+				answer = agentStreamService.open(chatId, user.id);
+			},
+		}).catch(async (error) => {
+			answer?.fail();
+			await run.release?.();
+			throw error;
 		});
 
-		let stream = withQueryResultPreviewsInStream(result.stream);
+		answer ??= agentStreamService.open(result.chatId, user.id);
+		let stream = answer.start(withQueryResultPreviewsInStream(result.stream));
 
 		if (DEBUG_CHUNKS) {
 			stream = stream.pipeThrough(
@@ -120,47 +69,40 @@ export const agentRoutes = async (app: App) => {
 			reply,
 			agent: result.agent,
 			userId: user.id,
-			projectId,
+			projectId: run.projectId,
 			chatId: result.chatId,
 			modelId: result.modelId,
 		}).pipeThrough(new JsonToSseTransformStream());
 
-		return new Response(withSseKeepAlive(sseStream, KEEP_ALIVE_INTERVAL_MS).pipeThrough(new TextEncoderStream()), {
-			headers: {
-				...UI_MESSAGE_STREAM_HEADERS,
-				// Disable nginx buffering for streaming responses
-				// This is critical for proper stream termination behind reverse proxies
-				'x-accel-buffering': 'no',
-				'cache-control': 'no-cache, no-transform',
-			},
-		});
+		return createAgentStreamResponse(sseStream);
+	});
+
+	/** Where a client reconnects after a reload: replays the chat's running answer, or 204 when none runs. */
+	app.get('/:chatId/stream', { schema: { params: streamParamsSchema } }, async (request, reply) => {
+		const { chatId } = request.params;
+		if ((await getChatOwnerId(chatId)) !== request.user.id) {
+			throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
+		}
+
+		const stream = await agentStreamService.read(chatId);
+		if (!stream) {
+			return reply.status(204).send();
+		}
+		return createAgentStreamResponse(stream.pipeThrough(new JsonToSseTransformStream()));
 	});
 };
+
+function createAgentStreamResponse(stream: ReadableStream): Response {
+	return new Response(withSseKeepAlive(stream, KEEP_ALIVE_INTERVAL_MS).pipeThrough(new TextEncoderStream()), {
+		headers: {
+			...UI_MESSAGE_STREAM_HEADERS,
+			'x-accel-buffering': 'no',
+			'cache-control': 'no-cache, no-transform',
+		},
+	});
+}
 
 function getDomainHost(headers: IncomingHttpHeaders): string | undefined {
 	const host = headers['x-forwarded-host'] || headers.host;
 	return Array.isArray(host) ? host[0] : host;
-}
-
-export function getChatModeMismatchError(requestIsOnboarding: boolean, chatIsOnboarding: boolean): string | null {
-	if (requestIsOnboarding === chatIsOnboarding) {
-		return null;
-	}
-	return requestIsOnboarding
-		? 'Regular conversations cannot be continued through onboarding'
-		: 'Onboarding conversations must be continued through onboarding';
-}
-
-export function canAccessExampleChat({
-	chatId,
-	chatOwnerId,
-	userId,
-	exampleProjectAvailable,
-}: {
-	chatId: string | undefined;
-	chatOwnerId: string | undefined;
-	userId: string;
-	exampleProjectAvailable: boolean;
-}): boolean {
-	return chatId ? chatOwnerId === userId : exampleProjectAvailable;
 }

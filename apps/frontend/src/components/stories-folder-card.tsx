@@ -15,7 +15,7 @@ import {
 	Star,
 	Trash2,
 } from 'lucide-react';
-import type { MouseEvent } from 'react';
+import type { DragEvent, MouseEvent } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { FolderItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
@@ -32,7 +32,9 @@ import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
 import { formatRelativeDate } from '@/lib/time-ago';
+import { selectedStoryReferencesStore } from '@/stores/story-references';
 import { cn } from '@/lib/utils';
 
 export type FolderDisplayMode = StoryPanelDisplayMode | 'grid-large';
@@ -64,6 +66,7 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const isFolderFavorited = useToggleFavorite('folder').isFavorited(folder.id);
 	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
@@ -83,7 +86,7 @@ export function FolderCard({
 		isDragging,
 	} = useDraggable({
 		id: draggableId,
-		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || selectionActive,
+		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || (selectionActive && !selected),
 	});
 	const { setNodeRef: setDropRef, isOver } = useDroppable({
 		id: droppableId,
@@ -106,6 +109,18 @@ export function FolderCard({
 		}
 	}
 
+	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		if (folder.archivedAt) {
+			e.preventDefault();
+			return;
+		}
+		const selection = selectedStoryReferencesStore.getSnapshot();
+		setStoryDragData(
+			e,
+			selected && hasAnyStoryReference(selection) ? selection : { storyIds: [], folderIds: [folder.id] },
+		);
+	}
+
 	function handleLinkClick(e: MouseEvent<HTMLElement>) {
 		if (selectionActive && canSelect) {
 			handleToggleSelect(e);
@@ -121,6 +136,7 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
+				onDragStart={handleNativeDragStart}
 				className={cn(
 					LINES_CARD_CLASS,
 					'relative',
@@ -201,6 +217,7 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
+				onDragStart={handleNativeDragStart}
 				className={cn(
 					GRID_CARD_CLASS,
 					isOver && 'ring-2 ring-primary/50',
@@ -272,7 +289,10 @@ export function FolderCard({
 	}
 
 	const contentLeftPadding = !canSelect ? 'pl-3' : selected || selectionActive ? 'pl-9' : 'pl-3 group-hover:pl-9';
-	const contentRightPadding = selectionActive ? 'pr-3' : 'pr-8 group-hover:pr-14 group-has-data-[state=open]:pr-14';
+	const contentRightPadding =
+		selectionActive || isSystemFolder(folder)
+			? 'pr-3'
+			: cn(isFolderFavorited ? 'pr-7.5' : 'pr-3', 'group-hover:pr-12.5 group-has-data-[state=open]:pr-12.5');
 
 	return (
 		<div
@@ -280,6 +300,7 @@ export function FolderCard({
 			style={style}
 			{...attributes}
 			{...listeners}
+			onDragStart={handleNativeDragStart}
 			className={cn(
 				'group relative h-10 rounded-md border bg-background overflow-hidden',
 				isOver && 'ring-2 ring-primary/50',

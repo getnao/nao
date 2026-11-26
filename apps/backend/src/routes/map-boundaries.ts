@@ -1,4 +1,3 @@
-import { resolveBoundary } from '@nao/shared';
 import { z } from 'zod/v4';
 
 import type { App } from '../app';
@@ -6,6 +5,8 @@ import { authMiddleware } from '../middleware/auth';
 import * as projectQueries from '../queries/project.queries';
 import { HandlerError } from '../utils/error';
 import { getCachedBoundary, setCachedBoundary } from '../utils/map-boundary-cache';
+import { loadBoundarySet } from '../utils/map-boundary-resolve';
+import { consumeRateLimit } from '../utils/rate-limiter';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 
 const paramsSchema = z.object({
@@ -30,27 +31,15 @@ export const mapBoundariesRoutes = async (app: App) => {
 			}
 
 			const customSets = await projectQueries.getCustomBoundaries(projectId);
-			const resolved = resolveBoundary(key, customSets);
-			if (!resolved) {
-				throw new HandlerError('NOT_FOUND', `Boundary set "${key}" not found.`);
+			const boundary = await loadBoundarySet(key, customSets);
+			if (!boundary) {
+				throw new HandlerError('NOT_FOUND', `Boundary set "${key}" was not found or could not be loaded.`);
 			}
-
-			const cached = getCachedBoundary(resolved.url);
-			if (cached) {
-				return reply
-					.header('Content-Type', 'application/json')
-					.header('Cache-Control', 'private, max-age=600')
-					.send(JSON.stringify(cached));
-			}
-
-			const text = await safeFetch(resolved.url);
-			const { geojson } = parseAndValidateGeoJson(text);
-			setCachedBoundary(resolved.url, geojson);
 
 			return reply
 				.header('Content-Type', 'application/json')
 				.header('Cache-Control', 'private, max-age=600')
-				.send(JSON.stringify(geojson));
+				.send(JSON.stringify(boundary.geojson));
 		},
 	);
 
@@ -59,6 +48,7 @@ export const mapBoundariesRoutes = async (app: App) => {
 		{ preHandler: authMiddleware, schema: { querystring: proxyQuerySchema } },
 		async (request, reply) => {
 			const { url } = request.query;
+			consumeRateLimit('outbound-fetch', request.user.id, request.user.id);
 
 			const cached = getCachedBoundary(url);
 			if (cached) {

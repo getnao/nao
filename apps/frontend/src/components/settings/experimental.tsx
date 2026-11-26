@@ -1,11 +1,4 @@
-import {
-	DEFAULT_PYTHON_EXECUTION_DURATION_SECS,
-	MAX_PYTHON_EXECUTION_DURATION_SECS,
-	MIN_PYTHON_EXECUTION_DURATION_SECS,
-} from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
@@ -29,30 +22,16 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 		}),
 	);
 
-	const pythonSandboxingEnabled = agentSettings.data?.experimental?.pythonSandboxing ?? false;
-	const pythonAvailable = agentSettings.data?.capabilities?.pythonSandbox ?? true;
+	const codemodeEnabled = agentSettings.data?.experimental?.codemode ?? true;
 	const sandboxAvailable = agentSettings.data?.capabilities?.sandbox ?? true;
-	const dangerouslyWritePermEnabled = agentSettings.data?.sql?.dangerouslyWritePermEnabled ?? false;
 	const sandboxesEnabled = agentSettings.data?.experimental?.sandboxes ?? false;
-	const pythonExecutionDurationSecs =
-		agentSettings.data?.pythonExecution?.maxDurationSecs ?? DEFAULT_PYTHON_EXECUTION_DURATION_SECS;
-	const [pythonExecutionDurationInput, setPythonExecutionDurationInput] = useState(
-		String(pythonExecutionDurationSecs),
-	);
-	useEffect(() => {
-		setPythonExecutionDurationInput(String(pythonExecutionDurationSecs));
-	}, [pythonExecutionDurationSecs]);
 
-	const handlePythonSandboxingChange = (enabled: boolean) => {
+	const handleCodemodeChange = (enabled: boolean) => {
 		updateAgentSettings.mutate({
 			experimental: {
-				pythonSandboxing: enabled,
+				codemode: enabled,
 			},
 		});
-	};
-
-	const handleDangerouslyWritePermChange = (enabled: boolean) => {
-		updateAgentSettings.mutate({ sql: { dangerouslyWritePermEnabled: enabled } });
 	};
 
 	const handleSandboxesChange = (enabled: boolean) => {
@@ -63,24 +42,6 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 		});
 	};
 
-	const handlePythonExecutionDurationBlur = () => {
-		const parsedDurationSecs = parsePythonExecutionDurationSecs(pythonExecutionDurationInput);
-		if (parsedDurationSecs === null) {
-			setPythonExecutionDurationInput(String(pythonExecutionDurationSecs));
-			return;
-		}
-		if (parsedDurationSecs === pythonExecutionDurationSecs) {
-			return;
-		}
-		updateAgentSettings.mutate({
-			pythonExecution: {
-				maxDurationSecs: parsedDurationSecs,
-			},
-		});
-	};
-
-	const pythonExecutionDurationError = getPythonExecutionDurationError(pythonExecutionDurationInput);
-
 	return (
 		<SettingsCard
 			title='Experimental'
@@ -88,49 +49,15 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 			divide
 		>
 			<SettingsControlRow
-				id='python-sandboxing'
-				label='Python sandboxing'
-				description={`Allow the agent to execute Python code in a secure sandboxed environment.${
-					!pythonAvailable ? ' Not available on this platform.' : ''
-				}`}
+				id='codemode'
+				label='Code mode'
+				description='Let the agent write JavaScript that runs in an isolated sandbox to combine several MCP tool calls in a single step, loop over results and filter them before they reach the conversation.'
 				control={
 					<Switch
-						id='python-sandboxing'
-						checked={pythonSandboxingEnabled}
-						onCheckedChange={handlePythonSandboxingChange}
-						disabled={!isAdmin || !pythonAvailable || updateAgentSettings.isPending}
-					/>
-				}
-			/>
-			<SettingsControlRow
-				id='python-execution-duration'
-				label='Python execution duration'
-				description={
-					pythonExecutionDurationError ? (
-						<span className='text-destructive'>{pythonExecutionDurationError}</span>
-					) : (
-						`Stop Python code that runs longer than ${MIN_PYTHON_EXECUTION_DURATION_SECS}-${MAX_PYTHON_EXECUTION_DURATION_SECS} seconds.`
-					)
-				}
-				control={
-					<Input
-						id='python-execution-duration'
-						type='number'
-						inputMode='numeric'
-						min={MIN_PYTHON_EXECUTION_DURATION_SECS}
-						max={MAX_PYTHON_EXECUTION_DURATION_SECS}
-						step={1}
-						value={pythonExecutionDurationInput}
-						onChange={(e) => setPythonExecutionDurationInput(e.target.value)}
-						onBlur={handlePythonExecutionDurationBlur}
-						onKeyDown={(e) => {
-							if (e.key === 'Enter') {
-								e.currentTarget.blur();
-							}
-						}}
-						aria-invalid={!!pythonExecutionDurationError}
-						className={`w-24 ${pythonExecutionDurationError ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-						disabled={!isAdmin || !pythonAvailable || updateAgentSettings.isPending}
+						id='codemode'
+						checked={codemodeEnabled}
+						onCheckedChange={handleCodemodeChange}
+						disabled={!isAdmin || updateAgentSettings.isPending}
 					/>
 				}
 			/>
@@ -162,40 +89,6 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 					/>
 				}
 			/>
-			<SettingsControlRow
-				id='dangerously-write-perm'
-				label='Dangerous write permissions'
-				description='Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries. By default only SELECT queries are permitted.'
-				control={
-					<Switch
-						id='dangerously-write-perm'
-						checked={dangerouslyWritePermEnabled}
-						onCheckedChange={handleDangerouslyWritePermChange}
-						disabled={!isAdmin || updateAgentSettings.isPending}
-					/>
-				}
-			/>
 		</SettingsCard>
 	);
-}
-
-function parsePythonExecutionDurationSecs(value: string): number | null {
-	const parsed = Number(value);
-	if (!Number.isInteger(parsed)) {
-		return null;
-	}
-	if (parsed < MIN_PYTHON_EXECUTION_DURATION_SECS || parsed > MAX_PYTHON_EXECUTION_DURATION_SECS) {
-		return null;
-	}
-	return parsed;
-}
-
-function getPythonExecutionDurationError(value: string): string | null {
-	if (value.trim() === '') {
-		return 'Enter a duration in seconds.';
-	}
-	if (parsePythonExecutionDurationSecs(value) === null) {
-		return `Enter a whole number from ${MIN_PYTHON_EXECUTION_DURATION_SECS} to ${MAX_PYTHON_EXECUTION_DURATION_SECS}.`;
-	}
-	return null;
 }

@@ -30,23 +30,30 @@ sys.path.insert(0, str(cli_path))
 
 from api_models import (  # noqa: E402
     BlockedRowAccessTable,
+    ColumnSecurity,
     EnforcedRowSecurity,
     ExecuteSQLRequest,
     ExecuteSQLResponse,
     HealthResponse,
     PredicateRowAccessTable,
+    QueryTag,
     RowSecurity,
     TableAccess,
     ValidateRowPredicateRequest,
     ValidateRowPredicateResponse,
     ValidateSQLResponse,
 )
+from nao_core.cloud import is_nao_cloud  # noqa: E402
 from nao_core.commands.sync.cleanup import get_database_folder_names  # noqa: E402
 from nao_core.config import NaoConfig, NaoConfigError  # noqa: E402
 from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
     AllowListedOnlyGuardError,
     enforce_allow_listed_only,
     query_references_base_tables,
+)
+from nao_core.config.databases.bigquery import (  # noqa: E402
+    BigQueryConfig,
+    BigQueryServiceAccountRequired,
 )
 from nao_core.config.databases.column_access import (  # noqa: E402
     ColumnAccessError,
@@ -156,6 +163,30 @@ class CompileSemanticQueryResponse(BaseModel):
     dialect: str
 
 
+class SemanticLayerCatalogRequest(BaseModel):
+    nao_project_folder: str
+    env_vars: dict[str, str] | None = None
+
+
+class SemanticLayerMetric(BaseModel):
+    name: str
+    label: str | None
+    description: str | None
+    dimensions: list[str]
+
+
+class SemanticLayerDimension(BaseModel):
+    name: str
+    type: str
+    granularity: str | None
+    description: str | None
+
+
+class SemanticLayerCatalogResponse(BaseModel):
+    metrics: list[SemanticLayerMetric]
+    dimensions: list[SemanticLayerDimension]
+
+
 class PrepareWarehouseRequest(BaseModel):
     provider: str
     credentials: dict[str, object]
@@ -177,6 +208,7 @@ def _validate_sql(
     enforce_excluded_columns: bool,
     conn=None,
     group_allowed_tables: set[tuple[str, str]] | None = None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None = None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None = None,
     database_folder: str | None = None,
 ) -> str:
@@ -188,9 +220,14 @@ def _validate_sql(
         group_allowed_tables=group_allowed_tables,
         database_folder=database_folder,
     )
-    if enforce_excluded_columns:
+    if enforce_excluded_columns or column_security_policies:
         validated_sql = validate_column_access(
-            validated_sql, db_config, project_path, database_folder
+            validated_sql,
+            db_config,
+            project_path,
+            database_folder,
+            column_security_policies,
+            enforce_static_exclusions=enforce_excluded_columns,
         )
     validated_sql = enforce_row_security(
         validated_sql,
@@ -207,8 +244,10 @@ def _execute_sql_with_guards(
     project_path: Path,
     enforce_excluded_columns: bool,
     group_allowed_tables: set[tuple[str, str]] | None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
+    query_tag: QueryTag | None,
 ) -> pd.DataFrame:
     conn = db_config.connect()
     try:
@@ -219,12 +258,31 @@ def _execute_sql_with_guards(
             enforce_excluded_columns,
             conn=conn,
             group_allowed_tables=group_allowed_tables,
+            column_security_policies=column_security_policies,
             row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
-        return db_config.execute_sql(validated_sql, conn=conn)
+        return db_config.execute_sql(_tag_sql(validated_sql, query_tag), conn=conn)
     finally:
         conn.disconnect()
+
+
+def _tag_sql(sql: str, query_tag: QueryTag | None) -> str:
+    """Tag the query with a comment for the warehouse's query history, once validated so no guard rewrites it away.
+
+    The text cannot close the comment or open a nested one, and the space after the opening delimiter
+    keeps it from reading as a hint or as MySQL executable code.
+    """
+    if query_tag is None:
+        return sql
+    text = query_tag.comment.replace("*/", "* /").replace("/*", "/ *")
+    comment = f"/* {text} */"
+    if query_tag.position == "start":
+        return f"{comment}\n{sql}"
+    statement = sql.rstrip()
+    if statement.endswith(";"):
+        return f"{statement[:-1]}\n{comment};"
+    return f"{statement}\n{comment}"
 
 
 def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
@@ -315,15 +373,26 @@ def require_internal_secret(
 internal_only = [Depends(require_internal_secret)]
 
 
-def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
-    project_path = Path(request.nao_project_folder)
+def _load_project_config(
+    project_path: Path, env_vars: dict[str, str] | None
+) -> NaoConfig:
+    """On nao Cloud the config is a tenant's: it resolves from the project's variables, never from this process."""
     config = NaoConfig.try_load(
         project_path,
         raise_on_error=True,
-        extra_env=request.env_vars,
+        extra_env=env_vars,
+        process_env=not is_nao_cloud(),
     )
     assert config is not None
+    return config
+
+
+def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
+    project_path = Path(request.nao_project_folder)
+    config = _load_project_config(project_path, request.env_vars)
     db_config, database_folder = _resolve_database(config, request.database_id)
+    if isinstance(db_config, BigQueryConfig):
+        db_config.ensure_explicit_credentials_on_cloud()
     return project_path, db_config, database_folder
 
 
@@ -414,6 +483,43 @@ def _active_group_allowed_tables(
     }
 
 
+def _active_column_security_policies(
+    column_security: ColumnSecurity,
+    db_config: Any,
+    database_folder: str,
+) -> dict[tuple[str, str], dict[str, Any]] | None:
+    if not column_security.enforced:
+        return None
+
+    database_folder_name = database_folder.removeprefix("database=")
+    database_type = str(db_config.type).lower()
+    policies: dict[tuple[str, str], dict[str, Any]] = {}
+    active_identities: set[tuple[str, str]] = set()
+    for entry in column_security.tables:
+        if (
+            entry.database_type.lower() != database_type
+            or entry.database != database_folder_name
+        ):
+            continue
+        identity = (entry.schema_name, entry.table)
+        if identity in active_identities:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Duplicate column security policy for {entry.schema_name}.{entry.table}.",
+            )
+        active_identities.add(identity)
+        if entry.access == "full":
+            continue
+        if entry.access == "blocked":
+            policies[identity] = {"access": "blocked", "reason": entry.reason}
+        else:
+            policies[identity] = {
+                "access": "restricted",
+                "denied_columns": entry.denied_columns,
+            }
+    return policies
+
+
 def _active_row_security_policies(
     row_security: RowSecurity,
     db_config: Any,
@@ -452,51 +558,45 @@ def _active_row_security_policies(
     return policies
 
 
-def _is_azure_entra_id(db_config: Any) -> bool:
-    return getattr(getattr(db_config, "auth_mode", None), "value", None) == (
-        "azure_entra_id"
-    )
-
-
-def _assert_azure_request_can_validate(
+def _assert_token_request_can_validate(
     request: ExecuteSQLRequest,
     db_config: Any,
     group_allowed_tables: set[tuple[str, str]] | None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
 ) -> None:
-    if not _is_azure_entra_id(db_config):
+    if not db_config.requires_user_access_token():
         return
-    if not request.azure_access_token:
+    if not request.user_access_token:
         raise HTTPException(
             status_code=400,
             detail=(
-                "azure_access_token is required when the database auth_mode is "
-                "'azure_entra_id'. Runtime queries must use the end user's access "
-                "token; any configured user/password is only used by nao sync."
+                f"Database '{db_config.name}' runs queries as the signed-in user, "
+                "but nao has no access token for them. Sign in to nao with the "
+                "identity provider connected to the warehouse; the configured "
+                "credentials are only used by nao sync."
             ),
         )
 
     table_validation_enabled = (
         db_config.allow_listed_only
         or group_allowed_tables is not None
+        or column_security_policies is not None
         or row_security_policies is not None
     )
     if (
         table_validation_enabled
         and query_references_base_tables(request.sql, db_config.type)
-        and (
-            not getattr(db_config, "user", None)
-            or not getattr(db_config, "password", None)
-        )
+        and not db_config.has_sync_credentials()
     ):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Queries that reference tables require sync user and password "
-                "when table access validation is enabled with auth_mode "
-                "'azure_entra_id'. These credentials are used only to validate "
-                "the query against the live schema and context rules; the query "
-                "still executes with the end user's access token."
+                "Queries that reference tables require sync credentials when "
+                "table access validation is enabled on a database that runs "
+                "queries as the signed-in user. These credentials are used only "
+                "to validate the query against the live schema and context rules; "
+                "the query still executes with the end user's access token."
             ),
         )
 
@@ -506,11 +606,16 @@ def _validate_request(
     db_config: Any,
     project_path: Path,
     group_allowed_tables: set[tuple[str, str]] | None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> str:
-    _assert_azure_request_can_validate(
-        request, db_config, group_allowed_tables, row_security_policies
+    _assert_token_request_can_validate(
+        request,
+        db_config,
+        group_allowed_tables,
+        column_security_policies,
+        row_security_policies,
     )
     return _validate_sql(
         request.sql,
@@ -518,6 +623,7 @@ def _validate_request(
         project_path,
         request.enforce_excluded_columns,
         group_allowed_tables=group_allowed_tables,
+        column_security_policies=column_security_policies,
         row_security_policies=row_security_policies,
         database_folder=database_folder,
     )
@@ -556,26 +662,31 @@ def execute_sql(request: ExecuteSQLRequest):
         group_allowed_tables = _active_group_allowed_tables(
             request.table_access, db_config, database_folder
         )
+        column_security_policies = _active_column_security_policies(
+            request.column_security, db_config, database_folder
+        )
         row_security_policies = _active_row_security_policies(
             request.row_security, db_config, database_folder
         )
         try:
-            if _is_azure_entra_id(db_config):
+            if db_config.requires_user_access_token():
                 validated_sql = _validate_request(
                     request,
                     db_config,
                     project_path,
                     group_allowed_tables,
+                    column_security_policies,
                     row_security_policies,
                     database_folder,
                 )
                 df = db_config.execute_sql_with_token(
-                    validated_sql,
-                    request.azure_access_token,
+                    _tag_sql(validated_sql, request.query_tag),
+                    request.user_access_token,
                 )
             elif (
                 db_config.allow_listed_only
                 or group_allowed_tables is not None
+                or column_security_policies is not None
                 or row_security_policies is not None
             ):
                 df = _execute_sql_with_guards(
@@ -584,8 +695,10 @@ def execute_sql(request: ExecuteSQLRequest):
                     project_path,
                     request.enforce_excluded_columns,
                     group_allowed_tables,
+                    column_security_policies,
                     row_security_policies,
                     database_folder,
+                    request.query_tag,
                 )
             else:
                 validated_sql = _validate_request(
@@ -593,21 +706,24 @@ def execute_sql(request: ExecuteSQLRequest):
                     db_config,
                     project_path,
                     group_allowed_tables,
+                    column_security_policies,
                     row_security_policies,
                     database_folder,
                 )
-                df = db_config.execute_sql(validated_sql)
+                df = db_config.execute_sql(_tag_sql(validated_sql, request.query_tag))
         except (
             AllowListedOnlyGuardError,
             ColumnAccessError,
             RowSecurityGuardError,
         ) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
+            raise HTTPException(status_code=403, detail=str(error)) from error
         return _query_result_response(df, db_config.type)
     except HTTPException:
         raise
     except NaoConfigError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except BigQueryServiceAccountRequired as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -623,6 +739,9 @@ def validate_sql(request: ExecuteSQLRequest):
         group_allowed_tables = _active_group_allowed_tables(
             request.table_access, db_config, database_folder
         )
+        column_security_policies = _active_column_security_policies(
+            request.column_security, db_config, database_folder
+        )
         row_security_policies = _active_row_security_policies(
             request.row_security, db_config, database_folder
         )
@@ -632,6 +751,7 @@ def validate_sql(request: ExecuteSQLRequest):
                 db_config,
                 project_path,
                 group_allowed_tables,
+                column_security_policies,
                 row_security_policies,
                 database_folder,
             )
@@ -646,6 +766,8 @@ def validate_sql(request: ExecuteSQLRequest):
         raise
     except NaoConfigError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except BigQueryServiceAccountRequired as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -678,23 +800,8 @@ async def validate_row_predicate(request: ValidateRowPredicateRequest):
 def compile_semantic_query(request: CompileSemanticQueryRequest):
     """Compile a metric query to SQL with the project's semantic layer. Execution stays with /execute_sql."""
     try:
-        project_path = Path(request.nao_project_folder)
-        config = NaoConfig.try_load(
-            project_path, raise_on_error=True, extra_env=request.env_vars
-        )
-        assert config is not None
-
-        semantic_layer = config.semantic_layer
-        if semantic_layer is None:
-            raise HTTPException(
-                status_code=400,
-                detail="No semantic_layer configured in nao_config.yaml",
-            )
-
-        db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
-        dialect = metricflow_dialect_for(db_config.type)
-        engine = MetricFlowSemanticLayer.load(
-            runtime_manifest_path(semantic_layer, project_path), dialect
+        engine, db_config = _load_semantic_layer(
+            request.nao_project_folder, request.env_vars
         )
         sql = engine.compile(
             SemanticQuery(
@@ -720,6 +827,65 @@ def compile_semantic_query(request: CompileSemanticQueryRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/semantic_layer/catalog",
+    response_model=SemanticLayerCatalogResponse,
+    dependencies=internal_only,
+)
+def describe_semantic_layer(request: SemanticLayerCatalogRequest):
+    """List the metrics and dimensions a semantic query can reference, e.g. to autocomplete an editor."""
+    try:
+        engine, _ = _load_semantic_layer(request.nao_project_folder, request.env_vars)
+        return SemanticLayerCatalogResponse(
+            metrics=[
+                SemanticLayerMetric(
+                    name=metric.name,
+                    label=metric.label,
+                    description=metric.description,
+                    dimensions=metric.dimensions,
+                )
+                for metric in engine.list_metrics()
+            ],
+            dimensions=[
+                SemanticLayerDimension(
+                    name=dimension.name,
+                    type=dimension.type,
+                    granularity=dimension.granularity,
+                    description=dimension.description,
+                )
+                for dimension in engine.list_dimensions()
+            ],
+        )
+    except HTTPException:
+        raise
+    except SemanticLayerUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except (NaoConfigError, SemanticLayerError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _load_semantic_layer(project_folder: str, env_vars: dict[str, str] | None):
+    """The project's semantic layer engine, rendering SQL for the database that runs semantic queries."""
+    project_path = Path(project_folder)
+    config = _load_project_config(project_path, env_vars)
+
+    semantic_layer = config.semantic_layer
+    if semantic_layer is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No semantic_layer configured in nao_config.yaml",
+        )
+
+    db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
+    dialect = metricflow_dialect_for(db_config.type)
+    engine = MetricFlowSemanticLayer.load(
+        runtime_manifest_path(semantic_layer, project_path), dialect
+    )
+    return engine, db_config
 
 
 def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | None):
@@ -771,7 +937,9 @@ async def validate_warehouse(request: PrepareWarehouseRequest):
             status_code=422,
             detail={
                 "code": "warehouse_connection_failed",
-                "fields": infer_warehouse_error_fields(request.provider, error),
+                "fields": infer_warehouse_error_fields(
+                    request.provider, error, request.credentials
+                ),
             },
         ) from error
 
@@ -813,4 +981,11 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+    should_reload = "--reload" in sys.argv[1:]
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=port,
+        reload=should_reload,
+        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")] if should_reload else None,
+    )

@@ -1,10 +1,10 @@
 /* @license Enterprise */
 
 import { useQuery } from '@tanstack/react-query';
+import { MEMBER_BUDGET_SOURCE_LABELS } from '@nao/shared/member-budget';
 
 import { MemberBudgetUsage } from '@/components/settings/member-budget-usage';
 import { SettingsCard } from '@/components/ui/settings-card';
-import { BUDGET_SOURCE_LABELS } from '@/lib/member-budget';
 import { trpc } from '@/main';
 
 export function MyMemberBudget() {
@@ -20,13 +20,25 @@ export function MyMemberBudget() {
 			) : budget.isError || !budget.data ? (
 				<p className='text-sm text-destructive'>Failed to load your budget.</p>
 			) : (
-				<MemberBudgetUsage
-					spendUsd={budget.data.spendUsd}
-					limitUsd={budget.data.limitUsd}
-					period={budget.data.period}
-					nextPeriodStart={budget.data.nextPeriodStart}
-					sourceLabel={BUDGET_SOURCE_LABELS[budget.data.source]}
-				/>
+				<div className='flex flex-col gap-6'>
+					<MemberBudgetUsage
+						spendUsd={budget.data.spendUsd}
+						limitUsd={budget.data.limitUsd}
+						period={budget.data.period}
+						nextPeriodStart={budget.data.nextPeriodStart}
+						sourceLabel={MEMBER_BUDGET_SOURCE_LABELS[budget.data.source]}
+					/>
+					{budget.data.groupSharedBudgets.map((groupBudget) => (
+						<MemberBudgetUsage
+							key={groupBudget.groupId}
+							spendUsd={groupBudget.spendUsd}
+							limitUsd={groupBudget.limitUsd}
+							period={groupBudget.period}
+							nextPeriodStart={groupBudget.resetsAt}
+							sourceLabel={`Shared budget of ${groupBudget.groupName}`}
+						/>
+					))}
+				</div>
 			)}
 		</SettingsCard>
 	);

@@ -2,7 +2,7 @@ import { LlmSelectedModel } from '@nao/shared/types';
 import { readUIMessageStream, UIMessage } from 'ai';
 import { and, desc, eq } from 'drizzle-orm';
 
-import { getTools } from '../agents/tools';
+import { contextRecommendationsAgent } from '../agents/profiles/context-recommendations';
 import { ContextFixCollector, createContextFixCollector } from '../agents/tools/propose-context-fix';
 import { createQueryAppDbTool } from '../agents/tools/query-app-db';
 import { createRecommendationCollector } from '../agents/tools/record-recommendation';
@@ -30,10 +30,10 @@ import {
 	ReconcileAction,
 	repairTriggerRefs,
 } from './context-recommendations.reconcile';
+import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
 const IMPACT_FLOOR = 5;
-const ANALYSIS_STEP_BUDGET = 40;
 
 export async function runContextRecommendations(
 	projectId: string,
@@ -49,9 +49,10 @@ export async function runContextRecommendations(
 	const periodEnd = period?.end ?? now;
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
+	const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
 	const config = await crQueries.getConfig(projectId);
 	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
-	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
+	const model = await resolveUserBackgroundModelSelection(projectId, userId, configuredModel);
 
 	const run = await crQueries.createRun({
 		projectId,
@@ -60,6 +61,7 @@ export async function runContextRecommendations(
 		windowEnd: periodEnd,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId,
 	});
 
 	try {
@@ -81,7 +83,6 @@ export async function runContextRecommendations(
 			await crQueries.getContextFileReadCosts(projectId, periodStart, periodEnd),
 		);
 
-		const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
 		const [chat] = await chatQueries.createChat(
 			{ title: 'Context recommendations run', userId, projectId },
 			{
@@ -107,33 +108,29 @@ export async function runContextRecommendations(
 		}
 
 		const collector = createRecommendationCollector();
-		const agent = await agentService.create({ ...uiChat, id: chat.id, projectId, userId }, model, {
-			billingAccessVerifiedProjectId: options?.billingAccessVerifiedProjectId,
-			excludeFollowUps: true,
-			maxSteps: ANALYSIS_STEP_BUDGET,
-			systemPrompt: renderContextRecommendationsSystemPrompt({
-				proposeFixes,
-				linkedRepos,
-				templates,
-				contextPresence,
-				contextRepoConnected: !!contextRepo,
-				customInstructions: config?.customSystemPromptInstructions ?? undefined,
-			}),
-			tools: ({ agentSettings }) =>
-				getTools(
-					agentSettings,
-					{
-						query_app_db: createQueryAppDbTool(projectId),
-						record_recommendation: collector.recordTool,
-						resolve_recommendation: collector.resolveTool,
-						...(fixCollector && {
-							edit_file: fixCollector.editTool,
-							propose_manual_fix: fixCollector.manualFixTool,
-						}),
-					},
-					{ excludeFollowUps: true, builtinToolAllowlist: ['read', 'grep', 'list', 'search'] },
-				),
+		const systemPrompt = renderContextRecommendationsSystemPrompt({
+			proposeFixes,
+			linkedRepos,
+			templates,
+			contextPresence,
+			contextRepoConnected: !!contextRepo,
+			customInstructions: config?.customSystemPromptInstructions ?? undefined,
 		});
+		const recommendationTools = {
+			query_app_db: createQueryAppDbTool(projectId),
+			record_recommendation: collector.recordTool,
+			resolve_recommendation: collector.resolveTool,
+			...(fixCollector && {
+				edit_file: fixCollector.editTool,
+				propose_manual_fix: fixCollector.manualFixTool,
+			}),
+		};
+		const agent = await agentService.create(
+			{ ...uiChat, id: chat.id, projectId, userId },
+			model,
+			contextRecommendationsAgent(systemPrompt, recommendationTools),
+			{ billingAccessVerifiedProjectId: options?.billingAccessVerifiedProjectId },
+		);
 
 		const stream = agent.stream(uiChat.messages ?? [], {});
 		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
@@ -159,6 +156,7 @@ export async function runContextRecommendations(
 		await ensureFeedbackCoverage(projectId, run.id, model, {
 			existing: existing.map(toExistingRec),
 			dismissedFingerprints,
+			userId,
 		});
 
 		await normalizeFeedbackLinks(projectId);
@@ -173,7 +171,12 @@ export async function runContextRecommendations(
 			);
 		}
 
-		await crQueries.completeRun(run.id, { ...tokens, llmProvider: model.provider, llmModelId: model.modelId });
+		await crQueries.completeRun(run.id, {
+			...tokens,
+			llmProvider: model.provider,
+			llmModelId: model.modelId,
+			llmConfigId: model.llmConfigId,
+		});
 		return { runId: run.id };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

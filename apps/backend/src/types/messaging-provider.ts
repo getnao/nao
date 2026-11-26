@@ -48,11 +48,13 @@ export type SlackSettings = {
 	slackSigningSecret: string;
 	slackllmProvider: string;
 	slackllmModelId: string;
+	slackllmConfigId?: string;
 	autoCreateUsersEnabled?: boolean;
 	autoCreateUsersDomains?: string[];
 	slackTransportMode?: SlackTransportMode;
 	slackAppToken?: string;
 	slackReplyMode?: SlackReplyMode;
+	slackDmThreadsEnabled?: boolean;
 	// Who last wrote the credential/transport fields: 'env' after the boot-time
 	// SLACK_* seed, absent after a Settings > Slack credentials save (which hands
 	// ownership to the UI so the seed stops overwriting). Edits to UI-managed
@@ -67,12 +69,14 @@ export type TeamsSettings = {
 	teamsTenantId: string;
 	teamsLlmProvider: string;
 	teamsLlmModelId: string;
+	teamsLlmConfigId?: string;
 };
 
 export type TelegramSettings = {
 	telegramBotToken: string;
 	telegramLlmProvider: string;
 	telegramLlmModelId: string;
+	telegramLlmConfigId?: string;
 };
 
 export type MattermostSettings = {
@@ -80,6 +84,7 @@ export type MattermostSettings = {
 	mattermostBotToken: string;
 	mattermostLlmProvider: string;
 	mattermostLlmModelId: string;
+	mattermostLlmConfigId?: string;
 	mattermostInteractiveButtonsEnabled?: boolean;
 	mattermostCallbackUrl?: string;
 };
@@ -90,6 +95,7 @@ export type DiscordSettings = {
 	discordPublicKey: string;
 	discordLlmProvider: string;
 	discordLlmModelId: string;
+	discordLlmConfigId?: string;
 	discordMentionRoleIds?: string[];
 	discordRespondToChannelIds?: string[];
 	discordFallbackUserId?: string;
@@ -104,4 +110,5 @@ export type WhatsappSettings = {
 	whatsappVerifyToken: string;
 	whatsappLlmProvider: string;
 	whatsappLlmModelId: string;
+	whatsappLlmConfigId?: string;
 };

@@ -1,9 +1,11 @@
 import {
 	canRoleSeeAdvancedSettings,
+	canRoleUseAdvancedContextExplorer,
 	type DatabaseContextAccess,
 	type DocsContextAccess,
 	type FilesContextAccess,
 	type McpAccess,
+	type SkillsAccess,
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
@@ -26,14 +28,17 @@ export interface EffectiveUserGroupAccess {
 	features: UserGroupFeatureFlags;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	canSeeAdvancedSettings: boolean;
+	canUseAdvancedContextExplorer: boolean;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
 }
 
 export interface EffectiveUserGroupAccessForUserDetail extends EffectiveUserGroupAccess {
 	rowPolicies: UserGroupRowPolicies[];
+	preloadedSkills: string[];
 }
 
 export class UserGroupFeatureAccessError extends HandlerError {
@@ -61,6 +66,7 @@ export async function getEffectiveUserGroupAccessForUserDetail(
 	return {
 		...formatEffectiveUserGroupAccess(access, role),
 		rowPolicies: access.rowPolicies,
+		preloadedSkills: access.preloadedSkills,
 	};
 }
 
@@ -107,6 +113,8 @@ function featureLabel(feature: UserGroupFeature): string {
 			return 'Custom story creation';
 		case 'automationCreation':
 			return 'Automation creation';
+		case 'personalSkills':
+			return 'Personal skills';
 	}
 }
 
@@ -146,10 +154,12 @@ function formatEffectiveUserGroupAccess(
 		features: createUserGroupFeatureFlags(access.features),
 		toolCallDensityPolicy: access.toolCallDensityPolicy,
 		canSeeAdvancedSettings: canRoleSeeAdvancedSettings(role, access.showAllSettings),
+		canUseAdvancedContextExplorer: canRoleUseAdvancedContextExplorer(role, access.advancedContextExplorer),
 		databaseAccess: access.databaseAccess,
 		docsAccess: access.docsAccess,
 		filesAccess: access.filesAccess,
 		mcpAccess: access.mcpAccess,
+		skillsAccess: access.skillsAccess,
 	};
 }
 
@@ -170,6 +180,10 @@ const AGENT_FEATURE_POLICIES: Record<UserGroupFeature, AgentFeaturePolicy> = {
 		isOffered: () => env.BETA_CUSTOM_STORIES_ENABLED,
 		restrictionMessage:
 			'Custom story creation is unavailable for this user in this project. Never create a story with format "custom" and do not suggest Custom story mode; build classic stories only. If asked, explain that their group does not grant custom stories.',
+	},
+	personalSkills: {
+		isOffered: () => false,
+		restrictionMessage: 'Personal skills are unavailable for this user in this project.',
 	},
 	automationCreation: {
 		restrictionMessage:

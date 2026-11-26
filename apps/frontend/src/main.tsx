@@ -13,12 +13,19 @@ import { McpProvider } from './contexts/mcp';
 import { AppErrorBoundary } from './components/app-error-boundary';
 import { RouteErrorPage } from './components/route-error-page';
 import { TooltipProvider } from './components/ui/tooltip';
-import { getActiveOrganizationId } from './lib/active-organization';
+import { getActiveOrganizationId, subscribeToExternalActiveOrganizationChanges } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
-import { getActiveProjectId, getProjectRequestHeaders } from './lib/active-project';
+import {
+	getActiveProjectId,
+	getProjectRequestHeaders,
+	subscribeToExternalActiveProjectChanges,
+} from './lib/active-project';
+import { reloadOnStaleChunkError } from './lib/stale-chunk-reload';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
+
+reloadOnStaleChunkError();
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
@@ -52,6 +59,13 @@ export const queryClient = new QueryClient({
 	},
 });
 
+const followSelectionOfAnotherTab = () => {
+	void queryClient.invalidateQueries();
+	void router.invalidate();
+};
+subscribeToExternalActiveProjectChanges(followSelectionOfAnotherTab);
+subscribeToExternalActiveOrganizationChanges(followSelectionOfAnotherTab);
+
 const activeOrganizationRecovery = createActiveOrganizationRecovery({
 	invalidateQueries: () => void queryClient.invalidateQueries(),
 	invalidateRouter: () => void router.invalidate(),
@@ -60,7 +74,9 @@ const activeOrganizationRecovery = createActiveOrganizationRecovery({
 /** TRPC client for typed requests to the backend */
 export const trpcClient = createTRPCClient<TrpcRouter>({
 	links: [
-		loggerLink(),
+		loggerLink({
+			enabled: (opts) => import.meta.env.DEV || (opts.direction === 'down' && opts.result instanceof Error),
+		}),
 		activeOrganizationRecovery.link,
 		httpBatchLink({
 			url: '/api/trpc',

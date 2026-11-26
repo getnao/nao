@@ -13,9 +13,13 @@ import * as userPreferenceQueries from '../queries/user-preference.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
-import { addProjectMemberWithUserGroups } from '../services/project-user-group-membership.service';
-import { addTeamMember } from '../services/team-member';
+import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
+import { addProjectMember } from '../services/membership.service';
+import { posthog, PostHogEvent } from '../services/posthog';
+import { addTeamMembers } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
+import { teamMembersInputSchema } from '../types/team-member';
+import type { StoredUserPreferences } from '../types/usage';
 import { type DiscordLinkTokenPayload, verifyDiscordLinkToken } from '../utils/discord-link-token';
 import { buildUserAddedEmail } from '../utils/email-builders';
 import {
@@ -94,8 +98,7 @@ export const userRoutes = {
 	addUserToProject: adminProtectedProcedure
 		.input(
 			z.object({
-				email: z.string().min(1),
-				name: z.string().min(1).optional(),
+				members: teamMembersInputSchema,
 				groupIds: z.array(z.string().min(1)).max(100).default([]),
 			}),
 		)
@@ -106,19 +109,11 @@ export const userRoutes = {
 				await handleUserGroupQuery(() => validateAssignableUserGroupIds(projectId, groupIds));
 			}
 
-			return addTeamMember({
-				email: input.email,
-				name: input.name,
+			return addTeamMembers({
+				members: input.members,
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
-					if (groupIds.length > 0) {
-						await addProjectMemberWithUserGroups(
-							{ userId, projectId, role: env.DEFAULT_USER_ROLE },
-							groupIds,
-						);
-						return;
-					}
-					await projectQueries.addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE });
+					await addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.project.name, 'project', password, ctx.user.email),
@@ -126,7 +121,7 @@ export const userRoutes = {
 		}),
 
 	getPreferences: protectedProcedure.query(async ({ ctx }) => {
-		return userPreferenceQueries.getUserPreferences(ctx.user.id);
+		return toPublicUserPreferences(await userPreferenceQueries.getUserPreferences(ctx.user.id));
 	}),
 
 	updatePreferences: protectedProcedure
@@ -136,7 +131,19 @@ export const userRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			return userPreferenceQueries.updateUserPreferences(ctx.user.id, input);
+			return toPublicUserPreferences(await userPreferenceQueries.updateUserPreferences(ctx.user.id, input));
+		}),
+
+	getGithubStarPrompt: protectedProcedure.query(async ({ ctx }) => {
+		return { shouldShow: await shouldShowGithubStarPrompt(ctx.user.id) };
+	}),
+
+	dismissGithubStarPrompt: protectedProcedure
+		.input(z.object({ starred: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await dismissGithubStarPrompt(ctx.user.id);
+			const event = input.starred ? PostHogEvent.GithubStarClicked : PostHogEvent.GithubStarPromptDismissed;
+			posthog.capture(ctx.user.id, event);
 		}),
 
 	getMemorySettings: protectedProcedure.query(async ({ ctx }) => {
@@ -169,6 +176,13 @@ export const userRoutes = {
 		return { email: ctx.user.email };
 	}),
 };
+
+function toPublicUserPreferences(
+	preferences: StoredUserPreferences,
+): Omit<StoredUserPreferences, 'supportRequestSentAt'> {
+	const { supportRequestSentAt: _, ...publicPreferences } = preferences;
+	return publicPreferences;
+}
 
 async function resolveDiscordLinkRequest(token: string): Promise<DiscordLinkTokenPayload> {
 	const request = verifyDiscordLinkToken(token);

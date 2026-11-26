@@ -17,7 +17,7 @@ import { createLocalJWKSet, type JSONWebKeySet, type JWTPayload, jwtVerify } fro
  */
 export async function verifyJwtWithLocalJwks(
 	token: string,
-	{ audience, issuer, keys }: { audience: string[]; issuer: string; keys: unknown },
+	{ audience, issuer, keys }: { audience: string[]; issuer: string | string[]; keys: unknown },
 ): Promise<JWTPayload> {
 	const keySet = createLocalJWKSet({ keys } as unknown as JSONWebKeySet);
 	const { payload } = await jwtVerify(token, keySet, { audience, issuer });

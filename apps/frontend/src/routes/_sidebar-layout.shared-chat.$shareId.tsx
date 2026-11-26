@@ -1,12 +1,11 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare } from 'lucide-react';
 import { useMemo, useRef } from 'react';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
-import { ForkBubble } from '@/components/highlight-bubble';
-import { SelectionChatPanel } from '@/components/selection-chat-panel';
+import { HighlightBubble } from '@/components/highlight-bubble';
+import { SharedChatAskBar } from '@/components/shared-chat-ask-bar';
+import { SharedChatButton } from '@/components/shared-chat-button';
 import { SidePanel } from '@/components/side-panel/side-panel';
-import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
@@ -15,6 +14,7 @@ import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
+import { requestAskAboutSelection } from '@/stores/ask-bar';
 
 export const Route = createFileRoute('/_sidebar-layout/shared-chat/$shareId')({
 	component: SharedChatPage,
@@ -39,7 +39,6 @@ function SharedChatPage() {
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
-	const contentAreaRef = useRef<HTMLDivElement>(null);
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 	const shareSource = useMemo(() => ({ type: 'chat' as const, shareId }), [shareId]);
 
@@ -80,46 +79,37 @@ function SharedChatPage() {
 				close={sidePanel.close}
 			>
 				<div className='flex flex-col flex-1 min-w-0 bg-background' ref={containerRef}>
-					<header className='flex items-center gap-3 border-b px-4 py-3 md:px-6 md:py-4 shrink-0 bg-background'>
+					<header className='flex shrink-0 items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
 						<h1 className='text-base font-medium truncate'>{share.title}</h1>
 						<span className='text-sm text-muted-foreground shrink-0'>by {share.authorName}</span>
-						{isOwner ? (
-							<Button variant='outline' size='sm' className='ml-auto gap-1.5 shrink-0' asChild>
-								<Link to='/$chatId' params={{ chatId: share.chatId }}>
-									<MessageSquare className='size-3.5' />
-									<span>Open chat</span>
-								</Link>
-							</Button>
-						) : (
-							!isViewer && (
-								<Button
-									variant='outline'
-									size='sm'
-									className='ml-auto gap-1.5 shrink-0'
-									onClick={() => forkMutation.mutate({ source: shareSource })}
-									disabled={forkMutation.isPending}
-								>
-									{forkMutation.isPending ? (
-										<Spinner className='size-3.5' />
-									) : (
-										<MessageSquare className='size-3.5' />
-									)}
-									<span>Continue chat</span>
-								</Button>
-							)
+						{isOwner && (
+							<SharedChatButton
+								shareId={shareId}
+								label='Open chat'
+								onClick={() => navigate({ to: '/$chatId', params: { chatId: share.chatId } })}
+							/>
+						)}
+						{!isOwner && !isViewer && (
+							<SharedChatButton
+								shareId={shareId}
+								label='Continue chat'
+								isPending={forkMutation.isPending}
+								onClick={() => forkMutation.mutate({ source: shareSource })}
+							/>
 						)}
 					</header>
 
-					<SelectionProvider key={shareId} persistenceSource={shareSource}>
-						{!isViewer && <ForkBubble source={shareSource} />}
-						{!isViewer && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
+					<SelectionProvider key={shareId}>
+						{!isViewer && <HighlightBubble onAsk={requestAskAboutSelection} />}
 						<div className='flex flex-1 min-h-0 min-w-0'>
-							<div ref={contentAreaRef} className='flex-1 min-w-0'>
+							<div className='relative flex-1 min-w-0'>
 								<ChatMessagesReadonly
 									className='h-full'
+									contentClassName={isViewer ? undefined : 'pb-28'}
 									messages={chat.messages}
 									forkMetadata={chat.forkMetadata}
 								/>
+								{!isViewer && <SharedChatAskBar shareId={shareId} />}
 							</div>
 
 							{sidePanel.content && (

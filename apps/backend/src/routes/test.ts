@@ -1,19 +1,15 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
 import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod/v4';
 
-import { executeQuery } from '../agents/tools/execute-sql';
+import { getModelReasoningEfforts } from '../agents/provider-meta';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
-import { authMiddleware } from '../middleware/auth';
-import { retrieveProjectById } from '../queries/project.queries';
-import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
-import { getProjectRuntimeEnvVars } from '../services/project-runtime-env';
-import { TestAgentService, testAgentService } from '../services/test-agent.service';
-import { resolveProjectContextAccess } from '../services/user-group-context-access.service';
-import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
-import type { ToolContext } from '../types/tools';
+import { sessionOrApiKeyAuthMiddleware } from '../middleware/auth';
+import { getUserRoleInProject } from '../queries/project.queries';
+import { testAgentService } from '../services/test-agent.service';
+import { evaluateTestAttempt, type TestAttemptEvaluation } from '../services/test-evaluation.service';
+import { activeEffortSchema, customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
+import { testAssertionSchema, testComparisonTolerancesSchema, type TestModel } from '../types/test-run';
 import { truncateMiddle } from '../utils/utils';
 
 const describeRunError = (err: unknown): string => {
@@ -31,7 +27,7 @@ const describeRunError = (err: unknown): string => {
 };
 
 export const testRoutes = async (app: App) => {
-	app.addHook('preHandler', authMiddleware);
+	app.addHook('preHandler', sessionOrApiKeyAuthMiddleware);
 
 	/**
 	 * Run a single prompt without persisting to a chat.
@@ -43,9 +39,11 @@ export const testRoutes = async (app: App) => {
 			schema: {
 				body: z.object({
 					prompt: z.string(),
-					model: llmSelectedModelSchema,
+					model: llmSelectedModelSchema.extend({ reasoningEffort: activeEffortSchema.optional() }),
 					sql: z.string().optional(),
 					databaseId: z.string().optional(),
+					assertions: z.array(testAssertionSchema).default([]),
+					comparison: testComparisonTolerancesSchema.optional(),
 					meta: z
 						.object({
 							costs: customModelCostSchema,
@@ -57,80 +55,66 @@ export const testRoutes = async (app: App) => {
 		async (request, reply) => {
 			const projectId = request.project?.id;
 			const userId = request.user.id;
-			const { prompt, model, sql, databaseId, meta } = request.body;
+			const { prompt, model, sql, databaseId, assertions, comparison, meta } = request.body;
 
 			const costs = meta?.costs;
 
 			if (!projectId) {
 				return reply.status(400).send({ error: noProjectMessage() });
 			}
+			const userRole = await getUserRoleInProject(projectId, userId);
+			if (!userRole || userRole === 'viewer') {
+				return reply.status(403).send({ error: 'Viewers cannot run tests' });
+			}
+			const unsupportedEffortError = describeUnsupportedEffort(model);
+			if (unsupportedEffortError) {
+				return reply.status(400).send({ error: unsupportedEffortError });
+			}
 
 			try {
-				const modelSelection = model as LlmSelectedModel | undefined;
-				const result = await testAgentService.runTest(projectId, userId, prompt, modelSelection, costs);
-
-				let verification;
-				if (sql) {
-					const toolContext = await buildVerificationToolContext(projectId, userId);
-					const { data: expectedData, columns: expectedColumns } = await executeQuery(
-						{ sql_query: sql, database_id: databaseId },
-						toolContext,
-					);
-					const verified = await testAgentService.runVerification(
-						projectId,
-						prompt,
-						result,
-						expectedColumns,
-						modelSelection,
-					);
-					verification = { ...verified, expectedData, expectedColumns };
-				}
+				const result = await testAgentService.runTest(projectId, userId, prompt, model, costs);
+				const { toolCalls, verification, verdict } = await evaluateTestAttempt({
+					projectId,
+					userId,
+					test: { prompt, sql, databaseId, assertions, tolerances: comparison },
+					result,
+					verificationModel: model,
+				});
 
 				return reply.send({
 					text: result.text,
-					toolCalls: TestAgentService.extractToolCalls(result),
+					toolCalls,
 					usage: result.usage,
 					cost: result.cost,
 					finishReason: result.finishReason,
 					durationMs: result.durationMs,
-					verification,
+					verification: verification && toCliVerification(verification),
+					verdict,
 				});
 			} catch (err) {
 				return reply.status(500).send({ error: describeRunError(err) });
 			}
 		},
 	);
+
+	/** The reasoning efforts a model can run at, for `nao test` to expand `reasoning_efforts: all` and check the others. */
+	app.get('/reasoning-efforts', { schema: { querystring: llmSelectedModelSchema } }, async (request, reply) => {
+		const { provider, modelId } = request.query;
+		return reply.send({ reasoningEfforts: getModelReasoningEfforts(provider, modelId) });
+	});
 };
 
-async function buildVerificationToolContext(projectId: string, userId: string): Promise<ToolContext> {
-	const project = await retrieveProjectById(projectId);
-	const projectFolder = project.path;
-	if (!projectFolder) {
-		throw new Error('Project path does not exist.');
+function describeUnsupportedEffort({ provider, modelId, reasoningEffort }: TestModel): string | null {
+	const supported = getModelReasoningEfforts(provider, modelId);
+	if (!reasoningEffort || supported.includes(reasoningEffort)) {
+		return null;
 	}
-	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
-		getProjectRuntimeEnvVars(projectId),
-		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(userId) : null)),
-		resolveProjectContextAccess(projectId, userId, projectFolder),
-	]);
-	return {
-		projectFolder,
-		chatId: '',
-		userId,
-		projectId,
-		supportsCustomCharts: false,
-		agentSettings: null,
-		adminMode: false,
-		envVars,
-		azureAccessToken,
-		warehouseTableAccess: contextAccess.warehouseTableAccess,
-		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
-		docsContextAccess: contextAccess.docsContextAccess,
-		filesContextAccess: contextAccess.filesContextAccess,
-		mcpAccess: contextAccess.mcpAccess,
-		userGroupFeatures: contextAccess.userGroupFeatures,
-		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
-		queryResults: new Map(),
-		generatedArtifacts: { charts: [], maps: [], stories: [] },
-	};
+	const expected = supported.length > 0 ? `one of ${supported.join(', ')}` : 'none, as it has no reasoning efforts';
+	return `${provider}:${modelId} cannot run at the reasoning effort ${reasoningEffort}, expected ${expected}.`;
+}
+
+/** Keeps the verification fields `nao test` knows, as released CLIs reject unknown ones. */
+function toCliVerification(verification: NonNullable<TestAttemptEvaluation['verification']>) {
+	const { data, expectedData, expectedColumns, sql, error } = verification;
+	return { data, expectedData, expectedColumns, sql, error };
 }

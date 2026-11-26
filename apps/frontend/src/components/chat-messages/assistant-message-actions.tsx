@@ -1,20 +1,36 @@
-import { useState } from 'react';
-import { ThumbsUp, ThumbsDown, Copy, Check, Ellipsis, ClipboardCopy, FileText, FileDown, Loader2 } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
+import { memo, useState } from 'react';
+import {
+	ThumbsUp,
+	ThumbsDown,
+	Copy,
+	Check,
+	Ellipsis,
+	ClipboardCopy,
+	FileText,
+	FileDown,
+	FlaskConical,
+	Loader2,
+} from 'lucide-react';
 import type { UIMessage } from '@nao/backend/chat';
 import type { FormEvent, KeyboardEvent } from 'react';
 import type { Chat } from '@/queries/use-chat-query';
+import type { TestDraft } from '@/lib/test-draft';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
-import { trpc, trpcClient } from '@/main';
+import { ConfettiBurst } from '@/components/confetti-burst';
+import { trpcClient } from '@/main';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useSubmitMessageFeedback } from '@/hooks/use-message-feedback';
 import { useAgentMessagesGetter } from '@/contexts/agent.provider';
 import { getMessageMarkdown, getChatMarkdown } from '@/lib/serialize-message';
 import { downloadBase64File, downloadTextFile, toFileSlug } from '@/lib/export-chat';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { SaveAsTestDialog } from '@/components/chat-messages/save-as-test-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
+import { canSaveAsTest, getTestDraft } from '@/lib/test-draft';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -23,7 +39,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export function AssistantMessageActions({
+export const AssistantMessageActions = memo(function AssistantMessageActions({
 	message,
 	className,
 	chatId,
@@ -34,18 +50,23 @@ export function AssistantMessageActions({
 }) {
 	const [feedbackDialogVote, setFeedbackDialogVote] = useState<FeedbackVote>('down');
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+	const [feedbackCelebration, setFeedbackCelebration] = useState<FeedbackCelebration | null>(null);
 	const [includeErrors, setIncludeErrors] = useState(false);
 	const [includeSql, setIncludeSql] = useState(true);
-	const [includePython, setIncludePython] = useState(true);
+	const [includeCode, setIncludeCode] = useState(true);
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const [exportError, setExportError] = useState<string | null>(null);
+	const [isSaveAsTestOpen, setIsSaveAsTestOpen] = useState(false);
+	const [testDraft, setTestDraft] = useState<TestDraft | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
 	const getAgentMessages = useAgentMessagesGetter();
+	const { canManageTests } = usePermissions();
+	const isSaveAsTestAvailable = canManageTests && canSaveAsTest(message);
 	const { data: chat } = useChatQuery({ chatId, select: selectChatExportMetadata });
 
 	const chatTitle = chat?.title ?? 'nao chat';
 	const chatMetadata = { title: chatTitle, createdAt: chat?.createdAt, updatedAt: chat?.updatedAt };
-	const exportOptions = { includeErrors, includeSql, includePython };
+	const exportOptions = { includeErrors, includeSql, includeCode };
 
 	const buildChatMarkdown = () => {
 		const agentMessages = getAgentMessages();
@@ -54,6 +75,11 @@ export function AssistantMessageActions({
 	};
 
 	const handleCopyChat = () => copy(buildChatMarkdown());
+
+	const handleSaveAsTest = () => {
+		setTestDraft(getTestDraft(getAgentMessages(), message));
+		setIsSaveAsTestOpen(true);
+	};
 
 	const handleExportMarkdown = () => {
 		downloadTextFile(`${toFileSlug(chatTitle)}.md`, buildChatMarkdown(), 'text/markdown');
@@ -73,27 +99,8 @@ export function AssistantMessageActions({
 		}
 	};
 
-	const submitFeedback = useMutation(
-		trpc.feedback.submit.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) =>
-					prev
-						? {
-								...prev,
-								messages: prev.messages.map((m) =>
-									m.id === message.id ? { ...m, feedback: data } : m,
-								),
-							}
-						: prev,
-				);
-				void ctx.client.invalidateQueries({
-					queryKey: trpc.project.getChatReplay.queryKey({ chatId }),
-				});
-				void ctx.client.invalidateQueries({
-					queryKey: trpc.project.getProjectChats.queryKey(),
-				});
-			},
-		}),
+	const submitFeedback = useSubmitMessageFeedback((vote) =>
+		setFeedbackCelebration((prev) => ({ vote, key: (prev?.key ?? 0) + 1 })),
 	);
 
 	const handlePositiveFeedbackClick = () => {
@@ -106,52 +113,35 @@ export function AssistantMessageActions({
 		setFeedbackDialogOpen(true);
 	};
 
-	const handleFeedbackSubmit = (explanation?: string) => {
-		submitFeedback.mutate({
-			chatId,
-			messageId: message.id,
-			vote: feedbackDialogVote,
-			explanation,
-		});
+	const handleFeedbackSubmit = (explanation: string | undefined, vote: FeedbackVote) => {
+		submitFeedback.mutate({ chatId, messageId: message.id, vote, explanation });
 		setFeedbackDialogOpen(false);
 	};
 
 	return (
 		<>
 			<div className={cn('flex items-center gap-1', className)}>
-				<Button
-					variant='ghost'
-					size='icon-sm'
+				<FeedbackButton
+					vote='up'
+					isSelected={message.feedback?.vote === 'up'}
+					celebrationKey={feedbackCelebration?.vote === 'up' ? feedbackCelebration.key : undefined}
+					disabled={submitFeedback.isPending}
 					onClick={handlePositiveFeedbackClick}
-					disabled={submitFeedback.isPending}
-					className={cn(
-						'hover:rounded-full',
-						message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
-					)}
-					aria-label='Good response'
-				>
-					<ThumbsUp className='size-4' />
-				</Button>
+				/>
 
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					onClick={handleNegativeFeedbackClick}
+				<FeedbackButton
+					vote='down'
+					isSelected={message.feedback?.vote === 'down'}
+					celebrationKey={feedbackCelebration?.vote === 'down' ? feedbackCelebration.key : undefined}
 					disabled={submitFeedback.isPending}
-					className={cn(
-						'hover:rounded-full',
-						message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
-					)}
-					aria-label='Bad response'
-				>
-					<ThumbsDown className='size-4' />
-				</Button>
+					onClick={handleNegativeFeedbackClick}
+				/>
 
 				<Button
 					variant='ghost'
 					size='icon-sm'
 					onClick={() => copy(getMessageMarkdown(message, exportOptions))}
-					className='opacity-50 hover:opacity-100 hover:rounded-full'
+					className='relative opacity-50 hover:opacity-100 hover:rounded-full'
 					aria-label='Copy message'
 				>
 					{isCopied ? <Check className='size-4' /> : <Copy className='size-4' />}
@@ -162,7 +152,7 @@ export function AssistantMessageActions({
 						<Button
 							variant='ghost'
 							size='icon-sm'
-							className='opacity-50 hover:opacity-100 hover:rounded-full'
+							className='relative opacity-50 hover:opacity-100 hover:rounded-full'
 							aria-label='More actions'
 						>
 							<Ellipsis className='size-4' />
@@ -187,8 +177,8 @@ export function AssistantMessageActions({
 							className='flex items-center justify-between gap-4 px-2 py-1.5 text-xs font-medium cursor-pointer select-none'
 							onClick={(e) => e.stopPropagation()}
 						>
-							<span>Include Python</span>
-							<Switch checked={includePython} onCheckedChange={setIncludePython} />
+							<span>Include scripts</span>
+							<Switch checked={includeCode} onCheckedChange={setIncludeCode} />
 						</label>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem onSelect={handleCopyChat}>
@@ -209,6 +199,15 @@ export function AssistantMessageActions({
 							{isExportingPdf ? <Loader2 className='animate-spin' /> : <FileDown />}
 							<span>{isExportingPdf ? 'Generating PDF…' : 'Export chat to PDF'}</span>
 						</DropdownMenuItem>
+						{isSaveAsTestAvailable && (
+							<>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={handleSaveAsTest}>
+									<FlaskConical />
+									<span>Save as test</span>
+								</DropdownMenuItem>
+							</>
+						)}
 					</DropdownMenuContent>
 				</DropdownMenu>
 
@@ -224,10 +223,91 @@ export function AssistantMessageActions({
 				onOpenChange={setFeedbackDialogOpen}
 				onSubmit={handleFeedbackSubmit}
 				isPending={submitFeedback.isPending}
-				vote={feedbackDialogVote}
+				defaultVote={feedbackDialogVote}
 			/>
+
+			{testDraft && (
+				<SaveAsTestDialog draft={testDraft} open={isSaveAsTestOpen} onOpenChange={setIsSaveAsTestOpen} />
+			)}
 		</>
 	);
+});
+
+export function FeedbackButton({
+	vote,
+	isSelected,
+	celebrationKey,
+	disabled,
+	onClick,
+	subject = 'response',
+	size = 'sm',
+}: {
+	vote: FeedbackVote;
+	isSelected: boolean;
+	celebrationKey?: number;
+	disabled: boolean;
+	onClick: () => void;
+	subject?: string;
+	size?: 'sm' | 'md';
+}) {
+	const { Icon, label, selectedClassName, iconAnimationClassName, confettiColors } = FEEDBACK_BUTTON_CONFIG[vote];
+	const isCelebrating = celebrationKey !== undefined;
+
+	return (
+		<Button
+			variant='ghost'
+			size={size === 'md' ? 'icon-md' : 'icon-sm'}
+			onClick={onClick}
+			disabled={disabled}
+			className={cn(
+				'relative hover:rounded-full',
+				isSelected ? cn(selectedClassName, 'rounded-full transition-colors') : 'opacity-50 hover:opacity-100',
+			)}
+			aria-label={`${label} ${subject}`}
+			aria-pressed={isSelected}
+		>
+			<Icon
+				key={`icon-${celebrationKey}`}
+				className={cn(size === 'md' ? 'size-5' : 'size-4', isCelebrating && iconAnimationClassName)}
+			/>
+			{isCelebrating && (
+				<ConfettiBurst
+					key={`confetti-${celebrationKey}`}
+					count={10}
+					distancePx={16}
+					distanceStepPx={5}
+					colors={confettiColors}
+					pieceClassName='-ml-0.5 -mt-0.5 size-1'
+				/>
+			)}
+		</Button>
+	);
+}
+
+const FEEDBACK_BUTTON_CONFIG = {
+	up: {
+		Icon: ThumbsUp,
+		label: 'Good',
+		selectedClassName: 'text-green-500/80 hover:text-green-500 bg-green-500/10 hover:bg-green-500/20',
+		iconAnimationClassName: 'thumb-up-pop',
+		confettiColors: buildConfettiShades('var(--color-green-500)'),
+	},
+	down: {
+		Icon: ThumbsDown,
+		label: 'Bad',
+		selectedClassName: 'text-red-500/80 hover:text-red-500 bg-red-500/10 hover:bg-red-500/20',
+		iconAnimationClassName: 'thumb-down-pop',
+		confettiColors: buildConfettiShades('var(--color-red-500)'),
+	},
+} satisfies Record<FeedbackVote, unknown>;
+
+function buildConfettiShades(baseColor: string) {
+	return [
+		baseColor,
+		`color-mix(in oklab, ${baseColor} 60%, white)`,
+		`color-mix(in oklab, ${baseColor} 80%, black)`,
+		'var(--chart-1)',
+	];
 }
 
 function selectChatExportMetadata(chat: Chat) {
@@ -236,37 +316,54 @@ function selectChatExportMetadata(chat: Chat) {
 
 export type FeedbackVote = 'up' | 'down';
 
-interface FeedbackDialogProps {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onSubmit: (explanation?: string) => void;
-	isPending: boolean;
+export const FEEDBACK_VOTES: FeedbackVote[] = ['up', 'down'];
+
+interface FeedbackCelebration {
 	vote: FeedbackVote;
-	subject?: string;
+	key: number;
 }
 
-export function FeedbackDialog({
-	open,
-	onOpenChange,
-	onSubmit,
-	isPending,
-	vote,
-	subject = 'response',
-}: FeedbackDialogProps) {
+interface FeedbackDialogProps extends FeedbackFormProps {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}
+
+interface FeedbackFormProps {
+	onSubmit: (explanation: string | undefined, vote: FeedbackVote) => void;
+	isPending: boolean;
+	defaultVote?: FeedbackVote;
+	subject?: string;
+	/** Shows a Skip button, for prompts the user did not open themselves. */
+	onSkip?: () => void;
+	error?: string;
+}
+
+export function FeedbackDialog({ open, onOpenChange, ...formProps }: FeedbackDialogProps) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent showCloseButton={false}>
+				<FeedbackForm {...formProps} />
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function FeedbackForm({ onSubmit, isPending, defaultVote, subject = 'response', onSkip, error }: FeedbackFormProps) {
 	const [explanation, setExplanation] = useState('');
-	const isPositive = vote === 'up';
+	const [vote, setVote] = useState(defaultVote);
+	const [celebrationKey, setCelebrationKey] = useState<number>();
+	const copy = getFeedbackCopy(vote, subject);
+
+	const pickVote = (nextVote: FeedbackVote) => {
+		setVote(nextVote);
+		setCelebrationKey((key) => (key ?? 0) + 1);
+	};
 
 	const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
 		e.preventDefault();
-		onSubmit(explanation.trim() || undefined);
-		setExplanation('');
-	};
-
-	const handleOpenChange = (nextOpen: boolean) => {
-		if (!nextOpen) {
-			setExplanation('');
+		if (vote) {
+			onSubmit(explanation.trim() || undefined, vote);
 		}
-		onOpenChange(nextOpen);
 	};
 
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -277,36 +374,92 @@ export function FeedbackDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent showCloseButton>
-				<DialogHeader>
-					<DialogTitle>{isPositive ? 'What went well?' : 'What went wrong?'}</DialogTitle>
+		<>
+			<div className='flex items-start gap-4'>
+				<DialogHeader className='flex-1 text-left'>
+					<DialogTitle>{copy.title}</DialogTitle>
 					<DialogDescription className='text-sm text-muted-foreground font-medium'>
-						{isPositive
-							? `Help us improve by explaining what worked well with this ${subject}.`
-							: `Help us improve by explaining what was wrong with this ${subject}.`}
+						{copy.description}
 					</DialogDescription>
 				</DialogHeader>
 
-				<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
-					<Textarea
-						placeholder={
-							isPositive
-								? 'Tell us what worked well (optional)'
-								: 'Tell us what could be better (optional)'
-						}
-						value={explanation}
-						onKeyDown={handleKeyDown}
-						onChange={(e) => setExplanation(e.target.value)}
-						rows={4}
-						className='resize-none bg-panel'
-					/>
+				<div role='group' aria-label={`Rate this ${subject}`} className='-mt-2 flex shrink-0 gap-1'>
+					{FEEDBACK_VOTES.map((option) => (
+						<FeedbackButton
+							key={option}
+							vote={option}
+							subject={subject}
+							size='md'
+							isSelected={vote === option}
+							celebrationKey={vote === option ? celebrationKey : undefined}
+							disabled={isPending}
+							onClick={() => pickVote(option)}
+						/>
+					))}
+				</div>
+			</div>
 
-					<Button variant='primary-gradient' className='rounded-full' type='submit' disabled={isPending}>
+			<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
+				<Textarea
+					placeholder={copy.placeholder}
+					value={explanation}
+					onKeyDown={handleKeyDown}
+					onChange={(e) => setExplanation(e.target.value)}
+					rows={4}
+					className='resize-none bg-panel'
+				/>
+
+				{error && (
+					<p role='alert' className='text-sm text-destructive'>
+						{error}
+					</p>
+				)}
+
+				<div className='flex gap-2'>
+					{onSkip && (
+						<Button
+							type='button'
+							variant='ghost'
+							className='rounded-full'
+							onClick={onSkip}
+							disabled={isPending}
+						>
+							Skip
+						</Button>
+					)}
+					<Button
+						variant='primary-gradient'
+						className='flex-1 rounded-full'
+						type='submit'
+						isLoading={isPending}
+						disabled={isPending || !vote}
+					>
 						Submit
 					</Button>
-				</form>
-			</DialogContent>
-		</Dialog>
+				</div>
+			</form>
+		</>
 	);
+}
+
+function getFeedbackCopy(vote: FeedbackVote | undefined, subject: string) {
+	if (vote === 'up') {
+		return {
+			title: 'What went well?',
+			description: `Help us improve by explaining what worked well with this ${subject}.`,
+			placeholder: 'Tell us what worked well (optional)',
+		};
+	}
+	if (vote === 'down') {
+		return {
+			title: 'What went wrong?',
+			description: `Help us improve by explaining what was wrong with this ${subject}.`,
+			placeholder: 'Tell us what could be better (optional)',
+		};
+	}
+	return {
+		title: `How did this ${subject} go?`,
+		description: `Rate this ${subject} and tell us more to help us improve.`,
+		placeholder: 'Tell us more (optional)',
+	};
 }

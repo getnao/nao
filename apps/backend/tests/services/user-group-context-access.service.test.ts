@@ -1,0 +1,783 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { ALL_FILES_CONTEXT_ACCESS, type DatabaseContextAccess } from '@nao/shared';
+import yaml from 'js-yaml';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../src/services/license.service', () => ({
+	hasFeature: vi.fn(),
+	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', userGroups: 'user-groups' },
+}));
+vi.mock('../../src/services/user-group-availability.service', () => ({
+	getAvailableUserGroupOverview: vi.fn(),
+	resolveAvailableUserGroupAccess: vi.fn(),
+}));
+vi.mock('../../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(),
+	getUserRoleInProject: vi.fn(),
+}));
+vi.mock('../../src/queries/user-group.queries', () => ({
+	getProjectColumnSecurity: vi.fn(async () => ({ version: 1, tables: [] })),
+	getProjectRowSecurity: vi.fn(async () => ({ version: 1, tables: [] })),
+}));
+vi.mock('../../src/agents/user-rules', () => ({
+	getDatabaseContextCatalog: vi.fn(),
+}));
+vi.mock('../../src/services/skill', () => ({
+	skillService: {
+		initializeSkills: vi.fn(async () => undefined),
+		getSkills: vi.fn(() => [
+			{ name: 'revenue', description: '', location: '/agent/skills/revenue-playbook.md' },
+			{ name: 'churn', description: '', location: '/agent/skills/churn.md' },
+		]),
+	},
+}));
+
+import { getDatabaseContextCatalog } from '../../src/agents/user-rules';
+import { getProjectById, getUserRoleInProject } from '../../src/queries/project.queries';
+import { getProjectColumnSecurity, getProjectRowSecurity } from '../../src/queries/user-group.queries';
+import { hasFeature } from '../../src/services/license.service';
+import { skillService } from '../../src/services/skill';
+import {
+	type AvailableUserGroupOverview,
+	getAvailableUserGroupOverview,
+	resolveAvailableUserGroupAccess as resolveUserGroupAccess,
+} from '../../src/services/user-group-availability.service';
+import {
+	expandDatabaseAccess,
+	flagRecipientsWithTableAccess,
+	hasEffectiveWarehouseRestrictions,
+	isDatabaseObjectAllowed,
+	resolveMcpSettingsAccess,
+	resolveMcpUsageAccess,
+	resolveProjectContextAccess,
+	resolveWarehouseTableAccess,
+} from '../../src/services/user-group-context-access.service';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
+
+const catalog = {
+	syncState: 'ready' as const,
+	objects: [
+		{
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+			columns: ['id', 'tenant_id'],
+		},
+		{
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'users',
+			columns: ['id'],
+		},
+		{
+			databaseType: 'snowflake',
+			database: 'warehouse',
+			schema: 'raw',
+			table: 'events',
+			columns: ['id'],
+		},
+	],
+};
+
+const ORDERS_TABLE = {
+	databaseType: 'postgres',
+	database: 'analytics',
+	schema: 'public',
+	table: 'orders',
+};
+
+describe('warehouse Context access', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(hasFeature).mockResolvedValue(true);
+		vi.mocked(getUserRoleInProject).mockResolvedValue('user');
+		vi.mocked(getDatabaseContextCatalog).mockReturnValue(catalog);
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({ version: 1, tables: [] });
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({ version: 1, tables: [] });
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			userGroupAccess({
+				groupNames: ['All Users', 'Finance'],
+				databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+				docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+				filesAccess: ALL_FILES_CONTEXT_ACCESS,
+				mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
+			}),
+		);
+	});
+
+	it('enforces table access without an unlimited-groups entitlement', async () => {
+		vi.mocked(hasFeature).mockResolvedValue(false);
+
+		await expect(resolveWarehouseTableAccess('project-1', 'user-1', '/project')).resolves.toEqual({
+			enforced: true,
+			strict: true,
+			tables: [],
+		});
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
+		expect(getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
+	});
+
+	it('rejects revoked principals before resolving group access', async () => {
+		vi.mocked(getUserRoleInProject).mockResolvedValue(null);
+
+		await expect(resolveWarehouseTableAccess('project-1', 'removed-user', '/project')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+		});
+		expect(hasFeature).not.toHaveBeenCalled();
+		expect(resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
+		vi.mocked(hasFeature).mockResolvedValue(false);
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toEqual({
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+			warehouseColumnSecurity: { enforced: false },
+			warehouseRowSecurity: { enforced: false },
+			docsContextAccess: {
+				enforced: true,
+				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			},
+			filesContextAccess: { enforced: true, access: ALL_FILES_CONTEXT_ACCESS },
+			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
+			skillsAccess: { mode: 'all' },
+			userGroupFeatures: [],
+			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
+		});
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
+	});
+
+	it('resolves the files of the granted skills when skills are restricted', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			userGroupAccess({ groupNames: ['All Users'], skillsAccess: { mode: 'restricted', skills: ['revenue'] } }),
+		);
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			skillsAccess: {
+				mode: 'restricted',
+				skills: ['revenue'],
+				grantedFiles: ['agent/skills/revenue-playbook.md'],
+			},
+		});
+		expect(skillService.initializeSkills).toHaveBeenCalledWith('project-1');
+	});
+
+	it('grants no skill files when skills fail to load for a restricted group', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			userGroupAccess({ groupNames: ['All Users'], skillsAccess: { mode: 'restricted', skills: ['revenue'] } }),
+		);
+		vi.mocked(skillService.initializeSkills).mockRejectedValueOnce(new Error('disk error'));
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['revenue'], grantedFiles: [] },
+		});
+	});
+
+	it('scopes MCP settings to the group grants except for admins', async () => {
+		await expect(resolveMcpSettingsAccess('project-1', 'user-1', 'user')).resolves.toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'server', server: 'github' }],
+		});
+		await expect(resolveMcpSettingsAccess('project-1', 'admin-1', 'admin')).resolves.toEqual({ mode: 'all' });
+		expect(resolveUserGroupAccess).toHaveBeenCalledTimes(1);
+	});
+
+	it('scopes usable MCP servers to the group grants for admins too', async () => {
+		await expect(resolveMcpUsageAccess('project-1', 'admin-1')).resolves.toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'server', server: 'github' }],
+		});
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'admin-1');
+	});
+
+	it('blocks every protected table when the row-security license is inactive', async () => {
+		const tables = [
+			{
+				databaseType: 'postgres',
+				database: 'analytics',
+				schema: 'public',
+				table: 'orders',
+				constraintColumns: ['tenant_id'],
+			},
+			{
+				databaseType: 'postgres',
+				database: 'analytics',
+				schema: 'public',
+				table: 'users',
+				constraintColumns: ['organization_id'],
+			},
+		];
+		vi.mocked(hasFeature).mockResolvedValue(false);
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({ version: 1, tables });
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: tables.map((table) => ({
+					...table,
+					access: 'blocked',
+					reason: 'Row-level security is configured for this table but the Enterprise license is inactive. Ask an admin to restore the license or remove the table from Row-level security.',
+				})),
+			},
+		});
+	});
+
+	it('keeps viewer-specific data when strict catalog access has full row access', async () => {
+		protectOrdersByTenant();
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			userGroupAccess({
+				groupNames: ['Finance'],
+				rowPolicies: [{ version: 1, policies: [{ ...ORDERS_TABLE, access: 'full' }] }],
+			}),
+		);
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...ORDERS_TABLE, constraintColumns: ['tenant_id'], access: 'full' }],
+			},
+		});
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
+	});
+
+	it('keeps viewer-specific data when table access is restricted despite full row access', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Finance'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			docsAccess: { mode: 'all' },
+			rowPolicies: [{ version: 1, policies: [{ ...orders, access: 'full' }] }],
+		});
+
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
+	});
+
+	it('unions column grants without widening row access', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		});
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Finance', 'Operations'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'all' },
+			preloadedSkills: [],
+			columnPolicies: [
+				{ version: 1, policies: [{ ...orders, grantedColumns: ['cost'] }] },
+				{ version: 1, policies: [{ ...orders, grantedColumns: ['margin'] }] },
+			],
+			rowPolicies: [
+				{
+					version: 1,
+					policies: [{ ...orders, access: 'predicate', mode: 'sql', predicate: 'WHERE tenant_id = 7' }],
+				},
+			],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [{ ...orders, restrictedColumns: ['cost', 'margin'], access: 'full' }],
+			},
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, access: 'predicate', predicate: '(tenant_id = 7)' }],
+			},
+		});
+	});
+
+	it.each([
+		{ name: 'restricted', grantedColumns: ['cost'], expected: true },
+		{ name: 'unrestricted', grantedColumns: ['cost', 'margin'], expected: false },
+	])('treats a member as $name by the sensitive columns their groups grant', async ({ grantedColumns, expected }) => {
+		const orders = { databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'orders' };
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Finance'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
+			databaseAccess: { mode: 'all', strict: false },
+			docsAccess: { mode: 'all' },
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'all' },
+			preloadedSkills: [],
+			columnPolicies: [{ version: 1, policies: [{ ...orders, grantedColumns }] }],
+			rowPolicies: [],
+		});
+
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(expected);
+	});
+
+	it('blocks configured columns when the shared security license is inactive', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(hasFeature).mockResolvedValue(false);
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [
+					{
+						...orders,
+						restrictedColumns: ['cost'],
+						access: 'blocked',
+						reason: expect.stringContaining('Enterprise license is inactive'),
+					},
+				],
+			},
+		});
+	});
+
+	it('does not widen rows with policies excluded by same-group Context filtering', async () => {
+		protectOrdersByTenant();
+		const ordersOnlyGroups = (rowPolicies: UserGroupAccess['rowPolicies']) =>
+			userGroupAccess({
+				groupNames: ['Context group', 'Non-Context group'],
+				databaseAccess: {
+					mode: 'restricted',
+					strict: true,
+					grants: [{ kind: 'table', ...ORDERS_TABLE }],
+					patterns: [],
+				},
+				docsAccess: { mode: 'restricted', grants: [] },
+				rowPolicies,
+			});
+
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			ordersOnlyGroups([
+				{
+					version: 1,
+					policies: [
+						{
+							...ORDERS_TABLE,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE tenant_id = 7',
+						},
+					],
+				},
+				{ version: 1, policies: [] },
+			]),
+		);
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...ORDERS_TABLE, access: 'predicate', predicate: '(tenant_id = 7)' }],
+			},
+		});
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
+
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			ordersOnlyGroups([
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+			]),
+		);
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...ORDERS_TABLE, access: 'none' }],
+			},
+		});
+	});
+
+	it('denies all warehouse tables for restricted access without grants', () => {
+		expect(expandDatabaseAccess({ mode: 'restricted', strict: true, grants: [], patterns: [] }, catalog)).toEqual({
+			enforced: true,
+			strict: true,
+			tables: [],
+		});
+	});
+
+	it('expands a schema grant to every currently synced table', () => {
+		expect(
+			expandDatabaseAccess(
+				{
+					mode: 'restricted',
+					strict: true,
+					grants: [
+						{
+							kind: 'schema',
+							databaseType: 'postgres',
+							database: 'analytics',
+							schema: 'public',
+						},
+					],
+					patterns: [],
+				},
+				catalog,
+			),
+		).toEqual({
+			enforced: true,
+			strict: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+					columns: ['id', 'tenant_id'],
+				},
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
+			],
+		});
+	});
+
+	it('expands exact table grants without crossing database identities', () => {
+		expect(
+			expandDatabaseAccess(
+				{
+					mode: 'restricted',
+					strict: true,
+					grants: [
+						{
+							kind: 'table',
+							databaseType: 'snowflake',
+							database: 'warehouse',
+							schema: 'raw',
+							table: 'events',
+						},
+					],
+					patterns: [],
+				},
+				catalog,
+			),
+		).toEqual({
+			enforced: true,
+			strict: true,
+			tables: [
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'raw',
+					table: 'events',
+					columns: ['id'],
+				},
+			],
+		});
+	});
+
+	it('expands patterns across databases without allowing unrelated tables', () => {
+		const catalogWithRepeatedName = {
+			...catalog,
+			objects: [
+				...catalog.objects,
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
+			],
+		};
+		expect(
+			expandDatabaseAccess(
+				{ mode: 'restricted', strict: true, grants: [], patterns: ['PUBLIC.u*', 'raw.events'] },
+				catalogWithRepeatedName,
+			),
+		).toEqual({
+			enforced: true,
+			strict: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'public',
+					table: 'users',
+					columns: ['id'],
+				},
+				{
+					databaseType: 'snowflake',
+					database: 'warehouse',
+					schema: 'raw',
+					table: 'events',
+					columns: ['id'],
+				},
+			],
+		});
+	});
+
+	it('keeps unmatched patterns restrictive until matching tables are synced', () => {
+		expect(
+			expandDatabaseAccess({ mode: 'restricted', strict: false, grants: [], patterns: ['future.*'] }, catalog),
+		).toEqual({
+			enforced: true,
+			strict: false,
+			tables: [],
+		});
+	});
+
+	it('expands all access and fails closed when the catalog is missing', () => {
+		expect(expandDatabaseAccess({ mode: 'all', strict: true }, catalog)).toEqual({
+			enforced: true,
+			strict: true,
+			tables: catalog.objects,
+		});
+		expect(expandDatabaseAccess({ mode: 'all', strict: false }, { syncState: 'missing', objects: [] })).toEqual({
+			enforced: true,
+			strict: false,
+			tables: [],
+		});
+	});
+
+	it('filters project database objects when strict mode is off', () => {
+		const access = {
+			enforced: true as const,
+			strict: false,
+			tables: [{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'orders' }],
+		};
+
+		expect(
+			isDatabaseObjectAllowed(access, {
+				type: 'postgres',
+				database: 'analytics',
+				schema: 'public',
+				table: 'orders',
+				fqdn: 'analytics.public.orders',
+			}),
+		).toBe(true);
+		expect(
+			isDatabaseObjectAllowed(access, {
+				type: 'postgres',
+				database: 'analytics',
+				schema: 'public',
+				table: 'users',
+				fqdn: 'analytics.public.users',
+			}),
+		).toBe(false);
+	});
+
+	it('surfaces catalog filesystem errors instead of bypassing enforcement', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(userGroupAccess({ groupNames: ['All Users'] }));
+		vi.mocked(getDatabaseContextCatalog).mockImplementation(() => {
+			throw new Error('permission denied');
+		});
+
+		await expect(resolveWarehouseTableAccess('project-1', 'user-1', '/project')).rejects.toThrow(
+			'permission denied',
+		);
+	});
+});
+
+describe('table access of transfer recipients', () => {
+	const createTemporaryFolder = useTemporaryFolders();
+	const publicSchemaAccess: DatabaseContextAccess = {
+		mode: 'restricted',
+		strict: true,
+		grants: [{ kind: 'schema', databaseType: 'postgres', database: 'analytics', schema: 'public' }],
+		patterns: [],
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(getProjectById).mockResolvedValue({ path: '/project' } as Awaited<ReturnType<typeof getProjectById>>);
+		vi.mocked(getDatabaseContextCatalog).mockReturnValue(catalog);
+	});
+
+	const ordersOnlyAccess: DatabaseContextAccess = {
+		mode: 'restricted',
+		strict: true,
+		grants: [{ kind: 'table', ...ORDERS_TABLE }],
+		patterns: [],
+	};
+
+	it.each<[string, DatabaseContextAccess, DatabaseContextAccess, boolean]>([
+		['every table', publicSchemaAccess, { mode: 'all', strict: true }, true],
+		[
+			'the same tables through a pattern',
+			publicSchemaAccess,
+			{ mode: 'restricted', strict: true, grants: [], patterns: ['public.*'] },
+			true,
+		],
+		['only one of the tables', publicSchemaAccess, ordersOnlyAccess, false],
+		['no table', publicSchemaAccess, { mode: 'restricted', strict: true, grants: [], patterns: [] }, false],
+		[
+			'no table without strict mode',
+			publicSchemaAccess,
+			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
+			true,
+		],
+		[
+			'the same table as a previous owner without strict mode',
+			{ ...ordersOnlyAccess, strict: false },
+			ordersOnlyAccess,
+			false,
+		],
+		[
+			'every synced table as a previous owner without strict mode',
+			{ ...publicSchemaAccess, strict: false },
+			{ mode: 'all', strict: true },
+			false,
+		],
+	])('flags a recipient whose groups grant %s', async (_, previousOwnerAccess, recipientAccess, hasTableAccess) => {
+		vi.mocked(getAvailableUserGroupOverview).mockResolvedValue(
+			groupOverview([
+				{ id: 'finance', userId: 'previous-owner', databaseAccess: previousOwnerAccess },
+				{ id: 'recipient-group', userId: 'recipient', databaseAccess: recipientAccess },
+			]),
+		);
+
+		await expect(
+			flagRecipientsWithTableAccess('project-1', 'previous-owner', [{ id: 'recipient' }]),
+		).resolves.toEqual([{ id: 'recipient', hasTableAccess }]);
+	});
+
+	it.each<[string, boolean[], DatabaseContextAccess, boolean]>([
+		['every synced table', [true, true], { mode: 'all', strict: true }, true],
+		['only some synced tables', [true, true], publicSchemaAccess, false],
+		['every synced table, with one database not allow-listed', [true, false], { mode: 'all', strict: true }, false],
+	])(
+		'flags a strict recipient granted %s, when the previous owner is not strict',
+		async (_, allowListedOnly, recipientAccess, hasTableAccess) => {
+			const projectPath = createTemporaryFolder('nao-transfer-');
+			fs.writeFileSync(
+				path.join(projectPath, 'nao_config.yaml'),
+				yaml.dump({
+					databases: allowListedOnly.map((allow_listed_only, index) => ({
+						name: `database-${index}`,
+						type: 'postgres',
+						allow_listed_only,
+					})),
+				}),
+			);
+			vi.mocked(getProjectById).mockResolvedValue({ path: projectPath } as Awaited<
+				ReturnType<typeof getProjectById>
+			>);
+			vi.mocked(getAvailableUserGroupOverview).mockResolvedValue(
+				groupOverview([
+					{ id: 'finance', userId: 'previous-owner', databaseAccess: { ...ordersOnlyAccess, strict: false } },
+					{ id: 'recipient-group', userId: 'recipient', databaseAccess: recipientAccess },
+				]),
+			);
+
+			await expect(
+				flagRecipientsWithTableAccess('project-1', 'previous-owner', [{ id: 'recipient' }]),
+			).resolves.toEqual([{ id: 'recipient', hasTableAccess }]);
+		},
+	);
+
+	it('ignores the grants of a group locked on the free plan', async () => {
+		vi.mocked(getAvailableUserGroupOverview).mockResolvedValue(
+			groupOverview([
+				{ id: 'finance', userId: 'previous-owner', databaseAccess: publicSchemaAccess },
+				{
+					id: 'no-table-group',
+					userId: 'recipient',
+					databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+				},
+				{
+					id: 'locked-group',
+					userId: 'recipient',
+					databaseAccess: { mode: 'all', strict: true },
+					isLocked: true,
+				},
+			]),
+		);
+
+		await expect(
+			flagRecipientsWithTableAccess('project-1', 'previous-owner', [{ id: 'recipient' }]),
+		).resolves.toEqual([{ id: 'recipient', hasTableAccess: false }]);
+	});
+});
+
+function groupOverview(
+	groups: Array<{ id: string; userId: string; databaseAccess: DatabaseContextAccess; isLocked?: boolean }>,
+): AvailableUserGroupOverview {
+	return {
+		users: [],
+		groups: groups.map(
+			({ id, databaseAccess, isLocked = false }) =>
+				({ id, databaseAccess, isLocked }) as AvailableUserGroupOverview['groups'][number],
+		),
+		memberships: groups.map(({ id, userId }) => ({ groupId: id, userId })),
+		ssoMemberships: [],
+	};
+}
+
+type UserGroupAccess = Awaited<ReturnType<typeof resolveUserGroupAccess>>;
+
+function userGroupAccess(overrides: Partial<UserGroupAccess>): UserGroupAccess {
+	return {
+		groupNames: [],
+		features: [],
+		toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+		showAllSettings: false,
+		skillsAccess: { mode: 'all' },
+		databaseAccess: { mode: 'all', strict: true },
+		docsAccess: { mode: 'all' },
+		filesAccess: ALL_FILES_CONTEXT_ACCESS,
+		mcpAccess: { mode: 'all' },
+		columnPolicies: [],
+		rowPolicies: [],
+		...overrides,
+	};
+}
+
+function protectOrdersByTenant(): void {
+	vi.mocked(getProjectRowSecurity).mockResolvedValue({
+		version: 1,
+		tables: [{ ...ORDERS_TABLE, constraintColumns: ['tenant_id'] }],
+	});
+}
