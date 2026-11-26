@@ -62,6 +62,7 @@ import {
 import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
 import { enqueueOnce } from './services/scheduler.service';
 import { sessionRotation } from './services/session-rotation-auth.service';
+import { readSignupOrigin, refuseSignupUnderReview, screenSignup } from './services/signup-screening.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
@@ -74,6 +75,8 @@ import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from 
 
 type MetadataHandler = (request: Request) => Promise<Response>;
 
+/** Deliberately vague, so a refused signup does not reveal which check refused it. */
+const REFUSED_SIGNUP_MESSAGE = 'We have encountered an error. Please contact support if the problem persists.';
 const OAUTH_LOGIN_PAGE = '/login';
 const OAUTH_CONSENT_PAGE = '/consent';
 /** How long a public-MCP flow may take from authorize to consent. */
@@ -394,10 +397,18 @@ async function createAuthInstance(baseURL: string) {
 								source: 'system',
 								context: { email: user.email, provider: providerId ?? 'email' },
 							});
-							throw new APIError('FORBIDDEN', {
-								message:
-									'We have encountered an error. Please contact support if the problem persists.',
+							throw new APIError('FORBIDDEN', { message: REFUSED_SIGNUP_MESSAGE });
+						}
+
+						const provider = providerId ?? 'email';
+						const origin = readSignupOrigin(ctx?.headers ?? ctx?.request?.headers);
+						const screening = await screenSignup({ email: user.email, provider, ...origin });
+						if (screening === 'block') {
+							logger.warn('Blocked a signup flagged by screening', {
+								source: 'system',
+								context: { email: user.email, provider },
 							});
+							throw new APIError('FORBIDDEN', { message: REFUSED_SIGNUP_MESSAGE });
 						}
 
 						if (providerId === 'google' && !isEmailDomainAllowed(user.email, googleAuthDomains)) {
@@ -416,11 +427,17 @@ async function createAuthInstance(baseURL: string) {
 							});
 						}
 
-						if (await isCloudSsoEmailTrusted(providerId, user.email)) {
-							return { data: { ...user, emailVerified: true } };
+						const emailTrusted = await isCloudSsoEmailTrusted(providerId, user.email);
+						if (!emailTrusted && screening !== 'review') {
+							return true;
 						}
-
-						return true;
+						return {
+							data: {
+								...user,
+								...(emailTrusted && { emailVerified: true }),
+								...(screening === 'review' && { pendingSignupReview: true }),
+							},
+						};
 					},
 					async after(user, ctx) {
 						const providerId = resolveProviderId(ctx);
@@ -475,9 +492,13 @@ async function createAuthInstance(baseURL: string) {
 			},
 			session: {
 				create: {
-					before: async (session) => {
-						if (await userQueries.isUserDeactivated(session.userId)) {
+					before: async (session, ctx) => {
+						const signInState = await userQueries.getUserSignInState(session.userId);
+						if (signInState?.deactivatedAt) {
 							throw new APIError('FORBIDDEN', { message: DEACTIVATED_ACCOUNT_MESSAGE });
+						}
+						if (signInState?.pendingSignupReview) {
+							refuseSignupUnderReview(ctx);
 						}
 						return true;
 					},
@@ -492,6 +513,7 @@ async function createAuthInstance(baseURL: string) {
 			additionalFields: {
 				requiresPasswordReset: { type: 'boolean', default: false, input: false },
 				messagingProviderCode: { type: 'string', default: '', input: false },
+				pendingSignupReview: { type: 'boolean', default: false, input: false },
 			},
 		},
 	});
@@ -533,13 +555,14 @@ async function sendAccountExistsEmail(user: { email: string; name: string }) {
 	await emailService.sendEmail(user.email, await buildAccountExistsEmail(user, env.BETTER_AUTH_URL));
 }
 
-async function enqueueVerifiedUserWelcomeEmail(userId: string): Promise<void> {
+/** An account held by signup screening gets its welcome email once it is approved. */
+export async function enqueueVerifiedUserWelcomeEmail(userId: string): Promise<void> {
 	if (!isCloudWelcomeEmailEnabled()) {
 		return;
 	}
 	try {
 		const user = await userQueries.getUser({ id: userId });
-		if (!user?.emailVerified || user.requiresPasswordReset) {
+		if (!user?.emailVerified || user.requiresPasswordReset || user.pendingSignupReview) {
 			return;
 		}
 		await enqueueOnce({

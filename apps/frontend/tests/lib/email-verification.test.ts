@@ -26,4 +26,8 @@ describe('email verification flow helpers', () => {
 		expect(getSignInErrorMessage('account_not_linked')).toContain('already exists');
 		expect(getSignInErrorMessage('Sign up is disabled.')).toBe('Sign up is disabled.');
 	});
+
+	it('explains that a social sign-in is held for review', () => {
+		expect(getSignInErrorMessage('SIGNUP_UNDER_REVIEW')).toContain('reviewing your account');
+	});
 });

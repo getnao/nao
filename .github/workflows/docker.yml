@@ -337,6 +337,8 @@ jobs:
                           -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                           -e "NAO_BACKOFFICE_API_KEY=${{ secrets.NAO_BACKOFFICE_API_KEY }}" \
                           -e "NAO_MANAGED_OPENAI_API_KEY=${{ secrets.NAO_MANAGED_OPENAI_API_KEY }}" \
+                          -e "SIGNUP_SCREENING_URL=http://nao-signup-screening:5060" \
+                          -e "SIGNUP_SCREENING_TOKEN=${{ secrets.SIGNUP_SCREENING_TOKEN }}" \
                           -e "DB_SSL=true" \
                           -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/app" \
                           -e "NAO_MODE=cloud" \

@@ -305,6 +305,9 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.string().min(32).optional()),
 	NAO_MANAGED_OPENAI_API_KEY: optionalNonEmptyString,
+	/** Base URL of the optional private service that allows, blocks or holds every signup; unreachable means allowed. */
+	SIGNUP_SCREENING_URL: optionalNonEmptyString.pipe(z.url().optional()),
+	SIGNUP_SCREENING_TOKEN: optionalNonEmptyString,
 	NAO_CORE_VERSION: z.string().optional(),
 	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
 	NAO_CONTEXT_GIT_URL: z.string().optional(),

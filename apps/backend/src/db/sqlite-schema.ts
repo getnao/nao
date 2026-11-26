@@ -157,6 +157,8 @@ export const user = sqliteTable('user', {
 	githubAccessToken: text('github_access_token'),
 	gitlabAccessToken: text('gitlab_access_token'),
 	deactivatedAt: integer('deactivated_at', { mode: 'timestamp_ms' }),
+	/** Held by signup screening until a teammate approves it on Slack; cannot sign in meanwhile. */
+	pendingSignupReview: integer('pending_signup_review', { mode: 'boolean' }).default(false).notNull(),
 	twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false).notNull(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

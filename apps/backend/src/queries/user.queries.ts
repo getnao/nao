@@ -103,6 +103,36 @@ export const isUserConfinedToOrganization = async (userId: string, orgId: string
 	return !foreignProjectMembership;
 };
 
+export const getUserSignInState = async (userId: string) => {
+	const [user] = await db
+		.select({ deactivatedAt: s.user.deactivatedAt, pendingSignupReview: s.user.pendingSignupReview })
+		.from(s.user)
+		.where(eq(s.user.id, userId))
+		.execute();
+	return user;
+};
+
+export const listUsersPendingSignupReview = async (limit: number) => {
+	return db
+		.select({ id: s.user.id, email: s.user.email })
+		.from(s.user)
+		.where(eq(s.user.pendingSignupReview, true))
+		.orderBy(s.user.createdAt)
+		.limit(limit)
+		.execute();
+};
+
+/** Releases an account held by signup screening; a blocked one is deactivated. */
+export const settleSignupReview = async (userId: string, decision: 'allow' | 'block'): Promise<boolean> => {
+	const settled = await db
+		.update(s.user)
+		.set({ pendingSignupReview: false, ...(decision === 'block' && { deactivatedAt: new Date() }) })
+		.where(and(eq(s.user.id, userId), eq(s.user.pendingSignupReview, true)))
+		.returning({ id: s.user.id })
+		.execute();
+	return settled.length > 0;
+};
+
 export const isUserDeactivated = async (userId: string): Promise<boolean> => {
 	const [user] = await db
 		.select({ deactivatedAt: s.user.deactivatedAt })
