@@ -101,6 +101,7 @@ import {
 	listCurrentCloudSubscriptions,
 	listStripeInvoicesCreatedSince,
 	replaceCloudTrialPlaceholderSubscription,
+	restoreInterruptedCloudTrialPlaceholder,
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../../src/services/stripe.service';
@@ -341,6 +342,12 @@ describe('cloud trial placeholder', () => {
 			),
 		).resolves.toMatchObject({ currency: 'eur' });
 
+		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith('sub_cloud_trial', {
+			metadata: { nao_replacement_currency: 'eur' },
+		});
+		expect(stripeMocks.updateSubscription.mock.invocationCallOrder[0]).toBeLessThan(
+			stripeMocks.cancelSubscription.mock.invocationCallOrder[0],
+		);
 		expect(stripeMocks.cancelSubscription).toHaveBeenCalledWith('sub_cloud_trial', {}, expect.anything());
 		expect(stripeMocks.createSubscription).toHaveBeenCalledWith(
 			expect.objectContaining({ currency: 'eur', trial_end: TRIAL_END_TIMESTAMP }),
@@ -365,6 +372,45 @@ describe('cloud trial placeholder', () => {
 		expect(stripeMocks.createSubscription).toHaveBeenLastCalledWith(
 			expect.objectContaining({ currency: 'usd', trial_end: TRIAL_END_TIMESTAMP }),
 			{ idempotencyKey: 'cloud-trial-placeholder-v1:org-id:sub_cloud_trial:usd' },
+		);
+	});
+
+	it.each([
+		['an interrupted currency switch', {}, true],
+		['a placeholder without a pending switch', { metadata: { nao_subscription_kind: 'trial-placeholder' } }, false],
+		['a trial that already ended', { trial_end: 1 }, false],
+		['a placeholder that is still live', { status: 'trialing' as const }, false],
+	])('restores the placeholder of %s: %s', async (_, overrides, restored) => {
+		mockCloudPrices();
+		stripeMocks.createSubscription.mockResolvedValue(cloudTrialSubscription({ currency: 'eur' }));
+
+		await restoreInterruptedCloudTrialPlaceholder(
+			cloudTrialSubscription({
+				status: 'canceled',
+				trial_end: TRIAL_END_TIMESTAMP,
+				metadata: {
+					nao_org_id: 'org-id',
+					nao_subscription_kind: 'trial-placeholder',
+					nao_replacement_currency: 'eur',
+				},
+				...overrides,
+			}),
+			'org-id',
+		);
+
+		expect(stripeMocks.createSubscription.mock.calls).toEqual(
+			restored
+				? [
+						[
+							expect.objectContaining({ currency: 'eur', trial_end: TRIAL_END_TIMESTAMP }),
+							{
+								idempotencyKey: expect.stringMatching(
+									/^cloud-trial-placeholder-v1:org-id:sub_cloud_trial:eur:restore:/,
+								),
+							},
+						],
+					]
+				: [],
 		);
 	});
 });

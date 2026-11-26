@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	listSubscriptions: vi.fn(),
 	logError: vi.fn(),
 	putMemberWithSeat: vi.fn(),
+	restorePlaceholder: vi.fn(),
 	subscriptionProjection: vi.fn(),
 	updatePaymentMethod: vi.fn(),
 	updatePaidTrialEnd: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('../../src/services/stripe.service', () => ({
 			subscription,
 		}));
 	},
+	restoreInterruptedCloudTrialPlaceholder: mocks.restorePlaceholder,
 	updateCloudPaidSubscriptionTrialEnd: mocks.updatePaidTrialEnd,
 }));
 
@@ -82,6 +84,7 @@ describe('cloud billing reconciliation', () => {
 		mocks.claimSync.mockResolvedValue({ billing, token: 'sync-token' });
 		mocks.hasDefaultPaymentMethod.mockResolvedValue(false);
 		mocks.cancelPlaceholder.mockResolvedValue(undefined);
+		mocks.restorePlaceholder.mockResolvedValue(null);
 		mocks.subscriptionProjection.mockResolvedValue({
 			billingStatus: 'active',
 			stripeCustomerId: 'cus_cloud',
@@ -188,6 +191,26 @@ describe('cloud billing reconciliation', () => {
 		await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' });
 
 		expect(mocks.subscriptionProjection).toHaveBeenCalledWith(expect.objectContaining({ id: 'sub_newer' }));
+	});
+
+	it('restores a placeholder canceled by an interrupted currency switch instead of saving the canceled trial', async () => {
+		const placeholderMetadata = { nao_org_id: 'org-id', nao_subscription_kind: 'trial-placeholder' };
+		const canceled = buildSubscription({ id: 'sub_usd', metadata: placeholderMetadata, status: 'canceled' });
+		const restored = buildSubscription({
+			id: 'sub_eur',
+			metadata: placeholderMetadata,
+			status: 'trialing',
+			created: 2,
+		});
+		mocks.listSubscriptions.mockResolvedValueOnce([canceled]).mockResolvedValue([canceled, restored]);
+		mocks.restorePlaceholder.mockImplementation(async (subscription) =>
+			subscription.id === 'sub_usd' ? restored : null,
+		);
+
+		await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' });
+
+		expect(mocks.restorePlaceholder).toHaveBeenCalledWith(canceled, 'org-id');
+		expect(mocks.subscriptionProjection.mock.calls).toEqual([[restored]]);
 	});
 
 	it('prefers the persisted subscription and logs when Stripe has multiple current subscriptions', async () => {

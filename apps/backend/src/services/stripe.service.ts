@@ -27,6 +27,7 @@ const PLAN_METADATA_KEY = 'nao_plan_key';
 const QUANTITY_METADATA_KEY = 'nao_quantity';
 const SUBSCRIPTION_KIND_METADATA_KEY = 'nao_subscription_kind';
 const TRIAL_PLACEHOLDER_KIND = 'trial-placeholder';
+const REPLACEMENT_CURRENCY_METADATA_KEY = 'nao_replacement_currency';
 const CHECKOUT_KIND_METADATA_KEY = 'nao_checkout_kind';
 const CREDIT_TOP_UP_CHECKOUT_KIND = 'credit_top_up';
 const TRIAL_END_METADATA_KEY = 'nao_trial_end';
@@ -145,13 +146,12 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 	stripeCustomerId: string;
 	trialEnd: Date;
 	currency?: string;
-	replacedSubscriptionId?: string;
+	idempotencyScope?: string;
 }): Promise<Stripe.Subscription> {
 	if (input.trialEnd.getTime() <= Date.now()) {
 		throw new Error('The organization trial has expired');
 	}
 	const price = await getCloudTrialPrice();
-	const replacementKey = input.replacedSubscriptionId ? `:${input.replacedSubscriptionId}:${input.currency}` : '';
 	return getStripeClient().subscriptions.create(
 		{
 			customer: input.stripeCustomerId,
@@ -165,13 +165,16 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 			trial_end: stripeTimestamp(input.trialEnd),
 			trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
 		},
-		{ idempotencyKey: `cloud-trial-placeholder-v1:${input.organizationId}${replacementKey}` },
+		{
+			idempotencyKey: `cloud-trial-placeholder-v1:${input.organizationId}${input.idempotencyScope ? `:${input.idempotencyScope}` : ''}`,
+		},
 	);
 }
 
 /**
  * Stripe rejects active subscriptions in two currencies on one customer, so the placeholder is recreated in the
- * Checkout currency. The original currency is restored if that fails, so the trial is never lost.
+ * Checkout currency. The original currency is restored if that fails. The replacement currency is saved on the old
+ * placeholder before it is canceled, so reconciliation restores the trial if both recreations fail.
  */
 export async function replaceCloudTrialPlaceholderSubscription(
 	placeholder: Stripe.Subscription,
@@ -183,6 +186,10 @@ export async function replaceCloudTrialPlaceholderSubscription(
 	}
 	const trialEnd = new Date(placeholder.trial_end * 1_000);
 	await getCloudTrialPrice();
+	assertCloudSubscriptionOrganization(placeholder, organizationId);
+	await getStripeClient().subscriptions.update(placeholder.id, {
+		metadata: { [REPLACEMENT_CURRENCY_METADATA_KEY]: currency },
+	});
 	await cancelCloudTrialPlaceholderSubscription(placeholder, organizationId);
 	const recreateIn = (placeholderCurrency: string) =>
 		createCloudTrialPlaceholderSubscription({
@@ -190,7 +197,7 @@ export async function replaceCloudTrialPlaceholderSubscription(
 			stripeCustomerId: stripeCustomerId(placeholder.customer),
 			trialEnd,
 			currency: placeholderCurrency,
-			replacedSubscriptionId: placeholder.id,
+			idempotencyScope: `${placeholder.id}:${placeholderCurrency}`,
 		});
 	try {
 		return await recreateIn(currency);
@@ -198,6 +205,36 @@ export async function replaceCloudTrialPlaceholderSubscription(
 		await recreateIn(placeholder.currency);
 		throw error;
 	}
+}
+
+/**
+ * Recreates the placeholder of a currency switch that Stripe canceled without a confirmed replacement. Each attempt
+ * uses its own idempotency key because Stripe replays a cached failure for the same key; the seat lock held by
+ * reconciliation prevents duplicates.
+ */
+export async function restoreInterruptedCloudTrialPlaceholder(
+	subscription: Stripe.Subscription,
+	organizationId: string,
+): Promise<Stripe.Subscription | null> {
+	const currency = subscription.metadata[REPLACEMENT_CURRENCY_METADATA_KEY];
+	const trialEnd = stripeDate(subscription.trial_end);
+	if (
+		subscription.status !== 'canceled' ||
+		!currency ||
+		!trialEnd ||
+		trialEnd.getTime() <= Date.now() ||
+		cloudSubscriptionKind(subscription) !== 'trial-placeholder'
+	) {
+		return null;
+	}
+	assertCloudSubscriptionOrganization(subscription, organizationId);
+	return createCloudTrialPlaceholderSubscription({
+		organizationId,
+		stripeCustomerId: stripeCustomerId(subscription.customer),
+		trialEnd,
+		currency,
+		idempotencyScope: `${subscription.id}:${currency}:restore:${crypto.randomUUID()}`,
+	});
 }
 
 export async function createCloudCheckoutSession(input: {
