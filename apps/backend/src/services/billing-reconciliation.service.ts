@@ -4,6 +4,8 @@ import type { DBOrganizationBilling } from '../db/abstractSchema';
 import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
 import { isTerminalBillingStatus } from '../types/billing';
+import type { OrgRole } from '../types/organization';
+import { HandlerError } from '../utils/error';
 import { logger, serializeError } from '../utils/logger';
 import { readCloudSubscriptionChangeIntent } from '../utils/stripe';
 import { getOrganizationCloudEntitlement } from './cloud-billing-access.service';
@@ -107,21 +109,34 @@ async function settleSubscriptionChange(
 			(before.pendingBillingPlan !== null && !projection.pendingBillingPlan))
 			? scheduleId
 			: null;
-	if (intent) {
-		await clearCloudSubscriptionChangeIntent(subscription.id);
-	}
 	if (intent?.member) {
-		await putOrganizationMemberWithSeat(organizationId, intent.member.userId, intent.member.role).catch((error) =>
-			logger.error(`Paid seat membership activation failed for organization ${organizationId}`, {
-				source: 'system',
-				context: { userId: intent.member?.userId, error: serializeError(error) },
-			}),
-		);
+		await activatePaidSeatMember(organizationId, intent.member);
 	}
 	if (releaseScheduleId) {
 		await releaseCloudSubscriptionSchedule(releaseScheduleId);
 	}
+	if (intent) {
+		await clearCloudSubscriptionChangeIntent(subscription.id);
+	}
 	return releaseScheduleId !== null;
+}
+
+/** A member who can no longer be added is dropped; any other failure keeps the change saved for the next pass. */
+async function activatePaidSeatMember(
+	organizationId: string,
+	member: { userId: string; role: OrgRole },
+): Promise<void> {
+	try {
+		await putOrganizationMemberWithSeat(organizationId, member.userId, member.role);
+	} catch (error) {
+		if (!(error instanceof HandlerError)) {
+			throw error;
+		}
+		logger.error(`Paid seat membership activation failed for organization ${organizationId}`, {
+			source: 'system',
+			context: { userId: member.userId, error: serializeError(error) },
+		});
+	}
 }
 
 async function syncSeatsAfterReconciliation(

@@ -4,11 +4,13 @@ const mocks = vi.hoisted(() => ({
 	attachCustomer: vi.fn(),
 	cancelPlaceholder: vi.fn(),
 	claimSync: vi.fn(),
+	clearChangeIntent: vi.fn(),
 	getBillingByCustomer: vi.fn(),
 	getOrganizationById: vi.fn(),
 	hasDefaultPaymentMethod: vi.fn(),
 	listSubscriptions: vi.fn(),
 	logError: vi.fn(),
+	putMemberWithSeat: vi.fn(),
 	subscriptionProjection: vi.fn(),
 	updatePaymentMethod: vi.fn(),
 	updatePaidTrialEnd: vi.fn(),
@@ -55,7 +57,9 @@ vi.mock('../../src/services/cloud-billing-access.service', () => ({
 		paidAccessEndsAt: null,
 	})),
 }));
-vi.mock('../../src/services/membership.service', () => ({ putOrganizationMemberWithSeat: vi.fn() }));
+vi.mock('../../src/services/membership.service', () => ({
+	putOrganizationMemberWithSeat: mocks.putMemberWithSeat,
+}));
 vi.mock('../../src/services/organization-seat.service', () => ({
 	applyPendingFreeSeatSelection: vi.fn(),
 	syncOrganizationSeats: vi.fn(),
@@ -63,11 +67,12 @@ vi.mock('../../src/services/organization-seat.service', () => ({
 }));
 vi.mock('../../src/services/seat-notification.service', () => ({ notifyAdminsOfReadOnlyMembers: vi.fn() }));
 vi.mock('../../src/services/stripe-subscription-change.service', () => ({
-	clearCloudSubscriptionChangeIntent: vi.fn(),
+	clearCloudSubscriptionChangeIntent: mocks.clearChangeIntent,
 	releaseCloudSubscriptionSchedule: vi.fn(),
 }));
 
 import { reconcileCloudBillingCustomer } from '../../src/services/billing-reconciliation.service';
+import { HandlerError } from '../../src/utils/error';
 
 describe('cloud billing reconciliation', () => {
 	beforeEach(() => {
@@ -266,6 +271,36 @@ describe('cloud billing reconciliation', () => {
 			ignored: true,
 		});
 		expect(mocks.claimSync).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			case: 'keeps the change and fails for a retry when the paid seat member could not be added',
+			error: new Error('db down'),
+			fails: true,
+			clearedChanges: 0,
+		},
+		{
+			case: 'drops the change when the paid seat member can no longer be added',
+			error: new HandlerError('NOT_FOUND', 'User not found'),
+			fails: false,
+			clearedChanges: 1,
+		},
+	])('$case', async ({ error, fails, clearedChanges }) => {
+		const intent = { target: 'team:4', member: { userId: 'user-2', role: 'user' } };
+		mocks.listSubscriptions.mockResolvedValue([
+			buildSubscription({ metadata: { nao_org_id: 'org-id', nao_change_intent: JSON.stringify(intent) } }),
+		]);
+		mocks.putMemberWithSeat.mockRejectedValue(error);
+
+		const failed = await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' }).then(
+			() => false,
+			() => true,
+		);
+
+		expect(failed).toBe(fails);
+		expect(mocks.putMemberWithSeat).toHaveBeenCalledWith('org-id', 'user-2', 'user');
+		expect(mocks.clearChangeIntent).toHaveBeenCalledTimes(clearedChanges);
 	});
 
 	it('yields to a concurrent reconciliation that superseded its sync token', async () => {

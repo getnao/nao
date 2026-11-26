@@ -113,8 +113,8 @@ export async function runScheduledTests(payload: TestScheduleJobPayload): Promis
 	}
 }
 
-export function resolveTestScheduleScope(payload: TestScheduleJobPayload): JobScope {
-	return { projectId: payload.projectId };
+export async function resolveTestScheduleScope(payload: TestScheduleJobPayload): Promise<JobScope> {
+	return { projectId: payload.projectId, ownerId: await resolveScheduleRunner(payload) };
 }
 
 /** Picks up the schedules added to, or removed from, the nao_config.yaml of every project since the last sync. */

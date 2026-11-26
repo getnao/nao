@@ -56,7 +56,8 @@ export async function putOrganizationMember(
 /** Gives the member the seat that was just bought for them, ahead of anyone already waiting for one. */
 export async function putOrganizationMemberWithSeat(orgId: string, userId: string, role: OrgRole) {
 	await reserveSeat(orgId, userId);
-	return putOrganizationMember(orgId, userId, role);
+	const existing = await orgQueries.getOrgMember(orgId, userId);
+	return putOrganizationMember(orgId, userId, existing?.role ?? role);
 }
 
 export async function removeOrganizationMember(

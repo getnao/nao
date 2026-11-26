@@ -66,8 +66,25 @@ export async function validateSeatSelection(
 	}
 }
 
+/** Moves the member ahead of everyone waiting for a seat, while everyone already seated keeps their seat. */
 export async function reserveSeat(organizationId: string, userId: string): Promise<void> {
-	await seatQueries.setSeatSelection(organizationId, userId, { selectedAt: new Date(), selectionExplicit: true });
+	const [candidates, states] = await Promise.all([
+		seatQueries.listOrgSeatCandidates(organizationId),
+		seatQueries.listOrganizationSeatStates(organizationId),
+	]);
+	const readOnlyUserIds = new Set(states.filter(({ isReadOnly }) => isReadOnly).map((state) => state.userId));
+	const waitingUserIds = candidates
+		.filter(({ id, selectedAt }) => id !== userId && selectedAt !== null && readOnlyUserIds.has(id))
+		.map(({ id }) => id);
+	const selectedAt = Date.now();
+	await Promise.all(
+		[userId, ...waitingUserIds].map((id, order) =>
+			seatQueries.setSeatSelection(organizationId, id, {
+				selectedAt: new Date(selectedAt + order),
+				selectionExplicit: true,
+			}),
+		),
+	);
 }
 
 /** A member removed from everything forgets their selection, so rejoining starts from the default order. */

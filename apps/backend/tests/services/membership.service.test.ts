@@ -5,15 +5,24 @@ const mocks = vi.hoisted(() => ({
 	addProjectMember: vi.fn(),
 	addProjectMemberWithUserGroups: vi.fn(),
 	getOrganizationById: vi.fn(),
+	getOrgMember: vi.fn(),
 	getProjectById: vi.fn(),
 	getUser: vi.fn(),
 	recordOrganizationJoinCandidate: vi.fn(),
 	recordProjectJoinCandidate: vi.fn(),
+	updateOrgMemberRole: vi.fn(),
 }));
 
 vi.mock('../../src/queries/organization.queries', () => ({
 	addOrgMemberIfMissing: mocks.addOrgMemberIfMissing,
 	getOrganizationById: mocks.getOrganizationById,
+	getOrgMember: mocks.getOrgMember,
+	updateOrgMemberRole: mocks.updateOrgMemberRole,
+}));
+vi.mock('../../src/services/organization-seat.service', () => ({
+	clearSeatSelectionAndSync: vi.fn(),
+	reserveSeat: vi.fn(),
+	syncOrganizationSeats: vi.fn(),
 }));
 vi.mock('../../src/queries/project.queries', () => ({
 	addProjectMember: mocks.addProjectMember,
@@ -33,7 +42,11 @@ vi.mock('../../src/services/project-user-group-membership.service', () => ({
 	addProjectMemberWithUserGroups: mocks.addProjectMemberWithUserGroups,
 }));
 
-import { addOrganizationMemberIfMissing, addProjectMember } from '../../src/services/membership.service';
+import {
+	addOrganizationMemberIfMissing,
+	addProjectMember,
+	putOrganizationMemberWithSeat,
+} from '../../src/services/membership.service';
 
 describe('membership service', () => {
 	beforeEach(() => {
@@ -79,5 +92,15 @@ describe('membership service', () => {
 		expect(persistMember.mock.invocationCallOrder[0]).toBeLessThan(
 			mocks.recordProjectJoinCandidate.mock.invocationCallOrder[0],
 		);
+	});
+
+	it('keeps the role of an existing member who gets a paid seat', async () => {
+		mocks.getOrgMember.mockResolvedValue({ orgId: 'org-1', userId: 'user-1', role: 'admin' });
+
+		await expect(putOrganizationMemberWithSeat('org-1', 'user-1', 'user')).resolves.toEqual({
+			userId: 'user-1',
+			role: 'admin',
+		});
+		expect(mocks.updateOrgMemberRole).toHaveBeenCalledWith('org-1', 'user-1', 'admin');
 	});
 });
