@@ -33,6 +33,7 @@ vi.mock('../../src/queries/activity.queries', () => ({
 	getLatestCompletedProjectSync: vi.fn(async () => null),
 	getRunningProjectSync: vi.fn(async () => null),
 	getLatestUserProjectSync: vi.fn(async () => null),
+	updateProjectSyncLogs: vi.fn(),
 	failInterruptedProjectSyncActivities: vi.fn(),
 	SYNC_LEASE_MS: 120_000,
 	PROJECT_SYNC_LEASE_KEY_PREFIX: 'project-sync:activity:',
@@ -84,6 +85,7 @@ import {
 	getRunningProjectSync,
 	requestProjectSyncCancellation,
 	startProjectSyncActivity,
+	updateProjectSyncLogs,
 } from '../../src/queries/activity.queries';
 import { releaseLock, renewLock, tryAcquireLock } from '../../src/queries/keyed-lock.queries';
 import {
@@ -160,6 +162,10 @@ describe('project sync', () => {
 		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
 		expect(state.run?.logs).toContain('[REDACTED:SHORT_SECRET]');
 		expect(state.run?.logs).toContain('✓ Synced files are ready to review in your changes');
+		expect(updateProjectSyncLogs).toHaveBeenCalledWith(
+			run.id,
+			'Connecting with [REDACTED:POSTGRES_PASSWORD] and [REDACTED:SHORT_SECRET]\n',
+		);
 		expect(completeActivity).toHaveBeenCalledWith(run.id, { logs: state.run?.logs });
 		expect(failActivity).not.toHaveBeenCalled();
 		expect(withKeyedLock).toHaveBeenCalledWith('context-worktree-write:project-1:user-1', expect.any(Function));
@@ -479,7 +485,13 @@ describe('project sync', () => {
 
 	it('shows, never duplicates, and cancels a sync that the previous deployment is still running', async () => {
 		vi.mocked(getLatestUserProjectSync).mockImplementation(async (_projectId, userId) =>
-			userId === 'user-1' ? syncActivity({ id: 'old-deployment-run', status: 'running' }) : null,
+			userId === 'user-1'
+				? syncActivity({
+						id: 'old-deployment-run',
+						status: 'running',
+						payload: { logs: 'Syncing repositories\n' },
+					})
+				: null,
 		);
 		vi.mocked(getRunningProjectSync).mockImplementation(async (_projectId, excludedUserId) =>
 			excludedUserId === 'user-1' ? null : { actorName: 'Leo' },
@@ -488,7 +500,11 @@ describe('project sync', () => {
 		const state = await getProjectSyncState(project, gitContext('user-1'));
 		const run = await startProjectSync(project, gitContext('user-1'));
 
-		expect(state.run).toMatchObject({ id: 'old-deployment-run', status: 'running' });
+		expect(state.run).toMatchObject({
+			id: 'old-deployment-run',
+			status: 'running',
+			logs: 'Syncing repositories\n',
+		});
 		expect(run.id).toBe('old-deployment-run');
 		expect(startProjectSyncActivity).not.toHaveBeenCalled();
 		expect(runNaoCommandInSandbox).not.toHaveBeenCalled();

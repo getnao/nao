@@ -265,7 +265,13 @@ function addRepositoryHosts(hosts: Set<string>, repos: unknown, envVars: Record<
 		return;
 	}
 	for (const repo of repos) {
-		if (!isRecord(repo) || !repo.url) {
+		if (!isRecord(repo)) {
+			throw new Error('Cannot determine sync network access for a repository without a URL.');
+		}
+		if (!repo.url && typeof repo.local_path === 'string' && repo.local_path.trim()) {
+			continue;
+		}
+		if (!repo.url) {
 			throw new Error('Cannot determine sync network access for a repository without a URL.');
 		}
 		const host = hostFromUrlOrGitRemote(resolvedString(repo.url, envVars, 'repos.url'));

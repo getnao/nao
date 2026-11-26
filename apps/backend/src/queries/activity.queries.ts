@@ -72,7 +72,22 @@ export const startContextPullActivity = async (projectId: string, userId: string
 };
 
 export const startProjectSyncActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
-	return createActivity({ projectId, userId, type: 'project.synced', trigger: 'manual', status: 'running' });
+	return createActivity({
+		projectId,
+		userId,
+		type: 'project.synced',
+		trigger: 'manual',
+		status: 'running',
+		payload: { logs: '' },
+	});
+};
+
+export const updateProjectSyncLogs = async (activityId: string, logs: string): Promise<void> => {
+	await db
+		.update(s.activity)
+		.set({ payload: { logs } })
+		.where(and(eq(s.activity.id, activityId), eq(s.activity.status, 'running')))
+		.execute();
 };
 
 export const getLatestCompletedProjectSync = async (

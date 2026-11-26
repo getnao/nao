@@ -208,6 +208,39 @@ describe('runNaoCommandInSandbox', () => {
 		expect(fs.readFileSync(path.join(root, 'outside.md'), 'utf8')).toBe('outside\n');
 	});
 
+	it('brings back created, updated, and removed configured repository targets', async () => {
+		fs.writeFileSync(
+			path.join(project, 'nao_config.yaml'),
+			[
+				'project_name: sales',
+				'repos:',
+				'  - name: analytics',
+				'    url: https://github.com/nao/analytics.git',
+				'    targets:',
+				'      - source: nao/tests',
+				`        target: "tests/{{ env('TEAM') }}"`,
+				'',
+			].join('\n'),
+		);
+		writeFiles(project, {
+			'tests/analytics/updated.yml': 'old\n',
+			'tests/analytics/obsolete/removed.yml': 'remove me\n',
+		});
+		useFakeBox({
+			run: (staged) => {
+				fs.writeFileSync(path.join(staged, 'tests/analytics/updated.yml'), 'new\n');
+				fs.rmSync(path.join(staged, 'tests/analytics/obsolete'), { recursive: true });
+				writeFiles(staged, { 'tests/analytics/created.yml': 'created\n' });
+			},
+		});
+
+		await runNaoCommandInSandbox(['sync'], project, { TEAM: 'analytics' });
+
+		expect(read('tests/analytics/updated.yml')).toBe('new\n');
+		expect(read('tests/analytics/created.yml')).toBe('created\n');
+		expect(fs.existsSync(path.join(project, 'tests', 'analytics', 'obsolete'))).toBe(false);
+	});
+
 	it('rejects an oversized generated file before copying anything back', async () => {
 		testEnv.NAO_SYNC_MAX_FILE_SIZE_MB = 1 / (1024 * 1024);
 		useFakeBox({

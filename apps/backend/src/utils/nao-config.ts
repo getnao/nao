@@ -342,8 +342,10 @@ export function extractConfiguredRepos(projectFolder: string, envVars?: Record<s
 }
 
 /** The context folders `nao sync` writes for the repositories' targets, such as `tests/analytics`. */
-export function extractRepoTargetFolders(projectFolder: string): string[] {
-	return extractConfiguredRepos(projectFolder).flatMap((repo) => repo.targets.map((target) => target.target));
+export function extractRepoTargetFolders(projectFolder: string, envVars?: Record<string, string>): string[] {
+	return extractConfiguredRepos(projectFolder, envVars).flatMap((repo) =>
+		repo.targets.map((target) => target.target),
+	);
 }
 
 /** Returns configured database templates, falling back to the default when unavailable. */

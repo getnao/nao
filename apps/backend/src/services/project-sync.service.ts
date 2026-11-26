@@ -259,7 +259,9 @@ async function runProjectSync(
 			try {
 				signal?.throwIfAborted();
 				const onOutput = async (logs: string) => {
-					updateRun(runKey, runId, { logs: redact(logs) });
+					const redactedLogs = redact(logs);
+					updateRun(runKey, runId, { logs: redactedLogs });
+					await activityQueries.updateProjectSyncLogs(runId, redactedLogs);
 				};
 				let syncError: NaoCommandExitError | null;
 				if (target.managedRepoFullName) {

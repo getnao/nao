@@ -14,6 +14,8 @@ import {
 	listContextPullActivities,
 	PROJECT_SYNC_LEASE_KEY_PREFIX,
 	requestProjectSyncCancellation,
+	startProjectSyncActivity,
+	updateProjectSyncLogs,
 } from '../../src/queries/activity.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -193,6 +195,23 @@ describe('context pull activity queries', () => {
 
 		await expect(getLatestUserProjectSync(PROJECT_ID, USER_ID)).resolves.toMatchObject({ id: 'newest' });
 		await expect(getLatestUserProjectSync(PROJECT_ID, 'nobody')).resolves.toBeNull();
+	});
+
+	it('shares running project sync logs without changing completed runs', async () => {
+		const activity = await startProjectSyncActivity(PROJECT_ID, USER_ID);
+
+		expect(activity.payload).toEqual({ logs: '' });
+		await updateProjectSyncLogs(activity.id, 'Syncing repositories\n');
+		await expect(getLatestUserProjectSync(PROJECT_ID, USER_ID)).resolves.toMatchObject({
+			payload: { logs: 'Syncing repositories\n' },
+		});
+
+		await requestProjectSyncCancellation(activity.id);
+		await updateProjectSyncLogs(activity.id, 'late output\n');
+
+		await expect(getLatestUserProjectSync(PROJECT_ID, USER_ID)).resolves.toMatchObject({
+			payload: { logs: 'Syncing repositories\n' },
+		});
 	});
 
 	it('records cancellation only while a project sync is running', async () => {

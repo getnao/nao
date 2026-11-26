@@ -27,6 +27,20 @@ describe('resolveSyncOutboundPolicy', () => {
 		});
 	});
 
+	it('allows local repositories without enabling network access', async () => {
+		writeConfig(`
+project_name: local
+repos:
+  - name: docs
+    local_path: sources/docs
+`);
+		fs.mkdirSync(path.join(project, 'sources', 'docs'), { recursive: true });
+
+		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
+			mode: 'disabled',
+		});
+	});
+
 	it.each(['md:analytics', 'motherduck:analytics'])(
 		'allows MotherDuck hosts for a legacy DuckDB path %s',
 		async (databasePath) => {

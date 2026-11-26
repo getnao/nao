@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { env } from '../env';
 import { logger } from '../utils/logger';
+import { extractRepoTargetFolders } from '../utils/nao-config';
 import { sandboxRuntime } from './sandbox-runtime';
 import { resolveSyncOutboundPolicy } from './sync-egress-policy';
 
@@ -32,6 +33,7 @@ interface StagedProject {
 	files: Map<string, number>;
 	directories: Set<string>;
 	templateOutputs: Set<string>;
+	outputRoots: string[];
 }
 
 interface ProjectEntry {
@@ -89,7 +91,7 @@ export async function runNaoCommandInSandbox(
 	};
 	try {
 		await buffer.addLine('Preparing project files.');
-		const staged = copyProjectIn(projectPath, stagingDir);
+		const staged = copyProjectIn(projectPath, stagingDir, projectEnvVars);
 		await buffer.addLine('Preparing the secure sync environment. The first run may take a few minutes.');
 		const box = await runtime.create({
 			image: NAO_SANDBOX_IMAGE,
@@ -176,8 +178,16 @@ function deploymentInfrastructureHosts(): string[] {
 	});
 }
 
-function copyProjectIn(projectPath: string, stagingDir: string): StagedProject {
-	const staged: StagedProject = { files: new Map(), directories: new Set(), templateOutputs: new Set() };
+function copyProjectIn(projectPath: string, stagingDir: string, projectEnvVars: Record<string, string>): StagedProject {
+	const staged: StagedProject = {
+		files: new Map(),
+		directories: new Set(),
+		templateOutputs: new Set(),
+		outputRoots: [
+			...SYNC_OUTPUT_ROOTS,
+			...extractRepoTargetFolders(projectPath, projectEnvVars).map((target) => target.split('/').join(path.sep)),
+		],
+	};
 	for (const { relativePath, isDirectory } of listProjectEntries(projectPath)) {
 		const stagedPath = path.join(stagingDir, relativePath);
 		if (isDirectory) {
@@ -273,14 +283,14 @@ function assertSyncOutputWithinLimits(stagingDir: string, results: ProjectEntry[
 
 function isAllowedCopyBackFile(relativePath: string, staged: StagedProject): boolean {
 	return (
-		SYNC_OUTPUT_ROOTS.some((root) => relativePath.startsWith(`${root}${path.sep}`)) ||
+		staged.outputRoots.some((root) => relativePath.startsWith(`${root}${path.sep}`)) ||
 		staged.templateOutputs.has(relativePath)
 	);
 }
 
 function isAllowedCopyBackDirectory(relativePath: string, staged: StagedProject): boolean {
 	return (
-		SYNC_OUTPUT_ROOTS.some(
+		staged.outputRoots.some(
 			(root) =>
 				relativePath === root ||
 				relativePath.startsWith(`${root}${path.sep}`) ||
