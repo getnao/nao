@@ -69,7 +69,7 @@ export async function getCreditTopUpPurchase(stripeCheckoutSessionId: string): P
 	}
 	const creditAmountCents = metadataInteger(session, CREDIT_AMOUNT_METADATA_KEY);
 	const walletAmountMicroUsd = metadataInteger(session, WALLET_AMOUNT_METADATA_KEY);
-	const platformFeeCents = metadataInteger(session, PLATFORM_FEE_METADATA_KEY);
+	const platformFeeCents = metadataInteger(session, PLATFORM_FEE_METADATA_KEY, 0);
 	const subtotalAmountCents = creditAmountCents + platformFeeCents;
 	if (
 		walletAmountMicroUsd !== creditAmountCents * MICRO_USD_PER_CENT ||
@@ -265,9 +265,9 @@ function validateCreditTopUpLineItems(
 	}
 }
 
-function metadataInteger(session: Stripe.Checkout.Session, key: string): number {
+function metadataInteger(session: Stripe.Checkout.Session, key: string, minimum = 1): number {
 	const value = Number(session.metadata?.[key]);
-	if (!Number.isSafeInteger(value) || value <= 0) {
+	if (!Number.isSafeInteger(value) || value < minimum) {
 		throw new Error(`Stripe Checkout Session "${session.id}" has invalid ${key} metadata`);
 	}
 	return value;

@@ -577,15 +577,26 @@ describe('cloud Checkout', () => {
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
 	});
 
-	it('honours the platform fee the customer paid even after the fee rate changes', async () => {
-		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
-			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_050, amount_total: 2_250 }),
-		);
+	it.each([50, 0])(
+		'honours the %i cent platform fee the customer paid even after the fee rate changes',
+		async (platformFeeCents) => {
+			stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+				paidCreditTopUpSession({
+					platformFeeCents,
+					amount_subtotal: 2_000 + platformFeeCents,
+					amount_total: 2_200 + platformFeeCents,
+				}),
+			);
 
-		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
-			expect.objectContaining({ creditAmountCents: 2_000, platformFeeCents: 50, totalAmountCents: 2_250 }),
-		);
-	});
+			await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
+				expect.objectContaining({
+					creditAmountCents: 2_000,
+					platformFeeCents,
+					totalAmountCents: 2_200 + platformFeeCents,
+				}),
+			);
+		},
+	);
 
 	it('rejects a paid top-up whose line items disagree with its metadata', async () => {
 		stripeMocks.retrieveCheckoutSession.mockResolvedValue(

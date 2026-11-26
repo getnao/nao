@@ -120,12 +120,11 @@ describe('white-labeled emails', () => {
 		expect(stripReactComments(email.html)).not.toContain('on nao');
 	});
 
-	it('shows the configured trial length and user join reward in the trial email', async () => {
+	it('shows the saved trial length and user join reward in the trial email', async () => {
 		const email = await buildTrialStartedEmail(
 			{ name: 'Ana' },
 			20_000_000,
-			new Date('2026-10-31T00:00:00.000Z'),
-			30,
+			{ startedAt: new Date('2026-10-01T09:30:00.000Z'), endsAt: new Date('2026-10-31T09:30:00.000Z') },
 			5_500_000,
 		);
 
