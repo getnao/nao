@@ -120,14 +120,16 @@ describe('white-labeled emails', () => {
 		expect(stripReactComments(email.html)).not.toContain('on nao');
 	});
 
-	it('shows the configured user join reward in the trial email', async () => {
+	it('shows the configured trial length and user join reward in the trial email', async () => {
 		const email = await buildTrialStartedEmail(
 			{ name: 'Ana' },
 			20_000_000,
 			new Date('2026-10-31T00:00:00.000Z'),
+			30,
 			5_500_000,
 		);
 
+		expect(stripReactComments(email.html)).toContain('Your 30-day Fibi Cloud trial');
 		expect(stripReactComments(email.html)).toContain('earn an extra <strong>$5.50</strong> in shared credits');
 		expect(stripReactComments(email.html)).toContain(
 			'Subject to the current grant policy and organization limits.',

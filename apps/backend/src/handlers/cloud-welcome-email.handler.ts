@@ -32,11 +32,12 @@ async function sendUserWelcomeEmail(userId: string): Promise<void> {
 }
 
 async function sendTrialStartedEmail(organizationId: string): Promise<void> {
-	const [admin, grant, billing, userJoinPolicy] = await Promise.all([
+	const [admin, grant, billing, userJoinPolicy, billingPolicy] = await Promise.all([
 		organizationQueries.getEarliestOrganizationAdmin(organizationId),
 		creditWalletQueries.getOrganizationSetupCreditGrant(organizationId),
 		billingQueries.getOrganizationBilling(organizationId),
 		creditWalletQueries.getCreditGrantPolicy('user_join'),
+		billingQueries.getCloudBillingPolicy(),
 	]);
 	if (!admin || !grant || !billing?.trialEndsAt) {
 		logger.warn('Skipped cloud trial welcome email because required state is missing', {
@@ -56,6 +57,7 @@ async function sendTrialStartedEmail(organizationId: string): Promise<void> {
 			admin,
 			grant.amountMicroUsd,
 			billing.trialEndsAt,
+			billingPolicy.trialDays,
 			userJoinPolicy?.enabled ? userJoinPolicy.amountMicroUsd : undefined,
 		),
 	);

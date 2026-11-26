@@ -1,12 +1,5 @@
 import { ArrowRightIcon, Check } from 'lucide-react';
-import {
-	CLOUD_BILLING_CURRENCIES,
-	CLOUD_BILLING_PLANS,
-	FREE_TIER_SEAT_LIMIT,
-	TEAM_MAX_SEATS,
-	TEAM_MIN_SEATS,
-	findCloudBillingPlan,
-} from '@nao/shared/billing';
+import { CLOUD_BILLING_CURRENCIES, CLOUD_BILLING_PLANS, findCloudBillingPlan } from '@nao/shared/billing';
 import type {
 	CloudBillingCurrency,
 	CloudBillingInterval,
@@ -254,6 +247,7 @@ function PlanComparison({
 		offers.find((plan) => plan.tier === tier && plan.interval === planInterval)!;
 	const team = offer('team');
 	const unlimited = offer('unlimited');
+	const { freeSeatLimit, teamMinSeats, teamMaxSeats } = data.policy;
 	const intervalLabel = interval === 'monthly' ? 'month' : 'year';
 	const trialing = data.tier === 'trial';
 	const informational = data.trialAvailable;
@@ -334,7 +328,7 @@ function PlanComparison({
 					supportingText='No card required'
 					status={freeStatus}
 					features={[
-						`Full access for up to ${FREE_TIER_SEAT_LIMIT} people`,
+						`Full access for up to ${freeSeatLimit} people`,
 						'Unlimited viewers',
 						'Best for individuals and small teams',
 					]}
@@ -353,13 +347,13 @@ function PlanComparison({
 					supportingText={
 						teamStatus === 'current'
 							? `${formatCloudPlanPrice(team, data.seatQuantity)} for ${data.seatQuantity ?? '—'} seats`
-							: `Choose ${TEAM_MIN_SEATS}–${TEAM_MAX_SEATS} paid seats`
+							: `Choose ${teamMinSeats}–${teamMaxSeats} paid seats`
 					}
 					status={teamStatus}
 					recommended={!informational && data.recommendation === 'team'}
 					discount={interval === 'yearly' ? getYearlyDiscount(offer('team', 'monthly'), team) : null}
 					features={[
-						`Full access for ${TEAM_MIN_SEATS}–${TEAM_MAX_SEATS} people`,
+						`Full access for ${teamMinSeats}–${teamMaxSeats} people`,
 						'Add seats as your team grows',
 						'Reassign seats whenever your team changes',
 						'Unlimited viewers',
@@ -503,7 +497,7 @@ function getCurrentPlanOverview(data: CloudBillingStatus): PlanOverviewItem {
 	return {
 		badge: 'Now',
 		name: getCloudPlanName(data.tier, seats),
-		description: getCloudPlanDescription(data.tier, seats),
+		description: getCloudPlanDescription(data.tier, seats, data.policy.freeSeatLimit),
 		status:
 			paidAccess && data.cancellationScheduled
 				? 'Canceled'
@@ -528,7 +522,7 @@ function getNextPlanOverview(data: CloudBillingStatus): PlanOverviewItem {
 	const free = {
 		badge: trialing ? 'After trial' : 'At renewal',
 		name: 'Free',
-		description: getCloudPlanDescription('free', FREE_TIER_SEAT_LIMIT),
+		description: getCloudPlanDescription('free', null, data.policy.freeSeatLimit),
 		dateLabel: 'Free starts',
 		date: trialing ? data.trialEndsAt : data.currentPeriodEndsAt,
 	};
@@ -551,7 +545,7 @@ function getNextPlanOverview(data: CloudBillingStatus): PlanOverviewItem {
 		return {
 			badge: 'At renewal',
 			name: getCloudPlanName(pendingPlan.tier, data.pending.seats),
-			description: getCloudPlanDescription(pendingPlan.tier, data.pending.seats),
+			description: getCloudPlanDescription(pendingPlan.tier, data.pending.seats, data.policy.freeSeatLimit),
 			dateLabel: seatOnlyChange
 				? `Renews with ${data.pending.seats} seats`
 				: `${pendingPlan.tier === 'team' ? 'Team' : 'Unlimited'} starts`,
@@ -563,13 +557,13 @@ function getNextPlanOverview(data: CloudBillingStatus): PlanOverviewItem {
 	return {
 		badge: paidAccess ? 'At renewal' : 'Ongoing',
 		name: getCloudPlanName(data.tier, seats),
-		description: getCloudPlanDescription(data.tier, seats),
+		description: getCloudPlanDescription(data.tier, seats, data.policy.freeSeatLimit),
 		dateLabel: paidAccess ? 'Renews' : undefined,
 		date: paidAccess ? data.currentPeriodEndsAt : null,
 	};
 }
 
-function getCloudPlanDescription(tier: CloudBillingTier, seats: number | null) {
+function getCloudPlanDescription(tier: CloudBillingTier, seats: number | null, freeSeatLimit: number) {
 	if (tier === 'trial') {
 		return 'Full nao Cloud access for everyone while you try nao. No seat limits apply during the trial.';
 	}
@@ -577,7 +571,7 @@ function getCloudPlanDescription(tier: CloudBillingTier, seats: number | null) {
 		return `${seats ?? '—'} seats for people who need full access. Viewers are free.`;
 	}
 	if (tier === 'free') {
-		return `${FREE_TIER_SEAT_LIMIT} full-access seats and unlimited viewers. Everyone else keeps read-only access.`;
+		return `${freeSeatLimit} full-access seats and unlimited viewers. Everyone else keeps read-only access.`;
 	}
 	return 'Full access for everyone in your organization.';
 }

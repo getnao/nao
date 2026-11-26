@@ -1,6 +1,6 @@
 import { ArrowRightIcon, CheckIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { TEAM_MAX_SEATS, TEAM_MIN_SEATS } from '@nao/shared/billing';
+import type { CloudBillingPolicy } from '@nao/shared/billing';
 
 import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plans';
 import type { CloudBillingChangePreview } from '@/hooks/use-organization-billing';
@@ -23,10 +23,12 @@ export type CloudBillingChangeDialogPreview = Omit<CloudBillingChangePreview, 'p
 	Partial<Pick<CloudBillingChangePreview, 'promotionCodeDiscount'>>;
 
 type PlanSummary = { badge: string; name: string; price?: string };
+type TeamSeatRange = Pick<CloudBillingPolicy, 'teamMinSeats' | 'teamMaxSeats'>;
 
 /**
  * Without `onCheckout`, the admin reviews Stripe's totals before confirming, and confirmation is only
  * offered for a preview that matches the current inputs and whose token has not expired.
+ * Without `teamSeats`, a Team plan keeps `initialSeats` instead of letting the admin choose.
  */
 export function CloudBillingChangeDialog({
 	open,
@@ -36,7 +38,7 @@ export function CloudBillingChangeDialog({
 	plan,
 	current,
 	initialSeats = null,
-	fixedSeats = false,
+	teamSeats,
 	allowPromotionCode = true,
 	seatUserCount,
 	onCheckout,
@@ -50,7 +52,7 @@ export function CloudBillingChangeDialog({
 	plan: CloudPlanOffer | null;
 	current?: PlanSummary | null;
 	initialSeats?: number | null;
-	fixedSeats?: boolean;
+	teamSeats?: TeamSeatRange;
 	allowPromotionCode?: boolean;
 	seatUserCount: number;
 	onCheckout?: (seats?: number) => Promise<unknown>;
@@ -77,9 +79,9 @@ export function CloudBillingChangeDialog({
 		return null;
 	}
 
-	const choosesSeats = plan.tier === 'team' && !fixedSeats;
-	const seats = choosesSeats ? parseTeamSeats(seatInput) : (initialSeats ?? undefined);
-	const missingSeats = choosesSeats && seats === undefined;
+	const seatRange = plan.tier === 'team' ? teamSeats : undefined;
+	const seats = seatRange ? parseTeamSeats(seatInput, seatRange) : (initialSeats ?? undefined);
+	const missingSeats = seatRange !== undefined && seats === undefined;
 	const normalizedPromotionCode = promotionCode.trim();
 	const inputs = `${seats ?? ''}:${normalizedPromotionCode}`;
 	const reviewedPreview = preview && reviewedInputs === inputs ? preview : null;
@@ -142,7 +144,7 @@ export function CloudBillingChangeDialog({
 						</div>
 					)}
 
-					{choosesSeats && (
+					{seatRange && (
 						<div className='rounded-xl border border-border'>
 							<div className='flex items-center justify-between gap-4 p-4'>
 								<div className='min-w-0'>
@@ -153,7 +155,8 @@ export function CloudBillingChangeDialog({
 										Paid seats
 									</label>
 									<p className='mt-0.5 text-xs text-muted-foreground'>
-										{TEAM_MIN_SEATS}–{TEAM_MAX_SEATS} seats · {formatCloudPlanPrice(plan, null)}
+										{seatRange.teamMinSeats}–{seatRange.teamMaxSeats} seats ·{' '}
+										{formatCloudPlanPrice(plan, null)}
 									</p>
 								</div>
 								<Input
@@ -161,13 +164,17 @@ export function CloudBillingChangeDialog({
 									type='text'
 									inputMode='numeric'
 									autoComplete='off'
-									placeholder={String(TEAM_MIN_SEATS)}
+									placeholder={String(seatRange.teamMinSeats)}
 									value={seatInput}
 									disabled={isPending}
 									aria-invalid={seatInput !== '' && missingSeats}
 									className='w-20 shrink-0 text-center'
 									onChange={(event) => {
-										setSeatInput(event.target.value.replace(/\D/g, '').slice(0, 2));
+										setSeatInput(
+											event.target.value
+												.replace(/\D/g, '')
+												.slice(0, String(seatRange.teamMaxSeats).length),
+										);
 										setError(null);
 									}}
 								/>
@@ -317,9 +324,9 @@ function formatPromotionPrice(preview: CloudBillingChangeDialogPreview, plan: Cl
 		: `${amount} / ${plan.interval === 'monthly' ? 'month' : 'year'}`;
 }
 
-function parseTeamSeats(input: string): number | undefined {
+function parseTeamSeats(input: string, { teamMinSeats, teamMaxSeats }: TeamSeatRange): number | undefined {
 	const seats = Number(input);
-	return input !== '' && Number.isInteger(seats) && seats >= TEAM_MIN_SEATS && seats <= TEAM_MAX_SEATS
+	return input !== '' && Number.isInteger(seats) && seats >= teamMinSeats && seats <= teamMaxSeats
 		? seats
 		: undefined;
 }

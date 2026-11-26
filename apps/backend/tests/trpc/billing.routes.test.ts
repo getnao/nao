@@ -42,8 +42,11 @@ vi.mock('../../src/queries/user.queries', () => ({
 	getUser: vi.fn(async () => ({ id: 'user-id', email: 'admin@example.com' })),
 }));
 
-vi.mock('../../src/queries/billing.queries', () => ({
+vi.mock('../../src/queries/billing.queries', async () => ({
 	attachStripeCustomer: stripeMocks.attachCustomer,
+	getCloudBillingPolicy: vi.fn(
+		async () => (await import('../helpers/cloud-billing-policy')).defaultCloudBillingPolicy,
+	),
 	getOrganizationBilling: vi.fn(async () => testState.billing),
 	getOrganizationWithBilling: vi.fn(async () =>
 		testState.membership?.organization

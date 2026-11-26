@@ -2,12 +2,8 @@ import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ArrowUpRight } from 'lucide-react';
-import {
-	calculateCreditTopUp,
-	CREDIT_TOP_UP_MAX_CENTS,
-	CREDIT_TOP_UP_MIN_CENTS,
-	formatMicroUsd,
-} from '@nao/shared/billing';
+import { calculateCreditTopUp, formatMicroUsd } from '@nao/shared/billing';
+import type { CreditTopUpPolicy } from '@nao/shared/billing';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -60,8 +56,6 @@ export function OrganizationCreditsContent({
 	const [topUpAmount, setTopUpAmount] = useState('20');
 	const [localActiveTab, setLocalActiveTab] = useState<OrganizationCreditsTab>('history');
 	const selectedTab = activeTab ?? localActiveTab;
-	const topUpAmountCents = parseUsdCents(topUpAmount);
-	const topUpBreakdown = topUpAmountCents === null ? null : calculateCreditTopUp(topUpAmountCents);
 	const selectTab = (tab: OrganizationCreditsTab) => {
 		setLocalActiveTab(tab);
 		onTabChange?.(tab);
@@ -80,7 +74,7 @@ export function OrganizationCreditsContent({
 								<CreditTopUpDialog
 									topUp={topUp}
 									topUpAmount={topUpAmount}
-									topUpBreakdown={topUpBreakdown}
+									policy={summary.data.policy}
 									onTopUpAmountChange={setTopUpAmount}
 								/>
 							)}
@@ -262,14 +256,17 @@ export function ManagedAiChargesContent({
 function CreditTopUpDialog({
 	topUp,
 	topUpAmount,
-	topUpBreakdown,
+	policy,
 	onTopUpAmountChange,
 }: {
 	topUp: ReturnType<typeof useCreditTopUp>;
 	topUpAmount: string;
-	topUpBreakdown: ReturnType<typeof calculateCreditTopUp> | null;
+	policy: CreditTopUpPolicy;
 	onTopUpAmountChange: (value: string) => void;
 }) {
+	const topUpAmountCents = parseUsdCents(topUpAmount, policy);
+	const topUpBreakdown = topUpAmountCents === null ? null : calculateCreditTopUp(topUpAmountCents, policy);
+	const amountRange = `from ${formatGiftUsd(policy.creditTopUpMinCents * 10_000)} to ${formatGiftUsd(policy.creditTopUpMaxCents * 10_000)}`;
 	return (
 		<Dialog>
 			<DialogTrigger asChild>
@@ -298,7 +295,7 @@ function CreditTopUpDialog({
 							/>
 							<span className='text-sm text-muted-foreground'>USD</span>
 						</div>
-						<p className='text-xs text-muted-foreground'>Choose an amount from $20 to $500.</p>
+						<p className='text-xs text-muted-foreground'>Choose an amount {amountRange}.</p>
 					</div>
 
 					<div className='rounded-md border border-border bg-muted/30 p-4'>
@@ -310,7 +307,9 @@ function CreditTopUpDialog({
 									<span>{formatUsdCents(topUpBreakdown.creditAmountCents)}</span>
 								</div>
 								<div className='flex justify-between gap-4'>
-									<span className='text-muted-foreground'>nao platform fee (5%)</span>
+									<span className='text-muted-foreground'>
+										nao platform fee ({policy.platformFeeBasisPoints / 100}%)
+									</span>
 									<span>{formatUsdCents(topUpBreakdown.platformFeeCents)}</span>
 								</div>
 								<div className='flex justify-between gap-4 border-t border-border pt-2 font-medium'>
@@ -319,7 +318,7 @@ function CreditTopUpDialog({
 								</div>
 							</div>
 						) : (
-							<p className='text-sm text-destructive'>Enter an amount from $20 to $500.</p>
+							<p className='text-sm text-destructive'>Enter an amount {amountRange}.</p>
 						)}
 						<p className='mt-3 text-xs text-muted-foreground'>
 							Applicable tax is calculated by Stripe. Your card issuer may convert this USD payment and
@@ -628,12 +627,12 @@ function getAdjustmentType(group: CreditLedgerGroup): string | null {
 	return typeof adjustmentType === 'string' ? adjustmentType : null;
 }
 
-function parseUsdCents(value: string): number | null {
+function parseUsdCents(value: string, policy: CreditTopUpPolicy): number | null {
 	if (!/^\d+(?:\.\d{1,2})?$/.test(value)) {
 		return null;
 	}
 	const cents = Math.round(Number(value) * 100);
-	return cents >= CREDIT_TOP_UP_MIN_CENTS && cents <= CREDIT_TOP_UP_MAX_CENTS ? cents : null;
+	return cents >= policy.creditTopUpMinCents && cents <= policy.creditTopUpMaxCents ? cents : null;
 }
 
 function formatUsdCents(cents: number): string {

@@ -290,7 +290,6 @@ export function OrgMembers() {
 					}
 				}
 				initialSeats={seatOffer ? seatOffer.seatQuantity + 1 : null}
-				fixedSeats
 				allowPromotionCode={false}
 				seatUserCount={0}
 				onPreview={() => previewMemberSeat.mutateAsync({ email: seatOffer!.email, role: 'user' })}

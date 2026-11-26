@@ -33,6 +33,10 @@ vi.mock('../../src/agents/managed-ai', () => ({
 
 vi.mock('../../src/queries/account.queries', () => ({}));
 
+vi.mock('../../src/queries/billing.queries', async () => ({
+	getCloudBillingPolicy: async () => (await import('../helpers/cloud-billing-policy')).defaultCloudBillingPolicy,
+}));
+
 vi.mock('../../src/queries/credit-wallet.queries', () => ({
 	getCreditSummary: mocks.getCreditSummary,
 	getOrganizationSetupCreditGrant: mocks.getOrganizationSetupCreditGrant,

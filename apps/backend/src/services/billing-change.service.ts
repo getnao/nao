@@ -10,7 +10,6 @@ import * as userQueries from '../queries/user.queries';
 import {
 	CLOUD_BILLING_PLANS,
 	type CloudBillingPlanKey,
-	FREE_TIER_SEAT_LIMIT,
 	isCloudBillingPlanKey,
 	isTerminalBillingStatus,
 } from '../types/billing';
@@ -82,7 +81,7 @@ export async function previewCloudChangeForAdmin(
 		planKey: input.targetPlanKey,
 		seats:
 			CLOUD_BILLING_PLANS[input.targetPlanKey].tier === 'team'
-				? planQuantity(input.targetPlanKey, input.seats)
+				? await planQuantity(input.targetPlanKey, input.seats)
 				: null,
 	};
 	if (target.planKey === state.billing.billingPlan && target.seats === state.billing.seatQuantity) {
@@ -114,7 +113,7 @@ export async function previewCloudMemberSeatForAdmin(
 	const user = await findMember(input);
 	return createPreview(state, {
 		planKey: state.billing.billingPlan,
-		seats: planQuantity(state.billing.billingPlan, await memberSeatTarget(state, user.id)),
+		seats: await planQuantity(state.billing.billingPlan, await memberSeatTarget(state, user.id)),
 		member: { userId: user.id, role: input.role },
 	});
 }
@@ -156,7 +155,8 @@ export async function switchCloudSubscriptionToFreeForAdmin(
 		throw new CloudBillingChangeConflictError('Cancel the pending plan change first');
 	}
 	if (input.selectedUserIds) {
-		await validateSeatSelection(input.organizationId, input.selectedUserIds, FREE_TIER_SEAT_LIMIT);
+		const { freeSeatLimit } = await billingQueries.getCloudBillingPolicy();
+		await validateSeatSelection(input.organizationId, input.selectedUserIds, freeSeatLimit);
 	}
 	await billingQueries.setPendingFreeSeatSelection(input.organizationId, input.selectedUserIds ?? null);
 	await setCloudSubscriptionCancellation({

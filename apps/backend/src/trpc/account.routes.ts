@@ -6,6 +6,7 @@ import { isManagedAiEnabled } from '../agents/managed-ai';
 import type { DBProject } from '../db/abstractSchema';
 import { isCloud, isCloudBillingEnabled } from '../env';
 import * as accountQueries from '../queries/account.queries';
+import * as billingQueries from '../queries/billing.queries';
 import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
 import * as orgQueries from '../queries/organization.queries';
@@ -64,8 +65,11 @@ const walletAdminProcedure = walletMemberProcedure.use(async ({ ctx, next }) => 
 export const accountRoutes = {
 	getManagedCreditStatus: projectProtectedProcedure.query(({ ctx }) => getManagedCreditStatus(ctx.project)),
 	getCreditSummary: walletAdminProcedure.query(async ({ ctx }) => {
-		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
-		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled() };
+		const [summary, policy] = await Promise.all([
+			creditWalletQueries.getCreditSummary(ctx.membership.orgId),
+			billingQueries.getCloudBillingPolicy(),
+		]);
+		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled(), policy };
 	}),
 	/** Setup credits are only welcomed where cloud billing runs, so self-hosted and unbilled instances never show them. */
 	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>

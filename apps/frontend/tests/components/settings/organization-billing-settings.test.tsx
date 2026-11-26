@@ -138,19 +138,24 @@ it('refuses to seat someone when every seat is in use', () => {
 	expect(mocks.selectSeats).not.toHaveBeenCalled();
 });
 
-it('keeps admins and up to the Free limit seated when switching to Free', async () => {
+it.each([
+	[3, ['a', 'b'], 'c'],
+	[2, ['a'], 'b'],
+])('keeps admins and up to %i Free seats seated when switching to Free', async (freeSeatLimit, kept, readOnly) => {
 	mocks.data = paidTeam({
 		members: [{ ...admin, seated: true }, member('a', true), member('b', true), member('c', true)],
+		policy: { ...status().policy, freeSeatLimit },
 	});
 	render(<OrganizationBillingSettings search={{}} />);
 
 	fireEvent.click(screen.getByRole('button', { name: 'Switch to Free' }));
-	expect((screen.getByRole('checkbox', { name: 'Keep Member c seated on Free' }) as HTMLButtonElement).disabled).toBe(
-		true,
-	);
+	expect(
+		(screen.getByRole('checkbox', { name: `Keep Member ${readOnly} seated on Free` }) as HTMLButtonElement)
+			.disabled,
+	).toBe(true);
 	fireEvent.click(screen.getByRole('button', { name: 'Confirm switch to Free' }));
 
-	await waitFor(() => expect(mocks.switchToFree).toHaveBeenCalledWith(['a', 'b']));
+	await waitFor(() => expect(mocks.switchToFree).toHaveBeenCalledWith(kept));
 });
 
 it('blocks new plan choices until a scheduled change is canceled', () => {
@@ -189,6 +194,15 @@ function status(overrides: Partial<CloudBillingStatus> = {}): CloudBillingStatus
 		seatLimit: 3,
 		members: [{ ...admin, seated: true }],
 		recommendation: 'team',
+		policy: {
+			trialDays: 14,
+			freeSeatLimit: 3,
+			teamMinSeats: 4,
+			teamMaxSeats: 40,
+			creditTopUpMinCents: 2_000,
+			creditTopUpMaxCents: 50_000,
+			platformFeeBasisPoints: 500,
+		},
 		status: null,
 		trialStartedAt: new Date('2026-09-24T00:00:00.000Z'),
 		trialEndsAt: new Date('2026-10-08T00:00:00.000Z'),

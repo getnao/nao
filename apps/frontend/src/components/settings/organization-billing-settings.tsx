@@ -1,6 +1,5 @@
 import { RefreshCwIcon } from 'lucide-react';
 import { useState } from 'react';
-import { TEAM_MAX_SEATS, TEAM_MIN_SEATS } from '@nao/shared/billing';
 
 import type { OrganizationCreditsTab } from '@/components/settings/credits-wallet-content';
 import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plans';
@@ -155,6 +154,7 @@ export function OrganizationBillingSettings({
 						open={dialog?.kind === 'change'}
 						onOpenChange={(open) => !open && setDialog(null)}
 						{...getChangeDialogProps(data, dialog)}
+						teamSeats={data.policy}
 						seatUserCount={data.members.length}
 						onCheckout={
 							dialog?.kind === 'change' && dialog.checkout
@@ -210,7 +210,7 @@ function getChangeDialogProps(data: CloudBillingStatus, dialog: BillingDialog | 
 			title: `Choose ${tierName} seats`,
 			description: 'Choose how many full-access seats to pay for. Viewers remain free.',
 			plan: dialog.plan,
-			initialSeats: Math.min(TEAM_MAX_SEATS, Math.max(TEAM_MIN_SEATS, data.members.length)),
+			initialSeats: Math.min(data.policy.teamMaxSeats, Math.max(data.policy.teamMinSeats, data.members.length)),
 		};
 	}
 	const currentOffer = getCurrentPlanOffer(data);

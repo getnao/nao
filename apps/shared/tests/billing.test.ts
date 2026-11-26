@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-	calculateCreditTopUp,
-	CREDIT_TOP_UP_MAX_CENTS,
-	CREDIT_TOP_UP_MIN_CENTS,
-	formatMicroUsd,
-	isTerminalBillingStatus,
-	isTrialAvailable,
-} from '../src/billing';
+import { calculateCreditTopUp, formatMicroUsd, isTerminalBillingStatus, isTrialAvailable } from '../src/billing';
+
+const topUpPolicy = { creditTopUpMinCents: 2_000, creditTopUpMaxCents: 50_000, platformFeeBasisPoints: 500 };
 
 describe('micro USD formatting', () => {
 	it.each([
@@ -28,7 +23,7 @@ describe('credit top-up pricing', () => {
 	])(
 		'calculates a separately rounded 5%% platform fee for %i cents',
 		(creditAmountCents, platformFeeCents, totalAmountCents, walletAmountMicroUsd) => {
-			expect(calculateCreditTopUp(creditAmountCents)).toEqual({
+			expect(calculateCreditTopUp(creditAmountCents, topUpPolicy)).toEqual({
 				creditAmountCents,
 				platformFeeCents,
 				totalAmountCents,
@@ -37,10 +32,10 @@ describe('credit top-up pricing', () => {
 		},
 	);
 
-	it.each([CREDIT_TOP_UP_MIN_CENTS - 1, CREDIT_TOP_UP_MAX_CENTS + 1, 2_000.5])(
+	it.each([topUpPolicy.creditTopUpMinCents - 1, topUpPolicy.creditTopUpMaxCents + 1, 2_000.5])(
 		'rejects invalid amount %s',
 		(amount) => {
-			expect(() => calculateCreditTopUp(amount)).toThrow(RangeError);
+			expect(() => calculateCreditTopUp(amount, topUpPolicy)).toThrow(RangeError);
 		},
 	);
 });

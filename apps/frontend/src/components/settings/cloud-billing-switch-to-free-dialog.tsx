@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { FREE_TIER_SEAT_LIMIT } from '@nao/shared/billing';
 
 import type { CloudBillingStatus } from '@/hooks/use-organization-billing';
 import { Button } from '@/components/ui/button';
@@ -32,9 +31,9 @@ export function CloudBillingSwitchToFreeDialog({
 	const effectiveAt = trialing ? data.trialEndsAt : data.currentPeriodEndsAt;
 	const adminIds = data.members
 		.filter((member) => member.membershipClass === 'org_admin')
-		.slice(0, FREE_TIER_SEAT_LIMIT)
+		.slice(0, data.policy.freeSeatLimit)
 		.map((member) => member.id);
-	const selectableLimit = Math.max(0, FREE_TIER_SEAT_LIMIT - adminIds.length);
+	const selectableLimit = Math.max(0, data.policy.freeSeatLimit - adminIds.length);
 
 	useEffect(() => {
 		if (open) {

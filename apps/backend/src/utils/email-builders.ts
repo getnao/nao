@@ -13,7 +13,6 @@ import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { VerifyEmail } from '../components/email/verify-email';
 import { Welcome } from '../components/email/welcome';
 import { env } from '../env';
-import { CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
 import type { NotificationTable } from '../types/notification';
 import { type EmailBranding, resolveEmailBranding } from './email-branding';
@@ -40,6 +39,7 @@ export async function buildTrialStartedEmail(
 	user: { name: string },
 	creditAmountMicroUsd: number,
 	trialEndsAt: Date,
+	trialDays: number,
 	userJoinCreditAmountMicroUsd?: number,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
@@ -55,7 +55,7 @@ export async function buildTrialStartedEmail(
 				userJoinCreditAmountMicroUsd === undefined
 					? undefined
 					: formatCreditAmount(userJoinCreditAmountMicroUsd),
-			trialDays: CLOUD_BILLING_TRIAL_DAYS,
+			trialDays,
 			trialEndDate: new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trialEndsAt),
 			branding,
 		}),

@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/env', () => ({ isCloud: true, isCloudBillingEnabled: mocks.isCloudBillingEnabled }));
 vi.mock('../../src/queries/organization-seat.queries', () => ({ listOrgSeatCandidates: mocks.listOrgSeatCandidates }));
-vi.mock('../../src/queries/billing.queries', () => ({ getOrganizationWithBilling: mocks.getOrganizationWithBilling }));
+vi.mock('../../src/queries/billing.queries', async () => ({
+	getOrganizationWithBilling: mocks.getOrganizationWithBilling,
+	getCloudBillingPolicy: async () => (await import('../helpers/cloud-billing-policy')).defaultCloudBillingPolicy,
+}));
 vi.mock('../../src/queries/organization.queries', () => ({
 	isOrganizationDeactivated: mocks.isOrganizationDeactivated,
 }));

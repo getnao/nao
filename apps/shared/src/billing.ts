@@ -19,9 +19,22 @@ export const CLOUD_BILLING_CURRENCIES = ['usd', 'eur'] as const;
 export type CloudBillingCurrency = (typeof CLOUD_BILLING_CURRENCIES)[number];
 
 export const CREDIT_TOP_UP_CURRENCY = 'usd';
-export const CREDIT_TOP_UP_MIN_CENTS = 2_000;
-export const CREDIT_TOP_UP_MAX_CENTS = 50_000;
-export const CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS = 500;
+
+/** Adjustable amounts stored in the `cloud_billing_policy` table so they change without a redeploy. */
+export type CloudBillingPolicy = {
+	trialDays: number;
+	freeSeatLimit: number;
+	teamMinSeats: number;
+	teamMaxSeats: number;
+	creditTopUpMinCents: number;
+	creditTopUpMaxCents: number;
+	platformFeeBasisPoints: number;
+};
+
+export type CreditTopUpPolicy = Pick<
+	CloudBillingPolicy,
+	'creditTopUpMinCents' | 'creditTopUpMaxCents' | 'platformFeeBasisPoints'
+>;
 
 export function formatMicroUsd(
 	microUsd: number,
@@ -36,7 +49,10 @@ export function formatMicroUsd(
 	}).format(microUsd / 1_000_000);
 }
 
-export function calculateCreditTopUp(creditAmountCents: number): {
+export function calculateCreditTopUp(
+	creditAmountCents: number,
+	policy: CreditTopUpPolicy,
+): {
 	creditAmountCents: number;
 	platformFeeCents: number;
 	totalAmountCents: number;
@@ -44,14 +60,14 @@ export function calculateCreditTopUp(creditAmountCents: number): {
 } {
 	if (
 		!Number.isSafeInteger(creditAmountCents) ||
-		creditAmountCents < CREDIT_TOP_UP_MIN_CENTS ||
-		creditAmountCents > CREDIT_TOP_UP_MAX_CENTS
+		creditAmountCents < policy.creditTopUpMinCents ||
+		creditAmountCents > policy.creditTopUpMaxCents
 	) {
 		throw new RangeError(
-			`Credit top-up amount must be between ${CREDIT_TOP_UP_MIN_CENTS} and ${CREDIT_TOP_UP_MAX_CENTS} cents`,
+			`Credit top-up amount must be between ${policy.creditTopUpMinCents} and ${policy.creditTopUpMaxCents} cents`,
 		);
 	}
-	const platformFeeCents = Math.ceil((creditAmountCents * CREDIT_TOP_UP_PLATFORM_FEE_BASIS_POINTS) / 10_000);
+	const platformFeeCents = Math.ceil((creditAmountCents * policy.platformFeeBasisPoints) / 10_000);
 	return {
 		creditAmountCents,
 		platformFeeCents,
@@ -59,11 +75,6 @@ export function calculateCreditTopUp(creditAmountCents: number): {
 		walletAmountMicroUsd: creditAmountCents * 10_000,
 	};
 }
-
-export const CLOUD_BILLING_TRIAL_DAYS = 14;
-export const FREE_TIER_SEAT_LIMIT = 3;
-export const TEAM_MIN_SEATS = 4;
-export const TEAM_MAX_SEATS = 40;
 
 /** Unit amounts are in cents and identical in USD and EUR; Stripe Prices are validated against them. */
 export const CLOUD_BILLING_PLANS = {
