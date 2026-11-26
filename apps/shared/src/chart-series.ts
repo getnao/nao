@@ -78,11 +78,27 @@ export function useSeriesVisibility(series: displayChart.SeriesConfig[]) {
 		});
 	}, []);
 
+	const handleIsolateSeries = useCallback(
+		(dataKey: string) => {
+			const seriesKeys = series.map((s) => s.data_key);
+			setHiddenSeriesKeys((prev) => isolateSeries(seriesKeys, prev, dataKey));
+		},
+		[series],
+	);
+
 	return {
 		visibleSeries,
 		hiddenSeriesKeys,
 		handleToggleSeriesVisibility,
+		handleIsolateSeries,
 	};
+}
+
+/** Hides every series but `dataKey`, or shows them all again when `dataKey` is already the only one shown. */
+export function isolateSeries(seriesKeys: string[], hiddenSeriesKeys: Set<string>, dataKey: string): Set<string> {
+	const otherKeys = seriesKeys.filter((key) => key !== dataKey);
+	const isAlreadyIsolated = !hiddenSeriesKeys.has(dataKey) && otherKeys.every((key) => hiddenSeriesKeys.has(key));
+	return isAlreadyIsolated ? new Set() : new Set(otherKeys);
 }
 
 export function buildSeriesChartConfig(

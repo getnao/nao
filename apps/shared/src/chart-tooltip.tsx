@@ -228,6 +228,7 @@ type LegendContentProps = React.ComponentProps<'div'> &
 		hideIcon?: boolean;
 		nameKey?: string;
 		onItemClick?: (dataKey: string) => void;
+		onItemDoubleClick?: (dataKey: string) => void;
 		payload?: (Payload & { isHidden?: boolean })[];
 		cn?: ClassNameMerger;
 	};
@@ -242,6 +243,7 @@ export function ChartLegendContent({
 	align = 'center',
 	nameKey,
 	onItemClick,
+	onItemDoubleClick,
 	cn = joinClassNames,
 }: LegendContentProps) {
 	const { config } = useChart();
@@ -282,6 +284,7 @@ export function ChartLegendContent({
 								item.isHidden && 'nao-chart-legend__item--hidden opacity-40',
 							)}
 							onClick={() => onItemClick?.(dataKey)}
+							onDoubleClick={() => onItemDoubleClick?.(dataKey)}
 							{...partAttributes({
 								kind: 'legend-item',
 								series: dataKey,

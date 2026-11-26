@@ -124,7 +124,8 @@ function ChartBody({ chartType, xAxisKey, height, showLegend, showGrid, options,
 	});
 	const theme = useStoryTheme();
 	const gradientIdPrefix = useId();
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility, handleIsolateSeries } =
+		useSeriesVisibility(series);
 	const isDualAxis = isComboChart(chartType) && visibleSeries.some((item) => item.y_axis === 'right');
 	const pie = isPieChart(chartType) && series[0] ? piePresentation(rows, xAxisKey, series[0]) : null;
 
@@ -176,7 +177,12 @@ function ChartBody({ chartType, xAxisKey, height, showLegend, showGrid, options,
 					layout='horizontal'
 					align='center'
 					verticalAlign='bottom'
-					content={<ChartLegendContent onItemClick={pie ? undefined : handleToggleSeriesVisibility} />}
+					content={
+						<ChartLegendContent
+							onItemClick={pie ? undefined : handleToggleSeriesVisibility}
+							onItemDoubleClick={pie ? undefined : handleIsolateSeries}
+						/>
+					}
 				/>
 			),
 		].filter(Boolean),

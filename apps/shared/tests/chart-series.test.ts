@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyBreakdown, type ChartBreakdownInput } from '../src/chart-series';
+import { applyBreakdown, type ChartBreakdownInput, isolateSeries } from '../src/chart-series';
 
 const VERSION_ROWS = [
 	{ week: '2026-11-09', nao_version: '0.4.2', domains: 26 },
@@ -125,5 +125,23 @@ describe('applyBreakdown', () => {
 
 		expect(result.rows).toBe(VERSION_ROWS);
 		expect(result.series).toEqual([{ data_key: 'domains', color: '#123456' }]);
+	});
+});
+
+describe('isolateSeries', () => {
+	const seriesKeys = ['revenue', 'cost', 'margin'];
+
+	it.each([
+		{ name: 'hides every other series', hidden: [], dataKey: 'cost', expected: ['revenue', 'margin'] },
+		{ name: 'shows a hidden series alone', hidden: ['cost'], dataKey: 'cost', expected: ['revenue', 'margin'] },
+		{ name: 'shows all series again once isolated', hidden: ['revenue', 'margin'], dataKey: 'cost', expected: [] },
+		{
+			name: 'switches the isolated series',
+			hidden: ['revenue', 'margin'],
+			dataKey: 'revenue',
+			expected: ['cost', 'margin'],
+		},
+	])('$name', ({ hidden, dataKey, expected }) => {
+		expect([...isolateSeries(seriesKeys, new Set(hidden), dataKey)]).toEqual(expected);
 	});
 });
