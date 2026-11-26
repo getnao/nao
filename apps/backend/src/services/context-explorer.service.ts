@@ -27,6 +27,7 @@ import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath 
 import type { GitIdentity } from '../utils/git-identity';
 import { contextWorktreeLockKey, withKeyedLock } from '../utils/keyed-lock';
 import { logger, serializeError } from '../utils/logger';
+import { extractRepoTargetFolders } from '../utils/nao-config';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -53,6 +54,7 @@ const FRONTMATTER_READ_SIZE = 8 * 1024;
 /** Context admins manage tests here, while .naoignore keeps them away from the agent. */
 const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: [TESTS_FOLDER] };
 const EDITABLE: FileEditability = { isEditable: true, reason: null, guidance: null };
+const SYNCED_SOURCE_FOLDERS = ['repos', 'docs/notion', 'docs/confluence', 'docs/obsidian'];
 
 export interface FileEditability {
 	isEditable: boolean;
@@ -216,7 +218,7 @@ export function getFileEditability(
 	if (access.git.status === 'unavailable' && !access.managedRepository) {
 		return unavailableGitEditability(access.git.reason, access.git.message, access.git.repo?.provider);
 	}
-	const sourceEditability = getSourceEditability(filePath, realPath);
+	const sourceEditability = getSourceEditability(filePath, realPath, access.projectFolder);
 	if (sourceEditability) {
 		return sourceEditability;
 	}
@@ -228,7 +230,7 @@ export function getFileEditability(
 }
 
 /** Files that another source produces, so editing them here would be overwritten. */
-function getSourceEditability(filePath: string, realPath: string): FileEditability | null {
+function getSourceEditability(filePath: string, realPath: string, projectFolder: string): FileEditability | null {
 	const projectPath = normalizeProjectPath(filePath);
 	if (hasGeneratedFrontmatter(realPath)) {
 		const annotationsPath = siblingPathIfExists(filePath, realPath, 'annotations.md');
@@ -255,18 +257,8 @@ function getSourceEditability(filePath: string, realPath: string): FileEditabili
 			actionLabel: 'Open template',
 		});
 	}
-	if (
-		projectPath.startsWith('repos/') ||
-		projectPath.startsWith('docs/notion/') ||
-		projectPath.startsWith('docs/confluence/') ||
-		projectPath.startsWith('docs/obsidian/')
-	) {
-		return readOnly('synced-source', {
-			message: 'This path is replaced by nao sync. Change its source in nao_config.yaml.',
-			actionKind: 'file',
-			actionPath: '/nao_config.yaml',
-			actionLabel: 'Open nao_config.yaml',
-		});
+	if (isSyncedSourcePath(projectPath, projectFolder)) {
+		return readOnly('synced-source', null);
 	}
 	return null;
 }
@@ -295,6 +287,7 @@ export async function createDraftFile(
 	await assertBranchEditable(access.git.repo, access);
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(access.git.repo));
+	assertEditability(getSourceEditability(filePath, livePath, access.projectFolder) ?? EDITABLE);
 	assertFileDoesNotExist(livePath, filePath);
 	assertFileDoesNotExist(realPath, filePath);
 
@@ -327,7 +320,7 @@ async function readNaoDraftFileContent(
 	const contentBuffer = draftFile
 		? Buffer.from(draftFile.content, 'utf-8')
 		: await readValidatedFile(livePath, filePath);
-	const editability = getNaoDraftEditability(filePath, livePath);
+	const editability = getNaoDraftEditability(filePath, livePath, access.projectFolder);
 	return {
 		content: decodeTextContent(contentBuffer),
 		hash: hashContent(contentBuffer),
@@ -345,7 +338,7 @@ async function writeNaoDraftFile(
 	access: ContextExplorerFileAccess,
 ): Promise<FileWriteResponse> {
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
-	assertEditability(getNaoDraftEditability(filePath, livePath));
+	assertEditability(getNaoDraftEditability(filePath, livePath, access.projectFolder));
 	const projectPath = normalizeProjectPath(filePath);
 	const draftFile = await contextDraftQueries.getDraftFile(access.draftOwner, projectPath);
 	const liveContent = fsSync.existsSync(livePath) ? await readValidatedFile(livePath, filePath) : null;
@@ -386,7 +379,7 @@ async function addNaoDraftFile(
 	access: ContextExplorerFileAccess,
 ): Promise<FileWriteResponse> {
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
-	assertEditability(getNaoDraftEditability(filePath, livePath));
+	assertEditability(getNaoDraftEditability(filePath, livePath, access.projectFolder));
 	assertFileDoesNotExist(livePath, filePath);
 	const added = await contextDraftQueries.addDraftFile(access.draftOwner, {
 		path: normalizeProjectPath(filePath),
@@ -398,13 +391,20 @@ async function addNaoDraftFile(
 	return { hash: hashContent(contentBuffer) };
 }
 
-function getNaoDraftEditability(filePath: string, livePath: string): FileEditability {
-	const sourceEditability = getSourceEditability(filePath, livePath);
+/** Folders `nao sync` replaces, among them the folders the repositories' targets are synced to. */
+function isSyncedSourcePath(projectPath: string, projectFolder: string): boolean {
+	return [...SYNCED_SOURCE_FOLDERS, ...extractRepoTargetFolders(projectFolder)].some((folder) =>
+		projectPath.startsWith(`${folder}/`),
+	);
+}
+
+function getNaoDraftEditability(filePath: string, livePath: string, projectFolder: string): FileEditability {
+	const sourceEditability = getSourceEditability(filePath, livePath, projectFolder);
 	if (sourceEditability) {
 		return sourceEditability;
 	}
 	if (isProductionOnly(normalizeProjectPath(filePath))) {
-		return readOnly('production-only', guidanceForReason('production-only'));
+		return readOnly('production-only', null);
 	}
 	return EDITABLE;
 }
@@ -511,7 +511,7 @@ async function createManagedFile(
 	managedRepository: { repoFullName: string; author: GitIdentity },
 ): Promise<FileWriteResponse> {
 	const { realPath, root } = resolveAndValidatePath(filePath, access.projectFolder);
-	const sourceEditability = getSourceEditability(filePath, realPath);
+	const sourceEditability = getSourceEditability(filePath, realPath, access.projectFolder);
 	if (sourceEditability) {
 		assertEditability(sourceEditability);
 	}
@@ -1055,16 +1055,19 @@ function unavailableGitEditability(
 	return readOnly(reason, { ...guidanceForReason(reason, provider), message });
 }
 
-function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance): FileEditability {
+function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance | null): FileEditability {
 	return { isEditable: false, reason, guidance };
 }
 
+/** Files only production may change are read-only without a note: there is nothing for the user to do about them. */
+type GuidedEditabilityReason = Exclude<FileEditabilityReason, 'production-only'>;
+
 function guidanceForReason(
-	reason: FileEditabilityReason,
+	reason: GuidedEditabilityReason,
 	provider?: ContextRepoState['provider'],
 ): FileEditabilityGuidance {
 	const providerName = getRepoProviderDisplayName(provider);
-	const guidance: Record<FileEditabilityReason, FileEditabilityGuidance> = {
+	const guidance: Record<GuidedEditabilityReason, FileEditabilityGuidance> = {
 		'github-unavailable': {
 			message: `${providerName} is not configured for this instance.`,
 			actionKind: 'route',
@@ -1144,13 +1147,6 @@ function guidanceForReason(
 			actionPath: null,
 			actionLabel: null,
 		},
-		'production-only': {
-			message:
-				'This file holds connections or credentials, so tests always run with the production version. Change it where the project is deployed.',
-			actionKind: null,
-			actionPath: null,
-			actionLabel: null,
-		},
 	};
 	return guidance[reason];
 }
@@ -1191,7 +1187,7 @@ function toFileError(error: unknown, filePath: string): TRPCError {
 		message.includes('ignored by .naoignore') ||
 		message.includes('symlink')
 	) {
-		return new TRPCError({ code: 'FORBIDDEN', message });
+		return new TRPCError({ code: 'FORBIDDEN', message, cause: error });
 	}
 
 	return new TRPCError({ code: 'BAD_REQUEST', message: message || `Unable to access file: ${filePath}` });

@@ -1,4 +1,4 @@
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, lte, or, sql } from 'drizzle-orm';
 
 import s, { type DBScheduledJob, type NewScheduledJob } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -180,12 +180,54 @@ export const getJobById = async (id: string): Promise<DBScheduledJob | null> => 
 	return row ?? null;
 };
 
+export const listJobsByUniqueKeyPrefix = async (prefix: string): Promise<DBScheduledJob[]> => {
+	return db
+		.select()
+		.from(s.scheduledJob)
+		.where(like(s.scheduledJob.uniqueKey, `${prefix}%`))
+		.orderBy(s.scheduledJob.createdAt)
+		.execute();
+};
+
+export const getJobByUniqueKey = async (uniqueKey: string): Promise<DBScheduledJob | null> => {
+	const [row] = await db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, uniqueKey))
+		.limit(1)
+		.execute();
+	return row ?? null;
+};
+
 export const deleteJob = async (id: string): Promise<void> => {
 	await db.delete(s.scheduledJob).where(eq(s.scheduledJob.id, id)).execute();
 };
 
 export const deleteJobByUniqueKey = async (uniqueKey: string): Promise<void> => {
 	await db.delete(s.scheduledJob).where(eq(s.scheduledJob.uniqueKey, uniqueKey)).execute();
+};
+
+/** Drops every job of a project: the ones keyed on the project itself, its automations and its stories. */
+export const deleteProjectJobs = async (projectId: string): Promise<void> => {
+	const automationIds = db
+		.select({ id: s.automation.id })
+		.from(s.automation)
+		.where(eq(s.automation.projectId, projectId));
+	const storyIds = db
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.chat.id, s.story.chatId))
+		.where(or(eq(s.story.projectId, projectId), eq(s.chat.projectId, projectId)));
+	await db
+		.delete(s.scheduledJob)
+		.where(
+			or(
+				eq(payloadField('projectId'), projectId),
+				inArray(payloadField('automationId'), automationIds),
+				inArray(payloadField('storyId'), storyIds),
+			),
+		)
+		.execute();
 };
 
 export const rescheduleJob = async (id: string, runAt: Date): Promise<void> => {
@@ -220,3 +262,9 @@ export const markJobFailed = async (id: string, error: string, nextRunAt: Date |
 export const updateJobPayload = async (id: string, payload: Record<string, unknown>): Promise<void> => {
 	await db.update(s.scheduledJob).set({ payload }).where(eq(s.scheduledJob.id, id)).execute();
 };
+
+function payloadField(field: string) {
+	return dbConfig.dialect === Dialect.Postgres
+		? sql<string | null>`${s.scheduledJob.payload}->>${field}`
+		: sql<string | null>`json_extract(${s.scheduledJob.payload}, ${`$.${field}`})`;
+}

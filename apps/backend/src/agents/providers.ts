@@ -39,6 +39,7 @@ import {
 	EFFORT_TO_BEDROCK,
 	EFFORT_TO_GEMINI_LEVEL,
 	EFFORT_TO_OPENAI,
+	findKnownModel,
 	getModelCapabilities,
 	isAnthropicApiModel,
 	OPENAI_COMPATIBLE_BASE_URLS,
@@ -143,10 +144,10 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const location = creds?.location || process.env.GOOGLE_VERTEX_LOCATION || 'global';
 
 			const googleAuthOptions = buildVertexAuthOptions(creds);
-			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
+			const config = { project, location, baseURL: settings.baseURL, fetch: settings.fetch, googleAuthOptions };
 
 			if (modelId.startsWith('claude-')) {
-				return createVertexAnthropic({ ...config, fetch: fetchWithUnforcedToolChoice })(modelId);
+				return createVertexAnthropic({ ...config, fetch: withUnforcedToolChoice(settings.fetch) })(modelId);
 			}
 			return createVertex(config)(modelId);
 		},
@@ -162,6 +163,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 
 			return createAzure({
 				apiKey: settings.apiKey,
+				fetch: settings.fetch,
 				...(settings.baseURL ? { baseURL: settings.baseURL } : resourceName ? { resourceName } : {}),
 				...(apiVersion && { apiVersion }),
 				...(useDeploymentBasedUrls && { useDeploymentBasedUrls }),
@@ -213,6 +215,7 @@ function createCompatibleModel(provider: LlmProvider, settings: ProviderSettings
 		name: provider,
 		baseURL,
 		apiKey: settings.apiKey,
+		fetch: settings.fetch,
 		includeUsage: true,
 		supportsStructuredOutputs: true,
 	}).chatModel(modelId);
@@ -321,8 +324,7 @@ export function createProviderModel(
 }
 
 export function getContextWindow(provider: LlmProvider, modelId: string): number {
-	const models = LLM_PROVIDERS[providerKind(provider)].models;
-	return models.find((m) => m.id === modelId)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+	return findKnownModel(provider, modelId)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 }
 
 function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOptions: object): object {
@@ -670,13 +672,15 @@ function mergeProviderOverrides(
  * The newest Claude models reject a forced tool call, which the SDK sends for `toolChoice: 'required'` and, on
  * Vertex, for every structured output. Every Claude model accepts the same request with `auto`.
  */
-const fetchWithUnforcedToolChoice = ((input, init) => {
-	const body = JSON.parse(init?.body as string);
-	if (body.tool_choice?.type === 'any') {
-		body.tool_choice.type = 'auto';
-	}
-	return fetch(input, { ...init, body: JSON.stringify(body) });
-}) as typeof fetch;
+function withUnforcedToolChoice(baseFetch: typeof fetch = fetch): typeof fetch {
+	return ((input, init) => {
+		const body = JSON.parse(init?.body as string);
+		if (body.tool_choice?.type === 'any') {
+			body.tool_choice.type = 'auto';
+		}
+		return baseFetch(input, { ...init, body: JSON.stringify(body) });
+	}) as typeof fetch;
+}
 
 function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);

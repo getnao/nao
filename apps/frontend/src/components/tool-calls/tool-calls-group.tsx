@@ -56,7 +56,7 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 								/>
 							);
 						}
-						return <ToolCall key={index} toolPart={part} />;
+						return <ToolCall key={part.toolCallId} toolPart={part} />;
 					})}
 				</div>
 			</ToolGroupProvider>

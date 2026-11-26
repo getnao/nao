@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	deleteStory: vi.fn(),
 	executeLiveQuery: vi.fn(),
 	getFolderById: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
 	getLatestSqlQueryDataByIds: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
 	getMcpQueryData: vi.fn(),
@@ -13,9 +14,11 @@ const mocks = vi.hoisted(() => ({
 	getStoryDataCacheByStoryId: vi.fn(),
 	getStoryFolderItem: vi.fn(),
 	getVersionByStoryIdAndNumber: vi.fn(),
+	hasOnlyFrozenQueries: vi.fn(),
 	listOwnedStoryTitlesStartingWith: vi.fn(),
 	listProjectStoryAppState: vi.fn(),
 	listStandaloneSlugsStartingWith: vi.fn(),
+	listStoryQueries: vi.fn(),
 	listUserStoryAppState: vi.fn(),
 	listVersionFiles: vi.fn(),
 	moveStoryToFolder: vi.fn(),
@@ -23,6 +26,8 @@ const mocks = vi.hoisted(() => ({
 	saveStoryInPrivateRoot: vi.fn(),
 	upsertStoryAppState: vi.fn(),
 	upsertStoryDataCacheByStoryId: vi.fn(),
+	upsertStoryQueries: vi.fn(),
+	updateStoryLiveSettings: vi.fn(),
 }));
 
 vi.mock('../../src/db/db', () => ({ db: {} }));
@@ -38,8 +43,13 @@ vi.mock('../../src/queries/story.queries', () => ({
 	upsertStoryDataCacheByStoryId: mocks.upsertStoryDataCacheByStoryId,
 }));
 vi.mock('../../src/queries/execute-sql.queries', () => ({
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
 	getLatestSqlQueryDataByChats: vi.fn(),
 	getLatestSqlQueryDataByIds: mocks.getLatestSqlQueryDataByIds,
+}));
+vi.mock('../../src/queries/story-query.queries', () => ({
+	listStoryQueries: mocks.listStoryQueries,
+	upsertStoryQueries: mocks.upsertStoryQueries,
 }));
 vi.mock('../../src/queries/mcp-query-data.queries', () => ({ getMcpQueryData: mocks.getMcpQueryData }));
 vi.mock('../../src/queries/story-app-state.queries', () => ({
@@ -54,7 +64,13 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 	moveStoryToFolder: mocks.moveStoryToFolder,
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
 }));
-vi.mock('../../src/services/live-story', () => ({ executeLiveQuery: mocks.executeLiveQuery }));
+vi.mock('../../src/services/live-story', () => ({
+	executeLiveQuery: mocks.executeLiveQuery,
+	hasOnlyFrozenQueries: mocks.hasOnlyFrozenQueries,
+}));
+vi.mock('../../src/services/story-refresh.service', () => ({
+	updateStoryLiveSettings: mocks.updateStoryLiveSettings,
+}));
 vi.mock('../../src/services/custom-story-authoring', () => ({
 	createCustomStoryDraft: mocks.createCustomStoryDraft,
 	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
@@ -77,10 +93,13 @@ describe('duplicateStory', () => {
 		mocks.listStandaloneSlugsStartingWith.mockResolvedValue([]);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);
 		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({});
+		mocks.listStoryQueries.mockResolvedValue({});
 		mocks.createStandaloneStory.mockResolvedValue({ id: 'copy-id' });
 		mocks.getStoryFolderItem.mockResolvedValue(null);
 		mocks.listProjectStoryAppState.mockResolvedValue([]);
 		mocks.listUserStoryAppState.mockResolvedValue([]);
+		mocks.hasOnlyFrozenQueries.mockResolvedValue(false);
 	});
 
 	it('creates a standalone copy named after the original, in the private folder of the user', async () => {
@@ -175,6 +194,43 @@ describe('duplicateStory', () => {
 
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-id', 'query_a');
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('copy-id', { query_a: rows('live') }, null);
+	});
+
+	it('saves the SQL of the chat queries with the copy, so it can go live without the chat', async () => {
+		const chatQuery = { sqlQuery: 'SELECT * FROM orders', databaseId: 'warehouse', adminMode: false };
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({ query_a: chatQuery });
+
+		await duplicateStory({ storyId: 'story-id' }, OWNER);
+
+		expect(mocks.getLatestSqlQueriesByIds).toHaveBeenCalledWith('chat-id', new Set(['query_a']));
+		expect(mocks.upsertStoryQueries).toHaveBeenCalledWith('copy-id', { query_a: chatQuery }, expect.anything());
+	});
+
+	it.each([
+		{ case: 'keeps a live story live with its schedule', isLive: true, onlyFrozen: false, keepsLive: true },
+		{
+			case: 'leaves frozen a live story whose queries cannot rerun',
+			isLive: true,
+			onlyFrozen: true,
+			keepsLive: false,
+		},
+		{ case: 'leaves frozen a story that is not live', isLive: false, onlyFrozen: false, keepsLive: false },
+	])('$case', async ({ isLive, onlyFrozen, keepsLive }) => {
+		const liveSettings = {
+			isLiveTextDynamic: true,
+			cacheSchedule: '0 8 * * 1',
+			cacheScheduleDescription: 'Mondays',
+		};
+		mocks.getStoryById.mockResolvedValue(createStory({ isLive, ...liveSettings }));
+		mocks.hasOnlyFrozenQueries.mockResolvedValue(onlyFrozen);
+
+		await duplicateStory({ storyId: 'story-id' }, OWNER);
+
+		if (keepsLive) {
+			expect(mocks.updateStoryLiveSettings).toHaveBeenCalledWith('copy-id', { isLive: true, ...liveSettings });
+		} else {
+			expect(mocks.updateStoryLiveSettings).not.toHaveBeenCalled();
+		}
 	});
 
 	it('deletes the copy when its snapshot cannot be saved', async () => {

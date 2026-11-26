@@ -8,6 +8,7 @@ import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as keyedLockQueries from '../queries/keyed-lock.queries';
 import { getWorktreeProjectRoot } from '../utils/context-repo';
+import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { contextWorktreeLockKey, withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { canonicalizeWriteRoot } from '../utils/safe-file-write';
@@ -360,40 +361,47 @@ async function holdSyncLease(
 	const owner = crypto.randomUUID();
 	await keyedLockQueries.tryAcquireLock(key, owner, activityQueries.SYNC_LEASE_MS);
 	let stopped = false;
-	const renewal = setInterval(() => {
-		void keyedLockQueries
-			.renewLock(key, owner, activityQueries.SYNC_LEASE_MS)
-			.then((renewed) => {
+	const stopRenewal = repeatInBackground(
+		'Project sync lease renewal',
+		fromPromise(async () => {
+			if (stopped) {
+				return;
+			}
+			try {
+				const renewed = await keyedLockQueries.renewLock(key, owner, activityQueries.SYNC_LEASE_MS);
 				if (!stopped && !renewed) {
-					clearInterval(renewal);
+					stopped = true;
 					onLost();
 				}
-			})
-			.catch((error) => {
+			} catch (error) {
 				logger.warn(`Could not renew the project sync lease: ${String(error)}`, { source: 'system' });
-			});
-	}, SYNC_LEASE_RENEW_MS);
-	const cancellationPolling = setInterval(() => {
-		void activityQueries
-			.getActivityStatus(activityId)
-			.then((status) => {
+			}
+		}),
+		SYNC_LEASE_RENEW_MS,
+	);
+	const stopCancellationPolling = repeatInBackground(
+		'Project sync cancellation check',
+		fromPromise(async () => {
+			if (stopped) {
+				return;
+			}
+			try {
+				const status = await activityQueries.getActivityStatus(activityId);
 				if (!stopped && status === 'cancelled') {
-					clearInterval(cancellationPolling);
+					stopped = true;
 					onCancellationRequested();
 				}
-			})
-			.catch((error) => {
+			} catch (error) {
 				logger.warn(`Could not check whether project sync was cancelled: ${String(error)}`, {
 					source: 'system',
 				});
-			});
-	}, SYNC_CANCELLATION_POLL_MS);
-	renewal.unref?.();
-	cancellationPolling.unref?.();
+			}
+		}),
+		SYNC_CANCELLATION_POLL_MS,
+	);
 	return async () => {
 		stopped = true;
-		clearInterval(renewal);
-		clearInterval(cancellationPolling);
+		await Promise.all([stopRenewal(), stopCancellationPolling()]);
 		await keyedLockQueries.releaseLock(key, owner).catch(() => undefined);
 	};
 }

@@ -70,13 +70,7 @@ function DefaultSystemPrompt({ provider }: { provider: string }) {
 			</Span>
 
 			<Title level={2}>Phase 2 — Execute</Title>
-			<List>
-				<ListItem>
-					Call all required tools silently. <Bold>Do not add any commentary between tool calls.</Bold>
-				</ListItem>
-				<ListItem>Run tools in parallel whenever possible to minimise latency.</ListItem>
-				<ListItem>Do not narrate what each tool is doing or report intermediate results.</ListItem>
-			</List>
+			<SilentExecutionRules />
 
 			<Title level={2}>Phase 3 — Output</Title>
 			<Span>After all tools have completed, produce the final response in this order:</Span>
@@ -90,6 +84,17 @@ function DefaultSystemPrompt({ provider }: { provider: string }) {
 				</ListItem>
 			</List>
 		</>
+	);
+}
+
+function SilentExecutionRules() {
+	return (
+		<List>
+			<ListItem>
+				Call all required tools silently. <Bold>Do not add any commentary between tool calls.</Bold>
+			</ListItem>
+			<ListItem>Do not narrate what each tool is doing or report intermediate results.</ListItem>
+		</List>
 	);
 }
 
@@ -143,13 +148,7 @@ function WhatsAppSystemPrompt() {
 			</List>
 
 			<Title level={2}>Execution</Title>
-			<List>
-				<ListItem>
-					Call all required tools silently. <Bold>Do not add any commentary between tool calls.</Bold>
-				</ListItem>
-				<ListItem>Run tools in parallel whenever possible to minimise latency.</ListItem>
-				<ListItem>Do not narrate what each tool is doing or report intermediate results.</ListItem>
-			</List>
+			<SilentExecutionRules />
 		</>
 	);
 }

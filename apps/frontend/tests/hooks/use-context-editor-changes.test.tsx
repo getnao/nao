@@ -8,7 +8,9 @@ import { useContextEditorChanges } from '@/hooks/use-context-editor-changes';
 
 const mocks = vi.hoisted(() => ({ messages: [] as unknown[] }));
 
-vi.mock('@/contexts/agent.provider', () => ({ useAgentMessages: () => mocks.messages }));
+vi.mock('@/contexts/agent.provider', () => ({
+	useAgentMessagesSelector: <T,>(selector: (messages: never) => T) => selector(mocks.messages as never),
+}));
 
 describe('useContextEditorChanges', () => {
 	afterEach(cleanup);
@@ -27,7 +29,11 @@ describe('useContextEditorChanges', () => {
 			]),
 		];
 		rerender();
-		expect(onChange).toHaveBeenLastCalledWith({ paths: ['/docs/orders.md'], hasChangedRecommendations: false });
+		expect(onChange).toHaveBeenLastCalledWith({
+			paths: ['/docs/orders.md'],
+			hasChangedRecommendations: false,
+			hasChangedSkills: false,
+		});
 
 		mocks.messages = [
 			...mocks.messages,
@@ -37,6 +43,7 @@ describe('useContextEditorChanges', () => {
 		expect(onChange).toHaveBeenLastCalledWith({
 			paths: ['/agent/skills/churn.md'],
 			hasChangedRecommendations: false,
+			hasChangedSkills: false,
 		});
 		expect(onChange).toHaveBeenCalledTimes(2);
 	});
@@ -60,8 +67,28 @@ describe('useContextEditorChanges', () => {
 
 		renderHook(() => useContextEditorChanges(onChange));
 
-		expect(onChange).toHaveBeenCalledWith({ paths, hasChangedRecommendations: true });
+		expect(onChange).toHaveBeenCalledWith({ paths, hasChangedRecommendations: true, hasChangedSkills: false });
 	});
+
+	it.each(['update_personal_skill', 'request_personal_skill_share', 'review_share_request'])(
+		'reports the skills %s changed',
+		(toolName) => {
+			const onChange = vi.fn();
+			mocks.messages = [
+				assistantMessage([
+					{ type: `tool-${toolName}`, toolCallId: 'call-1', state: 'output-available', output: {} },
+				]),
+			];
+
+			renderHook(() => useContextEditorChanges(onChange));
+
+			expect(onChange).toHaveBeenCalledWith({
+				paths: [],
+				hasChangedRecommendations: false,
+				hasChangedSkills: true,
+			});
+		},
+	);
 });
 
 function assistantMessage(parts: unknown[]): UIMessage {

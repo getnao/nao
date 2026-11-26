@@ -6,6 +6,7 @@ import * as projectQueries from '../queries/project.queries';
 import { HandlerError } from '../utils/error';
 import { getCachedBoundary, setCachedBoundary } from '../utils/map-boundary-cache';
 import { loadBoundarySet } from '../utils/map-boundary-resolve';
+import { consumeRateLimit } from '../utils/rate-limiter';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 
 const paramsSchema = z.object({
@@ -47,6 +48,7 @@ export const mapBoundariesRoutes = async (app: App) => {
 		{ preHandler: authMiddleware, schema: { querystring: proxyQuerySchema } },
 		async (request, reply) => {
 			const { url } = request.query;
+			consumeRateLimit('outbound-fetch', request.user.id, request.user.id);
 
 			const cached = getCachedBoundary(url);
 			if (cached) {

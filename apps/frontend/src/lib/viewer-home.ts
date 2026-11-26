@@ -24,6 +24,7 @@ export type SharedItem = {
 	summary?: unknown;
 	format?: StoryFormat;
 	version?: number;
+	canShowThumbnail?: boolean;
 	messageBubbles?: MessageBubble[];
 };
 

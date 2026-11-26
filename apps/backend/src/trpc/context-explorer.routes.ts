@@ -33,7 +33,9 @@ import {
 	getContextRepositoryStatus,
 	getHistoricalContextDiffActions,
 	listContextRepositoryBranches,
+	pullContextBranch,
 	pullLiveContext,
+	resolveContextExplorerGitSafely,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
@@ -58,12 +60,14 @@ import {
 	getNaoDraftFileTree,
 	hasContextRepository,
 	listNaoDraftChanges,
+	moveNaoDraftToWorktree,
 	searchNaoDraftContents,
 } from '../services/nao-draft.service';
 import { assertNoProjectSyncWritingFiles, withProjectSyncIdleWorktree } from '../services/project-sync.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
+import { skillNameSchema } from '../types/user-skill';
 import { ContextProjectResolutionError } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
 import { draftOwnerOf, requireProjectPath } from './route-context';
@@ -75,12 +79,6 @@ const commitPathsSchema = z.union([pathsSchema, z.literal('all')]);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
 const fileOwnerSchema = z.string().trim().min(1).max(320).nullable();
 const MAX_PULL_HISTORY_FILES = 1_000;
-const skillNameSchema = z
-	.string()
-	.trim()
-	.min(1)
-	.max(64)
-	.regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/, 'Use lowercase letters, digits and dashes.');
 const fileDiffInputSchema = z
 	.object({
 		path: z.string(),
@@ -204,7 +202,12 @@ export const contextExplorerRoutes = {
 					message: `Connect your ${getRepoProviderDisplayName(input.provider)} account first.`,
 				});
 			}
-			return connectContextRepository({ ...context, token: context.token, ...input });
+			const connection = await connectContextRepository({ ...context, token: context.token, ...input });
+			const git = await resolveContextExplorerGitSafely(context);
+			if (git.status === 'available') {
+				await moveNaoDraftToWorktree(draftOwnerOf(ctx), git.repo);
+			}
+			return connection;
 		}),
 
 	disconnectRepository: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
@@ -278,12 +281,19 @@ export const contextExplorerRoutes = {
 		}),
 
 	createSkill: cloudBillingContextAdminProcedure
-		.input(z.object({ name: skillNameSchema, description: z.string().trim().max(1_000) }))
+		.input(
+			z.object({
+				name: skillNameSchema,
+				description: z.string().trim().max(1_000),
+				body: z.string().trim().max(50_000).optional(),
+			}),
+		)
 		.mutation(async ({ ctx, input }) => {
 			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 			await assertNoProjectSyncWritingFiles(ctx.project.id, ctx.user.id, Boolean(access.managedRepository));
 			const path = `/agent/skills/${input.name}.md`;
-			await createDraftFile(path, buildSkillTemplate(input.name, input.description, ctx.user.email), access);
+			const content = buildSkillTemplate(input.name, input.description, ctx.user.email, input.body);
+			await createDraftFile(path, content, access);
 			return { path };
 		}),
 
@@ -369,6 +379,10 @@ export const contextExplorerRoutes = {
 				switchContextBranch(gitContext, input.branch),
 			);
 		}),
+
+	pullBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await pullContextBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
 
 	createBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
@@ -487,7 +501,7 @@ function logPullHistoryFailure(message: string, projectId: string, activityId: s
 	});
 }
 
-function buildSkillTemplate(name: string, description: string, ownerEmail: string): string {
+function buildSkillTemplate(name: string, description: string, ownerEmail: string, body?: string): string {
 	return [
 		'---',
 		`name: ${name}`,
@@ -495,9 +509,7 @@ function buildSkillTemplate(name: string, description: string, ownerEmail: strin
 		`owner: ${ownerEmail}`,
 		'---',
 		'',
-		`# ${name}`,
-		'',
-		'Describe the steps the agent should follow.',
+		body || `# ${name}\n\nDescribe the steps the agent should follow.`,
 		'',
 	].join('\n');
 }

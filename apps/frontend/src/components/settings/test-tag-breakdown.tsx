@@ -141,9 +141,9 @@ export function summarizeRunByTag(run: TestRunWithResults): TagSummary[] {
 	const measuredVariant = run.comparison ? 'draft' : getSingleRunVariant(run);
 	const expectedAttempts = run.models.length * run.attempts;
 	const testsByTag = groupTestsByTag(run.results);
-	const addedTestPaths = listAddedTestPaths(run);
+	const oneSidedTestPaths = listOneSidedTestPaths(run);
 	const summaries = [...testsByTag].map(([tag, testResults]) => {
-		const comparedResults = testResults.filter((results) => !addedTestPaths.has(results[0].testPath));
+		const comparedResults = testResults.filter((results) => !oneSidedTestPaths.has(results[0].testPath));
 		const measured = comparedResults.flatMap((results) =>
 			results.filter((result) => result.contextVariant === measuredVariant),
 		);
@@ -328,10 +328,13 @@ function groupTestsByTag(results: TestResultOutcome[]): Map<string, TestResultOu
 	return testsByTag;
 }
 
-/** Tests the user's changes added have no answer on main, so they would move the accuracy of their tag for nothing. */
-function listAddedTestPaths(run: TestRunWithResults): Set<string> {
-	const addedTests = run.comparison?.tests.filter((test) => test.change === 'new') ?? [];
-	return new Set(addedTests.map((test) => test.testPath));
+/**
+ * Tests the user's changes added or deleted have an answer on one side only, so they would move the accuracy of their
+ * tag for nothing.
+ */
+function listOneSidedTestPaths(run: TestRunWithResults): Set<string> {
+	const oneSidedTests = run.comparison?.tests.filter((test) => test.change === 'new' || test.change === 'removed');
+	return new Set((oneSidedTests ?? []).map((test) => test.testPath));
 }
 
 function isPassedTest(results: Pick<TestResultOutcome, 'passed'>[], expectedAttempts: number): boolean {

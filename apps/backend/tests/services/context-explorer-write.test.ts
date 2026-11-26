@@ -51,6 +51,15 @@ import {
 } from '../helpers/context-git-fixture';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
+const LIVE_NAO_CONFIG = [
+	'name: live',
+	'repos:',
+	'  - name: business',
+	'    url: https://github.com/acme/business',
+	'    targets: [{ source: nao/tests, target: tests/business }]',
+	'',
+].join('\n');
+
 describe('context explorer worktree writes', () => {
 	const createTemporaryFolder = useTemporaryFolders();
 	let fixture: ContextGitFixture;
@@ -69,10 +78,11 @@ describe('context explorer worktree writes', () => {
 			'docs/notion/page.md': 'notion\n',
 			'docs/confluence/page.md': 'confluence\n',
 			'docs/obsidian/note.md': 'obsidian\n',
+			'tests/business/orders.yml': 'prompt: orders\n',
 			'.gitignore': 'ignored\n',
 		});
 		writeFiles(fixture.live, {
-			'nao_config.yaml': 'name: live\n',
+			'nao_config.yaml': LIVE_NAO_CONFIG,
 			'context.md': 'live content\n',
 			'generated.md': '---\ntype: generated\n---\nlive generated\n',
 			'annotations.md': 'live notes\n',
@@ -82,6 +92,7 @@ describe('context explorer worktree writes', () => {
 			'docs/notion/page.md': 'live notion\n',
 			'docs/confluence/page.md': 'live confluence\n',
 			'docs/obsidian/note.md': 'live obsidian\n',
+			'tests/business/orders.yml': 'prompt: live orders\n',
 			'untracked.md': 'live only\n',
 			'.env': 'secret\n',
 			'nested/.env.local': 'nested secret\n',
@@ -128,6 +139,9 @@ describe('context explorer worktree writes', () => {
 			code: 'CONFLICT',
 		});
 		await expect(createDraftFile('/.env.test', 'secret\n', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(createDraftFile('/tests/business/refunds.yml', 'synced\n', access)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
 		await expect(createDraftFile('../outside.yml', 'outside\n', access)).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
@@ -168,10 +182,8 @@ describe('context explorer worktree writes', () => {
 			reason: 'rendered-template',
 			guidance: { actionKind: 'file', actionPath: '/rendered.md.j2' },
 		});
-		expect(repoSource).toMatchObject({
-			reason: 'synced-source',
-			guidance: { actionKind: 'file', actionPath: '/nao_config.yaml' },
-		});
+		expect(repoSource.reason).toBe('synced-source');
+		expect(repoSource.guidance).toBeUndefined();
 		expect(notion.reason).toBe('synced-source');
 		expect(untracked).toMatchObject({
 			reason: 'not-tracked',
@@ -266,9 +278,10 @@ describe('context explorer worktree writes', () => {
 	});
 
 	it.each([
-		['/docs/notion/page.md', 'synced-source', 'file', '/nao_config.yaml'],
-		['/docs/confluence/page.md', 'synced-source', 'file', '/nao_config.yaml'],
-		['/docs/obsidian/note.md', 'synced-source', 'file', '/nao_config.yaml'],
+		['/docs/notion/page.md', 'synced-source', undefined, undefined],
+		['/docs/confluence/page.md', 'synced-source', undefined, undefined],
+		['/docs/obsidian/note.md', 'synced-source', undefined, undefined],
+		['/tests/business/orders.yml', 'synced-source', undefined, undefined],
 		['/untracked.md', 'not-tracked', null, null],
 	])('reports guidance for %s', async (filePath, reason, actionKind, actionPath) => {
 		const file = await readFileContent(filePath, access);

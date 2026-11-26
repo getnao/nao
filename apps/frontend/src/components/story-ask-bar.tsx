@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
+import type { UIMessage } from '@nao/backend/chat';
 
 import { AskBar } from '@/components/ask-bar';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesGetter, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
+import { getShownStoryFiltersRequestBody } from '@/stores/shown-story-filters';
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -15,10 +17,12 @@ export function StoryAskBar({
 	storyId,
 	canEdit,
 	isInputHidden = false,
+	onChatChange,
 }: {
 	storyId: string;
 	canEdit: boolean;
 	isInputHidden?: boolean;
+	onChatChange?: (chatId: string | null) => void;
 }) {
 	const [handedOverQuestion] = useState(() => getHandedOverQuestion(storyId));
 	const queryClient = useQueryClient();
@@ -60,8 +64,10 @@ export function StoryAskBar({
 			isAsking={askMutation.isPending}
 			hasAskFailed={askMutation.isError}
 			resumedQuestion={handedOverQuestion}
+			getRequestBody={getShownStoryFiltersRequestBody}
 			onAsk={askStory}
 			onEnd={endQuestion}
+			onChatChange={onChatChange}
 		>
 			<StoryRefreshAfterEdit />
 			{hasAttachedStoryChat && <StoryPageRefreshAfterAnswer onAnswered={refreshStoryPage} />}
@@ -72,20 +78,19 @@ export function StoryAskBar({
 /** The agent may edit the story from a quick question: the page shows the new version once it answered. */
 function StoryRefreshAfterEdit() {
 	const queryClient = useQueryClient();
-	const messages = useAgentMessages();
+	const getMessages = useAgentMessagesGetter();
 	const { isRunning } = useAgentContext();
-	const editedStory = isRunning ? false : hasStoryEdit(messages.at(-1));
+	const editMessageId = useAgentMessagesSelector((messages) => (isRunning ? null : findStoryEditMessageId(messages)));
 	const handledMessageId = useRef<string | null>(null);
 
 	useEffect(() => {
-		const lastMessage = messages.at(-1);
-		if (!editedStory || !lastMessage || handledMessageId.current === lastMessage.id) {
+		if (!editMessageId || handledMessageId.current === editMessageId) {
 			return;
 		}
-		handledMessageId.current = lastMessage.id;
-		const edit = readStoryEdit(messages);
+		handledMessageId.current = editMessageId;
+		const edit = readStoryEdit(getMessages());
 		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
-	}, [editedStory, messages, queryClient]);
+	}, [editMessageId, getMessages, queryClient]);
 
 	return null;
 }
@@ -110,4 +115,9 @@ function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void })
 	}, [isRunning, onAnswered]);
 
 	return null;
+}
+
+function findStoryEditMessageId(messages: UIMessage[]): string | null {
+	const lastMessage = messages.at(-1);
+	return lastMessage && hasStoryEdit(lastMessage) ? lastMessage.id : null;
 }

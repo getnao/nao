@@ -3,4 +3,5 @@ export { AddMemberDialog } from './add-member-dialog';
 export { EditMemberDialog } from './edit-member-dialog';
 export { RemoveMemberDialog } from './remove-member-dialog';
 export { NewCredentialsDialog } from './new-credentials-dialog';
+export type { AddMembersRequest } from './add-member-dialog';
 export type { TeamMember } from './types';

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
@@ -11,12 +12,18 @@ from nao_core.config.exceptions import InitError
 from nao_core.ui import UI, ask_confirm, ask_text
 
 if TYPE_CHECKING:
+    import pandas as pd
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
 from .context import DatabaseContext
 
 logger = logging.getLogger(__name__)
+
+
+class SnowflakeAuthMode(str, Enum):
+    CREDENTIALS = "credentials"
+    EXTERNAL_OAUTH = "external_oauth"
 
 
 class SnowflakeDatabaseContext(DatabaseContext):
@@ -100,6 +107,14 @@ def _parse_clustering_key(clustering_key: str) -> list[str]:
     return [col.strip().strip('"') for col in match.group(1).split(",")]
 
 
+def _ask_auth_mode() -> SnowflakeAuthMode:
+    run_as_user = ask_confirm(
+        "Run chat queries as the signed-in user (Snowflake External OAuth, e.g. Okta)?",
+        default=False,
+    )
+    return SnowflakeAuthMode.EXTERNAL_OAUTH if run_as_user else SnowflakeAuthMode.CREDENTIALS
+
+
 def _resolve_private_key(path: str | None, inline: str | None) -> bytes | None:
     """Return raw PEM bytes from a file path or an inline string, or None."""
     if path and inline:
@@ -146,6 +161,14 @@ class SnowflakeConfig(DatabaseConfig):
     ) = Field(
         default=None,
         description="Authentication method (e.g., 'externalbrowser' for SSO, 'programmatic_access_token' for PAT)",
+    )
+    auth_mode: SnowflakeAuthMode = Field(
+        default=SnowflakeAuthMode.CREDENTIALS,
+        description=(
+            "'credentials' runs every query with the configured account. 'external_oauth' runs chat queries "
+            "as the signed-in user with the access token of their identity provider (Snowflake External OAuth, "
+            "e.g. Okta or Microsoft Entra ID); the configured account then only serves nao sync and SQL validation."
+        ),
     )
 
     @classmethod
@@ -206,6 +229,7 @@ class SnowflakeConfig(DatabaseConfig):
             passphrase=passphrase,
             token=token,
             authenticator=authenticator,
+            auth_mode=_ask_auth_mode(),
         )
 
     def connect(self) -> BaseBackend:
@@ -248,6 +272,42 @@ class SnowflakeConfig(DatabaseConfig):
         elif self.password:
             kwargs["password"] = self.password
 
+        return ibis.snowflake.connect(**kwargs, create_object_udfs=False)
+
+    def requires_user_access_token(self) -> bool:
+        return self.auth_mode == SnowflakeAuthMode.EXTERNAL_OAUTH
+
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
+        """Execute SQL with the configured account, which external_oauth reserves for sync and validation."""
+        if self.requires_user_access_token():
+            raise RuntimeError(
+                "execute_sql is not allowed when auth_mode='external_oauth'. "
+                "Use execute_sql_with_token() with the end user's access token instead."
+            )
+        return super().execute_sql(sql, conn=conn)
+
+    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+        """Execute SQL as the Snowflake user mapped from an External OAuth access token."""
+        conn = self._connect_with_token(access_token)
+        try:
+            return super().execute_sql(sql, conn=conn)
+        finally:
+            conn.disconnect()
+
+    def _connect_with_token(self, access_token: str) -> BaseBackend:
+        from nao_core.deps import require_database_backend
+
+        require_database_backend("snowflake")
+        import ibis
+
+        kwargs: dict = {
+            "account": self.account_id,
+            "database": self.database,
+            "authenticator": "oauth",
+            "token": access_token,
+        }
+        if self.warehouse:
+            kwargs["warehouse"] = self.warehouse
         return ibis.snowflake.connect(**kwargs, create_object_udfs=False)
 
     def get_database_name(self) -> str:

@@ -15,9 +15,9 @@ import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import type { ForkMetadata } from '../types/chat';
-import { getProjectAvailableModels, resolveDefaultChatModel } from '../utils/llm';
 import { agentService } from './agent';
 import { CustomStoryNotFoundError } from './custom-story';
+import { getAvailableModelsForUser, getDefaultChatModelForUser } from './user-group-llm-access.service';
 
 export interface CustomStoryModelTarget {
 	projectId: string;
@@ -38,8 +38,8 @@ export async function listCustomStoryModels(projectId: string, viewerId: string)
 		return [];
 	}
 	const [available, defaultModel] = await Promise.all([
-		getProjectAvailableModels(projectId),
-		resolveDefaultChatModel(projectId),
+		getAvailableModelsForUser(projectId, viewerId),
+		getDefaultChatModelForUser(projectId, viewerId),
 	]);
 	return available.map((model) => ({
 		kind: 'llm',
@@ -72,7 +72,8 @@ async function runStoryLlm(target: CustomStoryModelTarget, request: StoryLlmRequ
 	await assertCustomStoryInProject(target.storyId, target.projectId);
 	const model = await agentService.resolveModelSelection(
 		target.projectId,
-		await findRequestedLlm(target.projectId, request.model),
+		await findRequestedLlm(target.projectId, target.viewerId, request.model),
+		target.viewerId,
 	);
 	const chat = await createStoryModelChat(target, request.prompt);
 	const agent = await agentService.create(chat, model, storyModelAgent(request), {
@@ -111,10 +112,13 @@ async function createStoryModelChat(target: CustomStoryModelTarget, prompt: stri
 	return { ...chat, projectId: target.projectId, userId: target.viewerId };
 }
 
-/** Every route funnels here, so a share link or id of a classic story or another project's story is refused alike. */
+/**
+ * Every route funnels here, so a share link or id of a classic story or another project's story is refused alike.
+ * A story built in a chat has no project of its own: it belongs to its chat's project.
+ */
 async function assertCustomStoryInProject(storyId: string, projectId: string): Promise<void> {
 	const story = await storyQueries.getStoryById(storyId);
-	if (!story || story.format !== 'custom' || story.projectId !== projectId) {
+	if (!story || story.format !== 'custom' || (await storyQueries.getStoryProjectId(storyId)) !== projectId) {
 		throw new CustomStoryNotFoundError();
 	}
 }
@@ -125,17 +129,27 @@ async function canCallModels(projectId: string, userId: string): Promise<boolean
 }
 
 /** Only models the project offers can be called: a story cannot reach a provider or model the chat does not list. */
-async function findRequestedLlm(projectId: string, modelId: string | undefined) {
+async function findRequestedLlm(projectId: string, viewerId: string, modelId: string | undefined) {
 	if (modelId === undefined) {
 		return undefined;
 	}
-	const model = (await getProjectAvailableModels(projectId)).find(
-		(candidate) => toStoryModelId(candidate) === modelId,
+	const available = await getAvailableModelsForUser(projectId, viewerId);
+	const qualified = available.find((candidate) => candidate.llmConfigId && toStoryModelId(candidate) === modelId);
+	const legacyMatches = available.filter(
+		(candidate) => toStoryModelId({ provider: candidate.provider, modelId: candidate.modelId }) === modelId,
 	);
+	if (!qualified && legacyMatches.length > 1) {
+		throw new CustomStoryModelError(`Model ${modelId} has multiple credentials. Choose one from useModels().`);
+	}
+	const model = qualified ?? legacyMatches[0];
 	if (!model) {
 		throw new CustomStoryModelError(
 			`Model ${modelId} is not available in this project. List them with useModels().`,
 		);
 	}
-	return { provider: model.provider, modelId: model.modelId };
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(model.llmConfigId && { llmConfigId: model.llmConfigId }),
+	};
 }

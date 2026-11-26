@@ -116,6 +116,13 @@ def test_preserves_full_join_rows_by_prefiltering_each_protected_source():
     assert '(SELECT * FROM main.users AS "User Source" WHERE "User Source".region = \'eu\') AS "User Source"' in sql
 
 
+def test_rejects_functions_reading_data_named_by_a_string_without_table_permissions():
+    sql = "SELECT query_to_xml('SELECT * FROM main.users', true, false, '')"
+
+    with pytest.raises(RowSecurityGuardError, match="reads data that cannot be validated"):
+        enforce_row_security(sql, FakeDatabaseConfig(), USERS_IN_EU_POLICY)
+
+
 def test_rejects_qualified_full_join_table_without_explicit_alias():
     with pytest.raises(RowSecurityGuardError, match="require an explicit alias"):
         secure("SELECT * FROM main.orders FULL OUTER JOIN users ON main.orders.user_id = users.id", policy())

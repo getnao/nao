@@ -14,12 +14,22 @@ import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import { listStoryChartPlugins } from './chart-plugin';
 import {
+	CustomStoryNotFoundError,
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
 	getLatestCustomStoryVersionByStoryId,
 	getStoredCustomStoryQueryDataByStoryId,
 } from './custom-story';
 import { buildCustomStoryDocumentByStoryId } from './custom-story-export';
+import { getCustomStoryStateByStoryId } from './custom-story-state';
+import {
+	createStoryExecutionContext,
+	isCacheExpired,
+	loadViewerStorySnapshot,
+	type ViewerStoryRequest,
+	type ViewerStorySnapshot,
+} from './live-story';
+import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 
 const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
 const THUMBNAIL_WIDTH = 640;
@@ -27,6 +37,7 @@ const THUMBNAIL_QUALITY = 80;
 const RETRY_AFTER_MS = 2 * 60 * 1000;
 const MISSING_DATA_RETRY_AFTER_MS = 15 * 1000;
 const MAX_BROKEN_RENDERS = 3;
+const MAX_VIEWER_THUMBNAILS = 100;
 /** Stored in place of a mode's image when the version has no app or that mode kept rendering broken: never retried. */
 const UNRENDERABLE = '';
 const CHART_PLUGINS_FINGERPRINT_TTL_MS = 60 * 1000;
@@ -45,9 +56,19 @@ interface RenderFailure {
 	retryAfterMs: number;
 }
 
+/** A viewer's image lasts as long as the snapshot of their data it shows; a failed render is not retried right away. */
+interface ViewerThumbnail {
+	snapshotAt: number | null;
+	image: Buffer | null;
+	failedAt?: number;
+}
+
 const queuedVersionIds = new Set<string>();
 const failuresByStoryId = new Map<string, RenderFailure>();
+const viewerThumbnails = new Map<string, ViewerThumbnail>();
+const pendingViewerThumbnails = new Map<string, Promise<Buffer | null>>();
 let renderQueue: Promise<void> = Promise.resolve();
+let viewerScreenshotQueue: Promise<void> = Promise.resolve();
 
 class MissingStoryDataError extends Error {}
 
@@ -68,6 +89,14 @@ export interface CustomStoryThumbnail {
 	renderKey: string;
 	isCurrent: boolean;
 	image: Buffer;
+}
+
+export async function canShowStoredCustomStoryThumbnail(storyId: string, userId: string): Promise<boolean> {
+	if ((await storyQueries.getStoryOwnerId(storyId)) === userId) {
+		return true;
+	}
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	return projectId !== null && !(await hasEffectiveWarehouseRestrictions(projectId, userId));
 }
 
 /** Reads the latest version's WebP thumbnail without waiting on a render, queueing stale or missing images in the background. */
@@ -96,6 +125,110 @@ export async function getCustomStoryThumbnail(
 		isCurrent,
 		image: Buffer.from(image, 'base64'),
 	};
+}
+
+/** Rendered from the viewer's own snapshot of the story, since the stored image shows the owner's rows. */
+export async function getViewerCustomStoryThumbnail(
+	story: DBStory,
+	viewerUserId: string,
+	mode: StoryThemeMode = 'light',
+): Promise<Buffer | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	let version: CustomStoryVersionView;
+	try {
+		version = await getLatestCustomStoryVersionByStoryId(story.id);
+	} catch (error) {
+		if (error instanceof CustomStoryNotFoundError) {
+			return null;
+		}
+		throw error;
+	}
+	const request = {
+		chatId: story.chatId,
+		slug: story.slug,
+		storyVersionId: version.version.id,
+		viewerUserId,
+		executionContext: await createStoryExecutionContext(story.chatId, viewerUserId),
+	};
+	const key = `${version.version.id}:${viewerUserId}:${request.executionContext.permissionRevision}:${mode}`;
+	const failedAt = viewerThumbnails.get(key)?.failedAt;
+	if (failedAt && Date.now() - failedAt < RETRY_AFTER_MS) {
+		return null;
+	}
+	const rendering =
+		pendingViewerThumbnails.get(key) ??
+		refreshViewerThumbnail(key, request, story, version, mode).finally(() => pendingViewerThumbnails.delete(key));
+	pendingViewerThumbnails.set(key, rendering);
+	return rendering;
+}
+
+/** Keyed by the viewer's access, so a render started under narrower or wider access is never handed out after a change. */
+async function refreshViewerThumbnail(
+	key: string,
+	request: ViewerStoryRequest,
+	story: DBStory,
+	version: CustomStoryVersionView,
+	mode: StoryThemeMode,
+): Promise<Buffer | null> {
+	const { viewerUserId } = request;
+	try {
+		const snapshot = await loadViewerStorySnapshot(
+			request,
+			(cache) => !isCacheExpired(cache.cachedAt, story.cacheSchedule),
+		);
+		const snapshotAt = snapshot.cachedAt.getTime();
+		const known = viewerThumbnails.get(key);
+		if (known?.image && known.snapshotAt === snapshotAt) {
+			return known.image;
+		}
+		const image = await renderViewerThumbnail(story, version, snapshot, viewerUserId, mode);
+		rememberViewerThumbnail(key, image ? { snapshotAt, image } : { snapshotAt, image, failedAt: Date.now() });
+		return image;
+	} catch (error) {
+		logFailure(version.version.id, error);
+		rememberViewerThumbnail(key, { snapshotAt: null, image: null, failedAt: Date.now() });
+		return null;
+	}
+}
+
+function queueViewerThumbnailScreenshot(render: () => Promise<Buffer | null>): Promise<Buffer | null> {
+	const rendering = viewerScreenshotQueue.then(render);
+	viewerScreenshotQueue = rendering.then(
+		() => undefined,
+		() => undefined,
+	);
+	return rendering;
+}
+
+async function renderViewerThumbnail(
+	story: DBStory,
+	version: CustomStoryVersionView,
+	snapshot: ViewerStorySnapshot,
+	viewerUserId: string,
+	mode: StoryThemeMode,
+): Promise<Buffer | null> {
+	const html = await buildCustomStoryDocumentByStoryId(story.id, version, snapshot.queryData, mode, {
+		narratives: snapshot.narratives,
+		state: await getCustomStoryStateByStoryId(story.id, viewerUserId),
+	});
+	return queueViewerThumbnailScreenshot(async () => {
+		const { image, ...render } = await renderStoryScreenshot(
+			html,
+			THUMBNAIL_VIEWPORT,
+			themeFontStylesheets(version.theme),
+		);
+		return isBrokenRender(render) ? null : toThumbnailImage(image);
+	});
+}
+
+function rememberViewerThumbnail(key: string, thumbnail: ViewerThumbnail): void {
+	viewerThumbnails.delete(key);
+	if (viewerThumbnails.size >= MAX_VIEWER_THUMBNAILS) {
+		viewerThumbnails.delete(viewerThumbnails.keys().next().value!);
+	}
+	viewerThumbnails.set(key, thumbnail);
 }
 
 /** Renders thumbnails in the background one at a time so they do not compete with viewers. */

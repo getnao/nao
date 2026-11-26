@@ -2,7 +2,7 @@ import { STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { z } from 'zod';
 
 import { renderStoryKitGuide } from '../../components/ai/story-kit-guide';
-import type { DBStory } from '../../db/abstractSchema';
+import type { DBStory, DBStoryDataCache } from '../../db/abstractSchema';
 import * as storyQueries from '../../queries/story.queries';
 import type { StoryFileInput } from '../../queries/story-file.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
@@ -23,6 +23,8 @@ import {
 	releaseStoryEditLock,
 	StoryEditLockedError,
 } from '../../services/story-edit-lock.service';
+import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
+import type { StoryQuerySources } from '../../types/story-cache';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
 import {
 	backfillMissingQueryDataByIds,
@@ -33,6 +35,7 @@ import { buildCustomStoryToolResult } from '../embed/embed-tool-result';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyUrl } from '../urls';
 import { fetchLatestStoryVersion, resolveChartChatId } from './helpers';
+import { saveMcpLiveSettings, type StoryLiveInput, toStoryLiveOutput } from './story-live-settings';
 
 const CUSTOM_STORY_DATA_RULES =
 	'Its blocks read rows by `queryId`. Attached to a chat (`chat_id` from `ask_nao`), it resolves the queries ' +
@@ -88,6 +91,7 @@ export async function createCustomStoryForMcp(
 		title: string;
 		files: StoryFileInput[] | undefined;
 		queryData: StoryQueryDataMap | undefined;
+		live: StoryLiveInput | undefined;
 	},
 	ctx: McpContext,
 ): Promise<ToolResult> {
@@ -119,12 +123,12 @@ export async function createCustomStoryForMcp(
 		files: input.files ?? [],
 	});
 	if (!story.chatId) {
-		await saveStandaloneQueryData(story.id, input.queryData, ctx);
+		await saveStandaloneQueryData(story, input.queryData, ctx);
 	}
 	if (!input.files?.length) {
-		return draftResult(story);
+		return draftResult(story, input.live);
 	}
-	return publishResult(story, ctx);
+	return publishResult(story, ctx, input.live);
 }
 
 export async function updateCustomStoryForMcp(
@@ -134,6 +138,7 @@ export async function updateCustomStoryForMcp(
 		files: StoryFileInput[];
 		deletePaths: string[];
 		queryData: StoryQueryDataMap | undefined;
+		live: StoryLiveInput | undefined;
 	},
 	ctx: McpContext,
 ): Promise<ToolResult> {
@@ -150,9 +155,9 @@ export async function updateCustomStoryForMcp(
 			await storyQueries.renameStory(story.id, input.title);
 		}
 		if (!story.chatId) {
-			await saveStandaloneQueryData(story.id, input.queryData, ctx);
+			await saveStandaloneQueryData(story, input.queryData, ctx);
 		}
-		return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+		return publishResult({ ...story, title: input.title ?? story.title }, ctx, input.live);
 	});
 }
 
@@ -227,6 +232,7 @@ export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Pr
 		...storyLinks(story),
 		version: latest?.version ?? 0,
 		sourceFiles: draft.map((file) => ({ path: file.path, content: file.content })),
+		live: toStoryLiveOutput(story),
 	});
 }
 
@@ -242,55 +248,76 @@ export async function resolveCustomStory(storyId: string, ctx: McpContext): Prom
 	return storyProjectId === ctx.projectId && story.userId === ctx.userId ? story : null;
 }
 
-async function publishResult(story: DBStory, ctx: McpContext): Promise<ToolResult> {
+async function publishResult(
+	story: DBStory,
+	ctx: McpContext,
+	liveInput: StoryLiveInput | undefined,
+): Promise<ToolResult> {
 	const result = await publishCustomStoryDraft(story, ctx, {
 		source: 'user',
 		origin: 'mcp',
 		authorId: ctx.userId,
 		sourceChatId: null,
 	});
+	const live = await saveMcpLiveSettings(story, liveInput);
+	if ('error' in live) {
+		return errorResult(live.error);
+	}
 	if (result.ok) {
-		return buildCustomStoryToolResult({ ...storyLinks(story), version: result.version });
+		return buildCustomStoryToolResult({ ...storyLinks(story), version: result.version, ...live });
 	}
 	const latest = await storyQueries.getLatestVersionByStoryId(story.id);
 	return buildCustomStoryToolResult({
 		...storyLinks(story),
 		version: latest?.version ?? 0,
 		buildErrors: result.buildErrors,
+		...live,
 	});
 }
 
-async function draftResult(story: DBStory): Promise<ToolResult> {
+async function draftResult(story: DBStory, liveInput: StoryLiveInput | undefined): Promise<ToolResult> {
+	const live = await saveMcpLiveSettings(story, liveInput);
+	if ('error' in live) {
+		return errorResult(live.error);
+	}
 	const draft = await storyFileQueries.listDraftFiles(story.id);
 	return buildCustomStoryToolResult({
 		...storyLinks(story),
 		version: 0,
 		sourceFiles: draft.map((file) => ({ path: file.path, content: file.content })),
+		...live,
 	});
 }
 
 /**
- * A standalone story has no chat to run its queries in, so the rows its draft references are saved with it at once:
- * like any story data, they are shared by its draft and its published versions.
+ * A standalone story has no chat to run its queries in, so the rows and SQL its draft references are saved with it at
+ * once: like any story data, they are shared by its draft and its published versions.
  */
 async function saveStandaloneQueryData(
-	storyId: string,
+	story: Pick<DBStory, 'id' | 'isLive'>,
 	queryData: StoryQueryDataMap | undefined,
 	ctx: McpContext,
 ): Promise<void> {
+	const storyId = story.id;
 	const [draft, cache] = await Promise.all([
 		storyFileQueries.listDraftFiles(storyId),
 		storyQueries.getStoryDataCacheByStoryId(storyId),
 	]);
+	const queryIds = extractCustomStoryQueryIds(draft);
 	const seeded = { ...((cache?.queryData as StoryQueryDataMap | undefined) ?? {}), ...(queryData ?? {}) };
-	const resolved = await backfillMissingQueryDataByIds(
-		extractCustomStoryQueryIds(draft),
-		Object.keys(seeded).length > 0 ? seeded : null,
-		{ projectId: ctx.projectId, userId: ctx.userId },
-	);
+	const resolved = await backfillMissingQueryDataByIds(queryIds, Object.keys(seeded).length > 0 ? seeded : null, {
+		projectId: ctx.projectId,
+		userId: ctx.userId,
+	});
 	if (resolved) {
-		await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolved);
+		await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolved, undefined, keptQuerySources(story, cache));
 	}
+	await copyMcpQueriesToStory(storyId, queryIds, ctx);
+}
+
+/** A live story keeps the sources of its last refresh, so its generated narratives are never taken for frozen ones. */
+function keptQuerySources(story: Pick<DBStory, 'isLive'>, cache: DBStoryDataCache | null): StoryQuerySources | null {
+	return story.isLive ? (cache?.querySources ?? null) : null;
 }
 
 function storyLinks(story: DBStory) {

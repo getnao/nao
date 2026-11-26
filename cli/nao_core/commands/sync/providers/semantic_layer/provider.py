@@ -98,8 +98,10 @@ def sync_semantic_layer(
         shutil.copy2(source_manifest, manifest_copy)
 
     _write_metric_docs(output_path / METRICS_DIR, metrics)
-    (output_path / DIMENSIONS_FILENAME).write_text(render_dimensions_index(dimensions))
-    (output_path / README_FILENAME).write_text(render_readme(semantic_layer, len(metrics), len(dimensions)))
+    (output_path / DIMENSIONS_FILENAME).write_text(render_dimensions_index(dimensions), encoding="utf-8")
+    (output_path / README_FILENAME).write_text(
+        render_readme(semantic_layer, len(metrics), len(dimensions)), encoding="utf-8"
+    )
     return metrics, dimensions
 
 
@@ -113,7 +115,7 @@ def _write_metric_docs(metrics_dir: Path, metrics: list[MetricInfo]) -> None:
         shutil.rmtree(metrics_dir)
     metrics_dir.mkdir(parents=True)
     for metric in metrics:
-        (metrics_dir / f"{metric.name}.md").write_text(render_metric_doc(metric))
+        (metrics_dir / f"{metric.name}.md").write_text(render_metric_doc(metric), encoding="utf-8")
 
 
 def render_metric_doc(metric: MetricInfo) -> str:

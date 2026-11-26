@@ -6,6 +6,8 @@ import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
 
+import type { TransferCandidate } from '@/components/transfer-ownership-dialog';
+import { MISSING_TABLE_ACCESS_REASON, NO_ELIGIBLE_RECIPIENT_MESSAGE } from '@/components/transfer-ownership-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -28,7 +30,6 @@ import { getAutomationTriggerLabel, isAutomationActive } from '@/lib/automation-
 import { trpc } from '@/main';
 
 type ProjectAutomation = inferRouterOutputs<TrpcRouter>['automation']['listAllForAdmin'][number];
-type ProjectUser = inferRouterOutputs<TrpcRouter>['project']['listUsersWithAccess'][number];
 
 interface AutomationRowActions {
 	onTransfer: (automation: ProjectAutomation) => void;
@@ -252,10 +253,14 @@ function TransferOwnershipDialog({
 	onClose: () => void;
 }) {
 	const queryClient = useQueryClient();
-	const users = useQuery({ ...trpc.project.listUsersWithAccess.queryOptions(), enabled: automation !== null });
+	const recipients = useQuery({
+		...trpc.project.listTransferRecipients.queryOptions({ fromUserId: automation?.owner?.id ?? '' }),
+		enabled: automation !== null,
+	});
 	const transfer = useMutation(trpc.automation.transferOwnership.mutationOptions());
 	const [newOwnerId, setNewOwnerId] = useState('');
-	const candidates = getTransferCandidates(users.data ?? [], automation);
+	const candidates = sortByName(recipients.data ?? []);
+	const errorMessage = recipients.error?.message ?? transfer.error?.message;
 
 	useEffect(() => {
 		setNewOwnerId('');
@@ -292,21 +297,26 @@ function TransferOwnershipDialog({
 						New owner
 					</label>
 					<Select value={newOwnerId} onValueChange={setNewOwnerId}>
-						<SelectTrigger id='transfer-automation-owner' size='input' disabled={users.isLoading}>
-							<SelectValue placeholder={users.isLoading ? 'Loading members...' : 'Select a member'} />
+						<SelectTrigger id='transfer-automation-owner' size='input' disabled={recipients.isLoading}>
+							<SelectValue
+								placeholder={recipients.isLoading ? 'Loading members...' : 'Select a member'}
+							/>
 						</SelectTrigger>
 						<SelectContent>
 							{candidates.map((user) => (
-								<SelectItem key={user.id} value={user.id}>
-									{user.name} · {user.email}
+								<SelectItem key={user.id} value={user.id} disabled={!user.hasTableAccess}>
+									{user.name} · {user.hasTableAccess ? user.email : MISSING_TABLE_ACCESS_REASON}
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
+					{candidates.length > 0 && candidates.every((user) => !user.hasTableAccess) && (
+						<p className='text-xs text-muted-foreground'>{NO_ELIGIBLE_RECIPIENT_MESSAGE}</p>
+					)}
 				</div>
-				{transfer.error && (
+				{errorMessage && (
 					<p className='text-sm text-destructive' role='alert'>
-						{transfer.error.message}
+						{errorMessage}
 					</p>
 				)}
 				<div className='flex justify-end gap-2'>
@@ -370,8 +380,6 @@ function invalidateAutomationQueries(queryClient: QueryClient): Promise<void> {
 	return queryClient.invalidateQueries({ queryKey: trpc.automation.pathKey() });
 }
 
-function getTransferCandidates(users: ProjectUser[], automation: ProjectAutomation | null): ProjectUser[] {
-	return users
-		.filter((user) => user.role !== 'viewer' && user.id !== automation?.owner?.id)
-		.sort((a, b) => a.name.localeCompare(b.name));
+function sortByName(recipients: TransferCandidate[]): TransferCandidate[] {
+	return [...recipients].sort((a, b) => a.name.localeCompare(b.name));
 }

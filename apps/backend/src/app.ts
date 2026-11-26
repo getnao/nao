@@ -10,7 +10,12 @@ import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
-import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
+import {
+	AUTOMATION_JOB_NAME,
+	automationHandler,
+	interruptRunningAutomations,
+	resolveAutomationProjectId,
+} from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
@@ -50,8 +55,9 @@ import {
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
-import { flushTelemetry } from './instrumentation';
+import { flushTelemetry, requestTracingEnabled } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { registerRequestTracing } from './middleware/request-tracing';
 import { failInterruptedProjectSyncActivities } from './queries/activity.queries';
 import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
@@ -86,18 +92,26 @@ import { whatsappRoutes } from './routes/whatsapp';
 import { reconcileOrganizationSetupGrants } from './services/credit-grant.service';
 import { validateCreditTopUpConfiguration } from './services/credit-top-up.service';
 import { discordService } from './services/discord';
+import { registerEnvLlmConfigsForAllProjects } from './services/env-llm-config.service';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
 import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
+import { startWarehouseProvisioningReconciler } from './services/onboarding/warehouse-provisioning';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler, stopScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
-import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
+import {
+	resolveTestScheduleProjectId,
+	runScheduledTests,
+	syncAllConfiguredTestSchedules,
+	TEST_SCHEDULE_JOB_NAME,
+	TEST_SCHEDULE_SYNC_JOB_NAME,
+} from './services/test-schedule.service';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import {
@@ -109,7 +123,9 @@ import {
 } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { describeError, logger } from './utils/logger';
+import { RateLimitExceededError } from './utils/rate-limiter';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
+import { reportSecuritySignalOfError } from './utils/security-signal';
 import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
@@ -157,6 +173,7 @@ app.setErrorHandler((error, request, reply) => {
 		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
+	reportSecuritySignalOfError(error, { userId: request.actorUserId });
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
@@ -173,11 +190,18 @@ app.setErrorHandler((error, request, reply) => {
 	if (error instanceof OnboardingChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED' });
 	}
+	if (error instanceof RateLimitExceededError) {
+		reply.header('Retry-After', String(error.retryAfterSeconds));
+	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });
 	}
 	throw error;
 });
+
+if (requestTracingEnabled) {
+	registerRequestTracing(app, [HEALTH_PATH]);
+}
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
@@ -226,6 +250,7 @@ app.register(fastifyTRPCPlugin, {
 				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
+			reportSecuritySignalOfError(error, { userId: req.actorUserId, path });
 		},
 	} satisfies FastifyTRPCPluginOptions<TrpcRouter>['trpcOptions'],
 });
@@ -527,6 +552,12 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	} else {
 		await ensureOrganizationSetup();
 	}
+	const registeredEnvLlmConfigs = await registerEnvLlmConfigsForAllProjects();
+	if (registeredEnvLlmConfigs > 0) {
+		logger.info(`Registered ${registeredEnvLlmConfigs} environment-backed LLM credentials`, {
+			source: 'system',
+		});
+	}
 	await logLicenseStatus();
 	await reconcileOrganizationSetupGrants();
 
@@ -552,6 +583,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	registerJob(TEST_SCHEDULE_JOB_NAME, runScheduledTests, { resolveProjectId: resolveTestScheduleProjectId });
+	registerJob(TEST_SCHEDULE_SYNC_JOB_NAME, syncAllConfiguredTestSchedules);
+	await ensureRecurring({
+		name: TEST_SCHEDULE_SYNC_JOB_NAME,
+		cron: '*/15 * * * *',
+		uniqueKey: TEST_SCHEDULE_SYNC_JOB_NAME,
+	});
 	if (isCloud) {
 		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
 		await ensureRecurring({
@@ -629,6 +667,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 
 	const handleShutdown = async () => {
+		await interruptRunningAutomations();
 		await closeBrowser();
 		await flushTelemetry();
 		await posthog.shutdown();
@@ -639,7 +678,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		if (isDraining()) {
 			return;
 		}
-		stopScheduler();
+		void stopScheduler();
 		await drainInFlightRequests(env.SHUTDOWN_DRAIN_DELAY_MS);
 		await handleShutdown();
 	};

@@ -7,7 +7,9 @@ import { env } from '../env';
 import { getActiveProjectPaths } from '../services/multi-project.service';
 import { OrgRole } from '../types/organization';
 import { getConfiguredProjectPaths, getProjectNameFromPath } from '../utils/project-paths';
+import { isDomainCoveredBy } from '../utils/utils';
 import * as projectQueries from './project.queries';
+import * as ssoProviderQueries from './sso-provider.queries';
 import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
@@ -87,7 +89,7 @@ export const listUserOrgMemberships = async (userId: string) => {
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
-		.where(eq(s.orgMember.userId, userId))
+		.where(and(eq(s.orgMember.userId, userId), isNull(s.organization.deactivatedAt)))
 		.orderBy(asc(s.organization.name), asc(s.organization.id))
 		.execute();
 };
@@ -104,9 +106,11 @@ const findUserOrgMembership = async (userId: string, organizationId?: string): P
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.where(
-			organizationId
-				? and(eq(s.orgMember.userId, userId), eq(s.orgMember.orgId, organizationId))
-				: eq(s.orgMember.userId, userId),
+			and(
+				eq(s.orgMember.userId, userId),
+				organizationId ? eq(s.orgMember.orgId, organizationId) : undefined,
+				isNull(s.organization.deactivatedAt),
+			),
 		)
 		.orderBy(asc(s.orgMember.createdAt))
 		.limit(1)
@@ -129,7 +133,7 @@ export const getUserOrgMembershipByProject = async (
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
 		.innerJoin(s.project, eq(s.project.orgId, s.organization.id))
-		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId)))
+		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId), isNull(s.organization.deactivatedAt)))
 		.limit(1)
 		.execute();
 	return result ?? null;
@@ -196,6 +200,23 @@ export const updateOrganizationBypassBilling = async (orgId: string, bypassBilli
 	await db.update(s.organization).set({ bypassBilling }).where(eq(s.organization.id, orgId)).execute();
 };
 
+export const updateOrganizationDeactivatedAt = async (orgId: string, deactivatedAt: Date | null): Promise<void> => {
+	await db.update(s.organization).set({ deactivatedAt }).where(eq(s.organization.id, orgId)).execute();
+};
+
+/** An organization deactivated from the cloud backoffice. */
+export const isOrganizationDeactivated = async (orgId: string): Promise<boolean> => {
+	if (env.NAO_MODE !== 'cloud') {
+		return false;
+	}
+	const organization = await getOrganizationById(orgId);
+	return Boolean(organization?.deactivatedAt);
+};
+
+export const deleteOrganization = async (orgId: string): Promise<void> => {
+	await db.delete(s.organization).where(eq(s.organization.id, orgId)).execute();
+};
+
 export const updateOrganizationLicense = async (orgId: string, license: string | null): Promise<void> => {
 	await db.update(s.organization).set({ license }).where(eq(s.organization.id, orgId)).execute();
 };
@@ -226,12 +247,40 @@ export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<
 	return domains;
 };
 
-/** Cloud mode: whether another organization has already claimed the given email domain. */
-export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+/**
+ * Cloud mode: whether another organization has already claimed the given email domain, for Google or SSO sign-in.
+ * An SSO claim also covers subdomains, so it conflicts with Google claims on them.
+ */
+export const isEmailDomainClaimedByAnotherOrg = async (
+	domain: string,
+	orgId: string,
+	{ includeSubdomains = false }: { includeSubdomains?: boolean } = {},
+): Promise<boolean> => {
 	const normalized = domain.trim().toLowerCase();
-	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
-	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+	const [orgs, ssoProviders] = await Promise.all([
+		db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute(),
+		ssoProviderQueries.listSsoProviderSummaries(),
+	]);
+	const claimedForGoogle = orgs.some(
+		(org) =>
+			org.id !== orgId &&
+			parseEmailDomains(org.googleAuthDomains).some((claimed) =>
+				includeSubdomains ? isDomainCoveredBy(claimed, [normalized]) : claimed === normalized,
+			),
+	);
+	const claimedForSso = ssoProviders.some(
+		(provider) =>
+			provider.organizationId !== orgId && areDomainsOverlapping(normalized, parseEmailDomains(provider.domain)),
+	);
+	return claimedForGoogle || claimedForSso;
 };
+
+function areDomainsOverlapping(domain: string, claimedDomains: string[]): boolean {
+	return (
+		isDomainCoveredBy(domain, claimedDomains) ||
+		claimedDomains.some((claimed) => isDomainCoveredBy(claimed, [domain]))
+	);
+}
 
 function parseEmailDomains(domains: string | null): string[] {
 	if (!domains) {
@@ -442,6 +491,8 @@ export interface OrgMemberWithUser {
 	email: string;
 	role: OrgRole;
 	status: MemberStatus;
+	twoFactorEnabled: boolean;
+	hasPassword: boolean;
 }
 
 export interface OrgProjectWithAccess {
@@ -488,6 +539,8 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			email: s.user.email,
 			role: s.orgMember.role,
 			status: userQueries.userMemberStatus,
+			twoFactorEnabled: s.user.twoFactorEnabled,
+			hasPassword: userQueries.userHasPassword,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
@@ -509,7 +562,7 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
 		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(eq(s.project.orgId, orgId))
+		.where(and(eq(s.project.orgId, orgId), isNull(s.project.deactivatedAt)))
 		.orderBy(asc(s.project.name))
 		.execute();
 

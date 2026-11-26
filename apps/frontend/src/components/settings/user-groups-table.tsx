@@ -9,7 +9,9 @@ import type { DatabaseContextObject } from '@/components/settings/user-group-con
 import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { ImpersonateGroupsButton } from '@/components/group-impersonation';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { ProjectColumnSecurity } from '@/components/settings/project-column-security';
 import { ProjectRowSecurity } from '@/components/settings/project-row-security';
 import { ProjectUsersTable } from '@/components/settings/project-users-table';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +38,7 @@ export type UserGroupsPageTab = 'groups' | 'security' | 'users';
 const USER_GROUPS_PAGE_TABS: Array<{ id: UserGroupsPageTab; label: string }> = [
 	{ id: 'users', label: 'Users' },
 	{ id: 'groups', label: 'Manage Groups' },
-	{ id: 'security', label: 'Security' },
+	{ id: 'security', label: 'Data protection' },
 ];
 
 interface UserGroupsTableProps {
@@ -168,11 +170,14 @@ function UserGroupsContent({
 					/>
 				)}
 				{tab === 'security' && (
-					<ProjectRowSecurity
-						objects={contextObjects}
-						catalogState={databaseCatalogState}
-						onRetryCatalog={() => void contextCatalog.refetch()}
-					/>
+					<div className='flex flex-col gap-8'>
+						<ProjectRowSecurity
+							objects={contextObjects}
+							catalogState={databaseCatalogState}
+							onRetryCatalog={() => void contextCatalog.refetch()}
+						/>
+						<ProjectColumnSecurity objects={contextObjects} catalogState={databaseCatalogState} />
+					</div>
 				)}
 			</TabPanel>
 		</>
@@ -213,6 +218,7 @@ function GroupsTable({
 	const customGroupCount = groups.filter((group) => !group.isDefault).length;
 	const canCreateGroup = entitlement === 'unlimited' || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
 	const normalizedSearch = search.trim().toLowerCase();
+	const impersonableGroups = groups.filter((group) => !group.isDefault && !group.isLocked);
 	const sortedGroups = groups
 		.filter((group) => group.name.toLowerCase().includes(normalizedSearch))
 		.sort(compareUserGroupsForDisplay);
@@ -222,18 +228,21 @@ function GroupsTable({
 			title='Group access'
 			description='Configure the features, database tables, docs, and project files each group can access.'
 			action={
-				entitlement === 'loading' ? (
-					<Button disabled>Loading group access...</Button>
-				) : entitlement === 'error' ? (
-					<Button disabled>Create group unavailable</Button>
-				) : canCreateGroup ? (
-					<Button onClick={onCreateGroup}>
-						<Plus />
-						Create group
-					</Button>
-				) : (
-					<CreateGroupUpgradeNudge />
-				)
+				<div className='flex items-center gap-2'>
+					<ImpersonateGroupsButton groups={impersonableGroups} />
+					{entitlement === 'loading' ? (
+						<Button disabled>Loading group access...</Button>
+					) : entitlement === 'error' ? (
+						<Button disabled>Create group unavailable</Button>
+					) : canCreateGroup ? (
+						<Button onClick={onCreateGroup}>
+							<Plus />
+							Create group
+						</Button>
+					) : (
+						<CreateGroupUpgradeNudge />
+					)}
+				</div>
 			}
 			flush
 		>

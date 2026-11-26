@@ -13,7 +13,6 @@ import { z } from 'zod/v4';
 
 import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import type { ProviderModelResult } from '../agents/providers';
-import { TokenCost } from './chat';
 
 export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value === 'string' && isLlmProvider(value), {
 	message: 'Unknown LLM provider',
@@ -22,9 +21,18 @@ export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value =
 export const llmSelectedModelSchema = z.object({
 	provider: llmProviderSchema,
 	modelId: z.string(),
+	llmConfigId: z.string().optional(),
 });
 
-export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
+export const LLM_CREDENTIAL_SOURCES = ['database', 'env'] as const;
+export type LlmCredentialSource = (typeof LLM_CREDENTIAL_SOURCES)[number];
+
+export type ProviderSettings = {
+	apiKey: string;
+	baseURL?: string;
+	credentials?: Record<string, string>;
+	fetch?: typeof fetch;
+};
 
 export const customModelCostSchema = z.object({
 	inputNoCache: z.number().min(0).optional(),
@@ -37,6 +45,7 @@ export const customModelMetadataSchema = z.object({
 	id: z.string().min(1),
 	displayName: z.string().optional(),
 	costPerM: customModelCostSchema.optional(),
+	contextWindow: z.number().int().positive().optional(),
 });
 
 export type ModelCosts = z.infer<typeof customModelCostSchema>;
@@ -116,13 +125,16 @@ export type ModelSource = {
 		projectId: string,
 		provider: LlmProvider,
 		modelId: string,
+		llmConfigId?: string,
 	): Promise<ModelInferenceSettings | null>;
 	/** Credentials for calling the provider directly. A source that must wrap every call leaves it out. */
-	resolveSettings?(projectId: string, provider: LlmProvider): Promise<ProviderSettings | null>;
+	resolveSettings?(projectId: string, provider: LlmProvider, llmConfigId?: string): Promise<ProviderSettings | null>;
 };
 
 export type ProviderModelSource = {
 	provider: LlmProvider;
+	llmConfigId?: string;
+	llmConfigName?: string;
 	enabledModels: string[];
 	customModels: CustomModelMetadata[];
 	baseUrl: string | null;
@@ -132,6 +144,7 @@ export type ModelRequest = {
 	projectId: string;
 	provider: LlmProvider;
 	modelId: string;
+	llmConfigId?: string;
 	applyUserSettings: boolean;
 	usageContext?: ManagedAiUsageContext;
 	/** Settings that win over the ones configured for the model, such as the reasoning effort a test runs at. */
@@ -212,7 +225,9 @@ export type ParamControl =
 
 export const llmConfigSchema = z.object({
 	id: z.string(),
+	name: z.string(),
 	provider: llmProviderSchema,
+	credentialSource: z.enum(LLM_CREDENTIAL_SOURCES),
 	apiKeyPreview: z.string().nullable(),
 	credentialPreviews: z.record(z.string(), z.string()).nullable(),
 	enabledModels: z.array(z.string()).nullable(),
@@ -274,7 +289,6 @@ type ProviderModel<P extends LlmProviderKind> = {
 	default?: boolean;
 	contextWindow?: number;
 	config?: ProviderConfigMap[P];
-	costPerM?: TokenCost;
 	/** Tunable inference parameters this model supports. Omit to expose no tunable parameters. */
 	capabilities?: ModelCapabilities;
 };
@@ -343,5 +357,6 @@ export const LLM_INFERENCE_TYPES = [
 	'live_story_refresh',
 	'subagent',
 	'story_theme_generation',
+	'decision',
 ] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { prepareRestrictedStoryCode } from '@nao/shared/story-viewer-restrictions';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
@@ -29,6 +30,9 @@ import { useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
+
+const RESTRICTED_STORY_MESSAGE = "Some content in this story isn't available with your current data access.";
+const RESTRICTED_DATA_MESSAGE = 'Data unavailable with your current access.';
 
 export function SharedStoryPage({ storyId }: { storyId: string }) {
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
@@ -69,7 +73,12 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const queryClient = useQueryClient();
 
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
-	const presence = useStoryEditSession({ target: session?.user?.id ? { storyId } : null, isEditing: false });
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
+	const presence = useStoryEditSession({
+		target: session?.user?.id ? { storyId } : null,
+		isEditing: false,
+		conversationChatId: questionChatId,
+	});
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -191,7 +200,13 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 									</StoryElementPicker>
 								}
 							/>
-							{canAsk && <StoryAskBar storyId={storyId} canEdit={resolvedStory?.canEdit === true} />}
+							{canAsk && (
+								<StoryAskBar
+									storyId={storyId}
+									canEdit={resolvedStory?.canEdit === true}
+									onChatChange={setQuestionChatId}
+								/>
+							)}
 						</div>
 
 						{sidePanel.content && (
@@ -228,6 +243,7 @@ function SharedStoryContent({
 	isDataPending: boolean;
 	isViewingLatest: boolean;
 }) {
+	const restrictedContent = useMemo(() => prepareRestrictedStoryCode(code), [code]);
 	const isNoCacheMode = cacheSchedule === 'no-cache';
 	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
 	const filterApi = useMemo(() => ({ kind: 'shared' as const, storyId }), [storyId]);
@@ -260,9 +276,14 @@ function SharedStoryContent({
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[chart.queryId]
+						? RESTRICTED_DATA_MESSAGE
+						: undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	const renderTable = useCallback(
@@ -281,9 +302,14 @@ function SharedStoryContent({
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[table.queryId]
+						? RESTRICTED_DATA_MESSAGE
+						: undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	const renderMap = useCallback(
@@ -303,15 +329,27 @@ function SharedStoryContent({
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
 				allowExpand
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[map.queryId] ? RESTRICTED_DATA_MESSAGE : undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	return (
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
+			{restrictedContent.hasRestrictedContent && (
+				<div
+					className='mx-4 mt-4 flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground'
+					role='status'
+				>
+					<span>{RESTRICTED_STORY_MESSAGE}</span>
+				</div>
+			)}
 			<StoryTabbedContent
-				code={code}
+				code={restrictedContent.code}
+				storyId={storyId}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
 				theme={theme}

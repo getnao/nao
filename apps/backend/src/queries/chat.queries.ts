@@ -4,8 +4,25 @@ import type {
 	CitationData,
 	GroupedChatListResponse,
 	LlmProvider,
+	LlmSelectedModel,
 } from '@nao/shared/types';
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	getTableColumns,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	like,
+	ne,
+	notInArray,
+	or,
+	sql,
+} from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -178,28 +195,32 @@ export const getChat = async (
 	chatId: string,
 	opts: {
 		includeFeedback?: boolean;
+		queryResultPreviews?: boolean;
 	} = {
 		includeFeedback: false,
 	},
 ): Promise<[UIChat, userId: string] | []> => {
-	const query = db
-		.select()
+	const rows = await db
+		.select({
+			chat: s.chat,
+			chat_message: s.chatMessage,
+			message_part: selectMessagePartColumns(opts),
+			message_feedback: s.messageFeedback,
+		})
 		.from(s.chat)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
 		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt), isNull(s.chat.deletedAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
+		.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id))
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.order))
-		.$dynamic();
+		.execute();
 
-	const result = opts.includeFeedback
-		? await query.leftJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.chatMessage.id)).execute()
-		: await query.execute();
-
-	const chat = result.at(0)?.chat;
+	const chat = rows.at(0)?.chat;
 	if (!chat) {
 		return [];
 	}
 
+	const result = opts.includeFeedback ? rows : rows.map(({ message_feedback: _, ...row }) => row);
 	const messages = aggregateChatMessagParts(result);
 	const versionInfoMap = await buildVersionInfoMap(chatId);
 	const messagesWithVersions = messages.map((message) =>
@@ -265,6 +286,23 @@ const buildVersionInfoMap = async (chatId: string): Promise<Map<string, MessageV
 	return versionInfoMap;
 };
 
+/**
+ * With `queryResultPreviews`, a large query result is read as its stored preview, so the database
+ * never reads nor sends its full rows. Callers that need the rows load them by query id.
+ */
+const selectMessagePartColumns = (opts: { queryResultPreviews?: boolean }) => {
+	const columns = getTableColumns(s.messagePart);
+	if (!opts.queryResultPreviews) {
+		return columns;
+	}
+	return {
+		...columns,
+		toolOutput: sql<unknown>`coalesce(${s.messagePart.toolOutputPreview}, ${s.messagePart.toolOutput})`.mapWith(
+			s.messagePart.toolOutput,
+		),
+	};
+};
+
 /** Aggregate the message parts into a list of UI messages. */
 const aggregateChatMessagParts = (
 	result: {
@@ -304,9 +342,12 @@ const aggregateChatMessagParts = (
 	return Object.values(messagesMap);
 };
 
-export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
+export const getChatMessages = async (
+	chatId: string,
+	opts: { queryResultPreviews?: boolean } = {},
+): Promise<UIMessage[]> => {
 	const result = await db
-		.select()
+		.select({ chat_message: s.chatMessage, message_part: selectMessagePartColumns(opts) })
 		.from(s.chatMessage)
 		.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
 		.innerJoin(s.messagePart, eq(s.messagePart.messageId, s.chatMessage.id))
@@ -625,6 +666,7 @@ export const upsertMessage = async (
 		tokenUsage?: TokenUsage;
 		llmProvider?: LlmProvider;
 		llmModelId?: string;
+		llmConfigId?: string;
 		versionGroupId?: string;
 	},
 	options: { updateMetadata?: boolean } = {},
@@ -640,6 +682,7 @@ export const upsertMessage = async (
 			errorMessage: getErrorMessage(message.error),
 			llmProvider: message.llmProvider,
 			llmModelId: message.llmModelId,
+			llmConfigId: message.llmConfigId,
 			source: message.source,
 			isForked: message.isForked,
 			citations: message.citations ?? null,
@@ -711,6 +754,7 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T>
 	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
+/** Erases a chat that never reached its user, such as a fork that failed. A chat its user removes is soft-deleted. */
 export const deleteChat = async (chatId: string): Promise<{ projectId: string }> => {
 	const [result] = await db
 		.delete(s.chat)
@@ -719,6 +763,55 @@ export const deleteChat = async (chatId: string): Promise<{ projectId: string }>
 		.execute();
 	return result;
 };
+
+/**
+ * Removes a chat for its owner and for everyone it was shared with, yet keeps its row and its messages: budgets and
+ * usage are summed from them, so erasing them would hand the money already spent back to the budget.
+ */
+export const softDeleteChat = async (chatId: string): Promise<{ projectId: string }> => {
+	return db.transaction(async (t) => {
+		await releaseStandaloneStories(chatId, t);
+		await t.delete(s.story).where(eq(s.story.chatId, chatId)).execute();
+		await t.delete(s.sharedChat).where(eq(s.sharedChat.chatId, chatId)).execute();
+		const [result] = await t
+			.update(s.chat)
+			.set({ deletedAt: new Date() })
+			.where(eq(s.chat.id, chatId))
+			.returning({ projectId: s.chat.projectId })
+			.execute();
+		return result;
+	});
+};
+
+/**
+ * A story created outside any chat outlives the chat it was opened in. When another standalone story of its owner
+ * took its slug meanwhile, its id makes the slug its own again.
+ */
+async function releaseStandaloneStories(chatId: string, t: DBTransaction): Promise<void> {
+	const stories = await t
+		.select({ id: s.story.id, slug: s.story.slug, projectId: s.story.projectId, userId: s.story.userId })
+		.from(s.story)
+		.where(and(eq(s.story.chatId, chatId), isNotNull(s.story.projectId), isNotNull(s.story.userId)))
+		.execute();
+
+	for (const story of stories) {
+		const [slugTaker] = await t
+			.select({ id: s.story.id })
+			.from(s.story)
+			.where(
+				and(
+					isNull(s.story.chatId),
+					eq(s.story.projectId, story.projectId!),
+					eq(s.story.userId, story.userId!),
+					eq(s.story.slug, story.slug),
+				),
+			)
+			.limit(1)
+			.execute();
+		const slug = slugTaker ? `${story.slug}-${story.id}` : story.slug;
+		await t.update(s.story).set({ chatId: null, slug }).where(eq(s.story.id, story.id)).execute();
+	}
+}
 
 export const softDeleteNonStarredChats = async (userId: string): Promise<{ count: number }> => {
 	const result = await db
@@ -1173,11 +1266,13 @@ export const isOnboardingChat = async (chatId: string): Promise<boolean> => {
 	return Boolean(result);
 };
 
-export const getLatestAssistantModel = async (
-	chatId: string,
-): Promise<{ provider: LlmProvider; modelId: string } | null> => {
+export const getLatestAssistantModel = async (chatId: string): Promise<LlmSelectedModel | null> => {
 	const [result] = await db
-		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+		.select({
+			provider: s.chatMessage.llmProvider,
+			modelId: s.chatMessage.llmModelId,
+			llmConfigId: s.chatMessage.llmConfigId,
+		})
 		.from(s.chatMessage)
 		.where(
 			and(
@@ -1196,7 +1291,11 @@ export const getLatestAssistantModel = async (
 		return null;
 	}
 
-	return { provider: result.provider, modelId: result.modelId };
+	return {
+		provider: result.provider,
+		modelId: result.modelId,
+		...(result.llmConfigId && { llmConfigId: result.llmConfigId }),
+	};
 };
 
 export const getAssistantMessageModels = async (
@@ -1256,7 +1355,7 @@ export const getQueryResultByQueryIdInProject = async (
 				eq(s.chat.userId, userId),
 				isNull(s.chatMessage.supersededAt),
 				executeSqlQueries.isQueryToolPart(),
-				executeSqlQueries.messagePartToolOutputIdEquals(queryId),
+				executeSqlQueries.messagePartQueryIdEquals(queryId),
 			),
 		)
 		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.order))

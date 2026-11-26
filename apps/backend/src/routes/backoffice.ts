@@ -17,8 +17,10 @@ import { checkDatabaseConnection } from '../queries/health.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
-import * as onboardingService from '../services/backoffice-onboarding.service';
+import * as onboardingService from '../services/onboarding/backoffice-onboarding.service';
+import * as ssoService from '../services/organization-sso.service';
 import { INSTANCE_LOG_SORT_KEYS, instanceLogFilterSchema } from '../types/backoffice';
+import { organizationSsoDomainsInputSchema } from '../types/organization';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
 
@@ -121,6 +123,7 @@ export const backofficeRoutes = async (app: App) => {
 					name: z.string().trim().min(1).max(100).optional(),
 					bypassBilling: z.boolean().optional(),
 					license: z.string().trim().min(1).nullable().optional(),
+					deactivated: z.boolean().optional(),
 				})
 				.strict(),
 			request.body,
@@ -130,6 +133,47 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.updateOrganization(params.orgId, body));
+	});
+
+	app.delete('/organizations/:orgId', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => backofficeService.deleteOrganization(params.orgId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
+	});
+
+	app.get('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, async () => ({ sso: await ssoService.getOrganizationSso(params.orgId) }));
+	});
+
+	app.put('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		const body = parse(organizationSsoDomainsInputSchema, request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, async () => ({
+			sso: await ssoService.activateOrganizationSso(params.orgId, body.domains),
+		}));
+	});
+
+	app.delete('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => ssoService.deactivateOrganizationSso(params.orgId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
 	});
 
 	app.put('/organizations/:orgId/members/:userId', async (request, reply) => {
@@ -172,6 +216,26 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.getProjectDetail(params.projectId));
+	});
+
+	app.patch('/projects/:projectId', async (request, reply) => {
+		const params = parse(projectParamsSchema, request.params, reply);
+		const body = parse(z.object({ deactivated: z.boolean() }).strict(), request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, () => backofficeService.updateProject(params.projectId, body));
+	});
+
+	app.delete('/projects/:projectId', async (request, reply) => {
+		const params = parse(projectParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => backofficeService.deleteProject(params.projectId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
 	});
 
 	app.get('/projects/:projectId/messages', async (request, reply) => {

@@ -36,6 +36,7 @@ describe('runAgentTool chat scope', () => {
 			projectId: 'project-a',
 			userId: 'caller',
 			chatId: 'own-chat',
+			querySource: 'mcp',
 		});
 	});
 

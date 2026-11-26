@@ -56,6 +56,7 @@ type LimitsById = Record<string, number>;
 interface LimitDraft {
 	personalBudgets: LimitsById;
 	groupBudgets: LimitsById;
+	groupSharedBudgets: LimitsById;
 	defaultLimitUsd: number;
 	period: MemberBudgetPeriod;
 }
@@ -63,6 +64,7 @@ interface LimitDraft {
 const EMPTY_LIMIT_DRAFT: LimitDraft = {
 	personalBudgets: {},
 	groupBudgets: {},
+	groupSharedBudgets: {},
 	defaultLimitUsd: 0,
 	period: DEFAULT_MEMBER_BUDGET_PERIOD,
 };
@@ -108,8 +110,7 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 	);
 
 	const savedPeriod = overview.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD;
-	const members = useMembersSpendForPeriod(overview.data?.members, draft.period, savedPeriod);
-	const groups = useMemo(() => overview.data?.groups ?? [], [overview.data?.groups]);
+	const { members, groups } = useSpendForPeriod(overview.data, draft.period, savedPeriod);
 	const defaultGroupName = groups.find((group) => group.isDefault)?.name ?? 'All Users';
 	const allocatedUsd = members.reduce((total, member) => total + resolveLimit(member, draft), 0);
 
@@ -122,6 +123,13 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 
 	function updateGroupBudget(groupId: string, limitUsd: number | null) {
 		setDraft((previous) => ({ ...previous, groupBudgets: withLimit(previous.groupBudgets, groupId, limitUsd) }));
+	}
+
+	function updateGroupSharedBudget(groupId: string, limitUsd: number | null) {
+		setDraft((previous) => ({
+			...previous,
+			groupSharedBudgets: withLimit(previous.groupSharedBudgets, groupId, limitUsd || null),
+		}));
 	}
 
 	function updateDefaultLimit(limitUsd: number) {
@@ -147,6 +155,9 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 				groupId: id,
 				limitUsd,
 			})),
+			groupSharedBudgets: listChangedLimits(saved.groupSharedBudgets, draft.groupSharedBudgets).map(
+				({ id, limitUsd }) => ({ groupId: id, limitUsd }),
+			),
 		});
 	}
 
@@ -164,11 +175,19 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 			<SettingsCard
 				title='Group budgets'
 				description={
-					<>
-						<span className='font-medium text-foreground'>{defaultGroupName}</span> sets the default budget
-						of every member. Other groups replace it for their members: a personal budget still wins, and
-						members in several groups get the most generous one.
-					</>
+					<span className='flex flex-col gap-1'>
+						<span>Set how much members can spend each {PERIOD_LABELS[draft.period].toLowerCase()}.</span>
+						<span>
+							<span className='font-medium text-foreground'>Per member</span>: each member&apos;s own cap.{' '}
+							{defaultGroupName} sets the default, other groups replace it. A personal budget always wins,
+							and members in several groups get the most generous one.
+						</span>
+						<span>
+							<span className='font-medium text-foreground'>Shared budget</span>: one cap on the
+							group&apos;s combined spend. Once it&apos;s used up, every member is blocked, whatever their
+							own budget. On {defaultGroupName}, it caps the whole project.
+						</span>
+					</span>
 				}
 				action={lockedAction}
 				flush
@@ -178,8 +197,11 @@ export function MemberBudgetSettings({ isLicensed }: MemberBudgetSettingsProps) 
 						groups={groups}
 						members={members}
 						groupBudgets={draft.groupBudgets}
+						groupSharedBudgets={draft.groupSharedBudgets}
 						defaultLimitUsd={draft.defaultLimitUsd}
+						isLocked={isLocked}
 						onGroupBudgetChange={updateGroupBudget}
+						onGroupSharedBudgetChange={updateGroupSharedBudget}
 						onDefaultLimitChange={updateDefaultLimit}
 					/>
 				</LockedFieldset>
@@ -559,15 +581,21 @@ function GroupBudgetsTable({
 	groups,
 	members,
 	groupBudgets,
+	groupSharedBudgets,
 	defaultLimitUsd,
+	isLocked,
 	onGroupBudgetChange,
+	onGroupSharedBudgetChange,
 	onDefaultLimitChange,
 }: {
 	groups: MemberBudgetGroup[];
 	members: MemberBudgetRow[];
 	groupBudgets: LimitsById;
+	groupSharedBudgets: LimitsById;
 	defaultLimitUsd: number;
+	isLocked: boolean;
 	onGroupBudgetChange: (groupId: string, limitUsd: number | null) => void;
+	onGroupSharedBudgetChange: (groupId: string, limitUsd: number | null) => void;
 	onDefaultLimitChange: (limitUsd: number) => void;
 }) {
 	const memberCountByGroup = countMembersByGroup(members);
@@ -577,7 +605,9 @@ function GroupBudgetsTable({
 				<TableRow className='[&_th]:h-12'>
 					<TableHead>Group</TableHead>
 					<TableHead>Members</TableHead>
-					<TableHead>Budget per member</TableHead>
+					<TableHead>Per member</TableHead>
+					<TableHead>Shared budget</TableHead>
+					<TableHead>Group spend</TableHead>
 				</TableRow>
 			</TableHeader>
 			<TableBody>
@@ -607,6 +637,22 @@ function GroupBudgetsTable({
 								/>
 							)}
 						</TableCell>
+						<TableCell>
+							<BudgetCell
+								limitUsd={groupSharedBudgets[group.id] ?? 0}
+								onChange={(value) => onGroupSharedBudgetChange(group.id, value)}
+							/>
+						</TableCell>
+						<TableCell className='tabular-nums'>
+							{isLocked ? (
+								<span className='text-sm text-muted-foreground'>—</span>
+							) : (
+								<GroupUsage
+									spendUsd={group.spendUsd}
+									sharedLimitUsd={groupSharedBudgets[group.id] ?? 0}
+								/>
+							)}
+						</TableCell>
 					</TableRow>
 				))}
 			</TableBody>
@@ -614,12 +660,25 @@ function GroupBudgetsTable({
 	);
 }
 
-/** Previews each member's spend over an unsaved period without touching the saved settings. */
-function useMembersSpendForPeriod(
-	savedMembers: MemberBudgetRow[] | undefined,
+function GroupUsage({ spendUsd, sharedLimitUsd }: { spendUsd: number; sharedLimitUsd: number }) {
+	const status = getMemberBudgetStatus(spendUsd, sharedLimitUsd);
+	return (
+		<span className='text-sm'>
+			<span className={spendClassName(status)}>{formatUsd(spendUsd, 2)}</span>
+			<span className='text-muted-foreground'>
+				{status !== 'unlimited' &&
+					` of ${formatUsd(sharedLimitUsd)} · ${Math.round((spendUsd / sharedLimitUsd) * 100)}%`}
+			</span>
+		</span>
+	);
+}
+
+/** Previews each member's and group's spend over an unsaved period without touching the saved settings. */
+function useSpendForPeriod(
+	overview: MemberBudgetOverview | undefined,
 	period: MemberBudgetPeriod,
 	savedPeriod: MemberBudgetPeriod,
-): MemberBudgetRow[] {
+): { members: MemberBudgetRow[]; groups: MemberBudgetGroup[] } {
 	const isPreviewingPeriod = period !== savedPeriod;
 	const previewSpend = useQuery({
 		...trpc.memberBudget.getSpend.queryOptions({ period }),
@@ -628,13 +687,17 @@ function useMembersSpendForPeriod(
 	});
 
 	return useMemo(() => {
-		const members = savedMembers ?? [];
+		const members = overview?.members ?? [];
+		const groups = overview?.groups ?? [];
 		if (!isPreviewingPeriod || !previewSpend.data) {
-			return members;
+			return { members, groups };
 		}
-		const spendByUser = previewSpend.data;
-		return members.map((member) => ({ ...member, spendUsd: spendByUser[member.id] ?? 0 }));
-	}, [savedMembers, isPreviewingPeriod, previewSpend.data]);
+		const spend = previewSpend.data;
+		return {
+			members: members.map((member) => ({ ...member, spendUsd: spend.members[member.id] ?? 0 })),
+			groups: groups.map((group) => ({ ...group, spendUsd: spend.groups[group.id] ?? 0 })),
+		};
+	}, [overview?.members, overview?.groups, isPreviewingPeriod, previewSpend.data]);
 }
 
 /** Without the license, members and groups are previewed from the user group overview, with no spend. */
@@ -662,7 +725,14 @@ function buildLockedPreview(userGroups: UserGroupOverview): MemberBudgetOverview
 		defaultLimitUsd: 0,
 		groups: userGroups.groups
 			.filter((group) => !group.isLocked)
-			.map(({ id, name, isDefault }) => ({ id, name, isDefault, limitUsd: isDefault ? 0 : null })),
+			.map(({ id, name, isDefault }) => ({
+				id,
+				name,
+				isDefault,
+				limitUsd: isDefault ? 0 : null,
+				sharedLimitUsd: null,
+				spendUsd: 0,
+			})),
 		members: userGroups.users.map(({ id, name, email }) => ({
 			id,
 			name,
@@ -703,12 +773,22 @@ function buildLimitDraft(overview: MemberBudgetOverview): LimitDraft {
 		}
 	}
 	const groupBudgets: LimitsById = {};
+	const groupSharedBudgets: LimitsById = {};
 	for (const group of overview.groups) {
 		if (!group.isDefault && group.limitUsd !== null) {
 			groupBudgets[group.id] = group.limitUsd;
 		}
+		if (group.sharedLimitUsd !== null) {
+			groupSharedBudgets[group.id] = group.sharedLimitUsd;
+		}
 	}
-	return { defaultLimitUsd: overview.defaultLimitUsd, personalBudgets, groupBudgets, period: overview.period };
+	return {
+		defaultLimitUsd: overview.defaultLimitUsd,
+		personalBudgets,
+		groupBudgets,
+		groupSharedBudgets,
+		period: overview.period,
+	};
 }
 
 function areDraftsEqual(left: LimitDraft, right: LimitDraft): boolean {
@@ -716,7 +796,8 @@ function areDraftsEqual(left: LimitDraft, right: LimitDraft): boolean {
 		left.period === right.period &&
 		left.defaultLimitUsd === right.defaultLimitUsd &&
 		areLimitsEqual(left.personalBudgets, right.personalBudgets) &&
-		areLimitsEqual(left.groupBudgets, right.groupBudgets)
+		areLimitsEqual(left.groupBudgets, right.groupBudgets) &&
+		areLimitsEqual(left.groupSharedBudgets, right.groupSharedBudgets)
 	);
 }
 

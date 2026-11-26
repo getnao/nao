@@ -201,7 +201,7 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
     for file in FILES:
         file_path = project_path / file.path
         if file.content:
-            file_path.write_text(file.content)
+            file_path.write_text(file.content, encoding="utf-8")
         else:
             file_path.touch()
         created_files.append(file)

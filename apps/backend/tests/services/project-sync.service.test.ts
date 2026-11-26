@@ -292,7 +292,7 @@ describe('project sync', () => {
 			error: 'nao lost contact with its database for too long, so the sync was stopped. Try again.',
 		},
 	])('stops a running sync without publishing when $stoppedWhen', async ({ stop, status, error }) => {
-		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
 			status: 'unavailable',
 			reason: 'no-repo',
@@ -334,7 +334,7 @@ describe('project sync', () => {
 	});
 
 	it('stops a sync when another backend instance records its cancellation', async () => {
-		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(runNaoCommandInSandbox).mockImplementation(
 			async (_args, _cwd, _env, _onOutput, signal) =>
 				new Promise<void>((_resolve, reject) => {

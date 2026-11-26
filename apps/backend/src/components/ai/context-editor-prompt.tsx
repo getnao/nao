@@ -1,10 +1,15 @@
-import { Block, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
+import { Block, Bold, Code, CodeBlock, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
+import type {
+	DescribedContextHubPage,
+	ShownSkillContent,
+	TestRunOutcome,
+} from '../../services/context-hub-shown-page.service';
 
 export const CONTEXT_EDITOR_ROLE =
 	'You are nao, the context editor of the Context Hub: you help the user improve what the analytics agents of this project know about its data, through the table descriptions and notes, the agent rules, the docs, the metrics and the skills.';
 
 interface ContextEditorPromptProps {
-	openPath: string | null;
+	shown: DescribedContextHubPage;
 	hasRecommendations: boolean;
 }
 
@@ -12,7 +17,7 @@ export function renderContextEditorPrompt(props: ContextEditorPromptProps): stri
 	return renderToMarkdown(<ContextEditorPrompt {...props} />);
 }
 
-function ContextEditorPrompt({ openPath, hasRecommendations }: ContextEditorPromptProps) {
+function ContextEditorPrompt({ shown, hasRecommendations }: ContextEditorPromptProps) {
 	return (
 		<Block>
 			<Title level={2}>Context Hub Editor</Title>
@@ -24,12 +29,7 @@ function ContextEditorPrompt({ openPath, hasRecommendations }: ContextEditorProm
 				with the context you write. The user may not be technical: speak about tables, notes and docs rather
 				than files, branches or commits.
 			</Span>
-			{openPath && (
-				<Span>
-					The user has <Code>{openPath}</Code> open in the hub: &quot;this table&quot; or &quot;this doc&quot;
-					means it.
-				</Span>
-			)}
+			<ShownPageSection shown={shown} />
 
 			<Title level={3}>What you help with</Title>
 			<List>
@@ -37,6 +37,11 @@ function ContextEditorPrompt({ openPath, hasRecommendations }: ContextEditorProm
 				<ListItem>Write or reword the agent rules, like definitions, conventions and answer formats.</ListItem>
 				<ListItem>Write docs, such as a glossary of business terms.</ListItem>
 				<ListItem>Create a skill: steps the agents follow for a recurring kind of request.</ListItem>
+				<ListItem>
+					Improve the user&apos;s own personal skills, which live in nao rather than in the context files,
+					with <Code>read_personal_skill</Code> and <Code>update_personal_skill</Code>, ask to share one with
+					everyone, and review the share requests other members sent.
+				</ListItem>
 				<ListItem>Find what is missing or unclear in the context of a table or a topic, and fix it.</ListItem>
 				{hasRecommendations && (
 					<ListItem>
@@ -102,6 +107,129 @@ function ContextEditorPrompt({ openPath, hasRecommendations }: ContextEditorProm
 			</List>
 			{hasRecommendations && <RecommendationsSection />}
 		</Block>
+	);
+}
+
+/** What the hub shows beside the chat, so "this table", "this test" or "this skill" points at the right thing. */
+function ShownPageSection({ shown }: { shown: DescribedContextHubPage }) {
+	return (
+		<>
+			<Title level={3}>What the user is looking at</Title>
+			<ShownPageDescription shown={shown} />
+		</>
+	);
+}
+
+function ShownPageDescription({ shown }: { shown: DescribedContextHubPage }) {
+	switch (shown.type) {
+		case 'overview':
+			return <Span>The overview of the hub, with no file open.</Span>;
+		case 'file':
+			return (
+				<Span>
+					The file <Code>{shown.path}</Code>: &quot;this table&quot;, &quot;this doc&quot; or &quot;this
+					skill&quot; means it. Read it with <Code>read_context_file</Code> before talking about its content.
+				</Span>
+			);
+		case 'change':
+			return (
+				<Span>
+					Their unpublished change to <Code>{shown.path}</Code>, as a diff in the Changes tab: &quot;this
+					change&quot; means it. Read the file to see it as it stands now.
+				</Span>
+			);
+		case 'tests':
+			return (
+				<>
+					<Span>
+						The tests page: every context test under <Code>tests/</Code>, a question with the answer the
+						agents must give, and the runs that check them.
+					</Span>
+					{shown.run && <TestRunSummary run={shown.run} />}
+				</>
+			);
+		case 'test':
+			return (
+				<>
+					<Span>
+						The test <Code>{shown.path}</Code>: &quot;this test&quot; means it. Read it with{' '}
+						<Code>read_context_file</Code> to see its question and expected answer.
+					</Span>
+					{shown.run && <TestRunSummary run={shown.run} />}
+				</>
+			);
+		case 'skills':
+			return (
+				<Span>
+					The skills library: the project skills under <Code>agent/skills/</Code>, the user&apos;s own
+					personal skills, and the personal skills members asked to share with everyone.
+				</Span>
+			);
+		case 'personal-skill':
+			return (
+				<>
+					<Span>
+						Their personal skill <Code>{shown.name}</Code>: &quot;this skill&quot; means it. Only they can
+						use it. It lives in nao, not in the context files: change its &quot;when to use it&quot; text or
+						its instructions with <Code>update_personal_skill</Code>, and ask to share it with everyone with{' '}
+						<Code>request_personal_skill_share</Code> when they want the whole team to have it.
+					</Span>
+					{shown.skill && <SkillContent skill={shown.skill} />}
+				</>
+			);
+		case 'share-request':
+			return shown.request ? (
+				<>
+					<Span>
+						A request from {shown.request.authorName} to share their personal skill{' '}
+						<Code>{shown.request.name}</Code> with everyone, request id <Code>{shown.id}</Code>: &quot;this
+						skill&quot; or &quot;this request&quot; means it. Compare it with the project skills and the
+						rules when asked whether to accept it, and accept or decline it with{' '}
+						<Code>review_share_request</Code> once the user decides: accepting adds{' '}
+						<Code>agent/skills/{shown.request.name}.md</Code> to their changes.
+					</Span>
+					{shown.request.note && (
+						<Span>
+							<Bold>Their note:</Bold> {shown.request.note}
+						</Span>
+					)}
+					<SkillContent skill={shown.request} />
+				</>
+			) : (
+				<Span>A request to share a personal skill that no longer exists.</Span>
+			);
+	}
+}
+
+function TestRunSummary({ run }: { run: TestRunOutcome }) {
+	return (
+		<>
+			<Span>
+				They opened run <Code>{run.id}</Code>, {run.status}: {run.passedAttempts} of {run.completedAttempts}{' '}
+				answers passed ({run.totalAttempts} planned).
+			</Span>
+			{run.failures.length > 0 && (
+				<List>
+					{run.failures.map((failure) => (
+						<ListItem>
+							<Code>tests/{failure.testPath}</Code> failed with {failure.model}
+							{failure.reason ? `: ${failure.reason}` : ''}
+						</ListItem>
+					))}
+				</List>
+			)}
+		</>
+	);
+}
+
+function SkillContent({ skill }: { skill: ShownSkillContent }) {
+	return (
+		<>
+			<Span>
+				<Bold>When to use it:</Bold> {skill.description || 'no description'}
+			</Span>
+			<CodeBlock header='markdown'>{skill.body}</CodeBlock>
+		</>
 	);
 }
 

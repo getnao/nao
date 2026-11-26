@@ -144,3 +144,19 @@ describe('compaction parts', () => {
 		});
 	});
 });
+
+describe('steer parts', () => {
+	it('stores a steered message and reads it back under the part id', () => {
+		const dbPart = convertUIPartToDBPart(
+			{ type: 'data-steer', data: { id: 'client-id', text: 'Only last month' } },
+			'msg-1',
+			3,
+		);
+
+		expect(dbPart).toMatchObject({ type: 'data-steer', text: 'Only last month' });
+		expect(convertDBPartToUIPart(asDBPart(dbPart))).toEqual({
+			type: 'data-steer',
+			data: { id: 'part-1', text: 'Only last month' },
+		});
+	});
+});

@@ -55,17 +55,18 @@ describe('summarizeRunByTag', () => {
 		);
 	});
 
-	it('measures the user changes against the main branch, leaving out the tests the changes added', () => {
+	it('measures the user changes against the main branch, leaving out the tests the changes added or deleted', () => {
 		const summaries = summarizeRunByTag(
 			comparisonRun([
 				{ testPath: 'mrr.yml', tags: ['finance'], production: false, draft: true, change: 'fixed' },
 				{ testPath: 'arr.yml', tags: ['finance'], production: null, draft: false, change: 'new' },
+				{ testPath: 'cac.yml', tags: ['finance'], production: true, draft: null, change: 'removed' },
 			]),
 		);
 
 		expect(summaries).toHaveLength(1);
 		expect(summaries[0]).toMatchObject({
-			testCount: 2,
+			testCount: 3,
 			passedAttempts: 1,
 			totalAttempts: 1,
 			baseline: { passedAttempts: 0, totalAttempts: 1 },
@@ -149,7 +150,7 @@ function compare(tests: ComparedTest[]): Comparison {
 		draft: countAnswer(test.draft),
 		change: test.change,
 	}));
-	const comparedRows = rows.filter((row) => row.change !== 'new');
+	const comparedRows = rows.filter((row) => row.change !== 'new' && row.change !== 'removed');
 	return {
 		production: sumAnswers(comparedRows.map((row) => row.production)),
 		draft: sumAnswers(comparedRows.map((row) => row.draft)),
@@ -214,6 +215,7 @@ function result(
 		tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId ?? null,
 		reasoningEffort: null,
 		contextVariant,
 		passed,

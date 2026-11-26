@@ -66,6 +66,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const presence = useStoryEditSession({
 		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug } : null,
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
+		conversationChatId: citingChatId,
 	});
 	const canEditBlocks =
 		story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isReadonlyMode && presence.canEdit;
@@ -248,6 +249,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				open={sharing.isShareDialogOpen}
 				onOpenChange={sharing.setIsShareDialogOpen}
 				target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
+				onStoryTransferred={close}
 			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
@@ -260,8 +262,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={storySlug}
+				story={{ chatId, storySlug }}
 				isLive={live.isLive}
 				isLiveTextDynamic={live.isLiveTextDynamic}
 				cacheSchedule={live.cacheSchedule}

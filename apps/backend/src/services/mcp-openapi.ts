@@ -22,7 +22,8 @@ export interface McpOpenApiDocument {
 	};
 	'x-mcp': {
 		server: string;
-		transport: McpTransport;
+		/** `in-process` for nao's own server, which runs inside nao rather than over a transport. */
+		transport: McpTransport | 'in-process';
 		toolCount: number;
 	};
 	paths: Record<string, unknown>;
@@ -35,7 +36,7 @@ export interface McpOpenApiDocument {
  */
 export function buildMcpOpenApiDocument(opts: {
 	serverName: string;
-	transport: McpTransport;
+	transport: McpTransport | 'in-process';
 	tools: McpToolDefinition[];
 }): McpOpenApiDocument {
 	const paths: Record<string, unknown> = {};
