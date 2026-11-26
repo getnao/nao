@@ -30,7 +30,6 @@ import {
 	type OutputInterface,
 	type PrepareStepResult,
 	pruneMessages,
-	readUIMessageStream,
 	stepCountIs,
 	type StepResult,
 	type StopCondition,
@@ -1155,10 +1154,7 @@ export class AgentManager {
 	 */
 	async streamToCompletion(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
-		const stream = this.stream(uiMessages);
-		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
-			void message;
-		}
+		await drainUIMessageStream(this.stream(uiMessages));
 		await this.waitUntilFinished();
 
 		const result = this._streamResult;
@@ -1621,6 +1617,19 @@ async function safeInitializeSkills(projectId: string): Promise<void> {
 
 function isTableMentionId(mentionId: string): boolean {
 	return !isStoryReferenceMentionId(mentionId) && !isStoryFolderMentionId(mentionId) && !isSchemaMentionId(mentionId);
+}
+
+/**
+ * Reads a run's stream to its end without building a snapshot of the message after each chunk, which clones every
+ * tool output of the message and blocks the event loop on large query results.
+ */
+async function drainUIMessageStream(stream: ReadableStream<InferUIMessageChunk<UIMessage>>): Promise<void> {
+	const reader = stream.getReader();
+	for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+		if (chunk.value.type === 'error') {
+			throw new Error(chunk.value.errorText);
+		}
+	}
 }
 
 // Singleton instance of the agent service
