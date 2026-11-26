@@ -124,6 +124,7 @@ import { memoryService } from './memory';
 import { hasNaoInternalMcpTools } from './nao-internal-mcp';
 import { posthog, PostHogEvent } from './posthog';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
+import { answerWithoutAgent } from './quick-answer';
 import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
@@ -763,6 +764,10 @@ export class AgentManager {
 					});
 				}
 
+				if (await this._answerWithoutAgent(writer, uiMessages, opts.mentions)) {
+					return;
+				}
+
 				this._streamWriter = writer;
 				const messages = await this._buildModelMessages(
 					uiMessages,
@@ -820,6 +825,23 @@ export class AgentManager {
 					this._finish();
 				}
 			},
+		});
+	}
+
+	/** A web message a quick-answer gate covers, such as a chart restyle, is answered by the decision model, without the LLM. */
+	private async _answerWithoutAgent(
+		writer: UIMessageStreamWriter<UIMessage>,
+		uiMessages: UIMessage[],
+		mentions?: Mention[],
+	): Promise<boolean> {
+		if (this._profile.source !== 'web' || mentions?.length) {
+			return false;
+		}
+		return answerWithoutAgent(writer, {
+			messages: uiMessages,
+			tools: this._agentTools,
+			context: this._toolContext,
+			abortSignal: this._abortController.signal,
 		});
 	}
 

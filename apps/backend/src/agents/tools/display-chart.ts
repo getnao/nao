@@ -1,5 +1,5 @@
 import { chartTypeSupportsBreakdown } from '@nao/shared/chart-series';
-import { chartTypeRequiresXAxisKey, isBuiltinChartType, isPieChart, isStackedChartType } from '@nao/shared/chart-types';
+import { builtinChartConfigError, isBuiltinChartType } from '@nao/shared/chart-types';
 import { displayChart } from '@nao/shared/tools';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
@@ -45,11 +45,6 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: true };
 		}
 
-		// Validate xAxisKey is provided for cartesian and polar charts
-		if (chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
-			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
-		}
-
 		if (input.breakdown_key && !chartTypeSupportsBreakdown(chartType)) {
 			return {
 				_version: '1',
@@ -58,32 +53,13 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			};
 		}
 
-		// Validate pie and donut charts have exactly one series
-		if (isPieChart(chartType) && series.length !== 1) {
-			return {
-				_version: '1',
-				success: false,
-				error: `${chartType === 'donut' ? 'Donut' : 'Pie'} charts require exactly one series.`,
-			};
-		}
-
-		// Validate series is not empty
-		if (series.length === 0) {
-			return { _version: '1', success: false, error: 'At least one series is required.' };
-		}
-
-		// Stacked charts require at least two series
-		if (
-			isStackedChartType(chartType) &&
-			chartType !== 'horizontal_bar' &&
-			series.length < 2 &&
-			!input.breakdown_key
-		) {
-			return {
-				_version: '1',
-				success: false,
-				error: `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. Set breakdown_key to the column whose values should each become a stack.`,
-			};
+		const configError = builtinChartConfigError(chartType, {
+			xAxisKey,
+			seriesCount: series.length,
+			hasBreakdown: Boolean(input.breakdown_key),
+		});
+		if (configError) {
+			return { _version: '1', success: false, error: configError };
 		}
 
 		// TODO: check that the chart is displayable and that the data is valid

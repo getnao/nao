@@ -10,6 +10,8 @@ import { FormActions, PasswordField, TextField } from '@/components/ui/form-fiel
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { trpc } from '@/main';
 
@@ -58,6 +60,8 @@ export function SettingsDecisionModels({ isAdmin }: { isAdmin: boolean }) {
 				</SettingsCard>
 			)}
 
+			{model && <QuickEditsToggle isEnabled={settings.data?.quickEditsEnabled ?? false} isAdmin={isAdmin} />}
+
 			{isAdmin && model && <DecisionModelTest model={model} />}
 		</>
 	);
@@ -70,6 +74,29 @@ function useInvalidateDecisionSettings() {
 			queryClient.invalidateQueries({ queryKey: trpc.decision.getSettings.queryOptions().queryKey }),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getLlmConfigs.queryOptions().queryKey }),
 		]);
+}
+
+function QuickEditsToggle({ isEnabled, isAdmin }: { isEnabled: boolean; isAdmin: boolean }) {
+	const invalidate = useInvalidateDecisionSettings();
+	const setQuickEdits = useMutation(trpc.decision.setQuickEdits.mutationOptions({ onSuccess: invalidate }));
+
+	return (
+		<SettingsCard title='Quick edits' description='Changes the decision model makes without an agent run.' divide>
+			<SettingsControlRow
+				id='decision-quick-edits'
+				label='Quick chart edits'
+				description='When a chat message only restyles a story chart (its type, legend, values, Y-axis), the decision model edits the chart in milliseconds instead of the agent.'
+				control={
+					<Switch
+						id='decision-quick-edits'
+						checked={isEnabled}
+						onCheckedChange={(enabled) => setQuickEdits.mutate({ enabled })}
+						disabled={!isAdmin || setQuickEdits.isPending}
+					/>
+				}
+			/>
+		</SettingsCard>
+	);
 }
 
 function DecisionProviders({

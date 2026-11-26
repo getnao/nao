@@ -66,6 +66,12 @@ export const decisionRoutes = {
 		await projectQueries.updateAgentSettings(ctx.project.id, { decision: input });
 	}),
 
+	setQuickEdits: adminProtectedProcedure
+		.input(z.object({ enabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await projectQueries.updateAgentSettings(ctx.project.id, { decisionQuickEdits: input.enabled });
+		}),
+
 	/** Ask one yes/no question, so an admin can check that a model answers before anything relies on it. */
 	test: adminProtectedProcedure
 		.input(
