@@ -98,8 +98,8 @@ function readChartEdit(answers: DecisionAnswers<DecisionQuestions> | null, targe
 	if (!answers || !isDisplayEdit(answers.is_display_edit)) {
 		return null;
 	}
-	const { config, changes } = applyChartEdit(target.chart.config, answers, target.columns);
-	return changes.length > 0 ? { ...target, config, changes } : null;
+	const { config, changes, complete } = applyChartEdit(target.chart.config, answers, target.columns);
+	return complete && changes.length > 0 ? { ...target, config, changes } : null;
 }
 
 function toToolCall({ chart, config, changes }: ChartEdit): QuickToolCall {

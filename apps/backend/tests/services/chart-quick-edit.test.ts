@@ -149,11 +149,25 @@ describe('chartQuickEditGate', () => {
 			},
 			{
 				name: 'formats the values in dollars without decimals',
-				answers: { value_format: choice('dollars'), decimals: choice('no_decimals') },
+				answers: {
+					value_format: choice('dollars'),
+					decimals: choice('no_decimals'),
+					format_series: choice('all_series'),
+				},
 				expected: {
 					series: [
 						{ data_key: 'revenue', label: 'Revenue', value_format: { d3_format: ',.0f', prefix: '$' } },
 						{ data_key: 'rate', label: 'Rate', value_format: { d3_format: ',.0f', prefix: '$' } },
+					],
+				},
+			},
+			{
+				name: 'formats only the series the message names',
+				answers: { value_format: choice('percent'), format_series: choice('series_1') },
+				expected: {
+					series: [
+						{ data_key: 'revenue', label: 'Revenue' },
+						{ data_key: 'rate', label: 'Rate', value_format: { d3_format: ',.1f', suffix: '%' } },
 					],
 				},
 			},
@@ -188,6 +202,36 @@ describe('chartQuickEditGate', () => {
 
 			expect(await runInChat(createUIMessageWriter(), 'edit the chart')).toBe(true);
 			expect(mocks.executeDisplayChart.mock.calls[0][0]).toMatchObject(expected);
+		});
+
+		it('changes only the precision of a format when the message only asks for decimals', async () => {
+			const series = [{ data_key: 'latency', value_format: { d3_format: ',.2f', suffix: ' ms' } }];
+			answerWith({ decimals: choice('one_decimal') });
+
+			expect(await runInChat(createUIMessageWriter(), 'one decimal', { ...CHAT_CHART, series })).toBe(true);
+			expect(mocks.executeDisplayChart.mock.calls[0][0].series).toEqual([
+				{ data_key: 'latency', value_format: { d3_format: ',.1f', suffix: ' ms' } },
+			]);
+		});
+
+		it.each([
+			{
+				name: 'a change the model leans toward without being sure',
+				answers: { chart_type: choice('line'), legend: choice('hide', 0.5) },
+			},
+			{
+				name: 'decimals on compact numbers',
+				answers: {
+					value_format: choice('compact'),
+					decimals: choice('two_decimals'),
+					format_series: choice('all_series'),
+				},
+			},
+		])('leaves a message with $name to the agent instead of doing part of it', async ({ answers }) => {
+			answerWith(answers);
+
+			expect(await runInChat(createUIMessageWriter(), 'edit the chart')).toBe(false);
+			expect(mocks.executeDisplayChart).not.toHaveBeenCalled();
 		});
 
 		it('edits the chart shown last when the message does not say which chart it means', async () => {
@@ -246,7 +290,11 @@ function run(writer: ReturnType<typeof createUIMessageWriter>, text: string): Pr
 	return answerWithoutAgent(writer.writer, withTools([userMessage(text)]));
 }
 
-function runInChat(writer: ReturnType<typeof createUIMessageWriter>, text: string): Promise<boolean> {
+function runInChat(
+	writer: ReturnType<typeof createUIMessageWriter>,
+	text: string,
+	chart: object = CHAT_CHART,
+): Promise<boolean> {
 	const chartMessage = {
 		id: 'm0',
 		role: 'assistant',
@@ -255,7 +303,7 @@ function runInChat(writer: ReturnType<typeof createUIMessageWriter>, text: strin
 				type: 'tool-display_chart',
 				toolCallId: 'c1',
 				state: 'output-available',
-				input: CHAT_CHART,
+				input: chart,
 				output: { _version: '1', success: true },
 			},
 		],

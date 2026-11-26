@@ -97,6 +97,27 @@ describe('answerWithoutAgent', () => {
 		expect(writer.chunks).toEqual([]);
 	});
 
+	it('does not run the tool once the run is stopped', async () => {
+		const abort = new AbortController();
+		const stopping = gate('chart_edit', CHART_CALL);
+		stopping.plan.mockImplementation(async () => {
+			abort.abort();
+			return CHART_CALL;
+		});
+		const writer = createUIMessageWriter();
+		const request = {
+			messages: [userMessage('make it a line chart')],
+			tools: tools(),
+			context: createToolContext(),
+		};
+
+		expect(await answerWithoutAgent(writer.writer, { ...request, abortSignal: abort.signal }, [stopping])).toBe(
+			false,
+		);
+		expect(mocks.executeDisplayChart).not.toHaveBeenCalled();
+		expect(writer.chunks).toEqual([]);
+	});
+
 	it('writes nothing when the tool call fails', async () => {
 		mocks.executeDisplayChart.mockResolvedValue({ _version: '1', success: false, error: 'Unknown query.' });
 		const writer = createUIMessageWriter();

@@ -21,7 +21,12 @@ export const QUICK_ANSWER_GATES: QuickAnswerGate[] = [chartQuickEditGate];
  */
 export async function answerWithoutAgent(
 	writer: UIMessageStreamWriter<UIMessage>,
-	{ messages, tools, context }: { messages: UIMessage[]; tools: AgentTools; context: ToolContext },
+	{
+		messages,
+		tools,
+		context,
+		abortSignal,
+	}: { messages: UIMessage[]; tools: AgentTools; context: ToolContext; abortSignal?: AbortSignal },
 	gates: QuickAnswerGate[] = QUICK_ANSWER_GATES,
 ): Promise<boolean> {
 	const message = readPlainTextMessage(messages);
@@ -32,11 +37,11 @@ export async function answerWithoutAgent(
 	const call = await planQuickAnswer({ message, messages, context }, gates).catch((error) =>
 		logPlanningFailure(error, context),
 	);
-	if (!call) {
+	if (!call || abortSignal?.aborted) {
 		return false;
 	}
 	const toolCallId = `quick_${crypto.randomUUID().slice(0, 13)}`;
-	const output = await runTool(tools, call, { toolCallId, messages: [], experimental_context: context });
+	const output = await runTool(tools, call, { toolCallId, messages: [], experimental_context: context, abortSignal });
 	if (!isSuccess(output)) {
 		return false;
 	}
@@ -98,7 +103,7 @@ async function routeToGate(request: QuickAnswerRequest, gates: QuickAnswerGate[]
 async function runTool(
 	tools: AgentTools,
 	call: QuickToolCall,
-	options: { toolCallId: string; messages: []; experimental_context: ToolContext },
+	options: { toolCallId: string; messages: []; experimental_context: ToolContext; abortSignal?: AbortSignal },
 ): Promise<unknown> {
 	const tool = tools[call.toolName] as { execute?: (input: unknown, options: unknown) => unknown } | undefined;
 	return tool?.execute?.(call.input, options);

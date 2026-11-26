@@ -841,6 +841,7 @@ export class AgentManager {
 			messages: uiMessages,
 			tools: this._agentTools,
 			context: this._toolContext,
+			abortSignal: this._abortController.signal,
 		});
 	}
 

@@ -14,6 +14,8 @@ const MIN_CHANGE_CONFIDENCE = 0.75;
 const MIN_X_AXIS_TYPE_CONFIDENCE = 0.9;
 const MAX_SERIES_QUESTIONS = 8;
 const KEEP = 'keep';
+const ALL_SERIES = 'all_series';
+const FIXED_DECIMALS = /\.(\d+)f$/;
 
 type Series = ChartConfig['series'][number];
 type ValueFormat = displayChart.SeriesConfig['value_format'];
@@ -127,10 +129,14 @@ export function buildChartEditQuestions(chart: ChartConfig, columns: ChartColumn
 		...(chart.series.length > 1 && {
 			remove_series: changeQuestion(
 				'Which series does the message ask to remove from the chart?',
-				Object.fromEntries(
-					chart.series.map((series, index) => [`series_${index}`, `The series "${seriesName(series)}"`]),
-				),
+				seriesChoices(chart.series),
 			),
+			format_series: {
+				type: 'choice',
+				instructions:
+					'If the message asks to format numbers, which series are they? Answer "all_series" unless it names one.',
+				options: { [ALL_SERIES]: 'Every series of the chart', ...seriesChoices(chart.series) },
+			},
 		}),
 		...seriesQuestions(chart.series),
 	};
@@ -156,10 +162,15 @@ export function describeChartState(chart: ChartConfig, columns: ChartColumns) {
 	};
 }
 
-/** Each change the model is sure the message asks for, applied when it changes the chart. */
-export function applyChartEdit(current: ChartConfig, answers: ChartEditAnswers, columns: ChartColumns) {
+/**
+ * Each change the model is sure the message asks for, applied when it changes the chart. The edit is
+ * incomplete when the model leaned toward a change without being sure, or asked for one that cannot be made,
+ * so the agent answers instead of doing part of the request.
+ */
+export function applyChartEdit(current: ChartConfig, decisionAnswers: ChartEditAnswers, columns: ChartColumns) {
+	const answers = new AnswerReader(decisionAnswers);
 	const edit = new ChartEdit(current);
-	const chartType = asked(answers, 'chart_type');
+	const chartType = answers.asked('chart_type');
 	if (chartType && isBuiltinChartType(chartType)) {
 		edit.set('chart_type', chartType, `switched to ${CHART_TYPE_CHOICES[chartType].toLowerCase()}`);
 	}
@@ -172,7 +183,8 @@ export function applyChartEdit(current: ChartConfig, answers: ChartEditAnswers, 
 	addSeries(edit, current, answers, columns, canMix);
 	formatValues(edit, answers);
 	removeSeries(edit, current, answers);
-	return { config: edit.config, changes: edit.changes };
+	const complete = answers.uncertain.length === 0 && !edit.abandoned;
+	return { config: edit.config, changes: edit.changes, complete };
 }
 
 export function isDrawable(config: ChartConfig): boolean {
@@ -194,9 +206,29 @@ export function readColumns(result: { columns: string[]; data: Record<string, un
 	return (result?.columns ?? []).map((name) => ({ name, kind: columnKind(result?.data ?? [], name) }));
 }
 
+/** Reads the changes the model is sure about, and remembers those it leaned toward without being sure. */
+class AnswerReader {
+	readonly uncertain: string[] = [];
+
+	constructor(private readonly answers: ChartEditAnswers) {}
+
+	asked(question: string, minConfidence = MIN_CHANGE_CONFIDENCE): string | null {
+		const answer = this.answers[question];
+		if (answer?.type !== 'choice' || answer.value === KEEP) {
+			return null;
+		}
+		if (answer.confidence < minConfidence) {
+			this.uncertain.push(question);
+			return null;
+		}
+		return answer.value;
+	}
+}
+
 class ChartEdit {
 	readonly config: ChartConfig;
 	readonly changes: string[] = [];
+	abandoned = false;
 
 	constructor(current: ChartConfig) {
 		this.config = { ...current, series: current.series.map((series) => ({ ...series })) };
@@ -217,20 +249,20 @@ class ChartEdit {
 	}
 }
 
-function applyToggles(edit: ChartEdit, answers: ChartEditAnswers): void {
-	const legend = asked(answers, 'legend');
+function applyToggles(edit: ChartEdit, answers: AnswerReader): void {
+	const legend = answers.asked('legend');
 	if (legend) {
 		edit.set('show_legend', legend === 'show', `${legend === 'show' ? 'showed' : 'hid'} the legend`);
 	}
-	const dataLabels = asked(answers, 'data_labels');
+	const dataLabels = answers.asked('data_labels');
 	if (dataLabels) {
 		edit.set('show_data_labels', dataLabels === 'show', `${dataLabels === 'show' ? 'showed' : 'hid'} the values`);
 	}
-	const total = asked(answers, 'total');
+	const total = answers.asked('total');
 	if (total) {
 		edit.set('hide_total', total === 'hide', `${total === 'show' ? 'showed' : 'hid'} the tooltip total`);
 	}
-	const yAxis = asked(answers, 'y_axis');
+	const yAxis = answers.asked('y_axis');
 	if (yAxis) {
 		edit.set(
 			'y_axis_min',
@@ -238,7 +270,7 @@ function applyToggles(edit: ChartEdit, answers: ChartEditAnswers): void {
 			`let the Y-axis ${yAxis === 'zero' ? 'start at zero' : 'scale on its own'}`,
 		);
 	}
-	const comparison = asked(answers, 'comparison');
+	const comparison = answers.asked('comparison');
 	if (comparison && edit.config.chart_type === 'kpi_card') {
 		edit.set(
 			'comparison_mode',
@@ -249,12 +281,12 @@ function applyToggles(edit: ChartEdit, answers: ChartEditAnswers): void {
 }
 
 /** A series drawn differently from the others, or moved to the right axis, turns the chart into a mixed chart. */
-function restyleSeries(edit: ChartEdit, current: ChartConfig, answers: ChartEditAnswers): void {
+function restyleSeries(edit: ChartEdit, current: ChartConfig, answers: AnswerReader): void {
 	const fallbackType = defaultSeriesType(current.chart_type);
 	const changes: string[] = [];
 	const series = edit.config.series.map((item, index) => {
-		const seriesType = asked(answers, `series_${index}`) as Series['series_type'] | null;
-		const axis = asked(answers, `series_${index}_axis`);
+		const seriesType = answers.asked(`series_${index}`) as Series['series_type'] | null;
+		const axis = answers.asked(`series_${index}_axis`);
 		if (seriesType && seriesType !== (item.series_type ?? fallbackType)) {
 			changes.push(`drew ${seriesName(item)} as ${seriesType === 'bar' ? 'bars' : `a ${seriesType}`}`);
 		}
@@ -282,14 +314,14 @@ function makeMixed(edit: ChartEdit, current: ChartConfig): void {
 	}));
 }
 
-function applyXAxis(edit: ChartEdit, answers: ChartEditAnswers, columns: ChartColumns): void {
+function applyXAxis(edit: ChartEdit, answers: AnswerReader, columns: ChartColumns): void {
 	const column = askedColumn(answers, 'x_axis', columns);
 	if (column) {
 		edit.set('x_axis_key', column.name, `put ${column.name} on the X-axis`);
 		edit.config.x_axis_label = undefined;
 		edit.config.x_axis_type = column.kind === 'date' ? 'date' : column.kind === 'number' ? 'number' : 'category';
 	}
-	const xAxisType = asked(answers, 'x_axis_type', MIN_X_AXIS_TYPE_CONFIDENCE);
+	const xAxisType = answers.asked('x_axis_type', MIN_X_AXIS_TYPE_CONFIDENCE);
 	if (xAxisType) {
 		edit.set(
 			'x_axis_type',
@@ -302,7 +334,7 @@ function applyXAxis(edit: ChartEdit, answers: ChartEditAnswers, columns: ChartCo
 function addSeries(
 	edit: ChartEdit,
 	current: ChartConfig,
-	answers: ChartEditAnswers,
+	answers: AnswerReader,
 	columns: ChartColumns,
 	canMix: boolean,
 ): void {
@@ -310,8 +342,8 @@ function addSeries(
 	if (!column || edit.config.series.some((series) => series.data_key === column.name)) {
 		return;
 	}
-	const seriesType = canMix ? (asked(answers, 'add_series_style') as Series['series_type'] | null) : null;
-	const axis = canMix ? (asked(answers, 'add_series_axis') as Series['y_axis'] | null) : null;
+	const seriesType = canMix ? (answers.asked('add_series_style') as Series['series_type'] | null) : null;
+	const axis = canMix ? (answers.asked('add_series_axis') as Series['y_axis'] | null) : null;
 	if (seriesType || axis) {
 		makeMixed(edit, current);
 	}
@@ -328,40 +360,52 @@ function addSeries(
 	edit.setSeries([...edit.config.series, added], `added ${column.name}${style.filter(Boolean).join('')}`);
 }
 
-function formatValues(edit: ChartEdit, answers: ChartEditAnswers): void {
-	const kind = asked(answers, 'value_format') as FormatKind | null;
-	const decimals = asked(answers, 'decimals');
+/** Formats every series, or the one the message names; a precision the format cannot take is left to the agent. */
+function formatValues(edit: ChartEdit, answers: AnswerReader): void {
+	const kind = answers.asked('value_format') as FormatKind | null;
+	const decimals = answers.asked('decimals');
 	if (!kind && !decimals) {
 		return;
 	}
+	const target = edit.config.series.length > 1 ? answers.asked('format_series') : ALL_SERIES;
 	const places = decimals ? DECIMAL_PLACES[decimals] : undefined;
-	const series = edit.config.series.map((item) => ({
-		...item,
-		value_format: buildValueFormat(
-			kind ?? formatKindOf(item.value_format),
-			places ?? decimalsOf(item.value_format),
-		),
-	}));
+	const series = edit.config.series.map((item, index) => {
+		if (target !== ALL_SERIES && target !== seriesChoice(index)) {
+			return item;
+		}
+		const format = kind
+			? buildValueFormat(kind, places ?? decimalsOf(item.value_format), places !== undefined)
+			: withDecimals(item.value_format, places ?? 0);
+		return format ? { ...item, value_format: format } : null;
+	});
+	if (!target || series.some((item) => item === null)) {
+		edit.abandoned = true;
+		return;
+	}
+	const named = edit.config.series.find((_, index) => target === seriesChoice(index));
+	const scope = named ? ` of ${seriesName(named)}` : '';
 	const change = [
-		kind && `formatted the values as ${kind}`,
-		decimals && `showed ${DECIMAL_CHOICES[decimals as keyof typeof DECIMAL_CHOICES].toLowerCase()}`,
+		kind && `formatted the values${scope} as ${kind}`,
+		decimals && `showed ${DECIMAL_CHOICES[decimals as keyof typeof DECIMAL_CHOICES].toLowerCase()}${scope}`,
 	];
-	edit.setSeries(series, change.filter(Boolean).join(', '));
+	edit.setSeries(series as Series[], change.filter(Boolean).join(', '));
 }
 
-function removeSeries(edit: ChartEdit, current: ChartConfig, answers: ChartEditAnswers): void {
-	const removed = current.series.find((_, index) => asked(answers, 'remove_series') === `series_${index}`);
+function removeSeries(edit: ChartEdit, current: ChartConfig, answers: AnswerReader): void {
+	const target = answers.asked('remove_series');
+	const removed = current.series.find((_, index) => target === seriesChoice(index));
 	if (removed) {
 		const kept = edit.config.series.filter((series) => series.data_key !== removed.data_key);
 		edit.setSeries(kept, `removed ${seriesName(removed)}`);
 	}
 }
 
-function buildValueFormat(kind: FormatKind, decimals: number | undefined): ValueFormat {
+/** Compact numbers count significant digits, not decimals, so a decimal request on them gets null. */
+function buildValueFormat(kind: FormatKind, decimals: number | undefined, decimalsAsked: boolean): ValueFormat | null {
 	const places = decimals ?? DEFAULT_DECIMALS[kind];
 	switch (kind) {
 		case 'compact':
-			return { d3_format: '.3~s' };
+			return decimalsAsked ? null : { d3_format: '.3~s' };
 		case 'dollars':
 			return { d3_format: `,.${places}f`, prefix: '$' };
 		case 'euros':
@@ -373,21 +417,17 @@ function buildValueFormat(kind: FormatKind, decimals: number | undefined): Value
 	}
 }
 
-function formatKindOf(format: ValueFormat): FormatKind {
-	if (format?.prefix?.includes('$')) {
-		return 'dollars';
+/** Keeps the units and prefix of the format, changing only its precision; null on formats without fixed decimals. */
+function withDecimals(format: ValueFormat, places: number): ValueFormat | null {
+	const d3Format = format?.d3_format ?? ',.0f';
+	if (!FIXED_DECIMALS.test(d3Format)) {
+		return null;
 	}
-	if (format?.suffix?.includes('€') || format?.prefix?.includes('€')) {
-		return 'euros';
-	}
-	if (format?.suffix?.includes('%')) {
-		return 'percent';
-	}
-	return format?.d3_format?.endsWith('s') ? 'compact' : 'plain';
+	return { ...format, d3_format: d3Format.replace(FIXED_DECIMALS, `.${places}f`) };
 }
 
 function decimalsOf(format: ValueFormat): number | undefined {
-	const match = format?.d3_format?.match(/\.(\d+)f$/);
+	const match = format?.d3_format?.match(FIXED_DECIMALS);
 	return match ? Number(match[1]) : undefined;
 }
 
@@ -412,6 +452,14 @@ function seriesQuestions(series: Series[]): DecisionQuestions {
 	);
 }
 
+function seriesChoices(series: Series[]): Record<string, string> {
+	return Object.fromEntries(series.map((item, index) => [seriesChoice(index), `The series "${seriesName(item)}"`]));
+}
+
+function seriesChoice(index: number): string {
+	return `series_${index}`;
+}
+
 function changeQuestion(instructions: string, options: Record<string, string>): DecisionQuestion {
 	return {
 		type: 'choice',
@@ -424,21 +472,13 @@ function columnChoices(columns: ChartColumns): Record<string, string> {
 	return Object.fromEntries(columns.map((column) => [columnChoice(column.name), `The column "${column.name}"`]));
 }
 
-function askedColumn(answers: ChartEditAnswers, question: string, columns: ChartColumns) {
-	const choice = asked(answers, question);
+function askedColumn(answers: AnswerReader, question: string, columns: ChartColumns) {
+	const choice = answers.asked(question);
 	return choice ? columns.find((column) => columnChoice(column.name) === choice) : undefined;
 }
 
 function columnChoice(name: string): string {
 	return `column_${name}`;
-}
-
-function asked(answers: ChartEditAnswers, question: string, minConfidence = MIN_CHANGE_CONFIDENCE): string | null {
-	const answer = answers[question];
-	if (answer?.type !== 'choice' || answer.value === KEEP || answer.confidence < minConfidence) {
-		return null;
-	}
-	return answer.value;
 }
 
 function isPlotted(chart: ChartConfig, column: string): boolean {
