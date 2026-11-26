@@ -3,14 +3,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { AppErrorBoundary } from './app-error-boundary';
+import { AppErrorBoundary } from '@/components/app-error-boundary';
 
 const firefoxStack = 'TRPCClientError2@http://localhost:3000/chunk.js:1861:5';
+const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+const execCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand');
 
 afterEach(() => {
 	cleanup();
 	vi.restoreAllMocks();
-	Reflect.deleteProperty(document, 'execCommand');
+	restoreProperty(navigator, 'clipboard', clipboardDescriptor);
+	restoreProperty(document, 'execCommand', execCommandDescriptor);
 });
 
 it('shows the error page and reports the error when a child fails to render', async () => {
@@ -146,4 +149,12 @@ function BrokenComponent(): never {
 
 function NullThrowingComponent(): never {
 	throw null;
+}
+
+function restoreProperty(target: object, property: string, descriptor: PropertyDescriptor | undefined) {
+	if (descriptor) {
+		Object.defineProperty(target, property, descriptor);
+	} else {
+		Reflect.deleteProperty(target, property);
+	}
 }

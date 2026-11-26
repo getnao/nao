@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { __reloadEnvForTesting } from '../src/env';
-import { sendErrorReport } from '../src/services/error-report';
+import { __reloadEnvForTesting } from '../../src/env';
+import { sendErrorReport } from '../../src/services/error-report';
 
 const betterAuthSecret = 'test-better-auth-secret-for-error-reports';
 

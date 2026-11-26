@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
 	sendErrorReport: vi.fn(),
 }));
 
-vi.mock('../src/env', () => ({ env: mocks.env }));
-vi.mock('../src/middleware/auth', () => ({
+vi.mock('../../src/env', () => ({ env: mocks.env }));
+vi.mock('../../src/middleware/auth', () => ({
 	authMiddleware: async (
 		request: { user?: { id: string } },
 		reply: { status: (code: number) => { send: (body: unknown) => void } },
@@ -20,9 +20,9 @@ vi.mock('../src/middleware/auth', () => ({
 		request.user = { id: mocks.authenticatedUserId };
 	},
 }));
-vi.mock('../src/services/error-report', () => ({ sendErrorReport: mocks.sendErrorReport }));
+vi.mock('../../src/services/error-report', () => ({ sendErrorReport: mocks.sendErrorReport }));
 
-import { errorReportRoutes } from '../src/routes/error-report';
+import { errorReportRoutes } from '../../src/routes/error-report';
 
 describe('POST /api/error-reports', () => {
 	let app: FastifyInstance;
