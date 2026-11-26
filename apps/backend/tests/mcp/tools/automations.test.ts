@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	deleteAutomation: vi.fn(),
 	getAutomationById: vi.fn(),
 	setAutomationEventTriggers: vi.fn(),
+	setAutomationPaused: vi.fn(),
 	updateAutomation: vi.fn(),
 	upsertRecurringJob: vi.fn(),
 }));
@@ -37,6 +38,7 @@ vi.mock('../../../src/queries/automation.queries', () => ({
 	getAutomationById: mocks.getAutomationById,
 	linkAutomationJob: vi.fn(),
 	setAutomationEventTriggers: mocks.setAutomationEventTriggers,
+	setAutomationPaused: mocks.setAutomationPaused,
 	updateAutomation: mocks.updateAutomation,
 }));
 vi.mock('../../../src/queries/scheduled-job.queries', () => ({
@@ -193,10 +195,11 @@ describe('MCP update_automation', () => {
 	});
 
 	it.each([
+		{ case: 'starts a schedule added to an active webhook automation', saved: { cron: '' }, status: 'pending' },
 		{
-			case: 'starts a schedule added to a webhook-only automation',
+			case: 'keeps a paused webhook automation paused when adding a schedule',
 			saved: { cron: '', enabled: false },
-			status: 'pending',
+			status: 'paused',
 		},
 		{ case: 'keeps a paused schedule paused', saved: { enabled: false }, status: 'paused' },
 	])('$case', async ({ saved, status }) => {
@@ -229,30 +232,30 @@ describe('MCP update_automation', () => {
 });
 
 describe('MCP set_automation_enabled', () => {
-	it('pauses and resumes an automation without a schedule through its triggers', async () => {
-		mocks.savedChanges = { cron: '', enabled: false, scheduledJobId: null, webhookEnabled: true };
+	it('pauses and resumes an automation without a schedule, keeping its webhook and feedback triggers', async () => {
+		mocks.savedChanges = {
+			cron: '',
+			scheduledJobId: null,
+			webhookEnabled: true,
+			eventTriggers: { feedback: { enabled: true, votes: ['down'], sources: ['story'] } },
+		};
 		const client = await connect('user');
 
 		const paused = await client.callTool({
 			name: 'set_automation_enabled',
 			arguments: { automation_id: 'automation-1', enabled: false },
 		});
-		expect(mocks.setAutomationEventTriggers).toHaveBeenCalledWith('automation-1', {
-			webhookEnabled: false,
-			eventTriggers: {},
-		});
+		expect(mocks.setAutomationPaused).toHaveBeenCalledWith('automation-1', true);
 		expect(paused.structuredContent).toMatchObject({ paused: true });
 
-		mocks.savedChanges = { ...mocks.savedChanges, webhookEnabled: false };
+		mocks.savedChanges = { ...mocks.savedChanges, enabled: false };
 		const resumed = await client.callTool({
 			name: 'set_automation_enabled',
 			arguments: { automation_id: 'automation-1', enabled: true },
 		});
-		expect(mocks.setAutomationEventTriggers).toHaveBeenLastCalledWith('automation-1', {
-			webhookEnabled: true,
-			eventTriggers: {},
-		});
+		expect(mocks.setAutomationPaused).toHaveBeenLastCalledWith('automation-1', false);
 		expect(resumed.structuredContent).toMatchObject({ paused: false });
+		expect(mocks.setAutomationEventTriggers).not.toHaveBeenCalled();
 		expect(mocks.upsertRecurringJob).not.toHaveBeenCalled();
 	});
 });

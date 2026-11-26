@@ -110,11 +110,10 @@ async function triggerMatchingAutomations(
 	}
 }
 
-/** A paused schedule stops every trigger of the automation, like it does for the webhook. */
+/** A paused automation stops every trigger, like it does for the webhook. */
 function matchesFeedbackTrigger(automation: AutomationWithSchedule, event: FeedbackTriggerEvent): boolean {
 	const trigger = automation.eventTriggers.feedback;
-	const isPaused = Boolean(automation.scheduledJob) && !automation.enabled;
-	if (!trigger?.enabled || isPaused) {
+	if (!trigger?.enabled || !automation.enabled) {
 		return false;
 	}
 	return trigger.sources.includes(event.source) && trigger.votes.includes(event.vote);

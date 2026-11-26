@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { applyAutomationDraftUpdate } from '@nao/shared/automation-draft';
+import { isAutomationActive } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
 import type { DBAutomationRun } from '../../db/abstractSchema';
@@ -12,7 +13,6 @@ import {
 	deleteAutomation,
 	getAutomation,
 	getAutomationWithRuns,
-	isAutomationPaused,
 	listAutomations,
 	setAutomationEnabled,
 	toAutomationSettings,
@@ -37,7 +37,7 @@ const NEW_AUTOMATION: AutomationSettings = {
 	prompt: '',
 	cron: '',
 	enabled: true,
-	mcpEnabled: true,
+	mcpEnabled: false,
 	integrations: {},
 	webhookEnabled: false,
 	eventTriggers: {},
@@ -192,7 +192,7 @@ function setAutomationEnabledTool(actor: AutomationActor): RegisterMcpToolOption
 			return jsonToolResult({
 				automation_id: automation.id,
 				title: automation.title,
-				paused: isAutomationPaused(automation),
+				paused: !isAutomationActive(automation),
 			});
 		},
 	};
@@ -233,7 +233,7 @@ function toListedAutomation(automation: AutomationListItem) {
 		url: automationUrl(automation.id),
 		access: automation.accessRole,
 		owner: automation.ownerName,
-		paused: isAutomationPaused(automation),
+		paused: !isAutomationActive(automation),
 		schedule: automation.cron ? automation.scheduleDescription || automation.cron : null,
 		lastRunStatus: automation.lastRunStatus,
 		lastRunStartedAt: automation.lastRunStartedAt?.toISOString() ?? null,
@@ -244,7 +244,7 @@ function toAutomationOutput(automation: AutomationWithSchedule) {
 	return {
 		automation_id: automation.id,
 		url: automationUrl(automation.id),
-		paused: isAutomationPaused(automation),
+		paused: !isAutomationActive(automation),
 		...describeAutomation(toAutomationSettings(automation)),
 	};
 }

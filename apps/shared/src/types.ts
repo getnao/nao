@@ -78,6 +78,23 @@ export type AutomationEventTriggers = {
 	feedback?: AutomationFeedbackTrigger;
 };
 
+/** `enabled` is false once paused. An automation without a schedule also needs a webhook or nao event to run. */
+export function isAutomationActive(automation: {
+	cron: string;
+	enabled: boolean;
+	webhookEnabled: boolean;
+	eventTriggers: AutomationEventTriggers;
+}): boolean {
+	if (!automation.enabled) {
+		return false;
+	}
+	return (
+		Boolean(automation.cron) ||
+		automation.webhookEnabled ||
+		NAO_EVENT_TYPES.some((eventType) => automation.eventTriggers[eventType]?.enabled)
+	);
+}
+
 export type SharedItemLabel = 'story' | 'chat';
 
 export type ShareSource = { type: 'chat'; shareId: string } | { type: 'story'; storyId: string };

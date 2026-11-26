@@ -1,4 +1,4 @@
-import { NAO_EVENT_TYPES } from '@nao/shared/types';
+import { isAutomationActive } from '@nao/shared/types';
 
 import type { ProjectAutomationSummary } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
@@ -145,16 +145,6 @@ function listRecentFailures(runs: AutomationRunRecord[]): AutomationRunFailure[]
 			errorMessage: run.errorMessage,
 			chatId: run.chatId,
 		}));
-}
-
-/** Scheduled automations are switched on and off by their schedule; others by their webhook and nao events. */
-function isAutomationActive(automation: ProjectAutomationSummary): boolean {
-	if (automation.cron) {
-		return automation.enabled;
-	}
-	return (
-		automation.webhookEnabled || NAO_EVENT_TYPES.some((eventType) => automation.eventTriggers[eventType]?.enabled)
-	);
 }
 
 function successRate(runs: AutomationRunRecord[]): number | null {

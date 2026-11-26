@@ -63,7 +63,6 @@ describe('getAutomationsMonitoring', () => {
 			automation('paused', { enabled: false }),
 			automation('on-feedback', {
 				cron: '',
-				enabled: false,
 				eventTriggers: { feedback: { enabled: true, votes: ['down'], sources: ['story'] } },
 			}),
 		]);

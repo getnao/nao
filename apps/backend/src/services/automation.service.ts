@@ -86,6 +86,7 @@ export async function createAutomation(
 	const automation = await automationQueries.createAutomation({
 		...toAutomationColumns(fields),
 		title: resolvedTitle,
+		paused: !enabled,
 		projectId: actor.projectId,
 		userId: actor.userId,
 	});
@@ -106,14 +107,14 @@ export async function updateAutomation(
 	if (!current) {
 		return null;
 	}
-	const enabled = settings.enabled || isAddingSchedule(current, settings.cron);
-	if (enabled) {
+	if (settings.enabled) {
 		await assertProjectCloudBillingAccess(actor.projectId);
 	}
-	const { cron, ...fields } = settings;
+	const { cron, enabled, ...fields } = settings;
 	const automation = await automationQueries.updateAutomation(actor.projectId, id, {
 		...toAutomationColumns(fields),
 		title: fields.title,
+		paused: !enabled,
 	});
 	if (!automation) {
 		return null;
@@ -167,31 +168,19 @@ export function toAutomationSettings(automation: AutomationWithSchedule): Automa
 	};
 }
 
-/**
- * Scheduled automations are paused through their job, which also blocks the webhook and nao events.
- * Unscheduled automations have no job, so their webhook and nao events are the on/off switch. Resuming
- * re-enables the configured nao events, and the webhook only when no nao event is configured.
- */
+/** Scheduled automations are also paused through their job, which the scheduler reads. */
 export async function setAutomationActive(
 	automation: AutomationWithSchedule,
 	active: boolean,
 ): Promise<AutomationWithSchedule> {
+	await automationQueries.setAutomationPaused(automation.id, !active);
 	if (automation.cron) {
 		return syncAutomationJob(automation, automation.cron, active);
 	}
-	const eventTriggers = setEventTriggersEnabled(automation.eventTriggers, active);
-	const webhookEnabled = active && Object.keys(eventTriggers).length === 0;
-	await automationQueries.setAutomationEventTriggers(automation.id, { webhookEnabled, eventTriggers });
-	return { ...automation, webhookEnabled, eventTriggers };
-}
-
-export function isAutomationPaused(
-	automation: Pick<AutomationWithSchedule, 'cron' | 'enabled' | 'webhookEnabled' | 'eventTriggers'>,
-): boolean {
-	if (automation.cron) {
-		return !automation.enabled;
+	if (active && !automation.webhookEnabled && !hasEnabledEventTrigger(automation.eventTriggers)) {
+		return restoreTurnedOffTriggers(automation);
 	}
-	return !automation.webhookEnabled && !hasEnabledEventTrigger(automation.eventTriggers);
+	return { ...automation, paused: !active, enabled: active };
 }
 
 /**
@@ -260,9 +249,15 @@ function assertTriggers(
 	}
 }
 
-/** An automation without a schedule reads as disabled, so a schedule added to it would otherwise start paused. */
-function isAddingSchedule(current: Pick<AutomationWithSchedule, 'cron'>, cron: string): boolean {
-	return !current.cron && cron.trim() !== '';
+/**
+ * Unscheduled automations used to be paused by turning their triggers off. Resuming one of them turns
+ * its nao events back on, and its webhook only when it has no nao event.
+ */
+async function restoreTurnedOffTriggers(automation: AutomationWithSchedule): Promise<AutomationWithSchedule> {
+	const eventTriggers = setEventTriggersEnabled(automation.eventTriggers, true);
+	const webhookEnabled = Object.keys(eventTriggers).length === 0;
+	await automationQueries.setAutomationEventTriggers(automation.id, { webhookEnabled, eventTriggers });
+	return { ...automation, paused: false, enabled: true, webhookEnabled, eventTriggers };
 }
 
 function hasEnabledEventTrigger(eventTriggers: AutomationEventTriggers): boolean {
