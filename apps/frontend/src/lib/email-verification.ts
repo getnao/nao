@@ -1,5 +1,8 @@
 import { getSafeRedirectPath } from './safe-redirect';
 
+export const SIGNUP_UNDER_REVIEW_MESSAGE =
+	'Thanks for signing up! Our team is reviewing your account, and we will email you as soon as it is ready.';
+
 interface AuthError {
 	code?: string;
 	message?: string;
@@ -17,7 +20,15 @@ export function isEmailNotVerifiedError(error: AuthError): boolean {
 	return error.code?.toUpperCase() === 'EMAIL_NOT_VERIFIED';
 }
 
+/** Signup screening held the account until a teammate approves it. */
+export function isSignupUnderReview(error: string | undefined): boolean {
+	return error?.toUpperCase() === 'SIGNUP_UNDER_REVIEW';
+}
+
 export function getSignInErrorMessage(error: string | undefined): string | undefined {
+	if (isSignupUnderReview(error)) {
+		return SIGNUP_UNDER_REVIEW_MESSAGE;
+	}
 	if (error?.toLowerCase() === 'account_not_linked') {
 		return 'An account with this email already exists. Log in with your email and password to verify it, then try again.';
 	}

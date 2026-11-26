@@ -1,0 +1,1 @@
+ALTER TABLE `user` ADD `pending_signup_review` integer DEFAULT false NOT NULL;

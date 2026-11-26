@@ -43,6 +43,7 @@ import {
 	managedCreditLifecycleHandler,
 } from './handlers/managed-credit-lifecycle.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { SIGNUP_REVIEW_SYNC_JOB_NAME, signupReviewSyncHandler } from './handlers/signup-review.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import {
 	resolveStoryDeliveryProjectId,
@@ -595,6 +596,12 @@ export const startServer = async (opts: { port: number; host: string }) => {
 			name: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
 			cron: '15 * * * *',
 			uniqueKey: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+		});
+		registerJob(SIGNUP_REVIEW_SYNC_JOB_NAME, signupReviewSyncHandler);
+		await ensureRecurring({
+			name: SIGNUP_REVIEW_SYNC_JOB_NAME,
+			cron: '* * * * *',
+			uniqueKey: SIGNUP_REVIEW_SYNC_JOB_NAME,
 		});
 	}
 	if (isCloudBillingEnabled()) {

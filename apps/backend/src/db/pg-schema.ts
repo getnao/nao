@@ -161,6 +161,8 @@ export const user = pgTable('user', {
 	githubAccessToken: text('github_access_token'),
 	gitlabAccessToken: text('gitlab_access_token'),
 	deactivatedAt: timestamp('deactivated_at'),
+	/** Held by signup screening until a teammate approves it on Slack; cannot sign in meanwhile. */
+	pendingSignupReview: boolean('pending_signup_review').default(false).notNull(),
 	twoFactorEnabled: boolean('two_factor_enabled').default(false).notNull(),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')

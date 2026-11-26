@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "pending_signup_review" boolean DEFAULT false NOT NULL;

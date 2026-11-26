@@ -200,6 +200,16 @@ describe('email verification auth routes', () => {
 		expect(mocks.push).toHaveBeenCalledWith('/settings');
 	});
 
+	it('tells a verified email held for review that it will hear back instead of continuing', () => {
+		mocks.searchByPath['/email-verified'] = { error: 'SIGNUP_UNDER_REVIEW' };
+
+		render(<EmailVerified />);
+
+		expect(screen.getByRole('heading', { name: 'Email verified' })).toBeTruthy();
+		expect(screen.getByText(/reviewing your account/)).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Continue to nao' })).toBeNull();
+	});
+
 	it('uses a document navigation to continue OAuth authorization after verification', () => {
 		const oauthAuthorizeUrl = '/api/auth/oauth2/authorize?client_id=client&state=state';
 		mocks.searchByPath['/email-verified'] = { redirect: oauthAuthorizeUrl };

@@ -3,7 +3,11 @@ import { CircleAlert } from 'lucide-react';
 
 import { AuthForm } from '@/components/auth-form';
 import { Button } from '@/components/ui/button';
-import { getEmailVerificationErrorMessage } from '@/lib/email-verification';
+import {
+	getEmailVerificationErrorMessage,
+	isSignupUnderReview,
+	SIGNUP_UNDER_REVIEW_MESSAGE,
+} from '@/lib/email-verification';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 
 export const Route = createFileRoute('/email-verified')({
@@ -20,6 +24,20 @@ export function EmailVerified() {
 	const safeRedirect = getSafeRedirectPath(redirect);
 	const isOAuthAuthorization = safeRedirect?.startsWith('/api/auth/oauth2/authorize?');
 	const errorMessage = getEmailVerificationErrorMessage(error);
+
+	if (isSignupUnderReview(error)) {
+		return (
+			<AuthForm
+				title='Email verified'
+				titleClassName='text-emerald-600 dark:text-emerald-400'
+				content={
+					<p className='mx-auto max-w-sm text-center text-sm leading-6 text-muted-foreground'>
+						{SIGNUP_UNDER_REVIEW_MESSAGE}
+					</p>
+				}
+			/>
+		);
+	}
 
 	if (error) {
 		return (

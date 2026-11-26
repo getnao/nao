@@ -24,6 +24,9 @@ const mocks = vi.hoisted(() => ({
 	},
 	findOrganizationByEmailDomain: vi.fn(),
 	getUser: vi.fn(),
+	getUserSignInState: vi.fn(),
+	refuseSignupUnderReview: vi.fn(),
+	screenSignup: vi.fn(),
 	loggerWarn: vi.fn(),
 	markEmailVerified: vi.fn(),
 }));
@@ -71,6 +74,7 @@ vi.mock('../../src/queries/project.queries', () => ({ listUserProjects: vi.fn() 
 vi.mock('../../src/queries/user.queries', () => ({
 	countUsers: vi.fn().mockResolvedValue(0),
 	getUser: mocks.getUser,
+	getUserSignInState: mocks.getUserSignInState,
 	markEmailVerified: mocks.markEmailVerified,
 }));
 vi.mock('../../src/services/auth-user-onboarding.service', () => ({
@@ -110,6 +114,11 @@ vi.mock('../../src/services/oidc-auth.service', () => ({
 	getTrustedProvidersForOidc: vi.fn(() => []),
 }));
 vi.mock('../../src/services/scheduler.service', () => ({ enqueueOnce: mocks.enqueueOnce }));
+vi.mock('../../src/services/signup-screening.service', () => ({
+	readSignupOrigin: vi.fn(() => ({ ipAddress: '203.0.113.7' })),
+	refuseSignupUnderReview: mocks.refuseSignupUnderReview,
+	screenSignup: mocks.screenSignup,
+}));
 vi.mock('../../src/services/sso-login-sync.service', () => ({ syncSsoLoginGroups: vi.fn() }));
 vi.mock('../../src/services/sso-session.service', () => ({ shouldExpireSsoSession: vi.fn() }));
 vi.mock('../../src/utils/email-builders', () => ({
@@ -136,6 +145,11 @@ interface CapturedAuthOptions {
 			create: {
 				before: (user: { email: string }, context: { params: { id: string } }) => Promise<unknown>;
 				after: (user: { id: string; email: string }, context: { params: { id: string } }) => Promise<void>;
+			};
+		};
+		session: {
+			create: {
+				before: (session: { userId: string }, context: { path: string }) => Promise<unknown>;
 			};
 		};
 	};
@@ -185,6 +199,11 @@ describe('Cloud Google organization enrollment', () => {
 		}));
 		mocks.markEmailVerified.mockReset().mockResolvedValue(true);
 		mocks.loggerWarn.mockReset();
+		mocks.screenSignup.mockReset().mockResolvedValue('allow');
+		mocks.getUserSignInState.mockReset().mockResolvedValue({ deactivatedAt: null, pendingSignupReview: false });
+		mocks.refuseSignupUnderReview.mockReset().mockImplementation(() => {
+			throw new Error('SIGNUP_UNDER_REVIEW');
+		});
 	});
 
 	it('adds a matched organization member and queues a welcome for a verified social user', async () => {
@@ -343,6 +362,71 @@ describe('Cloud Google organization enrollment', () => {
 				context: { email: 'probe@maildrop.cc', provider: 'google' },
 			});
 		}
+	});
+
+	it('rejects and logs a signup the screening service blocks', async () => {
+		mocks.screenSignup.mockResolvedValue('block');
+		const options = await getAuthOptions();
+
+		const creation = options.databaseHooks.user.create.before(
+			{ email: 'someone@acme.io' },
+			{ params: { id: 'google' } },
+		);
+
+		await expect(creation).rejects.toThrow('FORBIDDEN');
+		expect(mocks.screenSignup).toHaveBeenCalledExactlyOnceWith({
+			email: 'someone@acme.io',
+			provider: 'google',
+			ipAddress: '203.0.113.7',
+		});
+		expect(mocks.loggerWarn).toHaveBeenCalledExactlyOnceWith('Blocked a signup flagged by screening', {
+			source: 'system',
+			context: { email: 'someone@acme.io', provider: 'google' },
+		});
+	});
+
+	it('creates the account of a signup the screening service holds, flagged for review', async () => {
+		mocks.screenSignup.mockResolvedValue('review');
+		const options = await getAuthOptions();
+
+		const creation = options.databaseHooks.user.create.before(
+			{ email: 'someone@acme.io' },
+			{ params: { id: 'google' } },
+		);
+
+		await expect(creation).resolves.toEqual({ data: { email: 'someone@acme.io', pendingSignupReview: true } });
+	});
+
+	it.each([
+		['an active account', { deactivatedAt: null, pendingSignupReview: false }, null],
+		['a deactivated account', { deactivatedAt: new Date(), pendingSignupReview: false }, 'FORBIDDEN'],
+		['an account on hold', { deactivatedAt: null, pendingSignupReview: true }, 'SIGNUP_UNDER_REVIEW'],
+	])('signs in %s only when it is active', async (_name, signInState, refusal) => {
+		mocks.getUserSignInState.mockResolvedValue(signInState);
+		const options = await getAuthOptions();
+
+		const signIn = options.databaseHooks.session.create.before({ userId: 'user-1' }, { path: '/verify-email' });
+
+		if (refusal) {
+			await expect(signIn).rejects.toThrow(refusal);
+		} else {
+			await expect(signIn).resolves.toBe(true);
+		}
+	});
+
+	it('waits for the approval before welcoming an account on hold', async () => {
+		mocks.getUser.mockResolvedValue({
+			id: 'held-user',
+			email: 'held@example.com',
+			emailVerified: true,
+			requiresPasswordReset: false,
+			pendingSignupReview: true,
+		});
+		const options = await getAuthOptions();
+
+		await options.emailVerification?.afterEmailVerification({ id: 'held-user' });
+
+		expect(mocks.enqueueOnce).not.toHaveBeenCalled();
 	});
 
 	it('leaves self-hosted email authentication unchanged', async () => {
