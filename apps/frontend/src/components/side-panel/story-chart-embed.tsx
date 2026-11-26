@@ -107,6 +107,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				comparisonMode={chart.comparisonMode}
 				normalSize
 				hideTotal={chart.hideTotal}
+				breakdownKey={chart.breakdownKey}
+				breakdownLimit={chart.breakdownLimit}
 				kpiLeadingSlot={kpiLeadingHandle}
 				disableTooltip={isSelected || storyBlockDrag?.isDragging === true}
 				className={cn(isKpi && storyBlockDrag != null && 'select-none')}
@@ -185,6 +187,8 @@ export function StoryChartEmbedShell({
 			show_legend: chart.showLegend,
 			comparison_mode: chart.comparisonMode,
 			hide_total: chart.hideTotal,
+			breakdown_key: chart.breakdownKey,
+			breakdown_limit: chart.breakdownLimit,
 		}),
 		[chart],
 	);

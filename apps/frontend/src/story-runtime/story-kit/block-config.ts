@@ -45,6 +45,8 @@ export interface ChartOptions extends ChartAxisProps, FormatOptions {
 	showDataLabels?: boolean;
 	showLegend?: boolean;
 	hideTotal?: boolean;
+	breakdownKey?: string;
+	breakdownLimit?: number;
 }
 
 export interface ResolvedChart {
@@ -69,11 +71,13 @@ export function blockRef<Component extends StoryKitEditableBlock>(
 export function resolveChart(
 	rows: Row[],
 	columns: string[],
-	{ xKey, series }: ChartOptions,
+	{ xKey, series, breakdownKey }: ChartOptions,
 	chartType?: ChartType,
 ): ResolvedChart {
 	const xAxisKey = chartType === 'scatter' ? (xKey ?? columns[0]) : resolveXKey(rows, columns, xKey);
-	const inputs = series ?? columns.filter((column) => column !== xAxisKey && isNumericColumn(rows, column));
+	const inputs =
+		series ??
+		columns.filter((column) => column !== xAxisKey && column !== breakdownKey && isNumericColumn(rows, column));
 	return { xAxisKey, series: inputs.map(toSeriesSpec) };
 }
 
@@ -81,8 +85,8 @@ export function resolveXKey(rows: Row[], columns: string[], xKey?: string): stri
 	return xKey ?? columns.find((column) => !isNumericColumn(rows, column)) ?? columns[0];
 }
 
-export function resolveShowLegend(chartType: ChartType, resolved: ResolvedChart, showLegend?: boolean): boolean {
-	return showLegend ?? (isPieChart(chartType) || resolved.series.length > 1);
+export function resolveShowLegend(chartType: ChartType, resolved: ResolvedChart, options: ChartOptions = {}): boolean {
+	return options.showLegend ?? (isPieChart(chartType) || resolved.series.length > 1 || Boolean(options.breakdownKey));
 }
 
 export function toSeriesConfigs(series: SeriesSpec[], options: FormatOptions): displayChart.SeriesConfig[] {
@@ -141,6 +145,8 @@ export function chartBlockConfig(
 		show_data_labels: options.showDataLabels,
 		show_legend: options.showLegend,
 		hide_total: options.hideTotal,
+		breakdown_key: options.breakdownKey,
+		breakdown_limit: options.breakdownLimit,
 	});
 }
 
@@ -196,6 +202,8 @@ export function kitBlockFromConfig(config: KitBlockSourceConfig): KitBlockElemen
 			showDataLabels: config.show_data_labels,
 			showLegend: config.show_legend,
 			hideTotal: config.hide_total,
+			breakdownKey: config.breakdown_key,
+			breakdownLimit: config.breakdown_limit,
 		}),
 	};
 }

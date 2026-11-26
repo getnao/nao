@@ -7,6 +7,7 @@ import {
 	isStackedChartType,
 	resolveShowDataLabels,
 } from '@nao/shared/chart-types';
+import { chartTypeSupportsBreakdown } from '@nao/shared/chart-series';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2, X } from 'lucide-react';
@@ -634,6 +635,15 @@ function ChartConfigEditForm({
 				</div>
 			)}
 
+			{chartTypeSupportsBreakdown(draft.chart_type) && (
+				<BreakdownFields
+					columns={availableColumns}
+					breakdownKey={draft.breakdown_key}
+					breakdownLimit={draft.breakdown_limit}
+					onChange={(breakdown) => setDraft((prev) => ({ ...prev, ...breakdown }))}
+				/>
+			)}
+
 			<div className='grid gap-2'>
 				<div className='flex items-center justify-between py-2'>
 					<span className='text-sm font-semibold text-foreground'>Series</span>
@@ -1118,6 +1128,71 @@ function AxisFields({
 			)}
 		</div>
 	);
+}
+
+const NO_BREAKDOWN = '__none__';
+
+interface BreakdownFieldsProps {
+	columns: string[];
+	breakdownKey?: string;
+	breakdownLimit?: number;
+	onChange: (breakdown: { breakdown_key?: string; breakdown_limit?: number }) => void;
+}
+
+function BreakdownFields({ columns, breakdownKey, breakdownLimit, onChange }: BreakdownFieldsProps) {
+	return (
+		<div className='grid gap-3 py-2'>
+			<span className='text-sm font-semibold text-foreground'>Break down by</span>
+			<div className='grid grid-cols-[2fr_1fr] gap-3 items-end'>
+				<div className='grid gap-1'>
+					<span className='text-xs text-muted-foreground'>Column</span>
+					<Select
+						value={breakdownKey ?? NO_BREAKDOWN}
+						onValueChange={(value) =>
+							onChange({
+								breakdown_key: value === NO_BREAKDOWN ? undefined : value,
+								breakdown_limit: breakdownLimit,
+							})
+						}
+					>
+						<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+							<SelectItem value={NO_BREAKDOWN}>None</SelectItem>
+							{columns.map((column) => (
+								<SelectItem key={column} value={column}>
+									{column}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+				<div className='grid gap-1'>
+					<span className='text-xs text-muted-foreground'>Max values</span>
+					<Input
+						type='number'
+						min={1}
+						className='h-8 bg-panel'
+						placeholder='All'
+						disabled={!breakdownKey}
+						value={breakdownLimit ?? ''}
+						onChange={(e) =>
+							onChange({
+								breakdown_key: breakdownKey,
+								breakdown_limit: parsePositiveInteger(e.target.value),
+							})
+						}
+					/>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function parsePositiveInteger(value: string): number | undefined {
+	const parsed = Number.parseInt(value, 10);
+	return parsed > 0 ? parsed : undefined;
 }
 
 interface MinMaxFieldsProps {

@@ -41,6 +41,8 @@ export interface ParsedChartBlock {
 	showLegend?: boolean;
 	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
 	hideTotal?: boolean;
+	breakdownKey?: string;
+	breakdownLimit?: number;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -211,6 +213,8 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		showLegend: parseOptionalBooleanAttr(attrs.show_legend),
 		comparisonMode: (attrs.comparison_mode as ParsedChartBlock['comparisonMode']) || undefined,
 		hideTotal: attrs.hide_total === 'true',
+		breakdownKey: attrs.breakdown_key || undefined,
+		breakdownLimit: parseOptionalNumberAttr(attrs.breakdown_limit),
 	};
 }
 

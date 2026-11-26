@@ -260,7 +260,13 @@ export function SystemPrompt({
 				</ListItem>
 				<ListItem>
 					Use "stacked_area" to show how multiple series compose a total over time (e.g. revenue by payment
-					method, users by plan) — requires 2+ series and pivoted data.
+					method, users by plan).
+				</ListItem>
+				<ListItem>
+					To draw one series per value of a column (a line per country, a stack per plan), query long rows
+					such as (month, country, revenue), keep one series and set breakdown_key to the column instead of
+					pivoting in SQL: values that appear later show up on refresh without editing the chart. Set
+					breakdown_limit when the column holds more than ~8 values.
 				</ListItem>
 				<ListItem>
 					Use "stacked_bar_100" or "stacked_area_100" for 100% stacked charts that normalize each category to

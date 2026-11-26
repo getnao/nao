@@ -861,6 +861,8 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				yAxisRightMax={chart.config.y_axis_right_max}
 				yAxisRightLabel={chart.config.y_axis_right_label}
 				showLegend={chart.config.show_legend}
+				breakdownKey={chart.config.breakdown_key}
+				breakdownLimit={chart.config.breakdown_limit}
 			/>
 		</div>
 	);

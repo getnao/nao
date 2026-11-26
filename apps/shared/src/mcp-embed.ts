@@ -20,6 +20,8 @@ export type McpChartEmbedStoredConfig = {
 	yAxisRightLabel?: displayChart.ChartInput['y_axis_right_label'];
 	title: string;
 	showLegend?: displayChart.ChartInput['show_legend'];
+	breakdownKey?: displayChart.ChartInput['breakdown_key'];
+	breakdownLimit?: displayChart.ChartInput['breakdown_limit'];
 };
 
 export type McpChartAppPayload = {

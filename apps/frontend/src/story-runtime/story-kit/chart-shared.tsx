@@ -1,5 +1,6 @@
 import { buildChart, labelize } from '@nao/shared/chart-builder';
 import {
+	applyBreakdown,
 	buildSeriesChartConfig,
 	buildSeriesLegendPayload,
 	seriesColorAt as seriesColor,
@@ -61,7 +62,7 @@ export function ChartBlock({
 }: ChartBlockProps) {
 	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options, chartType) : null;
-	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options.showLegend) : false;
+	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options) : false;
 	const edit =
 		resolved && source.status === 'ready'
 			? {
@@ -113,7 +114,14 @@ interface ChartBodyProps {
 	options: ChartOptions;
 }
 
-function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, showGrid, options }: ChartBodyProps) {
+function ChartBody({ chartType, xAxisKey, height, showLegend, showGrid, options, ...data }: ChartBodyProps) {
+	const { rows, series } = applyBreakdown({
+		...data,
+		chartType,
+		xAxisKey,
+		breakdownKey: options.breakdownKey,
+		breakdownLimit: options.breakdownLimit,
+	});
 	const theme = useStoryTheme();
 	const gradientIdPrefix = useId();
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);

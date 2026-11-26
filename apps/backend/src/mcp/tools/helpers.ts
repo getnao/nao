@@ -156,6 +156,8 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_label,
 		title,
 		show_legend,
+		breakdown_key,
+		breakdown_limit,
 	} = artifact;
 	const block = buildStoryChartBlock({
 		query_id,
@@ -172,6 +174,8 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_label,
 		title,
 		show_legend,
+		breakdown_key,
+		breakdown_limit,
 	});
 
 	const queryData = await resolveChartQueryData({
@@ -185,7 +189,9 @@ export async function buildChartEmbedFromArtifact(
 		return null;
 	}
 
-	const expectedKeys = x_axis_key ? [x_axis_key, ...series.map((s) => s.data_key)] : series.map((s) => s.data_key);
+	const expectedKeys = [x_axis_key, breakdown_key, ...series.map((s) => s.data_key)].filter((key): key is string =>
+		Boolean(key),
+	);
 	const missingKeys = expectedKeys.filter((k) => !queryData.columns.includes(k));
 	if (missingKeys.length > 0) {
 		return { keyError: { invalidKeys: missingKeys, availableColumns: queryData.columns } };
@@ -215,6 +221,8 @@ export async function buildChartEmbedFromArtifact(
 				yAxisRightLabel: y_axis_right_label,
 				title,
 				showLegend: show_legend,
+				breakdownKey: breakdown_key,
+				breakdownLimit: breakdown_limit,
 			},
 			sourceChatId: effectiveChatId,
 		});
