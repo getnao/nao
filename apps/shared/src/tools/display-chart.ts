@@ -181,7 +181,7 @@ export const ChartInputObjectSchema = z.object({
 	breakdown_key: z
 		.string()
 		.describe(
-			'Column whose values each become their own series, e.g. "country" to draw one line per country from rows shaped (month, country, revenue) with series [{ data_key: "revenue" }]. Prefer it over pivoting in SQL: values that appear in a later refresh (a new country, a new version) show up without editing the chart. Not for pie or donut charts, whose slices already come from x_axis_key, nor scatter charts.',
+			'Column whose values each become their own series, e.g. "country" to draw one line per country from rows shaped (month, country, revenue) with series [{ data_key: "revenue" }]. Prefer it over pivoting in SQL: values that appear in a later refresh (a new country, a new version) show up without editing the chart. A series color becomes shades of that color across the values (suits ordered values such as versions); omit it to color the values with the theme palette. Not for pie or donut charts, whose slices already come from x_axis_key, nor scatter charts.',
 		)
 		.optional(),
 	breakdown_limit: z

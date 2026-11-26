@@ -22,10 +22,24 @@ function breakdown(overrides: Partial<ChartBreakdownInput> = {}) {
 }
 
 describe('applyBreakdown', () => {
-	it('turns each breakdown value into a series, in natural order, without the metric color', () => {
+	it('turns each breakdown value into a series, in natural order', () => {
 		const { series } = breakdown();
 
 		expect(series.map((item) => item.label)).toEqual(['0.3', '0.4.2', '0.4.10']);
+	});
+
+	it('spreads a colored metric over shades of its color, darkest first', () => {
+		const { series } = breakdown({ series: [{ data_key: 'domains', color: '#522bff' }] });
+
+		expect(series.map((item) => item.color)).toEqual(['#391eb3', '#7d60ff', '#dcd5ff']);
+	});
+
+	it.each([
+		{ case: 'no metric color', color: undefined },
+		{ case: 'a color that cannot be parsed', color: 'var(--chart-1)' },
+	])('leaves breakdown series to the theme palette with $case', ({ color }) => {
+		const { series } = breakdown({ series: [{ data_key: 'domains', color }] });
+
 		expect(series.every((item) => item.color === undefined)).toBe(true);
 	});
 

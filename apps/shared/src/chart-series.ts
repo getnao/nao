@@ -1,9 +1,11 @@
+import { formatHex, interpolate } from 'culori';
 import { useCallback, useMemo, useState } from 'react';
 
 import { DEFAULT_COLORS, labelize, sortByDateKey } from './chart-builder';
 import type { ChartConfig } from './chart-tooltip';
 import { isPieChart, isStackedChartType } from './chart-types';
 import { toFiniteNumber } from './chart-values';
+import { parseCssColor } from './color';
 import { resolveDataKey } from './map';
 import type * as displayChart from './tools/display-chart';
 
@@ -12,6 +14,10 @@ export const SERIES_COLORS = DEFAULT_COLORS.map((_, index) => `var(--chart-${ind
 export const OTHER_BREAKDOWN_VALUE = 'Other';
 
 const DATE_PREFIX_REGEX = /^\d{4}-\d{2}-\d{2}/;
+
+/** Positions on a black → color → white ramp, where 0.5 is the color itself. */
+const DARKEST_SHADE = 0.35;
+const LIGHTEST_SHADE = 0.9;
 
 type Row = Record<string, unknown>;
 
@@ -46,14 +52,15 @@ export function applyBreakdown(input: ChartBreakdownInput): { rows: Row[]; serie
 	const xAxisKey = resolveDataKey(rows, input.xAxisKey);
 	const metrics = input.series.map((metric) => ({ ...metric, data_key: resolveDataKey(rows, metric.data_key) }));
 	const values = listBreakdownValues(rows, { ...input, breakdownKey, xAxisKey, rankKey: metrics[0]?.data_key });
-	const series = metrics.flatMap((metric, metricIndex) =>
-		values.map((value) => ({
+	const series = metrics.flatMap((metric, metricIndex) => {
+		const shades = breakdownShades(metric.color, values.length);
+		return values.map((value, valueIndex) => ({
 			...metric,
 			data_key: breakdownSeriesKey(metricIndex, value),
 			label: metrics.length > 1 ? `${metric.label || labelize(metric.data_key)} · ${value}` : value,
-			color: undefined,
-		})),
-	);
+			color: shades[valueIndex],
+		}));
+	});
 	const missingValue = isStackedChartType(input.chartType) ? 0 : null;
 	return { rows: pivotRows(rows, { xAxisKey, breakdownKey, metrics, values, missingValue }), series };
 }
@@ -200,6 +207,24 @@ function emptyPivotRow(
 function breakdownSeriesKey(metricIndex: number, value: string): string {
 	const encoded = value.replace(/[^A-Za-z0-9]/gu, (character) => `_${character.codePointAt(0)!.toString(16)}_`);
 	return `breakdown_${metricIndex}_${encoded}`;
+}
+
+/**
+ * A colored metric spreads its values over shades of that color, darkest first, so they read as one family.
+ * Hex keeps them drawable by the PNG and Slack renderers; without a readable color the theme palette applies.
+ */
+function breakdownShades(color: string | undefined, count: number): (string | undefined)[] {
+	const base = color ? parseCssColor(color) : null;
+	if (!base) {
+		return Array.from({ length: count }, () => undefined);
+	}
+	if (count === 1) {
+		return [color];
+	}
+	const ramp = interpolate(['#000000', base, '#ffffff'], 'rgb');
+	return Array.from({ length: count }, (_, index) =>
+		formatHex(ramp(DARKEST_SHADE + ((LIGHTEST_SHADE - DARKEST_SHADE) * index) / (count - 1))),
+	);
 }
 
 function breakdownLabel(value: unknown): string {
