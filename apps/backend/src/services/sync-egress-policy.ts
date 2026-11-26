@@ -485,6 +485,7 @@ function isAlwaysBlockedIpv4(host: string): boolean {
 	);
 }
 
+/** ponytail: IP rules allow every port on the destination; replace them when BoxLite supports host-and-port rules. */
 async function resolveAllowedHosts(
 	hosts: string[],
 	privateWarehouseHosts: Set<string>,
@@ -526,7 +527,6 @@ async function resolveAllowedHosts(
 			);
 		}
 		for (const address of ipv4Addresses) {
-			// ponytail: IP rules allow every port on the destination; replace them when BoxLite supports host-and-port rules.
 			allowedAddresses.add(address);
 			if (net.isIP(host) === 0) {
 				hostMappings.push({ address, hostname: host });

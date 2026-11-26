@@ -351,6 +351,34 @@ describe('project sync', () => {
 		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
 	});
 
+	it('does not publish when cancellation arrives as the sandbox sync finishes', async () => {
+		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
+			status: 'unavailable',
+			reason: 'no-repo',
+			message: 'Connect a repository first.',
+			repo: null,
+		});
+		vi.mocked(readManagedGithubRepositoryFullName).mockResolvedValue('nao-projects/sales');
+		let finishSync = () => {};
+		vi.mocked(runNaoCommandInSandbox).mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSync = resolve;
+				}),
+		);
+		const managedContext = gitContext('user-1', worktreeRoot);
+
+		await startProjectSync(project, managedContext);
+		await vi.waitFor(() => expect(runNaoCommandInSandbox).toHaveBeenCalled());
+		await cancelProjectSync(project.id, 'user-1');
+		finishSync();
+
+		await vi.waitFor(async () => {
+			expect((await getProjectSyncState(project, managedContext)).run?.status).toBe('cancelled');
+		});
+		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
+	});
+
 	it('stops a sync when another backend instance records its cancellation', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(runNaoCommandInSandbox).mockImplementation(

@@ -156,11 +156,12 @@ export async function runNaoCommandInSandbox(
 		await stopBox();
 		stopBox = async () => {};
 		throwIfStopped();
-		await copyResultsBack(stagingDir, projectPath, staged);
+		await copyResultsBack(stagingDir, projectPath, staged, throwIfStopped);
 		if (exitCode !== 0) {
 			const details = buffer.details();
 			throw new NaoCommandExitError(`nao ${args[0]} failed${details ? `: ${details}` : ''}`);
 		}
+		throwIfStopped();
 	} finally {
 		clearTimeout(runtimeTimer);
 		signal?.removeEventListener('abort', kill);
@@ -242,7 +243,12 @@ async function copyProjectIn(
 }
 
 /** Writes back only expected sync outputs into real directories, never through a symlink. */
-async function copyResultsBack(stagingDir: string, projectPath: string, staged: StagedProject): Promise<void> {
+async function copyResultsBack(
+	stagingDir: string,
+	projectPath: string,
+	staged: StagedProject,
+	throwIfStopped: () => void,
+): Promise<void> {
 	const allowedResults: ProjectEntry[] = [];
 	let outputFileCount = 0;
 
@@ -274,13 +280,15 @@ async function copyResultsBack(stagingDir: string, projectPath: string, staged: 
 	const removedFiles = [...staged.files.keys()].filter(
 		(relativePath) => isAllowedCopyBackFile(relativePath, staged) && !resultFiles.has(relativePath),
 	);
-	await forEachFileConcurrently(removedFiles, (relativePath) =>
-		fs.promises.rm(path.join(projectPath, relativePath), { force: true }),
-	);
+	await forEachFileConcurrently(removedFiles, async (relativePath) => {
+		throwIfStopped();
+		await fs.promises.rm(path.join(projectPath, relativePath), { force: true });
+	});
 	const removedDirectories = [...staged.directories].filter(
 		(relativePath) => isAllowedCopyBackDirectory(relativePath, staged) && !resultDirectories.has(relativePath),
 	);
 	for (const relativePath of removedDirectories.sort((left, right) => right.length - left.length)) {
+		throwIfStopped();
 		await removeDirectoryIfEmpty(path.join(projectPath, relativePath));
 	}
 	const skippedDirectories = new Set<string>();
@@ -292,6 +300,7 @@ async function copyResultsBack(stagingDir: string, projectPath: string, staged: 
 		const targetPath = path.join(projectPath, relativePath);
 		const target = await lstatIfExists(targetPath);
 		if (!target) {
+			throwIfStopped();
 			await fs.promises.mkdir(targetPath);
 		} else if (!target.isDirectory()) {
 			skippedDirectories.add(relativePath);
@@ -306,6 +315,7 @@ async function copyResultsBack(stagingDir: string, projectPath: string, staged: 
 		if (!target || (target.isFile() && target.nlink === 1)) {
 			const stagedPath = path.join(stagingDir, relativePath);
 			if (staged.files.get(relativePath) !== (await fs.promises.stat(stagedPath)).mtimeMs) {
+				throwIfStopped();
 				await fs.promises.copyFile(stagedPath, path.join(projectPath, relativePath));
 			}
 		}

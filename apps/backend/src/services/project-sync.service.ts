@@ -446,6 +446,7 @@ function syncAndPublish(
 		if (syncError) {
 			return { syncError, published: false };
 		}
+		sync.signal?.throwIfAborted();
 		const published = await publishManagedGithubRepositoryUpdate({
 			projectDir,
 			repoFullName,

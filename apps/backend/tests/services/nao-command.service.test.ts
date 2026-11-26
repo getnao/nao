@@ -398,6 +398,42 @@ describe('runNaoCommandInSandbox', () => {
 		await vi.waitFor(() => expect(fs.existsSync(box.mountPath())).toBe(false));
 	});
 
+	it('stops before copying a result when cancellation arrives during copy-back', async () => {
+		useFakeBox({
+			run: (staged) => writeFiles(staged, { 'databases/stale/new.md': 'synced\n' }),
+		});
+		const controller = new AbortController();
+		const stat = fs.promises.stat.bind(fs.promises);
+		let matchingStatCalls = 0;
+		let reachCopyBack = () => {};
+		const copyBackReached = new Promise<void>((resolve) => {
+			reachCopyBack = resolve;
+		});
+		let resumeCopyBack = () => {};
+		const copyBackResumed = new Promise<void>((resolve) => {
+			resumeCopyBack = resolve;
+		});
+		const statSpy = vi.spyOn(fs.promises, 'stat').mockImplementation(async (filePath) => {
+			if (String(filePath).endsWith(path.join('databases', 'stale', 'new.md')) && ++matchingStatCalls === 2) {
+				reachCopyBack();
+				await copyBackResumed;
+			}
+			return stat(filePath);
+		});
+
+		try {
+			const result = runNaoCommandInSandbox(['sync'], project, {}, undefined, controller.signal);
+			await copyBackReached;
+			controller.abort();
+			resumeCopyBack();
+
+			await expect(result).rejects.toThrow('nao sync was cancelled.');
+		} finally {
+			statSpy.mockRestore();
+		}
+		expect(fs.existsSync(path.join(project, 'databases', 'stale', 'new.md'))).toBe(false);
+	});
+
 	it('never starts nao when the sync is cancelled while the image downloads', async () => {
 		const box = useFakeBox({});
 		let finishDownload: () => void = () => undefined;
