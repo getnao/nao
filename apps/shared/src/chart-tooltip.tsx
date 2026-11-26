@@ -138,7 +138,7 @@ export function ChartTooltipContent({
 				{visiblePayload.map((item, index) => {
 					const key = `${nameKey || item.name || item.dataKey || 'value'}`;
 					const itemConfig = getPayloadConfigFromPayload(config, item, key);
-					const indicatorColor = color || item.payload.fill || item.color;
+					const indicatorColor = color || item.payload.fill || itemConfig?.color || item.color;
 
 					return (
 						<div

@@ -127,6 +127,16 @@ describe('buildChart', () => {
 					stroke: 'var(--background, #ffffff)',
 				});
 			}
+
+			const activeDots = collectActiveDots(chart).map((renderActiveDot) =>
+				renderToStaticMarkup(
+					<svg>
+						{renderActiveDot({ cx: 1, cy: 1, r: 4, fill: 'var(--background, #ffffff)', payload: {} })}
+					</svg>,
+				),
+			);
+			expect(activeDots[0]).toContain('fill="#ddd6fe"');
+			expect(activeDots[1]).toContain('fill="#5b21b6"');
 		},
 	);
 
