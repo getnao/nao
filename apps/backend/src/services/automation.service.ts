@@ -64,12 +64,12 @@ export async function getAutomation(actor: AutomationActor, id: string): Promise
 	return automationQueries.getAutomation(actor.projectId, actor.userId, id, 'viewer');
 }
 
-export async function getAutomationWithRuns(actor: AutomationActor, id: string) {
+export async function getAutomationWithRuns(actor: AutomationActor, id: string, runLimit?: number) {
 	const automation = await getAutomation(actor, id);
 	if (!automation) {
 		return null;
 	}
-	const runs = await automationQueries.listAutomationRuns(actor.projectId, id);
+	const runs = await automationQueries.listAutomationRuns(actor.projectId, id, runLimit);
 	return { automation, runs };
 }
 

@@ -125,14 +125,14 @@ function getAutomationTool(actor: AutomationActor): RegisterMcpToolOptions {
 		inputSchema: { automation_id: AUTOMATION_ID },
 		errorMessage: errorMessageOf('get_automation'),
 		handler: async ({ automation_id }: { automation_id: string }) => {
-			const found = await getAutomationWithRuns(actor, automation_id);
+			const found = await getAutomationWithRuns(actor, automation_id, RECENT_RUN_COUNT);
 			if (!found) {
 				return unavailableAutomation(automation_id, 'see');
 			}
 			return jsonToolResult({
 				...toAutomationOutput(found.automation),
 				access: found.automation.accessRole,
-				recentRuns: found.runs.slice(0, RECENT_RUN_COUNT).map(toRunOutput),
+				recentRuns: found.runs.map(toRunOutput),
 			});
 		},
 	};

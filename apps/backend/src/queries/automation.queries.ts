@@ -331,15 +331,20 @@ async function deleteAutomationMatching(condition: SQL | undefined): Promise<voi
 	});
 }
 
-export const listAutomationRuns = async (projectId: string, automationId: string): Promise<DBAutomationRun[]> => {
+export const listAutomationRuns = async (
+	projectId: string,
+	automationId: string,
+	limit?: number,
+): Promise<DBAutomationRun[]> => {
 	await failStaleAutomationRuns();
-	const rows = await db
+	const query = db
 		.select({ run: s.automationRun })
 		.from(s.automationRun)
 		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
 		.where(and(eq(s.automation.id, automationId), eq(s.automation.projectId, projectId)))
 		.orderBy(desc(s.automationRun.startedAt))
-		.execute();
+		.$dynamic();
+	const rows = await (limit ? query.limit(limit) : query).execute();
 	return rows.map((row) => row.run);
 };
 
