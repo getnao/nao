@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { Check, LoaderCircle, Send, TriangleAlert, X } from 'lucide-react';
+import { Check, Copy, LoaderCircle, Send, TriangleAlert, X } from 'lucide-react';
 import { useState } from 'react';
 
 import SlackIcon from '@/components/icons/slack.svg';
@@ -8,7 +8,7 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { cn } from '@/lib/utils';
 
-const slackInviteUrl = 'https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ';
+const slackChannelUrl = 'https://naolabs.slack.com/channels/help-nao';
 
 export function RouteErrorPage({
 	error,
@@ -23,17 +23,18 @@ export function RouteErrorPage({
 	const pageUrl = window.location.href;
 	const errorReport = getErrorReport(error, componentStack);
 	const errorDetails = getErrorDetails(errorReport, pageUrl);
-	const { copy } = useCopyToClipboard();
+	const { copy: copyForSlack } = useCopyToClipboard();
+	const { isCopied, copy: copyErrorDetails } = useCopyToClipboard();
 	const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 	const [copyStatus, setCopyStatus] = useState<'idle' | 'copying' | 'failed'>('idle');
 
 	const handleSlack = async () => {
 		if (!errorDetails) {
-			window.open(slackInviteUrl, '_blank', 'noopener,noreferrer');
+			window.open(slackChannelUrl, '_blank', 'noopener,noreferrer');
 			return;
 		}
 		setCopyStatus('copying');
-		const copyPromise = copy(errorDetails);
+		const copyPromise = copyForSlack(errorDetails);
 		const slackWindow = window.open('about:blank', '_blank');
 		if (slackWindow) {
 			slackWindow.opener = null;
@@ -42,9 +43,9 @@ export function RouteErrorPage({
 			await copyPromise;
 			setCopyStatus('idle');
 			if (slackWindow) {
-				slackWindow.location.replace(slackInviteUrl);
+				slackWindow.location.replace(slackChannelUrl);
 			} else {
-				window.location.assign(slackInviteUrl);
+				window.location.assign(slackChannelUrl);
 			}
 		} catch {
 			slackWindow?.close();
@@ -99,7 +100,7 @@ export function RouteErrorPage({
 					)}
 					<div className='mt-6 w-full space-y-2 border-t pt-4'>
 						<p className='text-xs text-muted-foreground'>Still having trouble?</p>
-						<div className='flex items-center justify-center gap-1'>
+						<div className='flex flex-col items-center justify-center gap-2'>
 							{errorReport && (
 								<SimpleTooltip content={getSendStatusLabel(sendStatus)}>
 									<Button
@@ -140,6 +141,23 @@ export function RouteErrorPage({
 									<span>{copyStatus === 'failed' ? 'Try again' : 'Get help on Slack'}</span>
 								</Button>
 							</SimpleTooltip>
+							{errorDetails && (
+								<SimpleTooltip content={isCopied ? 'Error message copied' : 'Copy error message'}>
+									<Button
+										variant='ghost'
+										size='sm'
+										aria-label={isCopied ? 'Error message copied' : 'Copy error message'}
+										onClick={() => void copyErrorDetails(errorDetails)}
+									>
+										{isCopied ? (
+											<Check className='size-3.5 text-emerald-500' />
+										) : (
+											<Copy className='size-3.5' />
+										)}
+										<span>{isCopied ? 'Copied' : 'Copy error message'}</span>
+									</Button>
+								</SimpleTooltip>
+							)}
 						</div>
 						{copyStatus === 'failed' && errorDetails && (
 							<div className='space-y-2 rounded-lg border p-3 text-left'>
@@ -150,7 +168,7 @@ export function RouteErrorPage({
 									{errorDetails}
 								</pre>
 								<Button asChild variant='outline' size='sm'>
-									<a href={slackInviteUrl} target='_blank' rel='noopener noreferrer'>
+									<a href={slackChannelUrl} target='_blank' rel='noopener noreferrer'>
 										Open Slack anyway
 									</a>
 								</Button>
@@ -208,7 +226,7 @@ function getSendStatusLabel(status: 'idle' | 'sending' | 'sent' | 'failed'): str
 
 function getSendStatusButtonLabel(status: 'idle' | 'sending' | 'sent' | 'failed'): string {
 	return {
-		idle: 'Report',
+		idle: 'Sent automated report',
 		sending: 'Reporting',
 		sent: 'Reported',
 		failed: 'Try again',
