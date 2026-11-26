@@ -1,3 +1,4 @@
+import { isAutomationActive } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { ArrowLeft, Check, Loader2, Mail, MoreHorizontal, Play, Share2, Trash, X } from 'lucide-react';
@@ -106,6 +107,7 @@ function AutomationDetailPage() {
 	const isOwner = automation?.accessRole === 'owner';
 	const canEdit = isOwner || automation?.accessRole === 'editor';
 	const canShare = canEdit || isAdmin;
+	const isActive = automation ? isAutomationActive(automation) : false;
 	const cancellingRunId = cancelRun.isPending ? (cancelRun.variables?.runId ?? null) : null;
 	const automationFormId = `automation-form-${automationId}`;
 	const saveShortcutLabel = getSaveShortcutLabel();
@@ -155,20 +157,20 @@ function AutomationDetailPage() {
 							)}
 						</Button>
 					)}
-					{automation && canEdit && automation.cron && (
+					{automation && canEdit && (
 						<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
 							<Switch
-								checked={automation.enabled}
+								checked={isActive}
 								onCheckedChange={handleSetEnabled}
 								disabled={setAutomationEnabled.isPending}
 							/>
 							<button
 								type='button'
 								className='text-sm font-medium cursor-pointer disabled:cursor-not-allowed disabled:opacity-50'
-								onClick={() => handleSetEnabled(!automation.enabled)}
+								onClick={() => handleSetEnabled(!isActive)}
 								disabled={setAutomationEnabled.isPending}
 							>
-								{automation.enabled ? 'Enabled' : 'Paused'}
+								{isActive ? 'Enabled' : 'Paused'}
 							</button>
 						</div>
 					)}
