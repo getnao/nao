@@ -71,7 +71,7 @@ export async function waitForStoryReady(page: Page): Promise<boolean> {
 		);
 }
 
-/** Resolves to whether every chart plugin finished drawing in time; a slow one is captured as it stands. */
+/** A chart plugin still drawing after the timeout is captured as it stands. */
 export async function waitForChartsDrawn(page: Page): Promise<boolean> {
 	return page
 		.waitForFunction(

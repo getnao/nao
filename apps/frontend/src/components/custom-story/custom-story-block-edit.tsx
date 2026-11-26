@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type {
 	StoryBlockChartConfig,
@@ -138,7 +139,7 @@ function useTableFormatEdit(target: StoryTableFormatEditTarget | null) {
 
 /** Writes a chart plugin's settings into the `settings` prop of its block, as a new version of the story. */
 export function useSaveChartSettings(target: StoryEditTargetBase | null) {
-	const { mutateAsync } = useSaveBlockEditMutation();
+	const { mutateAsync } = useSaveBlockEditMutation({ waitForRefresh: false });
 	return useCallback(
 		async ({ block, settings }: StoryChartSettingsSave) => {
 			if (!target) {
@@ -154,21 +155,32 @@ export function useSaveChartSettings(target: StoryEditTargetBase | null) {
 	);
 }
 
-function useSaveBlockEditMutation() {
+/**
+ * The refresh shows the new version, which replaces the story frame: a frame waiting for the save
+ * confirmation must get it before, so it saves with `waitForRefresh: false`.
+ */
+function useSaveBlockEditMutation({ waitForRefresh = true }: { waitForRefresh?: boolean } = {}) {
 	const queryClient = useQueryClient();
 	return useMutation(
 		trpc.story.editCustomStoryBlock.mutationOptions({
 			onSuccess: async (_result, { chatId, storySlug }) => {
-				await Promise.all([
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() }),
-				]);
+				const refresh = refreshStoryQueries(queryClient, chatId, storySlug);
+				if (waitForRefresh) {
+					await refresh;
+				}
 			},
 		}),
 	);
+}
+
+function refreshStoryQueries(queryClient: QueryClient, chatId: string, storySlug: string) {
+	return Promise.all([
+		queryClient.invalidateQueries({
+			queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+		}),
+		queryClient.invalidateQueries({
+			queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }),
+		}),
+		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() }),
+	]);
 }

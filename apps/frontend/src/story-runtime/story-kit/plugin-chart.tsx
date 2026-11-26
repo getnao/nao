@@ -120,13 +120,13 @@ function PluginChartBody({
 	const [renderError, setRenderError] = React.useState<string | null>(null);
 	const configKey = JSON.stringify(config);
 	const blockKey = JSON.stringify(blockRef);
-	const settingsKey = JSON.stringify(settings ?? null);
+	const settingsKey = settings === undefined ? undefined : JSON.stringify(settings);
 
 	const context = React.useMemo<ChartPluginRenderContext>(
 		() => ({
 			data: rows,
 			config: JSON.parse(configKey) as ChartPluginRenderContext['config'],
-			settings: JSON.parse(settingsKey) as unknown,
+			settings: settingsKey === undefined ? undefined : (JSON.parse(settingsKey) as unknown),
 			mode,
 			saveSettings: mode === 'edit' ? saveSettingsOf(JSON.parse(blockKey)) : undefined,
 			libs: { React, ReactDOM, Recharts },

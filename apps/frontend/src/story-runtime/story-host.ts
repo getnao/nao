@@ -296,7 +296,6 @@ export function requestChartPlugin(chartType: string): Promise<string> {
 	return awaitReply(pendingChartPlugins, (requestId) => ({ type: 'nao-story:chart-plugin', requestId, chartType }));
 }
 
-/** Resolves once the host has published the story version holding the new `settings` of the block. */
 export function requestChartSettingsSave({ block, settings }: StoryChartSettingsSave): Promise<void> {
 	return awaitReply(pendingChartSettingsSaves, (requestId) => ({
 		type: 'nao-story:save-chart-settings',

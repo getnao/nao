@@ -46,16 +46,17 @@ afterEach(() => {
 
 describe('Chart with a plugin type', () => {
 	it.each([
-		{ editing: false, mode: 'view', canSave: false },
-		{ editing: true, mode: 'edit', canSave: true },
-	])('gives the plugin its settings in $mode mode', async ({ editing, mode, canSave }) => {
+		{ editing: false, mode: 'view', canSave: false, settings: { palette: 'warm' } },
+		{ editing: true, mode: 'edit', canSave: true, settings: { palette: 'warm' } },
+		{ editing: true, mode: 'edit', canSave: true, settings: undefined },
+	])('gives the plugin its settings ($settings) in $mode mode', async ({ editing, mode, canSave, settings }) => {
 		host.editing = editing;
 		usePlugin('export function render(element, context) { globalThis.renderedContexts.push(context); }');
 
-		render(<Chart type='waterfall' data={ROWS} xKey='year' settings={{ palette: 'warm' }} />);
+		render(<Chart type='waterfall' data={ROWS} xKey='year' settings={settings} />);
 
 		const context = await renderedContext();
-		expect(context.settings).toEqual({ palette: 'warm' });
+		expect(context.settings).toStrictEqual(settings);
 		expect(context.mode).toBe(mode);
 		expect(context.saveSettings !== undefined).toBe(canSave);
 	});
