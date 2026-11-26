@@ -208,7 +208,7 @@ jobs:
                       APP=nao-chat
                       IMAGE=getnao/nao:${{ needs.merge.outputs.image-tag }}
 
-                      # Blue listens on 5005 and green on 5006, Caddy routes to whichever is healthy.
+                      # Blue listens on 5005 and green on 5006, Caddy (getnao/infra) routes to whichever is healthy.
                       # The legacy single container holds the blue port, so it is replaced by green.
                       if [ "$(docker inspect -f '{{.State.Running}}' "$APP-blue" 2>/dev/null)" = "true" ]; then
                         NEW="$APP-green"; NEW_PORT=5006; OLD="$APP-blue"
@@ -305,7 +305,7 @@ jobs:
                       APP="${{ env.CLOUD_CONTAINER_NAME }}"
                       IMAGE=getnao/nao:${{ needs.merge.outputs.image-tag }}
 
-                      # Blue and green share the projects and storage volumes, Caddy routes to whichever is healthy.
+                      # Blue and green share the projects and storage volumes, Caddy (getnao/infra) routes to whichever is healthy.
                       # The legacy single container holds the blue port, so it is replaced by green.
                       if [ "$(docker inspect -f '{{.State.Running}}' "$APP-blue" 2>/dev/null)" = "true" ]; then
                         NEW="$APP-green"; NEW_PORT=${{ env.CLOUD_GREEN_PORT }}; OLD="$APP-blue"
