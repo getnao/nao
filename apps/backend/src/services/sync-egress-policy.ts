@@ -1,14 +1,20 @@
 import dns from 'node:dns/promises';
-import fs from 'node:fs';
 import net from 'node:net';
-import path from 'node:path';
 
 import yaml from 'js-yaml';
 
 import { syncUsesLlm } from '../utils/nao-config';
+import { readProjectFile } from '../utils/project-file';
 import { isPrivateAddress, isPrivateHostname } from '../utils/safe-fetch';
 
-export type SyncOutboundPolicy = { mode: 'disabled' } | { mode: 'enabled'; allowNet: string[] };
+export interface SyncHostMapping {
+	address: string;
+	hostname: string;
+}
+
+export type SyncOutboundPolicy =
+	| { mode: 'disabled'; hostMappings: SyncHostMapping[] }
+	| { mode: 'enabled'; allowNet: string[]; hostMappings: SyncHostMapping[] };
 
 type ConfigRecord = Record<string, unknown>;
 type ResolveAddresses = (hostname: string) => Promise<string[]>;
@@ -82,23 +88,21 @@ export async function resolveSyncOutboundPolicy(
 	if (syncUsesLlm(config.databases, projectPath)) {
 		addLlmHosts(hosts, config.llm, projectEnvVars);
 	}
-	const allowNet = [...hosts].sort();
-	await validateHosts(
-		allowNet,
+	const { allowNet, hostMappings } = await resolveAllowedHosts(
+		[...hosts].sort(),
 		privateWarehouseHosts,
 		new Set([...(options.approvedPrivateWarehouseHosts ?? [])].map(normalizeHost)),
 		new Set([...(options.blockedInfrastructureHosts ?? [])].map(canonicalizeHost)),
 		options.resolveAddresses ?? resolveAddresses,
 	);
-	return allowNet.length > 0 ? { mode: 'enabled', allowNet } : { mode: 'disabled' };
+	return allowNet.length > 0 ? { mode: 'enabled', allowNet, hostMappings } : { mode: 'disabled', hostMappings };
 }
 
 function loadConfig(
 	projectPath: string,
 	envVars: Record<string, string>,
 ): { config: ConfigRecord; awsSecretRegions: Set<string>; usesK8sSecrets: boolean } {
-	const configPath = path.join(projectPath, 'nao_config.yaml');
-	const source = fs.readFileSync(configPath, 'utf8');
+	const source = readProjectFile(projectPath, 'nao_config.yaml');
 	const awsSecretRegions = new Set(
 		[...source.matchAll(AWS_SECRET_REFERENCE_PATTERN)].map(
 			([, identifier]) =>
@@ -109,7 +113,12 @@ function loadConfig(
 	const contents = source
 		.replace(ENV_REFERENCE_PATTERN, (_match, name: string) => envVars[name] ?? '')
 		.replace(EXTERNAL_SECRET_REFERENCE_PATTERN, UNRESOLVED_SECRET);
-	const config = yaml.load(contents);
+	let config: unknown;
+	try {
+		config = yaml.load(contents);
+	} catch {
+		throw new Error('Cannot determine sync network access because nao_config.yaml could not be parsed.');
+	}
 	if (!isRecord(config)) {
 		throw new Error('Cannot determine sync network access because nao_config.yaml is not an object.');
 	}
@@ -476,13 +485,15 @@ function isAlwaysBlockedIpv4(host: string): boolean {
 	);
 }
 
-async function validateHosts(
+async function resolveAllowedHosts(
 	hosts: string[],
 	privateWarehouseHosts: Set<string>,
 	approvedPrivateWarehouseHosts: Set<string>,
 	blockedInfrastructureHosts: Set<string>,
 	resolve: ResolveAddresses,
-): Promise<void> {
+): Promise<{ allowNet: string[]; hostMappings: SyncHostMapping[] }> {
+	const allowedAddresses = new Set<string>();
+	const hostMappings: SyncHostMapping[] = [];
 	for (const host of hosts) {
 		if (blockedInfrastructureHosts.has(host)) {
 			throw new Error(`Sync destination "${host}" belongs to nao deployment infrastructure and is blocked.`);
@@ -495,26 +506,37 @@ async function validateHosts(
 		if (addresses.length === 0) {
 			throw new Error(`Cannot determine sync network access because "${host}" did not resolve to an address.`);
 		}
-		let hasIpv4 = false;
+		const ipv4Addresses = new Set<string>();
 		for (const address of addresses) {
 			if (net.isIP(address) === 4) {
-				hasIpv4 = true;
 				if (isAlwaysBlockedIpv4(address)) {
 					throw new Error(
 						`Sync destination "${host}" resolves to reserved infrastructure address "${address}".`,
 					);
 				}
+				ipv4Addresses.add(address);
 			}
 			if (isPrivateAddress(address) && !privateWarehouseApproved) {
 				throw privateDestinationError(host, privateWarehouseHosts.has(host));
 			}
 		}
-		if (!hasIpv4) {
+		if (ipv4Addresses.size === 0) {
 			throw new Error(
 				`Cannot allow IPv6-only sync destination "${host}" because BoxLite allowNet supports IPv4 only.`,
 			);
 		}
+		for (const address of ipv4Addresses) {
+			// ponytail: IP rules allow every port on the destination; replace them when BoxLite supports host-and-port rules.
+			allowedAddresses.add(address);
+			if (net.isIP(host) === 0) {
+				hostMappings.push({ address, hostname: host });
+			}
+		}
 	}
+	hostMappings.sort(
+		(left, right) => left.hostname.localeCompare(right.hostname) || left.address.localeCompare(right.address),
+	);
+	return { allowNet: [...allowedAddresses].sort(), hostMappings };
 }
 
 async function resolveAddresses(hostname: string): Promise<string[]> {

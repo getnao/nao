@@ -8,7 +8,7 @@ import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as keyedLockQueries from '../queries/keyed-lock.queries';
 import { getWorktreeProjectRoot } from '../utils/context-repo';
-import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
+import { fromPromise, repeatInBackground, runEffect, withHeartbeat } from '../utils/effect-runtime';
 import { contextWorktreeLockKey, withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { canonicalizeWriteRoot } from '../utils/safe-file-write';
@@ -116,7 +116,7 @@ export async function startProjectSync(
 
 			const activity = await activityQueries.startProjectSyncActivity(project.id, gitContext.userId);
 			const controller = new AbortController();
-			const releaseLease = await holdSyncLease(
+			const runWithLease = await holdSyncLease(
 				activity.id,
 				() => controller.abort(new ProjectSyncLeaseLostError()),
 				() => controller.abort(),
@@ -133,8 +133,8 @@ export async function startProjectSync(
 			runs.set(runKey, run);
 			controllers.set(runKey, controller);
 			setImmediate(() => {
-				void runProjectSync(project, gitContext, runKey, run.id)
-					.catch((error) => {
+				void runWithLease(() =>
+					runProjectSync(project, gitContext, runKey, run.id).catch((error) => {
 						const message = error instanceof Error ? error.message : 'Project sync failed.';
 						void activityQueries.failActivity(run.id, message, { logs: runs.get(runKey)?.logs ?? '' });
 						updateRun(runKey, run.id, {
@@ -146,8 +146,8 @@ export async function startProjectSync(
 							source: 'system',
 							context: { projectId: project.id, runId: run.id },
 						});
-					})
-					.finally(releaseLease);
+					}),
+				);
 			});
 			return run;
 		});
@@ -249,14 +249,14 @@ async function runProjectSync(
 			if ('unavailableReason' in target) {
 				throw new Error(target.unavailableReason);
 			}
-			const projectEnvVars = await getProjectSyncEnvVars(project, gitContext.userId, target.root);
-			const redact = (value: string) =>
-				redactSecretValues(
-					value,
-					Object.entries(projectEnvVars).map(([name, value]) => ({ name, value })),
-				);
-
+			let redact = (value: string) => value;
 			try {
+				const projectEnvVars = await getProjectSyncEnvVars(project, gitContext.userId, target.root);
+				redact = (value: string) =>
+					redactSecretValues(
+						value,
+						Object.entries(projectEnvVars).map(([name, value]) => ({ name, value })),
+					);
 				signal?.throwIfAborted();
 				const onOutput = async (logs: string) => {
 					const redactedLogs = redact(logs);
@@ -358,29 +358,11 @@ async function holdSyncLease(
 	activityId: string,
 	onLost: () => void,
 	onCancellationRequested: () => void,
-): Promise<() => Promise<void>> {
+): Promise<<T>(operation: () => Promise<T>) => Promise<T>> {
 	const key = `${activityQueries.PROJECT_SYNC_LEASE_KEY_PREFIX}${activityId}`;
 	const owner = crypto.randomUUID();
 	await keyedLockQueries.tryAcquireLock(key, owner, activityQueries.SYNC_LEASE_MS);
 	let stopped = false;
-	const stopRenewal = repeatInBackground(
-		'Project sync lease renewal',
-		fromPromise(async () => {
-			if (stopped) {
-				return;
-			}
-			try {
-				const renewed = await keyedLockQueries.renewLock(key, owner, activityQueries.SYNC_LEASE_MS);
-				if (!stopped && !renewed) {
-					stopped = true;
-					onLost();
-				}
-			} catch (error) {
-				logger.warn(`Could not renew the project sync lease: ${String(error)}`, { source: 'system' });
-			}
-		}),
-		SYNC_LEASE_RENEW_MS,
-	);
 	const stopCancellationPolling = repeatInBackground(
 		'Project sync cancellation check',
 		fromPromise(async () => {
@@ -401,10 +383,31 @@ async function holdSyncLease(
 		}),
 		SYNC_CANCELLATION_POLL_MS,
 	);
-	return async () => {
-		stopped = true;
-		await Promise.all([stopRenewal(), stopCancellationPolling()]);
-		await keyedLockQueries.releaseLock(key, owner).catch(() => undefined);
+	return async <T>(operation: () => Promise<T>) => {
+		try {
+			return await runEffect(
+				fromPromise(operation).pipe(
+					withHeartbeat({
+						name: 'Project sync lease renewal',
+						every: SYNC_LEASE_RENEW_MS,
+						beat: async () => {
+							if (stopped) {
+								return;
+							}
+							const renewed = await keyedLockQueries.renewLock(key, owner, activityQueries.SYNC_LEASE_MS);
+							if (!stopped && !renewed) {
+								stopped = true;
+								onLost();
+							}
+						},
+					}),
+				),
+			);
+		} finally {
+			stopped = true;
+			await stopCancellationPolling();
+			await keyedLockQueries.releaseLock(key, owner).catch(() => undefined);
+		}
 	};
 }
 

@@ -176,6 +176,18 @@ describe('project sync', () => {
 		expect((await getProjectSyncState(project, gitContext('user-2'))).run).toBeNull();
 	});
 
+	it('records sync environment failures through the controlled error path', async () => {
+		const message = 'Cannot determine sync credentials because nao_config.yaml could not be parsed.';
+		vi.mocked(getProjectSyncEnvVars).mockRejectedValue(new Error(message));
+
+		const run = await startProjectSync(project, gitContext('user-1'));
+		await waitForStatus('user-1', 'failed');
+
+		expect((await getProjectSyncState(project, gitContext('user-1'))).run?.error).toBe(message);
+		expect(failActivity).toHaveBeenCalledWith(run.id, message, { logs: '' });
+		expect(runNaoCommandInSandbox).not.toHaveBeenCalled();
+	});
+
 	it("blocks the user's Git actions only while their sync is running", async () => {
 		let finishSync: () => void = () => undefined;
 		vi.mocked(runNaoCommandInSandbox).mockImplementation(

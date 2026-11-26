@@ -24,7 +24,41 @@ describe('resolveSyncOutboundPolicy', () => {
 
 		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
 			mode: 'disabled',
+			hostMappings: [],
 		});
+	});
+
+	it('does not read nao_config.yaml through a symlink outside the project', async () => {
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-sync-egress-policy-test-'));
+		const secret = 'host-file-secret';
+		const outsideConfig = path.join(outside, 'nao_config.yaml');
+		fs.writeFileSync(outsideConfig, `project_name: ${secret}\n`);
+		fs.symlinkSync(outsideConfig, path.join(project, 'nao_config.yaml'));
+
+		try {
+			const error = await resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns }).catch(
+				(failure: unknown) => failure,
+			);
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toContain("'nao_config.yaml' resolves outside the project folder");
+			expect((error as Error).message).not.toContain(secret);
+		} finally {
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	it('does not expose malformed YAML in its error', async () => {
+		const secret = 'host-file-secret';
+		writeConfig(`project_name: ${secret}\ndatabases: [`);
+
+		const error = await resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns }).catch(
+			(failure: unknown) => failure,
+		);
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toBe(
+			'Cannot determine sync network access because nao_config.yaml could not be parsed.',
+		);
+		expect((error as Error).message).not.toContain(secret);
 	});
 
 	it('allows local repositories without enabling network access', async () => {
@@ -38,6 +72,7 @@ repos:
 
 		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
 			mode: 'disabled',
+			hostMappings: [],
 		});
 	});
 
@@ -54,10 +89,57 @@ databases:
 
 			await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
 				mode: 'enabled',
-				allowNet: ['api.motherduck.com', 'extensions.duckdb.org'],
+				allowNet: ['93.184.216.34'],
+				hostMappings: [
+					{ address: '93.184.216.34', hostname: 'api.motherduck.com' },
+					{ address: '93.184.216.34', hostname: 'extensions.duckdb.org' },
+				],
 			});
 		},
 	);
+
+	it('includes resolved IPv4 addresses for database connections on non-HTTP ports', async () => {
+		writeConfig(`
+project_name: sales
+databases:
+  - name: warehouse
+    type: postgres
+    host: warehouse.example.com
+`);
+
+		await expect(
+			resolveSyncOutboundPolicy(
+				project,
+				{},
+				{
+					resolveAddresses: async () => ['93.184.216.35', '2001:db8::1', '93.184.216.34'],
+				},
+			),
+		).resolves.toEqual({
+			mode: 'enabled',
+			allowNet: ['93.184.216.34', '93.184.216.35'],
+			hostMappings: [
+				{ address: '93.184.216.34', hostname: 'warehouse.example.com' },
+				{ address: '93.184.216.35', hostname: 'warehouse.example.com' },
+			],
+		});
+	});
+
+	it('allows a literal IPv4 destination without a host mapping', async () => {
+		writeConfig(`
+project_name: sales
+databases:
+  - name: warehouse
+    type: postgres
+    host: 93.184.216.34
+`);
+
+		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
+			mode: 'enabled',
+			allowNet: ['93.184.216.34'],
+			hostMappings: [],
+		});
+	});
 
 	it('allows only exact hosts required by configured sync providers', async () => {
 		writeConfig(`
@@ -123,7 +205,7 @@ llm:
 		if (policy.mode !== 'enabled') {
 			throw new Error('Expected enabled network policy.');
 		}
-		expect(policy.allowNet).toEqual(
+		expect(policy.hostMappings.map(({ hostname }) => hostname)).toEqual(
 			expect.arrayContaining([
 				'postgres.internal',
 				'adb-123.azuredatabricks.net',
@@ -144,8 +226,9 @@ llm:
 				'secretsmanager.us-east-1.amazonaws.com',
 			]),
 		);
-		expect(policy.allowNet.every((host) => !host.includes('*'))).toBe(true);
-		expect(policy.allowNet).not.toContain('evil.example');
+		expect(policy.allowNet).toEqual(['93.184.216.34']);
+		expect(policy.hostMappings.every(({ hostname }) => !hostname.includes('*'))).toBe(true);
+		expect(policy.hostMappings.map(({ hostname }) => hostname)).not.toContain('evil.example');
 	});
 
 	it('fails closed when a configured destination cannot be resolved', async () => {
@@ -283,7 +366,11 @@ databases:
 					resolveAddresses: privateDns,
 				},
 			),
-		).resolves.toEqual({ mode: 'enabled', allowNet: ['warehouse.example.com'] });
+		).resolves.toEqual({
+			mode: 'enabled',
+			allowNet: ['10.20.30.40'],
+			hostMappings: [{ address: '10.20.30.40', hostname: 'warehouse.example.com' }],
+		});
 	});
 
 	it('does not apply private warehouse approvals to other providers', async () => {
@@ -338,6 +425,7 @@ llm:
 
 		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
 			mode: 'disabled',
+			hostMappings: [],
 		});
 	});
 
@@ -358,7 +446,8 @@ llm:
 
 		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
 			mode: 'enabled',
-			allowNet: ['api.openai.com'],
+			allowNet: ['93.184.216.34'],
+			hostMappings: [{ address: '93.184.216.34', hostname: 'api.openai.com' }],
 		});
 	});
 

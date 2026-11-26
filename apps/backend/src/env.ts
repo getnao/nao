@@ -333,7 +333,7 @@ const baseRawEnvSchema = z.object({
 	NAO_SYNC_MAX_RUNTIME_HOURS: z.coerce.number().positive().default(24),
 	NAO_SYNC_MAX_FILE_SIZE_MB: z.coerce.number().positive().default(500),
 	NAO_SYNC_MAX_OUTPUT_SIZE_GB: z.coerce.number().int().positive().default(8),
-	NAO_SYNC_MAX_OUTPUT_FILES: z.coerce.number().int().positive().default(500_000),
+	NAO_SYNC_MAX_OUTPUT_FILES: z.coerce.number().int().positive().default(20_000),
 	NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS: projectHostApprovals,
 	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
 	NAO_BACKOFFICE_API_KEY: z

@@ -6,7 +6,7 @@ import { env } from '../env';
 import { logger } from '../utils/logger';
 import { extractRepoTargetFolders } from '../utils/nao-config';
 import { sandboxRuntime } from './sandbox-runtime';
-import { resolveSyncOutboundPolicy } from './sync-egress-policy';
+import { resolveSyncOutboundPolicy, type SyncHostMapping } from './sync-egress-policy';
 
 const COMMAND_OUTPUT_LIMIT = 8000;
 const COMMAND_LOG_UPDATE_MS = 300;
@@ -16,6 +16,7 @@ const NAO_SANDBOX_IMAGE = env.APP_COMMIT === 'unknown' ? 'getnao/nao:latest' : `
 const HOUR_MS = 60 * 60 * 1000;
 const MEBIBYTE = 1024 * 1024;
 const GIBIBYTE = 1024 * MEBIBYTE;
+const FILE_OPERATION_CONCURRENCY = 16;
 const SYNC_OUTPUT_ROOTS = [
 	'databases',
 	'repos',
@@ -59,13 +60,13 @@ export async function runNaoCommandInSandbox(
 	}
 	const buffer = createOutputBuffer(onOutput);
 	await buffer.addLine('Checking sync connections.');
-	const outboundPolicy = await resolveSyncOutboundPolicy(projectPath, projectEnvVars, {
+	const { hostMappings, ...outboundPolicy } = await resolveSyncOutboundPolicy(projectPath, projectEnvVars, {
 		approvedPrivateWarehouseHosts: projectId ? env.NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS[projectId] : undefined,
 		blockedInfrastructureHosts: deploymentInfrastructureHosts(),
 	});
 	const runtime = sandboxRuntime.JsBoxlite.withDefaultConfig();
 	const isDocker = process.env.DOCKER === '1' || process.env.container === 'docker';
-	const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-sync-'));
+	const stagingDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'nao-sync-'));
 	const maxFileSizeBytes = env.NAO_SYNC_MAX_FILE_SIZE_MB * MEBIBYTE;
 	let kill = () => {};
 	let stopBox = async () => {};
@@ -91,7 +92,7 @@ export async function runNaoCommandInSandbox(
 	};
 	try {
 		await buffer.addLine('Preparing project files.');
-		const staged = copyProjectIn(projectPath, stagingDir, projectEnvVars);
+		const staged = await copyProjectIn(projectPath, stagingDir, projectEnvVars);
 		await buffer.addLine('Preparing the secure sync environment. The first run may take a few minutes.');
 		const box = await runtime.create({
 			image: NAO_SANDBOX_IMAGE,
@@ -109,6 +110,9 @@ export async function runNaoCommandInSandbox(
 		throwIfStopped();
 		await box.start();
 		throwIfStopped();
+		await installSyncHostMappings(hostMappings, (script) =>
+			box.exec('sh', ['-c', script], [], false, null, null, '/'),
+		);
 		await buffer.addLine('Copying the project into the secure sync environment.');
 		await box.copyIn(stagingDir, SANDBOX_PROJECT_DIR, {
 			recursive: true,
@@ -140,8 +144,8 @@ export async function runNaoCommandInSandbox(
 		const { exitCode } = await execution.wait();
 		await buffer.flush();
 		throwIfStopped();
-		fs.rmSync(stagingDir, { recursive: true, force: true });
-		fs.mkdirSync(stagingDir);
+		await fs.promises.rm(stagingDir, { recursive: true, force: true });
+		await fs.promises.mkdir(stagingDir);
 		await box.copyOut(SANDBOX_PROJECT_DIR, stagingDir, {
 			recursive: true,
 			overwrite: true,
@@ -152,7 +156,7 @@ export async function runNaoCommandInSandbox(
 		await stopBox();
 		stopBox = async () => {};
 		throwIfStopped();
-		copyResultsBack(stagingDir, projectPath, staged);
+		await copyResultsBack(stagingDir, projectPath, staged);
 		if (exitCode !== 0) {
 			const details = buffer.details();
 			throw new NaoCommandExitError(`nao ${args[0]} failed${details ? `: ${details}` : ''}`);
@@ -161,7 +165,21 @@ export async function runNaoCommandInSandbox(
 		clearTimeout(runtimeTimer);
 		signal?.removeEventListener('abort', kill);
 		await stopBox();
-		fs.rmSync(stagingDir, { recursive: true, force: true });
+		await fs.promises.rm(stagingDir, { recursive: true, force: true });
+	}
+}
+
+async function installSyncHostMappings(
+	hostMappings: SyncHostMapping[],
+	execute: (script: string) => Promise<{ wait(): Promise<{ exitCode: number }> }>,
+): Promise<void> {
+	if (hostMappings.length === 0) {
+		return;
+	}
+	const entries = hostMappings.map(({ address, hostname }) => `${address}\t${hostname}`).join('\n');
+	const execution = await execute(`cat >> /etc/hosts <<'NAO_SYNC_HOSTS'\n\n${entries}\nNAO_SYNC_HOSTS`);
+	if ((await execution.wait()).exitCode !== 0) {
+		throw new Error('Could not pin the validated sync destinations inside the secure environment.');
 	}
 }
 
@@ -178,7 +196,11 @@ function deploymentInfrastructureHosts(): string[] {
 	});
 }
 
-function copyProjectIn(projectPath: string, stagingDir: string, projectEnvVars: Record<string, string>): StagedProject {
+async function copyProjectIn(
+	projectPath: string,
+	stagingDir: string,
+	projectEnvVars: Record<string, string>,
+): Promise<StagedProject> {
 	const staged: StagedProject = {
 		files: new Map(),
 		directories: new Set(),
@@ -188,14 +210,21 @@ function copyProjectIn(projectPath: string, stagingDir: string, projectEnvVars: 
 			...extractRepoTargetFolders(projectPath, projectEnvVars).map((target) => target.split('/').join(path.sep)),
 		],
 	};
-	for (const { relativePath, isDirectory } of listProjectEntries(projectPath)) {
+	const files: ProjectEntry[] = [];
+	let fileCount = 0;
+	for await (const { relativePath, isDirectory } of walkProjectEntries(projectPath)) {
 		const stagedPath = path.join(stagingDir, relativePath);
 		if (isDirectory) {
-			fs.mkdirSync(stagedPath);
+			await fs.promises.mkdir(stagedPath);
 			staged.directories.add(relativePath);
 		} else {
-			fs.copyFileSync(path.join(projectPath, relativePath), stagedPath);
-			staged.files.set(relativePath, fs.statSync(stagedPath).mtimeMs);
+			fileCount++;
+			if (fileCount > env.NAO_SYNC_MAX_OUTPUT_FILES) {
+				throw new NaoCommandOutputLimitError(
+					`Project contains more than ${env.NAO_SYNC_MAX_OUTPUT_FILES} files, exceeding the sync limit.`,
+				);
+			}
+			files.push({ relativePath, isDirectory });
 			if (relativePath.endsWith('.j2')) {
 				const outputPath = relativePath.slice(0, -3);
 				if (outputPath) {
@@ -204,75 +233,98 @@ function copyProjectIn(projectPath: string, stagingDir: string, projectEnvVars: 
 			}
 		}
 	}
+	await forEachFileConcurrently(files, async ({ relativePath }) => {
+		const stagedPath = path.join(stagingDir, relativePath);
+		await fs.promises.copyFile(path.join(projectPath, relativePath), stagedPath);
+		staged.files.set(relativePath, (await fs.promises.stat(stagedPath)).mtimeMs);
+	});
 	return staged;
 }
 
 /** Writes back only expected sync outputs into real directories, never through a symlink. */
-function copyResultsBack(stagingDir: string, projectPath: string, staged: StagedProject): void {
-	const results = listProjectEntries(stagingDir);
-	const allowedResults = results.filter((entry) =>
-		entry.isDirectory
+async function copyResultsBack(stagingDir: string, projectPath: string, staged: StagedProject): Promise<void> {
+	const allowedResults: ProjectEntry[] = [];
+	let outputFileCount = 0;
+
+	for await (const entry of walkProjectEntries(stagingDir)) {
+		const allowed = entry.isDirectory
 			? isAllowedCopyBackDirectory(entry.relativePath, staged)
-			: isAllowedCopyBackFile(entry.relativePath, staged),
-	);
-	assertSyncOutputWithinLimits(stagingDir, allowedResults);
+			: isAllowedCopyBackFile(entry.relativePath, staged);
+
+		if (!allowed) {
+			continue;
+		}
+
+		if (!entry.isDirectory && ++outputFileCount > env.NAO_SYNC_MAX_OUTPUT_FILES) {
+			throw new NaoCommandOutputLimitError(
+				`Sync produced more than ${env.NAO_SYNC_MAX_OUTPUT_FILES} output files, exceeding the limit.`,
+			);
+		}
+
+		allowedResults.push(entry);
+	}
+
+	await assertSyncOutputWithinLimits(stagingDir, allowedResults);
 	const resultFiles = new Set(
 		allowedResults.filter((entry) => !entry.isDirectory).map((entry) => entry.relativePath),
 	);
 	const resultDirectories = new Set(
 		allowedResults.filter((entry) => entry.isDirectory).map((entry) => entry.relativePath),
 	);
-	for (const relativePath of staged.files.keys()) {
-		if (isAllowedCopyBackFile(relativePath, staged) && !resultFiles.has(relativePath)) {
-			fs.rmSync(path.join(projectPath, relativePath), { force: true });
-		}
-	}
+	const removedFiles = [...staged.files.keys()].filter(
+		(relativePath) => isAllowedCopyBackFile(relativePath, staged) && !resultFiles.has(relativePath),
+	);
+	await forEachFileConcurrently(removedFiles, (relativePath) =>
+		fs.promises.rm(path.join(projectPath, relativePath), { force: true }),
+	);
 	const removedDirectories = [...staged.directories].filter(
 		(relativePath) => isAllowedCopyBackDirectory(relativePath, staged) && !resultDirectories.has(relativePath),
 	);
 	for (const relativePath of removedDirectories.sort((left, right) => right.length - left.length)) {
-		removeDirectoryIfEmpty(path.join(projectPath, relativePath));
+		await removeDirectoryIfEmpty(path.join(projectPath, relativePath));
 	}
 	const skippedDirectories = new Set<string>();
-	for (const { relativePath, isDirectory } of allowedResults) {
+	for (const { relativePath } of allowedResults.filter((entry) => entry.isDirectory)) {
 		if (skippedDirectories.has(path.dirname(relativePath))) {
 			skippedDirectories.add(relativePath);
 			continue;
 		}
-		const target = fs.lstatSync(path.join(projectPath, relativePath), { throwIfNoEntry: false });
-		if (isDirectory) {
-			if (!target) {
-				fs.mkdirSync(path.join(projectPath, relativePath));
-			} else if (!target.isDirectory()) {
-				skippedDirectories.add(relativePath);
-			}
-		} else if (!target || (target.isFile() && target.nlink === 1)) {
-			const stagedPath = path.join(stagingDir, relativePath);
-			if (staged.files.get(relativePath) !== fs.statSync(stagedPath).mtimeMs) {
-				fs.copyFileSync(stagedPath, path.join(projectPath, relativePath));
-			}
+		const targetPath = path.join(projectPath, relativePath);
+		const target = await lstatIfExists(targetPath);
+		if (!target) {
+			await fs.promises.mkdir(targetPath);
+		} else if (!target.isDirectory()) {
+			skippedDirectories.add(relativePath);
 		}
 	}
+	const files = allowedResults.filter((entry) => !entry.isDirectory);
+	await forEachFileConcurrently(files, async ({ relativePath }) => {
+		if (skippedDirectories.has(path.dirname(relativePath))) {
+			return;
+		}
+		const target = await lstatIfExists(path.join(projectPath, relativePath));
+		if (!target || (target.isFile() && target.nlink === 1)) {
+			const stagedPath = path.join(stagingDir, relativePath);
+			if (staged.files.get(relativePath) !== (await fs.promises.stat(stagedPath)).mtimeMs) {
+				await fs.promises.copyFile(stagedPath, path.join(projectPath, relativePath));
+			}
+		}
+	});
 }
 
-function assertSyncOutputWithinLimits(stagingDir: string, results: ProjectEntry[]): void {
+async function assertSyncOutputWithinLimits(stagingDir: string, results: ProjectEntry[]): Promise<void> {
 	const files = results.filter((entry) => !entry.isDirectory);
-	if (files.length > env.NAO_SYNC_MAX_OUTPUT_FILES) {
-		throw new NaoCommandOutputLimitError(
-			`Sync produced ${files.length} output files, exceeding the limit of ${env.NAO_SYNC_MAX_OUTPUT_FILES}.`,
-		);
-	}
 	let totalBytes = 0;
 	const maxFileSizeBytes = env.NAO_SYNC_MAX_FILE_SIZE_MB * MEBIBYTE;
-	for (const { relativePath } of files) {
-		const size = fs.statSync(path.join(stagingDir, relativePath)).size;
+	await forEachFileConcurrently(files, async ({ relativePath }) => {
+		const size = (await fs.promises.stat(path.join(stagingDir, relativePath))).size;
 		if (size > maxFileSizeBytes) {
 			throw new NaoCommandOutputLimitError(
 				`Sync output "${relativePath}" exceeds the ${env.NAO_SYNC_MAX_FILE_SIZE_MB} MB file-size limit.`,
 			);
 		}
 		totalBytes += size;
-	}
+	});
 	const maxOutputBytes = env.NAO_SYNC_MAX_OUTPUT_SIZE_GB * GIBIBYTE;
 	if (totalBytes > maxOutputBytes) {
 		throw new NaoCommandOutputLimitError(
@@ -299,31 +351,15 @@ function isAllowedCopyBackDirectory(relativePath: string, staged: StagedProject)
 	);
 }
 
-function removeDirectoryIfEmpty(directory: string): void {
+async function removeDirectoryIfEmpty(directory: string): Promise<void> {
 	try {
-		fs.rmdirSync(directory);
+		await fs.promises.rmdir(directory);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code !== 'ENOTEMPTY' && code !== 'ENOENT') {
 			throw error;
 		}
 	}
-}
-
-function listProjectEntries(root: string, relativeDir = ''): ProjectEntry[] {
-	const entries: ProjectEntry[] = [];
-	for (const entry of fs.readdirSync(path.join(root, relativeDir), { withFileTypes: true })) {
-		const relativePath = path.join(relativeDir, entry.name);
-		if (entry.name === '.git') {
-			continue;
-		}
-		if (entry.isDirectory()) {
-			entries.push({ relativePath, isDirectory: true }, ...listProjectEntries(root, relativePath));
-		} else if (entry.isFile()) {
-			entries.push({ relativePath, isDirectory: false });
-		}
-	}
-	return entries;
 }
 
 async function readStream(stream: { next(): Promise<string | null> }, onChunk: (chunk: string) => void) {
@@ -378,4 +414,52 @@ function createOutputBuffer(onOutput?: (output: string) => Promise<unknown>) {
 
 function toVisibleOutput(output: string): string {
 	return output.replace(ANSI_ESCAPE_PATTERN, '').replaceAll('\r', '\n');
+}
+
+async function* walkProjectEntries(root: string): AsyncGenerator<ProjectEntry> {
+	const pendingDirectories = [''];
+
+	while (pendingDirectories.length > 0) {
+		const relativeDirectory = pendingDirectories.pop()!;
+
+		for (const entry of await fs.promises.readdir(path.join(root, relativeDirectory), { withFileTypes: true })) {
+			if (entry.name === '.git') {
+				continue;
+			}
+
+			const relativePath = path.join(relativeDirectory, entry.name);
+			if (entry.isDirectory()) {
+				yield { relativePath, isDirectory: true };
+				pendingDirectories.push(relativePath);
+			} else if (entry.isFile()) {
+				yield { relativePath, isDirectory: false };
+			}
+		}
+	}
+}
+
+async function lstatIfExists(filePath: string): Promise<fs.Stats | null> {
+	try {
+		return await fs.promises.lstat(filePath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			return null;
+		}
+		throw error;
+	}
+}
+
+async function forEachFileConcurrently<T>(items: readonly T[], task: (item: T) => Promise<void>): Promise<void> {
+	let nextIndex = 0;
+	const workers = Array.from({ length: Math.min(FILE_OPERATION_CONCURRENCY, items.length) }, async () => {
+		while (nextIndex < items.length) {
+			const item = items[nextIndex++];
+			await task(item);
+		}
+	});
+	const results = await Promise.allSettled(workers);
+	const failure = results.find((result) => result.status === 'rejected');
+	if (failure) {
+		throw failure.reason;
+	}
 }
