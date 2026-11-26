@@ -96,7 +96,12 @@ function ButtonConnection({ children }: React.ComponentProps<'button'>) {
 	);
 }
 
-function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'button'> & { showStop: boolean }) {
+function ChatSendButton({
+	showStop,
+	disabled,
+	icon,
+	...props
+}: React.ComponentProps<'button'> & { showStop: boolean; icon?: React.ReactNode }) {
 	disabled = !showStop && disabled;
 
 	return (
@@ -105,12 +110,12 @@ function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'
 			disabled={disabled}
 			size='icon-sm'
 			variant='primary-gradient-border'
-			className='rounded-full ml-auto size-7'
+			className='rounded-full ml-auto size-7 motion-safe:hover:scale-110'
 		>
 			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />
 			) : (
-				<ArrowUpIcon className='size-4' />
+				(icon ?? <ArrowUpIcon className='size-4' />)
 			)}
 		</Button>
 	);
@@ -120,10 +125,12 @@ function MicButton({
 	state,
 	onClick,
 	disabled,
+	className,
 }: {
 	state: 'idle' | 'recording' | 'transcribing';
 	onClick: () => void;
 	disabled?: boolean;
+	className?: string;
 }) {
 	const isRecording = state === 'recording';
 	const isTranscribing = state === 'transcribing';
@@ -134,11 +141,12 @@ function MicButton({
 			onClick={onClick}
 			disabled={disabled || isTranscribing}
 			aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-			className={`
-				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
-				disabled:pointer-events-none disabled:opacity-50
-				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent'}
-			`}
+			className={cn(
+				'inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer',
+				'disabled:pointer-events-none disabled:opacity-50',
+				isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent',
+				className,
+			)}
 		>
 			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}
 		</button>

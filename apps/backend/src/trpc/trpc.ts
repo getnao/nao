@@ -4,6 +4,7 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
+import { traceProcedure } from '../middleware/request-tracing';
 import { getOrganizationBilling } from '../queries/billing.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -16,6 +17,7 @@ import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.s
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
 import { isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
+import { consumeRateLimit, type RateLimitBucket, RateLimitExceededError } from '../utils/rate-limiter';
 import { convertHeaders } from '../utils/utils';
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
@@ -29,6 +31,8 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
 		selectedOrganizationId: headers.get('x-nao-organization-id'),
+		requestSpan: opts.req.requestSpan,
+		clientIp: opts.req.ip,
 	};
 };
 
@@ -90,14 +94,54 @@ const withHandlerErrors = t.middleware(async ({ next }) => {
 	}
 });
 
-export const publicProcedure = t.procedure.use(withHandlerErrors);
+const withProcedureSpan = t.middleware(async ({ ctx, path, next }) => {
+	return traceProcedure(ctx.requestSpan, path, next);
+});
 
-export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
+/** Every call counts, signed in or not, so a script cannot sweep the API anonymously either. */
+const withCallRateLimit = t.middleware(async ({ ctx, next }) => {
+	const userId = ctx.session?.user.id;
+	consumeTrpcRateLimit('trpc', userId ?? `ip:${ctx.clientIp}`, userId);
+	return next();
+});
+
+export const publicProcedure = t.procedure.use(withProcedureSpan).use(withHandlerErrors).use(withCallRateLimit);
+
+/** Limits a procedure further, on the key it names: the caller, their organization or the project. */
+export function rateLimitedBy<TContext>(bucket: RateLimitBucket, keyOf: (ctx: TContext) => string) {
+	return t.middleware(async ({ ctx, next }) => {
+		consumeTrpcRateLimit(bucket, keyOf(ctx as TContext), ctx.session?.user.id);
+		return next();
+	});
+}
+
+/** Thrown as a TRPCError, since `next()` hands a failure back as a result that withHandlerErrors never catches. */
+function consumeTrpcRateLimit(bucket: RateLimitBucket, key: string, userId: string | undefined): void {
+	try {
+		consumeRateLimit(bucket, key, userId);
+	} catch (error) {
+		if (error instanceof RateLimitExceededError) {
+			throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: error.message, cause: error });
+		}
+		throw error;
+	}
+}
+
+/** Signed in, and still reachable by members who must set up two-factor authentication first. */
+export const sessionProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	if (!ctx.session?.user) {
 		throw new TRPCError({ code: 'UNAUTHORIZED' });
 	}
 
 	return next({ ctx: { user: ctx.session.user } });
+});
+
+export const protectedProcedure = sessionProcedure.use(async ({ ctx, next }) => {
+	if (ctx.session?.twoFactorSetupRequired) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Set up two-factor authentication to continue.' });
+	}
+
+	return next();
 });
 
 export async function resolveOrganizationMembership(
@@ -128,10 +172,19 @@ export async function resolveOrganizationMembership(
 	return membership;
 }
 
-export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, type, next }) => {
+	const isWrite = type === 'mutation';
+	const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId, {
+		fallbackWhenInaccessible: !isWrite,
+	});
 	if (!project) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project configured' });
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message:
+				isWrite && ctx.selectedProjectId
+					? 'You no longer have access to the selected project. Reload the page and try again.'
+					: 'No project configured',
+		});
 	}
 	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 

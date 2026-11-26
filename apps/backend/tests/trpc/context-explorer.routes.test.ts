@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	listContextPullActivities: vi.fn(),
 	loggerWarn: vi.fn(),
+	moveNaoDraftToWorktree: vi.fn(),
 	pullLiveContext: vi.fn(),
 	readFileContent: vi.fn(),
 	readManagedGithubRepositoryFullName: vi.fn(),
@@ -127,6 +128,7 @@ vi.mock('../../src/services/nao-draft.service', () => ({
 	getNaoDraftFileTree: vi.fn(),
 	hasContextRepository: mocks.hasContextRepository,
 	listNaoDraftChanges: vi.fn(),
+	moveNaoDraftToWorktree: mocks.moveNaoDraftToWorktree,
 	searchNaoDraftContents: vi.fn(),
 }));
 
@@ -167,6 +169,19 @@ describe('context explorer repository connection', () => {
 			branch: 'main',
 			connectionType: 'linked-existing-commit',
 		});
+		mocks.resolveContextExplorerGitSafely.mockResolvedValue({
+			status: 'available',
+			repo: { worktreeRoot: '/worktrees/user-id' },
+		});
+	});
+
+	it('carries the edits the user saved in nao into their worktree of the connected repository', async () => {
+		await caller.connectRepository({ provider: 'github', repoFullName: 'nao/context' });
+
+		expect(mocks.moveNaoDraftToWorktree).toHaveBeenCalledWith(
+			{ projectId: 'project-id', userId: 'user-id' },
+			{ worktreeRoot: '/worktrees/user-id' },
+		);
 	});
 
 	it('connects a GitHub repository with the GitHub token', async () => {
@@ -330,6 +345,23 @@ describe('context explorer file access', () => {
 				/^---\nname: weekly-sales\ndescription: "Weekly: sales"\nowner: user-id@example\.com\n---\n/,
 			),
 			expect.objectContaining({ git: availableGit }),
+		);
+	});
+
+	it('writes the instructions given in the dialog as the body of the skill', async () => {
+		mocks.resolveContextExplorerGit.mockResolvedValue({ status: 'available', repo: {}, context: {} });
+		mocks.createDraftFile.mockResolvedValue({ hash: 'hash' });
+
+		await caller.createSkill({
+			name: 'weekly-sales',
+			description: 'Weekly sales.',
+			body: 'Sum net sales by week.',
+		});
+
+		expect(mocks.createDraftFile).toHaveBeenCalledWith(
+			'/agent/skills/weekly-sales.md',
+			expect.stringMatching(/---\n\nSum net sales by week\.\n$/),
+			expect.anything(),
 		);
 	});
 

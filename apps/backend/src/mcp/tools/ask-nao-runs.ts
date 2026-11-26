@@ -1,7 +1,11 @@
 import type { StoryFormat } from '@nao/shared/types';
+import { Effect } from 'effect';
+
+import { repeatInBackground } from '../../utils/effect-runtime';
 
 export interface AskNaoQuery {
 	id: string;
+	sql?: string;
 	columns: string[];
 	row_count: number;
 	preview: Record<string, unknown>[];
@@ -47,6 +51,7 @@ const FINISHED_RUN_TTL_MS = 5 * 60 * 1000;
 const MAX_RUN_AGE_MS = 15 * 60 * 1000;
 
 const MAX_TRACKED_RUNS = 5_000;
+const STALE_RUN_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Tracks `ask_nao` agent runs that outlive their originating MCP request.
@@ -76,18 +81,17 @@ export const askNaoRuns = {
 	},
 };
 
-setInterval(
-	() => {
-		const now = Date.now();
-		for (const [chatId, state] of runs) {
-			const isStale =
-				state.status === 'running'
-					? now - state.startedAt > MAX_RUN_AGE_MS
-					: now - state.finishedAt > FINISHED_RUN_TTL_MS;
-			if (isStale) {
-				runs.delete(chatId);
-			}
+repeatInBackground('ask_nao run cleanup', Effect.sync(deleteStaleRuns), STALE_RUN_SWEEP_INTERVAL_MS);
+
+function deleteStaleRuns(): void {
+	const now = Date.now();
+	for (const [chatId, state] of runs) {
+		const isStale =
+			state.status === 'running'
+				? now - state.startedAt > MAX_RUN_AGE_MS
+				: now - state.finishedAt > FINISHED_RUN_TTL_MS;
+		if (isStale) {
+			runs.delete(chatId);
 		}
-	},
-	5 * 60 * 1000,
-).unref();
+	}
+}

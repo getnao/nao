@@ -41,7 +41,7 @@ import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 import { resolveCssVariableColorHex } from '@/lib/css-color';
 import { summarizeChartSelection } from '@/lib/chart-selection-summary';
-import { useAgentContext, useAgentMessages, useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesGetter, useOptionalAgentContext } from '@/contexts/agent.provider';
 
 const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'; label: string }[] = [
 	{ value: 'auto', label: 'Auto' },
@@ -945,7 +945,7 @@ export function DisplayChartEditDialog({
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { setMessages } = useAgentContext();
-	const messages = useAgentMessages();
+	const getMessages = useAgentMessagesGetter();
 
 	const updateMutation = useMutation(
 		trpc.chart.updateConfig.mutationOptions({
@@ -956,7 +956,7 @@ export function DisplayChartEditDialog({
 	);
 
 	const handleSave = async (next: EditableChartInput) => {
-		const previousMessages = messages;
+		const previousMessages = getMessages();
 		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
 		try {
 			await updateMutation.mutateAsync({ toolCallId, config: next });

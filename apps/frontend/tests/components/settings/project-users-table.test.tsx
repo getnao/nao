@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { stubResizeObserver } from '../../helpers/browser-stubs';
+import { stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { MouseEventHandler, ReactNode } from 'react';
 import { ReadOnlyProjectUsers, ProjectUsersTable } from '@/components/settings/project-users-table';
@@ -36,7 +36,8 @@ vi.mock('@tanstack/react-query', () => ({
 		const mutate = options.mutationKey[0] === 'set-memberships' ? mocks.setMemberships : mocks.setMembership;
 		return { mutateAsync, mutate, reset: vi.fn(), isPending: false };
 	},
-	useQuery: mocks.useQuery,
+	useQuery: (options: { queryKey?: string[] }) =>
+		options.queryKey?.[0] === 'transfer-recipients' ? { data: [] } : mocks.useQuery(options),
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 vi.mock('@tanstack/react-router', () => ({
@@ -82,7 +83,16 @@ vi.mock('@/main', () => ({
 		project: {
 			listAllUsersWithRoles: { queryKey: () => ['project-members'] },
 			listUsersWithAccess: { queryOptions: () => ({ queryKey: ['users-with-access'] }) },
+			listTransferRecipients: { queryOptions: () => ({ queryKey: ['transfer-recipients'] }) },
 			removeProjectMember: { mutationOptions: () => ({ mutationKey: ['remove-user'] }) },
+		},
+		automation: {
+			countOwnedByUser: { queryOptions: () => ({ queryKey: ['owned-automations'] }) },
+			transferAllFromUser: { mutationOptions: () => ({ mutationKey: ['transfer-automations'] }) },
+		},
+		story: {
+			countOwnedStories: { queryOptions: () => ({ queryKey: ['owned-stories'] }) },
+			transferAllFromUser: { mutationOptions: () => ({ mutationKey: ['transfer-stories'] }) },
 		},
 		system: {
 			getPublicConfig: { queryOptions: () => ({ queryKey: ['system-config'] }) },
@@ -115,6 +125,7 @@ const admin = {
 	role: 'admin' as const,
 	status: 'active' as const,
 	source: 'project' as const,
+	hasPassword: true,
 };
 const projectUser = {
 	id: 'project-user',
@@ -123,6 +134,7 @@ const projectUser = {
 	role: 'user' as const,
 	status: 'active' as const,
 	source: 'project' as const,
+	hasPassword: true,
 };
 const organizationUser = {
 	id: 'organization-user',
@@ -131,11 +143,12 @@ const organizationUser = {
 	role: 'viewer' as const,
 	status: 'active' as const,
 	source: 'organization' as const,
+	hasPassword: true,
 };
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	mocks.addUser.mockResolvedValue({ newUser: { id: 'new-user' } });
+	mocks.addUser.mockResolvedValue([{ email: 'person@example.com', status: 'added', name: 'Person' }]);
 	mocks.removeUser.mockResolvedValue(undefined);
 	mocks.resetPassword.mockResolvedValue({ password: 'generated-password' });
 	mocks.invalidateQueries.mockResolvedValue(undefined);
@@ -157,13 +170,12 @@ describe('ProjectUsersTable member management', () => {
 		openDropdownMenu(/Select user groups/);
 		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts' }));
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
-		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'person@example.com' } });
+		fireEvent.change(screen.getByLabelText('Emails'), { target: { value: 'person@example.com' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
 		await waitFor(() =>
 			expect(mocks.addUser).toHaveBeenCalledWith({
-				email: 'person@example.com',
-				name: undefined,
+				members: [{ email: 'person@example.com' }],
 				groupIds: ['analysts'],
 			}),
 		);
@@ -172,24 +184,51 @@ describe('ProjectUsersTable member management', () => {
 	});
 
 	it('shows the generated credentials when a new user is created', async () => {
-		mocks.addUser.mockResolvedValue({ newUser: { id: 'new-user' }, password: 'generated-password' });
+		mocks.addUser.mockResolvedValue([
+			{ email: 'person@example.com', status: 'added', name: 'Person', password: 'generated-password' },
+		]);
 		renderTable();
 
 		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
-		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'person@example.com' } });
+		fireEvent.change(screen.getByLabelText('Emails'), { target: { value: 'person@example.com' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
-		expect(await screen.findByText('Password: generated-password')).toBeTruthy();
+		expect(await screen.findByText('generated-password')).toBeTruthy();
 	});
 
-	it('offers member actions for other project members only', () => {
+	it('offers member actions for other members only', () => {
 		renderTable();
 
 		expect(screen.getByRole('button', { name: 'Actions for Project User' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Actions for Organisation User' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Actions for Admin' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Actions for Organisation User' })).toBeNull();
 		expect(screen.getByText('(you)')).toBeTruthy();
 	});
+
+	it('only offers to transfer the stories of an organisation member', () => {
+		renderTable();
+
+		openDropdownMenu('Actions for Organisation User');
+
+		expect(screen.getByRole('menuitem', { name: 'Transfer stories' })).toBeTruthy();
+		expect(screen.queryByRole('menuitem', { name: 'Edit user' })).toBeNull();
+		expect(screen.queryByRole('menuitem', { name: 'Remove' })).toBeNull();
+	});
+
+	it.each([
+		{ betaAutomationsEnabled: true, offered: true },
+		{ betaAutomationsEnabled: false, offered: false },
+	])(
+		'offers to transfer automations only when automations are enabled ($betaAutomationsEnabled)',
+		({ betaAutomationsEnabled, offered }) => {
+			mocks.useQuery.mockReturnValue({ data: { naoMode: 'self-hosted', betaAutomationsEnabled } });
+			renderTable();
+
+			openProjectUserActions();
+
+			expect(!!screen.queryByRole('menuitem', { name: 'Transfer automations' })).toBe(offered);
+		},
+	);
 
 	it('removes a project member after confirmation', async () => {
 		renderTable();
@@ -230,6 +269,15 @@ describe('ProjectUsersTable member management', () => {
 		expect(screen.queryByText(/^Password:/)).toBeNull();
 	});
 
+	it('hides the reset password action for users without a password', () => {
+		renderTable(vi.fn(), new Set(), [admin, { ...projectUser, hasPassword: false }]);
+
+		openProjectUserActions();
+
+		expect(screen.getByRole('menuitem', { name: 'Edit user' })).toBeTruthy();
+		expect(screen.queryByRole('menuitem', { name: 'Reset password' })).toBeNull();
+	});
+
 	it('hides the reset password action in cloud mode', () => {
 		mocks.useQuery.mockReturnValue({ data: { naoMode: 'cloud' } });
 		renderTable();
@@ -266,7 +314,7 @@ describe('ReadOnlyProjectUsers', () => {
 
 describe('ProjectUsersTable filtering and bulk group assignment', () => {
 	beforeEach(() => {
-		Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+		stubScrollIntoView();
 	});
 
 	it('searches users by name or email across both sections', () => {
@@ -486,11 +534,11 @@ function selectGroupFilter(optionName: string) {
 	fireEvent.click(screen.getByRole('option', { name: optionName }));
 }
 
-function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>()) {
+function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>(), projectUsers = [admin, projectUser]) {
 	return render(
 		<ProjectUsersTable
 			canManage
-			projectUsers={[admin, projectUser]}
+			projectUsers={projectUsers}
 			organizationUsers={[organizationUser]}
 			groups={groups}
 			membershipKeys={

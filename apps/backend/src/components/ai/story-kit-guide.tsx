@@ -20,7 +20,7 @@ export function storyKitGuideItems(): ReactElement[] {
 			Imports are limited to {STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths.
 		</ListItem>,
 		<ListItem key='layout'>
-			Keep <Bold>app.tsx</Bold> small: it composes the story from imported pieces. Put each new component in its
+			Keep <Bold>app.jsx</Bold> small: it composes the story from imported pieces. Put each new component in its
 			own file, and group related files in folders (e.g. <Bold>components/</Bold>, <Bold>slides/</Bold>,{' '}
 			<Bold>sections/</Bold>) via relative imports, so the app stays readable and maintainable as it grows.
 		</ListItem>,

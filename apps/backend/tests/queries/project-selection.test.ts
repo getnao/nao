@@ -108,6 +108,12 @@ describe('project selection', () => {
 		expect(result?.id).toBe(PROJECT_B_ID);
 	});
 
+	it('answers no project for an inaccessible selection when the caller refuses the fallback', async () => {
+		const result = await getProjectByUserId(USER_B_ID, PROJECT_A_ID, { fallbackWhenInaccessible: false });
+
+		expect(result).toBeNull();
+	});
+
 	it('returns null in cloud mode when the user has no accessible projects', async () => {
 		const result = await getProjectByUserId('project-selection-unknown-user', PROJECT_A_ID);
 

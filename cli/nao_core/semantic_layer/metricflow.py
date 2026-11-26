@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from dateutil import parser as date_parser
 
+from nao_core.text_files import read_text
+
 if TYPE_CHECKING:
     from metricflow.engine.metricflow_engine import MetricFlowEngine
 
@@ -180,7 +182,7 @@ def _build_engine(manifest_path: Path, dialect: str) -> "MetricFlowEngine":
 
     _quiet_metricflow_logs()
     try:
-        manifest = parse_manifest_from_dbt_generated_manifest(manifest_path.read_text())
+        manifest = parse_manifest_from_dbt_generated_manifest(read_text(manifest_path))
         lookup = SemanticManifestLookup(manifest)
     except Exception as error:
         raise SemanticLayerError(f"Could not load semantic manifest {manifest_path}: {error}") from error

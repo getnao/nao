@@ -66,6 +66,35 @@ describe('getStoryTemplateWarnings', () => {
 		expect(mocks.getLatestSqlQueriesByIds).toHaveBeenCalledWith('chat-1', new Set([PREVIOUS_TURN_ID]));
 	});
 
+	it('flags a map block that lacks the columns its map_type requires', async () => {
+		const code = `<map query_id="${SAME_TURN_ID}" map_type="scatter_bubble" title="Stores" />`;
+
+		const warnings = await getStoryTemplateWarnings('chat-1', code, { [SAME_TURN_ID]: { sqlQuery: 'SELECT 2' } });
+
+		expect(warnings).toEqual([
+			`<map query_id="${SAME_TURN_ID}" map_type="scatter_bubble"> is missing latitude_key, longitude_key, size_key. Add the columns display_map requires for this map_type to the tag; until then the map may not render.`,
+		]);
+	});
+
+	it('checks a map block with its parameters replaced by their defaults', async () => {
+		const code = [
+			`<parameter id="kind" options='["choropleth","points"]' default="choropleth" />`,
+			`<map query_id="${SAME_TURN_ID}" map_type="{{ params.kind }}" value_key="sales" region_key="country" region_boundaries="world_countries" title="Sales" />`,
+		].join('\n');
+
+		const warnings = await getStoryTemplateWarnings('chat-1', code, { [SAME_TURN_ID]: { sqlQuery: 'SELECT 2' } });
+
+		expect(warnings).toEqual([]);
+	});
+
+	it('does not flag a complete map block', async () => {
+		const code = `<map query_id="${SAME_TURN_ID}" map_type="points" latitude_key="lat" longitude_key="lng" title="Stores" />`;
+
+		const warnings = await getStoryTemplateWarnings('chat-1', code, { [SAME_TURN_ID]: { sqlQuery: 'SELECT 2' } });
+
+		expect(warnings).toEqual([]);
+	});
+
 	it('skips the database lookup when every referenced id comes from the current turn', async () => {
 		await getStoryTemplateWarnings('chat-1', storyCode(SAME_TURN_ID), { [SAME_TURN_ID]: { sqlQuery: 'SELECT 2' } });
 

@@ -7,9 +7,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List
 
+from pydantic import ValidationError
 from rich.console import Console
 
+from nao_core.config.repos import RepoTarget
+from nao_core.text_files import read_text
+
 console = Console()
+
+REPO_TARGETS_MANIFEST = ".nao-targets"
 
 
 @dataclass
@@ -199,3 +205,52 @@ def cleanup_stale_repos(config_repos: list, base_path: Path, verbose: bool = Fal
             shutil.rmtree(repo_dir)
             if verbose:
                 console.print(f"\n[yellow] Removed unused repo:[/yellow] {repo_dir.name}")
+
+
+def cleanup_stale_targets(config_repos: list, base_path: Path, verbose: bool = False) -> None:
+    """Remove the target folders of earlier syncs that are no longer configured, then record the configured ones.
+
+    The record lives in `repos/.nao-targets`. A configured target that is not recorded yet must be empty, as every
+    sync replaces it whole: files put there by hand would be lost.
+    """
+    project_path = base_path.parent
+    manifest = base_path / REPO_TARGETS_MANIFEST
+    configured = {target.target for repo in config_repos for target in repo.targets}
+    recorded = {line for line in read_text(manifest).splitlines() if line} if manifest.is_file() else set()
+
+    unclaimed = [target for target in sorted(configured - recorded) if _holds_files(project_path / target)]
+    if unclaimed:
+        raise ValueError(
+            f"Repo target {', '.join(unclaimed)} already holds files nao sync did not write. "
+            "Move them out, as each sync replaces the target folder."
+        )
+
+    for stale in sorted(recorded - configured):
+        folder = project_path / stale
+        if _is_valid_target(stale) and folder.is_dir() and _has_no_link_on_the_way(project_path, stale):
+            shutil.rmtree(folder)
+            if verbose:
+                console.print(f"\n[yellow] Removed unused repo target:[/yellow] {stale}")
+
+    if configured:
+        base_path.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("".join(f"{target}\n" for target in sorted(configured)), encoding="utf-8")
+    elif manifest.exists():
+        manifest.unlink()
+
+
+def _has_no_link_on_the_way(project_path: Path, target: str) -> bool:
+    """A link anywhere on the way could lead the removal out of the project."""
+    return (project_path / target).resolve() == project_path.resolve() / target
+
+
+def _holds_files(folder: Path) -> bool:
+    return folder.is_dir() and any(path.is_file() for path in folder.rglob("*"))
+
+
+def _is_valid_target(target: str) -> bool:
+    try:
+        RepoTarget(source="unused", target=target)
+    except ValidationError:
+        return False
+    return True

@@ -2,10 +2,12 @@ import { stripAssistantTags } from '@nao/shared';
 import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { Link } from '@tanstack/react-router';
 import {
+	ArrowRightLeft,
 	Bell,
 	BellPlus,
 	ChevronLeft,
 	ChevronRight,
+	FlaskConical,
 	Loader2,
 	Mail,
 	MessageSquare,
@@ -32,6 +34,7 @@ import type {
 	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
+	StoryTransferNotificationPayload,
 } from '@nao/shared/types';
 import type { ComponentType, ReactNode } from 'react';
 
@@ -272,6 +275,7 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	story_refresh: RefreshCw,
 	shared: Share2,
 	subscription: BellPlus,
+	test_run: FlaskConical,
 };
 
 function getNotificationPresentation(
@@ -340,7 +344,14 @@ function getNotificationPresentation(
 	}
 
 	if (notification.category === 'shared') {
-		const payload = notification.payload as SharedNotificationPayload | null;
+		const payload = notification.payload as SharedNotificationPayload | StoryTransferNotificationPayload | null;
+		if (payload?.kind === 'story_transfer') {
+			return {
+				Icon: ArrowRightLeft,
+				title: payload.storyTitle ?? notification.title,
+				description: <StoryTransferSentence payload={payload} />,
+			};
+		}
 		if (payload?.kind === 'shared') {
 			return {
 				Icon,
@@ -365,11 +376,32 @@ function getNotificationPresentation(
 	};
 }
 
+function StoryTransferSentence({ payload }: { payload: StoryTransferNotificationPayload }) {
+	const sender = <span className='font-semibold'>{payload.senderName}</span>;
+	if (payload.storyId) {
+		return <p>{sender} made you the owner of this story.</p>;
+	}
+	const previousOwner = payload.previousOwnerName ? (
+		<>
+			{' '}
+			from <span className='font-semibold'>{payload.previousOwnerName}</span>
+		</>
+	) : null;
+	return (
+		<p>
+			{sender} made you the owner of {payload.storyCount} stories{previousOwner}.
+		</p>
+	);
+}
+
 function getSharedItemLabel(notification: NotificationFeedItem['notification']): SharedItemLabel | null {
 	if (notification.category !== 'shared') {
 		return null;
 	}
-	const payload = notification.payload as SharedNotificationPayload | null;
+	const payload = notification.payload as SharedNotificationPayload | StoryTransferNotificationPayload | null;
+	if (payload?.kind === 'story_transfer') {
+		return 'story';
+	}
 	return payload?.kind === 'shared' ? payload.itemLabel : null;
 }
 

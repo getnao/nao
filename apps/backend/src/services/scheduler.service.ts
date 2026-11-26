@@ -1,7 +1,9 @@
 import { CronExpressionParser } from 'cron-parser';
+import { Effect } from 'effect';
 
 import type { DBScheduledJob } from '../db/abstractSchema';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
+import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { logger, serializeError } from '../utils/logger';
 import { hasProjectCloudBillingAccess } from './cloud-billing-access.service';
 
@@ -21,14 +23,13 @@ const POLL_INTERVAL_MS = 30_000;
 const RECLAIM_INTERVAL_MS = 60_000;
 const LEASE_DURATION_MS = 10 * 60_000;
 const CLAIM_BATCH_SIZE = 10;
+const SKIPPED_ONE_OFF_DEFER_MS = 60 * 60_000;
 const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
 const handlers = new Map<string, JobRegistration>();
 const instanceId = `worker-${crypto.randomUUID().slice(0, 8)}`;
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-let reclaimTimer: ReturnType<typeof setInterval> | null = null;
-let activePoll: Promise<void> | null = null;
+let stopLoops: (() => Promise<void>) | null = null;
 
 export function registerJob<T = unknown>(
 	name: string,
@@ -85,62 +86,47 @@ export async function enqueueOnce(input: EnqueueOnceInput): Promise<void> {
 }
 
 export function startScheduler(): void {
-	if (pollTimer) {
+	if (stopLoops) {
 		return;
 	}
-
-	void runPoll();
-	pollTimer = setInterval(() => void runPoll(), POLL_INTERVAL_MS);
-	pollTimer.unref?.();
-
-	reclaimTimer = setInterval(() => void runReclaim(), RECLAIM_INTERVAL_MS);
-	reclaimTimer.unref?.();
+	const stopPolling = repeatInBackground('Scheduler poll', pollDueJobs, POLL_INTERVAL_MS, { immediately: true });
+	const stopReclaiming = repeatInBackground('Scheduler reclaim', reclaimStaleJobs, RECLAIM_INTERVAL_MS);
+	stopLoops = async () => {
+		await Promise.all([stopPolling(), stopReclaiming()]);
+	};
 }
 
-export function stopScheduler(): void {
-	if (pollTimer) {
-		clearInterval(pollTimer);
-		pollTimer = null;
-	}
-	if (reclaimTimer) {
-		clearInterval(reclaimTimer);
-		reclaimTimer = null;
-	}
+/** Stops claiming jobs. The jobs already claimed still run to the end. */
+export function stopScheduler(): Promise<void> {
+	const stop = stopLoops;
+	stopLoops = null;
+	return stop ? stop() : Promise.resolve();
 }
 
 export async function __resetSchedulerForTesting(): Promise<void> {
-	stopScheduler();
-	await activePoll;
+	await stopScheduler();
 	handlers.clear();
 }
 
-function runPoll(): Promise<void> {
-	if (!activePoll) {
-		activePoll = executePoll().finally(() => {
-			activePoll = null;
-		});
-	}
-	return activePoll;
-}
+/** Uninterruptible, so that stopping the scheduler waits for the claimed jobs to be run and rescheduled. */
+const pollDueJobs = Effect.gen(function* () {
+	const jobs = yield* fromPromise(() => scheduledJobQueries.claimDueJobs(new Date(), CLAIM_BATCH_SIZE, instanceId));
+	yield* Effect.forEach(jobs, runJob, { concurrency: 'unbounded', discard: true });
+}).pipe(Effect.uninterruptible);
 
-async function executePoll(): Promise<void> {
-	try {
-		const jobs = await scheduledJobQueries.claimDueJobs(new Date(), CLAIM_BATCH_SIZE, instanceId);
-		await Promise.all(jobs.map((job) => executeJob(job)));
-	} catch (err) {
-		logger.error('Scheduler poll failed', { source: 'system', context: serializeError(err) });
+const reclaimStaleJobs = Effect.gen(function* () {
+	const reclaimed = yield* fromPromise(() => scheduledJobQueries.reclaimStaleJobs(new Date(), LEASE_DURATION_MS));
+	if (reclaimed > 0) {
+		logger.warn(`Scheduler reclaimed ${reclaimed} stale job(s)`, { source: 'system' });
 	}
-}
+});
 
-async function runReclaim(): Promise<void> {
-	try {
-		const reclaimed = await scheduledJobQueries.reclaimStaleJobs(new Date(), LEASE_DURATION_MS);
-		if (reclaimed > 0) {
-			logger.warn(`Scheduler reclaimed ${reclaimed} stale job(s)`, { source: 'system' });
-		}
-	} catch (err) {
-		logger.error('Scheduler reclaim failed', { source: 'system', context: serializeError(err) });
-	}
+function runJob(job: DBScheduledJob): Effect.Effect<void, unknown> {
+	return fromPromise(() => executeJob(job)).pipe(
+		Effect.withSpan('scheduler.job', {
+			attributes: { 'job.id': job.id, 'job.name': job.name, 'job.attempts': job.attempts },
+		}),
+	);
 }
 
 async function executeJob(job: DBScheduledJob): Promise<void> {
@@ -163,11 +149,14 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 		const payload = job.payload ?? {};
 		const projectId = await registration.resolveProjectId?.(payload);
 		if (projectId && !(await hasProjectCloudBillingAccess(projectId))) {
-			logger.info(`Scheduler skipped job '${job.name}': cloud billing access is restricted`, {
-				source: 'system',
-				context: { jobId: job.id, name: job.name, projectId },
-			});
-			await onJobSuccess(job);
+			logger.info(
+				`Scheduler skipped job '${job.name}': the project is deactivated or its cloud billing access is restricted`,
+				{
+					source: 'system',
+					context: { jobId: job.id, name: job.name, projectId },
+				},
+			);
+			await onJobSkipped(job);
 			return;
 		}
 		await registration.handler(payload, job);
@@ -175,6 +164,15 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 	} catch (err) {
 		await onJobFailure(job, err);
 	}
+}
+
+/** A recurring job waits for its next tick; a one-off job is kept for when its project gets access back. */
+async function onJobSkipped(job: DBScheduledJob): Promise<void> {
+	if (job.cron) {
+		await onJobSuccess(job);
+		return;
+	}
+	await scheduledJobQueries.rescheduleJob(job.id, new Date(Date.now() + SKIPPED_ONE_OFF_DEFER_MS));
 }
 
 async function onJobSuccess(job: DBScheduledJob): Promise<void> {

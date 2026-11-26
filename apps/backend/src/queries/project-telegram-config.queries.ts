@@ -4,20 +4,8 @@ import { eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { llmProviderSchema } from '../types/llm';
 import { takeFirstOrThrow } from '../utils/queries';
-import { updateProjectSettings } from './project-settings.queries';
-
-function toLlmSelectedModel(
-	provider: string | null | undefined,
-	modelId: string | null | undefined,
-): LlmSelectedModel | undefined {
-	if (!provider || !modelId) {
-		return undefined;
-	}
-	const parsed = llmProviderSchema.safeParse(provider);
-	return parsed.success ? { provider: parsed.data, modelId } : undefined;
-}
+import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
 
 export const getProjectTelegramConfig = async (projectId: string): Promise<TelegramConfig | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
@@ -31,7 +19,11 @@ export const getProjectTelegramConfig = async (projectId: string): Promise<Teleg
 		projectId,
 		botToken: settings.telegramBotToken,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
-		modelSelection: toLlmSelectedModel(settings.telegramLlmProvider, settings.telegramLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings.telegramLlmProvider,
+			settings.telegramLlmModelId,
+			settings.telegramLlmConfigId,
+		),
 	};
 };
 
@@ -40,6 +32,7 @@ export const upsertProjectTelegramConfig = async (data: {
 	botToken: string;
 	modelProvider?: LlmProvider;
 	modelId?: string;
+	llmConfigId?: string;
 }): Promise<{
 	botToken: string;
 	modelSelection?: LlmSelectedModel;
@@ -52,6 +45,7 @@ export const upsertProjectTelegramConfig = async (data: {
 					telegramBotToken: data.botToken,
 					telegramLlmProvider: data.modelProvider ?? '',
 					telegramLlmModelId: data.modelId ?? '',
+					telegramLlmConfigId: data.llmConfigId,
 				},
 			})
 			.where(eq(s.project.id, data.projectId))
@@ -63,7 +57,11 @@ export const upsertProjectTelegramConfig = async (data: {
 	const settings = updated.telegramSettings;
 	return {
 		botToken: settings?.telegramBotToken || '',
-		modelSelection: toLlmSelectedModel(settings?.telegramLlmProvider, settings?.telegramLlmModelId),
+		modelSelection: toLlmSelectedModel(
+			settings?.telegramLlmProvider,
+			settings?.telegramLlmModelId,
+			settings?.telegramLlmConfigId,
+		),
 	};
 };
 
@@ -71,11 +69,13 @@ export const updateProjectTelegramModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
 	modelId: string | null,
+	llmConfigId: string | null,
 ): Promise<void> => {
 	await updateProjectSettings(projectId, 'telegramSettings', (existing) => ({
 		telegramBotToken: existing?.telegramBotToken ?? '',
 		telegramLlmProvider: modelProvider ?? '',
 		telegramLlmModelId: modelId ?? '',
+		telegramLlmConfigId: llmConfigId ?? undefined,
 	}));
 };
 

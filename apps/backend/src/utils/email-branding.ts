@@ -45,10 +45,14 @@ export async function resolveEmailBranding(): Promise<EmailBranding> {
 	}
 }
 
+/** Without an uploaded logo the nao logo is kept; an uploaded logo email clients cannot render is dropped. */
 async function resolveWhiteLabelLogo(): Promise<EmailAttachment | undefined> {
 	const asset = await getActiveBrandingAsset('logo');
-	const mediaType = asset?.mediaType.trim().toLowerCase();
-	if (!asset || !mediaType || !EMAIL_SAFE_LOGO_MEDIA_TYPES.has(mediaType)) {
+	if (!asset) {
+		return emailLogoAttachment;
+	}
+	const mediaType = asset.mediaType.trim().toLowerCase();
+	if (!EMAIL_SAFE_LOGO_MEDIA_TYPES.has(mediaType)) {
 		return undefined;
 	}
 	return {

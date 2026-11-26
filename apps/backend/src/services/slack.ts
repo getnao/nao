@@ -487,7 +487,7 @@ export class ProjectSlackBot {
 			if (!shouldReplyToSlackThreadMessage(this._config.replyMode, message)) {
 				return;
 			}
-			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: false });
+			await this._handleWorkFlow(thread, message, { fetchUnseenMessages: this._config.replyMode === 'mention' });
 		});
 
 		this._bot.onNewMessage(/[\s\S]+/, async (thread, message) => {
@@ -1081,14 +1081,14 @@ export class ProjectSlackBot {
 
 	private async _saveOrUpdateUserMessage(ctx: ConversationContext, fetchUnseenMessages: boolean): Promise<void> {
 		const text = ctx.userMessage.text;
+		const existingChat = await chatQueries.getChatBySlackThread(ctx.thread.id);
 		const unseenMessages = fetchUnseenMessages
-			? await this._getUnseenSlackMessages(ctx.thread.id, ctx.userMessage.id)
+			? await this._getUnseenSlackMessages(ctx.thread.id, ctx.userMessage.id, Boolean(existingChat))
 			: null;
 		const messageText = unseenMessages
 			? `[Previous messages in this Slack thread]\n${unseenMessages}\n\n[Your message]\n${text}`
 			: text;
 
-		const existingChat = await chatQueries.getChatBySlackThread(ctx.thread.id);
 		if (existingChat) {
 			await chatQueries.upsertMessage({
 				role: 'user',
@@ -1111,7 +1111,11 @@ export class ProjectSlackBot {
 		ctx.isNewChat = true;
 	}
 
-	private async _getUnseenSlackMessages(threadId: string, currentMessageId: string): Promise<string | null> {
+	private async _getUnseenSlackMessages(
+		threadId: string,
+		currentMessageId: string,
+		isChatLinked: boolean,
+	): Promise<string | null> {
 		const { channelId, threadTs } = parseSlackThreadId(threadId);
 		if (!channelId || !threadTs) {
 			return null;
@@ -1122,7 +1126,7 @@ export class ProjectSlackBot {
 				channel: channelId,
 				ts: threadTs,
 			});
-			const messages = this._extractUnseenUserMessages(result?.messages ?? [], currentMessageId);
+			const messages = this._extractUnseenMessages(result?.messages ?? [], currentMessageId, isChatLinked);
 			if (messages.length === 0) {
 				return null;
 			}
@@ -1137,29 +1141,41 @@ export class ProjectSlackBot {
 		}
 	}
 
-	private _extractUnseenUserMessages(
+	/**
+	 * A chat already linked to the thread holds everything up to nao's last message there, so only what
+	 * came after is unseen. Otherwise the whole thread is, including what nao and other bots posted.
+	 */
+	private _extractUnseenMessages(
 		allMessages: SlackReplyMessage[],
 		currentMessageId: string,
+		isChatLinked: boolean,
 	): SlackReplyMessage[] {
 		const currentIndex = allMessages.findIndex((msg) => msg.ts === currentMessageId);
 		if (currentIndex === -1) {
 			return [];
 		}
-		const priorMessages = allMessages.slice(0, currentIndex);
-		const lastBotIndex = this._findLastBotMessageIndex(priorMessages);
-		return priorMessages.slice(lastBotIndex + 1).filter((msg) => !this._isBotMessage(msg));
+		const priorMessages = allMessages.slice(0, currentIndex).filter((msg) => msg.text?.trim());
+		if (!isChatLinked) {
+			return priorMessages;
+		}
+		const lastOwnIndex = this._findLastOwnMessageIndex(priorMessages);
+		return priorMessages.slice(lastOwnIndex + 1);
 	}
 
-	private _findLastBotMessageIndex(messages: SlackReplyMessage[]): number {
+	private _findLastOwnMessageIndex(messages: SlackReplyMessage[]): number {
 		for (let i = messages.length - 1; i >= 0; i--) {
-			if (this._isBotMessage(messages[i])) {
+			if (this._isOwnMessage(messages[i])) {
 				return i;
 			}
 		}
 		return -1;
 	}
 
-	private _isBotMessage(message: SlackReplyMessage): boolean {
+	private _isOwnMessage(message: SlackReplyMessage): boolean {
+		const botUserId = this._bot.getAdapter('slack').botUserId;
+		if (botUserId) {
+			return message.user === botUserId;
+		}
 		return !!message.bot_id || (message as { subtype?: string }).subtype === 'bot_message';
 	}
 
@@ -1177,7 +1193,7 @@ export class ProjectSlackBot {
 	private _formatThreadMessages(messages: SlackReplyMessage[], userNames: Map<string, string>): string {
 		return messages
 			.map((msg) => {
-				const name = msg.user ? userNames.get(msg.user) || msg.user : 'Unknown';
+				const name = msg.user ? userNames.get(msg.user) || msg.user : msg.bot_profile?.name || 'Bot';
 				const text = (msg.text || '').replace(SLACK_MENTION_REGEX, '').trim();
 				return `${name}: ${text}`;
 			})
@@ -1908,7 +1924,8 @@ class SlackService {
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||
-			previous.modelSelection?.modelId !== next.modelSelection?.modelId
+			previous.modelSelection?.modelId !== next.modelSelection?.modelId ||
+			previous.modelSelection?.llmConfigId !== next.modelSelection?.llmConfigId
 		);
 	}
 }

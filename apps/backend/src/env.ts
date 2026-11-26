@@ -176,6 +176,12 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'GITLAB_REDIRECT_URI must be a valid URL' }).optional()),
 
+	CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((value) => value === 'true'),
+
 	CLOUD_GITHUB_PROJECT_ORG: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_APP_ID: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_INSTALLATION_ID: optionalNonEmptyString,
@@ -221,6 +227,10 @@ const baseRawEnvSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_PROMPT: z.preprocess(
+		blankToUndefined,
+		z.enum(['select_account', 'login', 'consent', 'none', 'omit']).optional(),
+	),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
 	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
@@ -285,6 +295,8 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.transform((val) => parseCommaSeparatedList(val)),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
+	/** `shadow` reports excess calls as security signals without refusing them. Defaults to `shadow` on cloud, `off` elsewhere. */
+	NAO_RATE_LIMIT_MODE: z.enum(['off', 'shadow', 'enforce']).optional(),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
 	NAO_BACKOFFICE_API_KEY: z
@@ -490,6 +502,13 @@ const baseRawEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional()),
 
+	OTEL_EXPORTER_OTLP_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'OTEL_EXPORTER_OTLP_ENDPOINT must be a valid URL' }).optional()),
+	OTEL_SERVICE_NAME: z.string().default('nao'),
+
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
@@ -580,7 +599,7 @@ const envSchema = rawEnvSchema
 			'CLOUD_GITHUB_PROJECT_PRIVATE_KEY',
 		] as const;
 		const managedGithubIsConfigured = fields.some((field) => !!data[field]);
-		if (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured) {
+		if (data.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING || (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured)) {
 			return;
 		}
 

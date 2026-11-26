@@ -125,6 +125,7 @@ import {
 	getLiveContextUpdateStatus,
 	listContextRepositoryBranches,
 	normalizeRemote,
+	pullContextBranch,
 	pullLiveContext,
 	readContextChangesPatch,
 	resolveContextExplorerGit,
@@ -2094,6 +2095,35 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect(runGit(fixture.seed, ['rev-parse', 'colleague']).toString().trim()).toBe(colleagueHead);
 	});
 
+	it('pulls the latest pushed commit of a branch of another user', async () => {
+		const fixture = createFixture();
+		const repo = await ensureContextWorktree(fixture.context);
+		pushBranch(fixture, 'colleague', 'colleague@example.com', { 'context.md': 'colleague\n' });
+		branchOwnershipMocks.owners.set('project-id:colleague', 'user-2');
+		await switchContextBranch(fixture.context, 'colleague');
+		const newHead = pushCommitOnBranch(fixture, 'colleague', { 'context.md': 'colleague again\n' });
+
+		await pullContextBranch(fixture.context);
+
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(newHead);
+	});
+
+	it('fast-forwards an own branch to its pushed head, unless it holds unpushed commits', async () => {
+		const fixture = createFixture();
+		const repo = await ensureContextWorktree(fixture.context);
+		await createContextBranch(fixture.context, 'nao/shared');
+		await commitContextFile(fixture, 'first\n');
+		await pushContextExplorerBranch(fixture.context);
+		const pushedHead = pushCommitOnBranch(fixture, 'nao/shared', { 'context.md': 'pushed elsewhere\n' });
+
+		await pullContextBranch(fixture.context);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pushedHead);
+
+		pushCommitOnBranch(fixture, 'nao/shared', { 'context.md': 'pushed again\n' });
+		await commitContextFile(fixture, 'local\n');
+		await expect(pullContextBranch(fixture.context)).rejects.toMatchObject({ code: 'CONFLICT' });
+	});
+
 	it('lists every remote branch with its last author, marking the branches of the user', async () => {
 		const fixture = createFixture();
 		const repo = await ensureContextWorktree(fixture.context);
@@ -2938,6 +2968,34 @@ function createBareOriginCloneFixture(): ContextGitFixture {
 }
 
 /** Pushes a branch committed by the given author from the seed clone, returning its head. */
+/** Adds a commit to a pushed branch from another checkout. */
+function pushCommitOnBranch(fixture: ContextGitFixture, branch: string, files: Record<string, string>): string {
+	runGit(fixture.seed, ['fetch', '--quiet', fixture.bare, `${branch}:${branch}`]);
+	runGit(fixture.seed, ['switch', '--quiet', branch]);
+	writeFiles(fixture.seed, files);
+	runGit(fixture.seed, ['add', '-A']);
+	runGit(fixture.seed, [
+		'-c',
+		'user.name=Test',
+		'-c',
+		'user.email=other@example.com',
+		'commit',
+		'--quiet',
+		'-m',
+		branch,
+	]);
+	runGit(fixture.seed, ['push', '--quiet', fixture.bare, branch]);
+	runGit(fixture.seed, ['switch', '--quiet', 'main']);
+	return runGit(fixture.seed, ['rev-parse', branch]).toString().trim();
+}
+
+async function commitContextFile(fixture: ContextGitFixture, content: string): Promise<void> {
+	const access = await fileAccess(fixture.context);
+	const file = await readFileContent('/context.md', access);
+	await writeFileContent('/context.md', content, file.hash, access);
+	await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Edit context' });
+}
+
 function pushBranch(
 	fixture: ContextGitFixture,
 	branch: string,

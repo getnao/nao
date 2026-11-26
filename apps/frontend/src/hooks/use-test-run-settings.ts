@@ -7,11 +7,14 @@ import {
 } from '@nao/backend/test-run';
 import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
-
-import type { ActiveEffort } from '@nao/backend/llm';
+import { useCallback, useEffect, useState } from 'react';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import type { TestModelSelection } from '@nao/backend/test-run';
+import type { ActiveEffort } from '@nao/backend/llm';
+
+import { findAvailableModel, toLlmSelectedModel } from '@/lib/llm-model';
 import { createLocalStorage } from '@/lib/local-storage';
+import { useTestSuite } from '@/hooks/use-upstream-context';
 import { trpc } from '@/main';
 
 export { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS, MAX_TEST_RUN_THREADS } from '@nao/backend/test-run';
@@ -38,17 +41,44 @@ export interface TestRunSettings extends Required<StoredTestRunSettings> {
  */
 export function useTestRunSettings(): TestRunSettings {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const suite = useQuery(trpc.testRun.listTests.queryOptions());
+	const suite = useTestSuite();
 	const defaultModel = useQuery(trpc.project.getDefaultChatModel.queryOptions());
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const projectId = project.data?.id;
 	const [, setRevision] = useState(0);
 
 	const stored = projectId ? testRunSettingsStorage(projectId).get() : null;
-	const availableStoredModels = stored?.models.filter(
-		(model) => !availableModels.data || availableModels.data.some((available) => isSameModel(available, model)),
+	const availableStoredModels =
+		stored && availableModels.data ? resolveStoredModels(stored.models, availableModels.data) : stored?.models;
+	useEffect(() => {
+		if (!projectId || !availableModels.data) {
+			return;
+		}
+		const storage = testRunSettingsStorage(projectId);
+		const current = storage.get();
+		if (!current) {
+			return;
+		}
+		const reconciledModels = resolveStoredModels(current.models, availableModels.data);
+		if (
+			reconciledModels.length === current.models.length &&
+			reconciledModels.every((model, index) => isSameModel(model, current.models[index]))
+		) {
+			return;
+		}
+		if (reconciledModels.length) {
+			storage.set({ ...current, models: reconciledModels });
+		} else {
+			localStorage.removeItem(storageKey(projectId));
+		}
+		setRevision((revision) => revision + 1);
+	}, [availableModels.data, projectId]);
+	const projectModels = (suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : [])).map(
+		(model) => {
+			const llmConfigId = findAvailableModel(availableModels.data, model)?.llmConfigId;
+			return llmConfigId ? { ...model, llmConfigId } : model;
+		},
 	);
-	const projectModels = suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : []);
 	const pickedModels = availableStoredModels?.length ? availableStoredModels : projectModels;
 	const models = pickedModels.slice(0, MAX_TEST_RUN_MODELS);
 	const attempts = Math.min(stored?.attempts ?? suite.data?.settings.attempts ?? 1, MAX_TEST_RUN_ATTEMPTS);
@@ -85,6 +115,14 @@ export function countModelRuns(models: TestModelSelection[]): number {
 	return models.reduce((count, model) => count + countRunEfforts(model), 0);
 }
 
+/** Names the models a run tries and how often, such as "2 models · ×3", for the places with no room to list them. */
+export function describeModelSelection(models: TestModelSelection[], attempts: number): string {
+	const modelLabel = models.length === 1 ? models[0].modelId : `${models.length} models`;
+	const runCount = countModelRuns(models);
+	const label = runCount > models.length ? `${modelLabel} · ${runCount} runs` : modelLabel;
+	return attempts > 1 ? `${label} · ×${attempts}` : label;
+}
+
 /** How many reasoning efforts a picked model runs at, 1 when it runs at its configured one. */
 export function countRunEfforts(model: TestModelSelection): number {
 	return Math.max(listPickedEfforts(model).length, 1);
@@ -95,6 +133,14 @@ export function listPickedEfforts(model: TestModelSelection): ActiveEffort[] {
 	return getModelReasoningEfforts(model.provider, model.modelId).filter((effort) =>
 		model.reasoningEfforts?.includes(effort),
 	);
+}
+
+/** The stored models still available, with selections saved before credentials were named moved onto theirs. */
+function resolveStoredModels(models: TestModelSelection[], availableModels: LlmSelectedModel[]): TestModelSelection[] {
+	return models.flatMap((model) => {
+		const availableModel = findAvailableModel(availableModels, model);
+		return availableModel ? [{ ...model, ...toLlmSelectedModel(availableModel) }] : [];
+	});
 }
 
 function testRunSettingsStorage(projectId: string) {

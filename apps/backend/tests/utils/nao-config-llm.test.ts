@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe('readProjectConfigLlm', () => {
-	it('reads providers with their models, display names, costs and settings', () => {
+	it('reads providers with their models, display names, costs, context windows and settings', () => {
 		const dir = writeConfig([
 			'project_name: demo',
 			'llm:',
@@ -35,6 +35,8 @@ describe('readProjectConfigLlm', () => {
 			'      default: true',
 			'      settings:',
 			'        reasoning_effort: high',
+			'    - id: acsw@azure/gpt-6-sol',
+			'      context_window: 1050000',
 		]);
 
 		expect(readProjectConfigLlm(dir)).toEqual({
@@ -45,13 +47,14 @@ describe('readProjectConfigLlm', () => {
 					apiKey: 'sk-openai',
 					baseUrl: 'http://localhost:4000',
 					credentials: null,
-					enabledModels: ['gpt-4.1', 'gpt-4.1-mini'],
+					enabledModels: ['gpt-4.1', 'gpt-4.1-mini', 'acsw@azure/gpt-6-sol'],
 					customModels: [
 						{
 							id: 'gpt-4.1-mini',
 							displayName: 'GPT-4.1 mini',
 							costPerM: { inputNoCache: 0.4, output: 1.6 },
 						},
+						{ id: 'acsw@azure/gpt-6-sol', contextWindow: 1_050_000 },
 					],
 					modelSettings: { 'gpt-4.1': { reasoningEffort: 'high' } },
 					budget: null,
@@ -267,6 +270,17 @@ describe('readProjectConfigLlm', () => {
 			['llm:', '  providers:', '  - provider: openai', '    api_key: sk-second'].join('\n'),
 		);
 		fs.utimesSync(filePath, new Date(), new Date(Date.now() + 1000));
+
+		expect(readProjectConfigLlm(dir)?.providers[0].apiKey).toBe('sk-second');
+	});
+
+	it('picks up edits to a file the llm block reads through from_file', () => {
+		const dir = writeConfig(['llm:', '  providers:', '    from_file: providers.yml']);
+		const providersPath = path.join(dir, 'providers.yml');
+		fs.writeFileSync(providersPath, '- provider: openai\n  api_key: sk-first\n');
+		expect(readProjectConfigLlm(dir)?.providers[0].apiKey).toBe('sk-first');
+
+		fs.writeFileSync(providersPath, '- provider: openai\n  api_key: sk-second\n');
 
 		expect(readProjectConfigLlm(dir)?.providers[0].apiKey).toBe('sk-second');
 	});

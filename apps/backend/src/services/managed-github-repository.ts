@@ -68,6 +68,10 @@ interface GithubAppInstallation {
 export async function provisionManagedGithubRepository(
 	input: ManagedRepositoryInput,
 ): Promise<ManagedRepository | null> {
+	if (env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING) {
+		return null;
+	}
+
 	const config = getManagedGithubConfig();
 	if (!config) {
 		return null;
@@ -211,6 +215,10 @@ export async function publishManagedGithubRepositoryUpdate(input: ManagedReposit
 
 /** Publishing only runs at the end of a warehouse setup, so a broken configuration is reported when the server starts. */
 export async function reportManagedGithubConfiguration(): Promise<void> {
+	if (env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING) {
+		return;
+	}
+
 	try {
 		const org = await verifyManagedGithubConfiguration();
 		if (org) {

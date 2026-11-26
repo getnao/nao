@@ -12,7 +12,7 @@ const OTHER_TOOLS_HINT = 'To get new data, call execute_sql. To read a file such
 
 export default createTool<pageQueryResult.Input, pageQueryResult.Output>({
 	description:
-		'Page through more rows of a previously executed `execute_sql` query result, by `query_id`. Use this when the rows shown in an `execute_sql` output were truncated and you need to inspect more of the data — it does not re-run the SQL, it pages through the cached result. Works for any query run earlier in this chat (including previous turns). It cannot read files: use `read` for context files.',
+		'Page through more rows of a previous query result, by `query_id`. Use this when the rows shown in a query output were truncated and you need to inspect more of the data — it does not re-run the SQL, it pages through the cached result. Works for any query run earlier in this chat (including previous turns). It cannot read files: use `read` for context files.',
 	inputSchema: schemas.InputSchema,
 	outputSchema: schemas.OutputSchema,
 	execute: async ({ query_id, offset = 0, limit = DEFAULT_LIMIT }, context) => {

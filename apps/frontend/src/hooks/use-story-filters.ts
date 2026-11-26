@@ -11,18 +11,39 @@ import type { ParsedFilterBlock, ParsedParameterBlock } from '@nao/shared/story-
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useStructurallyShared } from '@/hooks/use-structurally-shared';
 import { trpc } from '@/main';
 
-export type StoryFilterApi = { kind: 'owned'; chatId: string; storySlug: string } | { kind: 'shared'; storyId: string };
+export type StoryFilterApi =
+	| { kind: 'owned'; chatId: string; storySlug: string }
+	| { kind: 'shared'; storyId: string }
+	| { kind: 'standalone'; storyId: string };
 
 const FILTER_PARAM_PREFIX = 'story_filter_';
 const NO_SELECTIONS: StoryFilterSelections = {};
 const NO_PARAMETERS: ParsedParameterBlock[] = [];
+const NO_FILTERS: ParsedFilterBlock[] = [];
+const NO_SKIPPED_FILTERS: SkippedStoryFilter[] = [];
 
 export interface SkippedStoryFilter {
 	id: string;
 	label: string;
 }
+
+/** How the active story filters reached one query of the story. */
+export type StoryQueryFilterStatus =
+	| { state: 'filtered'; summary: string }
+	| { state: 'skipped'; filterLabels: string[] }
+	| { state: 'failed'; error: string };
+
+export type StoryQueryFilterStatuses = Record<string, StoryQueryFilterStatus>;
+
+/** Filter ids per query id: the filters that can change each query, whatever their selection. */
+export type StoryFilterTargets = Record<string, string[]>;
+
+const NO_FILTER_TARGETS: StoryFilterTargets = {};
+
+const NO_QUERY_FILTER_STATUSES: StoryQueryFilterStatuses = {};
 
 export function useStoryFilters({
 	code,
@@ -39,11 +60,13 @@ export function useStoryFilters({
 	const betaEnabled = config.data?.betaStoryFiltersEnabled === true;
 	const filtersEnabled = enabled && betaEnabled;
 
-	const filters = useMemo(
-		() => (filtersEnabled ? dedupeFilters(getStoryFiltersFromCode(code)) : []),
-		[code, filtersEnabled],
+	const filters = useStructurallyShared(
+		useMemo(
+			() => (filtersEnabled ? dedupeFilters(getStoryFiltersFromCode(code)) : NO_FILTERS),
+			[code, filtersEnabled],
+		),
 	);
-	const parametersInCode = useMemo(() => getStoryParametersFromCode(code), [code]);
+	const parametersInCode = useStructurallyShared(useMemo(() => getStoryParametersFromCode(code), [code]));
 	const parameters = useMemo(
 		() => (filtersEnabled ? parametersInCode : NO_PARAMETERS),
 		[parametersInCode, filtersEnabled],
@@ -51,6 +74,7 @@ export function useStoryFilters({
 	const [selections, setSelections] = useState<StoryFilterSelections>(() =>
 		readSelectionsFromUrl(filters, parameters),
 	);
+	const urlSelections = useDebouncedValue(selections, 300);
 	const skipNextUrlWrite = useRef(true);
 
 	useEffect(() => {
@@ -69,20 +93,15 @@ export function useStoryFilters({
 			skipNextUrlWrite.current = false;
 			return;
 		}
-		writeSelectionsToUrl(selections, filters, parameters);
-	}, [selections, filters, parameters, filtersEnabled]);
+		writeSelectionsToUrl(urlSelections, filters, parameters);
+	}, [urlSelections, filters, parameters, filtersEnabled]);
 
-	const setSelection = useCallback((filterId: string, selection: StoryFilterSelection) => {
-		setSelections((current) => {
-			const next = { ...current };
-			if (isEmptySelection(selection)) {
-				delete next[filterId];
-			} else {
-				next[filterId] = selection;
-			}
-			return next;
-		});
-	}, []);
+	const setSelection = useCallback(
+		(filterId: string, selection: StoryFilterSelection) => {
+			setSelections((current) => applyStoryFilterSelection(current, filterId, selection, filters));
+		},
+		[filters],
+	);
 
 	const clearSelections = useCallback(() => setSelections({}), []);
 
@@ -126,7 +145,21 @@ export function useStoryFilters({
 		placeholderData: keepPreviousData,
 	});
 
-	const activeQuery = api?.kind === 'shared' ? sharedQuery : ownedQuery;
+	const standaloneQuery = useQuery({
+		...trpc.story.getStandaloneFilteredQueryData.queryOptions({
+			storyId: api?.kind === 'standalone' ? api.storyId : '',
+			selections: debouncedSelections,
+		}),
+		enabled: Boolean(filtersEnabled && api?.kind === 'standalone' && debouncedHasActive),
+		placeholderData: keepPreviousData,
+	});
+
+	const activeQuery = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
+	const parameterSelections = useMemo(
+		() => pickSelections(debouncedSelections, parameters),
+		[debouncedSelections, parameters],
+	);
+	const filterTargets = useStoryFilterTargets(api, parameterSelections, filtersEnabled && filters.length > 0);
 	const filteredQueryData = activeQuery.data as FilteredQueryDataMap | undefined;
 	const isFetching = activeQuery.isFetching;
 	const displayedSelections = useDisplayedSelections({
@@ -139,11 +172,49 @@ export function useStoryFilters({
 		[parametersInCode, displayedSelections],
 	);
 	const skippedFilters = useMemo(
-		() => (debouncedHasActive ? listSkippedFilters(filters, filteredQueryData) : []),
+		() => (debouncedHasActive ? listSkippedFilters(filters, filteredQueryData) : NO_SKIPPED_FILTERS),
 		[debouncedHasActive, filters, filteredQueryData],
+	);
+	const hasSettledData = !activeQuery.isPlaceholderData && !activeQuery.isFetching;
+	const requestError = activeQuery.error?.message;
+	const queryFilterStatuses = useMemo(
+		() =>
+			debouncedHasActive && hasSettledData
+				? listQueryFilterStatuses({
+						filters,
+						selections: debouncedSelections,
+						filterTargets,
+						filteredQueryData,
+						requestError,
+						baselineQueryData,
+					})
+				: NO_QUERY_FILTER_STATUSES,
+		[
+			debouncedHasActive,
+			hasSettledData,
+			filters,
+			debouncedSelections,
+			filterTargets,
+			filteredQueryData,
+			requestError,
+			baselineQueryData,
+		],
+	);
+	const filterSummary = useMemo(
+		() => summarizeSelections([...parameters, ...filters], debouncedSelections),
+		[parameters, filters, debouncedSelections],
 	);
 	const isSelectionsPending = !areSelectionsEqual(activeSelections, debouncedSelections);
 	const isFiltering = isSelectionsPending || isFetching;
+	const queryData = useStructurallyShared(
+		useMemo(
+			() =>
+				debouncedHasActive
+					? withFilteredRows(baselineQueryData, filteredQueryData)
+					: (baselineQueryData ?? null),
+			[debouncedHasActive, baselineQueryData, filteredQueryData],
+		),
+	);
 
 	return {
 		filtersEnabled,
@@ -151,6 +222,9 @@ export function useStoryFilters({
 		parameters,
 		resolvedParameters,
 		skippedFilters,
+		queryFilterStatuses,
+		filterSummary,
+		filterTargets,
 		selections,
 		activeSelections,
 		debouncedSelections,
@@ -158,11 +232,163 @@ export function useStoryFilters({
 		clearSelections,
 		hasActiveFilters,
 		isFiltering,
-		queryData: debouncedHasActive ? (filteredQueryData ?? baselineQueryData ?? null) : (baselineQueryData ?? null),
+		queryData,
 	};
 }
 
-type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[] }>;
+/** Sets one selection and clears the filters that cascade from it, so their stale values are never queried. */
+export function applyStoryFilterSelection(
+	selections: StoryFilterSelections,
+	filterId: string,
+	selection: StoryFilterSelection,
+	filters: ParsedFilterBlock[],
+): StoryFilterSelections {
+	const next = { ...selections };
+	if (isEmptySelection(selection)) {
+		delete next[filterId];
+	} else {
+		next[filterId] = selection;
+	}
+	if (!isSameSelection(selections[filterId], next[filterId])) {
+		for (const dependentId of listDependentFilterIds(filters, filterId)) {
+			delete next[dependentId];
+		}
+	}
+	return next;
+}
+
+function listDependentFilterIds(filters: ParsedFilterBlock[], parentId: string): Set<string> {
+	const dependentIds = new Set<string>();
+	const pending = [parentId];
+	while (pending.length > 0) {
+		const currentId = pending.pop();
+		for (const filter of filters) {
+			if (filter.dependsOn === currentId && filter.id !== parentId && !dependentIds.has(filter.id)) {
+				dependentIds.add(filter.id);
+				pending.push(filter.id);
+			}
+		}
+	}
+	return dependentIds;
+}
+
+type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[]; error?: string }>;
+
+/** Queries a filter could not rerun or that failed with it keep showing their unfiltered rows. */
+function withFilteredRows(
+	baselineQueryData: QueryDataMap | null | undefined,
+	filteredQueryData: FilteredQueryDataMap | undefined,
+): QueryDataMap | null {
+	if (!filteredQueryData) {
+		return baselineQueryData ?? null;
+	}
+	const succeeded = Object.entries(filteredQueryData).filter(([, result]) => !result.error);
+	return { ...baselineQueryData, ...Object.fromEntries(succeeded) };
+}
+
+function useStoryFilterTargets(
+	api: StoryFilterApi | null | undefined,
+	selections: StoryFilterSelections,
+	enabled: boolean,
+): StoryFilterTargets {
+	const ownedQuery = useQuery({
+		...trpc.story.getFilterTargets.queryOptions({
+			chatId: api?.kind === 'owned' ? api.chatId : '',
+			storySlug: api?.kind === 'owned' ? api.storySlug : '',
+			selections,
+		}),
+		enabled: enabled && api?.kind === 'owned',
+	});
+	const sharedQuery = useQuery({
+		...trpc.storyShare.getFilterTargets.queryOptions({
+			storyId: api?.kind === 'shared' ? api.storyId : '',
+			selections,
+		}),
+		enabled: enabled && api?.kind === 'shared',
+	});
+	const standaloneQuery = useQuery({
+		...trpc.story.getStandaloneFilterTargets.queryOptions({
+			storyId: api?.kind === 'standalone' ? api.storyId : '',
+			selections,
+		}),
+		enabled: enabled && api?.kind === 'standalone',
+	});
+	const query = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
+	return query.data ?? NO_FILTER_TARGETS;
+}
+
+/** A failed request fails every saved query; otherwise each query reports its own outcome. */
+function listQueryFilterStatuses({
+	filters,
+	selections,
+	filterTargets,
+	filteredQueryData,
+	requestError,
+	baselineQueryData,
+}: {
+	filters: ParsedFilterBlock[];
+	selections: StoryFilterSelections;
+	filterTargets: StoryFilterTargets;
+	filteredQueryData: FilteredQueryDataMap | undefined;
+	requestError: string | undefined;
+	baselineQueryData: QueryDataMap | null | undefined;
+}): StoryQueryFilterStatuses {
+	if (requestError) {
+		return Object.fromEntries(
+			Object.keys(baselineQueryData ?? {}).map((queryId) => [queryId, { state: 'failed', error: requestError }]),
+		);
+	}
+	return Object.fromEntries(
+		Object.entries(filteredQueryData ?? {}).flatMap(([queryId, result]) => {
+			const appliedFilters = filters.filter(
+				(filter) => filter.id in selections && filterTargets[queryId]?.includes(filter.id),
+			);
+			const status = toQueryFilterStatus(result, filters, appliedFilters, selections);
+			return status ? [[queryId, status]] : [];
+		}),
+	);
+}
+
+/** Queries no active filter reached have no status. */
+function toQueryFilterStatus(
+	result: FilteredQueryDataMap[string],
+	filters: ParsedFilterBlock[],
+	appliedFilters: ParsedFilterBlock[],
+	selections: StoryFilterSelections,
+): StoryQueryFilterStatus | null {
+	if (result.error) {
+		return { state: 'failed', error: result.error };
+	}
+	if (result.skippedFilterIds?.length) {
+		const skipped = filters.filter((filter) => result.skippedFilterIds!.includes(filter.id));
+		return { state: 'skipped', filterLabels: skipped.map((filter) => filter.label) };
+	}
+	if (appliedFilters.length === 0) {
+		return null;
+	}
+	return { state: 'filtered', summary: summarizeSelections(appliedFilters, selections) };
+}
+
+/** Parameters and filters in words, e.g. "Metric = revenue · Returned = false". */
+function summarizeSelections(
+	controls: (ParsedFilterBlock | ParsedParameterBlock)[],
+	selections: StoryFilterSelections,
+): string {
+	return controls
+		.filter((control) => control.id in selections)
+		.map((control) => {
+			const selection = selections[control.id];
+			const value = Array.isArray(selection)
+				? selection.join('filterType' in control && control.filterType === 'date_range' ? ' → ' : ', ')
+				: selection;
+			return `${control.label} = ${value}`;
+		})
+		.join(' · ');
+}
+
+function pickSelections(selections: StoryFilterSelections, controls: { id: string }[]): StoryFilterSelections {
+	return Object.fromEntries(controls.filter(({ id }) => id in selections).map(({ id }) => [id, selections[id]]));
+}
 
 /**
  * The selections behind the data on screen: while new filtered data loads, the previous data stays
@@ -212,23 +438,14 @@ function areSelectionsEqual(a: StoryFilterSelections, b: StoryFilterSelections):
 	if (aKeys.length !== bKeys.length) {
 		return false;
 	}
-	for (const key of aKeys) {
-		if (!(key in b)) {
-			return false;
-		}
-		const left = a[key];
-		const right = b[key];
-		if (Array.isArray(left) && Array.isArray(right)) {
-			if (left.length !== right.length || left.some((value, index) => value !== right[index])) {
-				return false;
-			}
-			continue;
-		}
-		if (left !== right) {
-			return false;
-		}
+	return aKeys.every((key) => key in b && isSameSelection(a[key], b[key]));
+}
+
+function isSameSelection(left: StoryFilterSelection | undefined, right: StoryFilterSelection | undefined): boolean {
+	if (Array.isArray(left) && Array.isArray(right)) {
+		return left.length === right.length && left.every((value, index) => value === right[index]);
 	}
-	return true;
+	return left === right;
 }
 
 function dedupeFilters(filters: ParsedFilterBlock[]): ParsedFilterBlock[] {

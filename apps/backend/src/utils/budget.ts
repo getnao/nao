@@ -1,14 +1,8 @@
 import { getCurrentPeriodStart, getNextPeriodStart } from '@nao/shared/date';
 import type { MemberBudgetSource } from '@nao/shared/member-budget';
-import {
-	type CalendarPeriod,
-	type LlmProvider,
-	providerKind,
-	providerLabel,
-	WARNING_BUDGET_THRESHOLD,
-} from '@nao/shared/types';
+import { type CalendarPeriod, type LlmProvider, providerLabel, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
 
-import { PROVIDER_META } from '../agents/provider-meta';
+import { getBuiltInModelPrices } from '../agents/model-prices';
 import type { BudgetNotificationKey } from '../queries/budget.queries';
 import * as budgetQueries from '../queries/budget.queries';
 import * as memberBudgetQueries from '../queries/member-budget.queries';
@@ -24,7 +18,12 @@ import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
 import { getProjectAvailableModels, getProjectConfigLlm, getProjectDeclaredModels } from './llm';
 import { logger } from './logger';
-import { type MemberBudgetUsage, resolveMemberBudgetUsage } from './member-budget';
+import {
+	type GroupSharedBudgetUsage,
+	type MemberBudgetUsage,
+	resolveGroupSharedBudgetUsages,
+	resolveMemberBudgetUsage,
+} from './member-budget';
 import type { ConfigProviderBudget } from './nao-config-llm';
 
 export type BudgetStatus = { level: 'ok' | 'warning' | 'exceeded'; message: string | null };
@@ -77,11 +76,9 @@ export async function getProvidersCostSupport(projectId: string): Promise<Record
 		getProjectDeclaredModels(projectId),
 	]);
 	return Object.fromEntries(
-		declaredSources.map(({ provider }) => [
+		[...new Set(activeModels.map((model) => model.provider))].map((provider) => [
 			provider,
-			activeModels.some(
-				(model) => model.provider === provider && hasModelCost(provider, model.modelId, declaredSources),
-			),
+			activeModels.some((model) => model.provider === provider && hasModelCost(model, declaredSources)),
 		]),
 	) as Record<LlmProvider, boolean>;
 }
@@ -94,7 +91,7 @@ export async function getUnpricedModels(projectId: string): Promise<UnpricedMode
 		getProjectDeclaredModels(projectId),
 	]);
 	return activeModels
-		.filter(({ provider, modelId }) => !hasModelCost(provider, modelId, declaredSources))
+		.filter((model) => !hasModelCost(model, declaredSources))
 		.map(({ provider, modelId, name }) => ({ provider, modelId, name }));
 }
 
@@ -103,7 +100,12 @@ export async function checkBudgetStatus(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<BudgetStatus> {
-	const memberUsage = userId ? await resolveMemberBudgetUsage(projectId, userId) : null;
+	const [memberUsage, groupUsages] = userId
+		? await Promise.all([
+				resolveMemberBudgetUsage(projectId, userId),
+				resolveGroupSharedBudgetUsages(projectId, userId),
+			])
+		: [null, []];
 	const resolved = await resolveBudgetUsages(projectId, provider, userId, memberUsage);
 
 	const candidates = (resolved?.usages ?? []).map((usage) => ({
@@ -112,6 +114,9 @@ export async function checkBudgetStatus(
 	}));
 	if (memberUsage) {
 		candidates.push({ ratio: memberUsage.ratio, message: buildMemberBudgetMessage(memberUsage) });
+	}
+	for (const groupUsage of groupUsages) {
+		candidates.push({ ratio: groupUsage.ratio, message: buildGroupSharedBudgetMessage(groupUsage) });
 	}
 
 	const alerting = candidates.filter((candidate) => candidate.ratio >= WARNING_BUDGET_THRESHOLD);
@@ -128,14 +133,28 @@ export async function assertBudgetNotExceeded(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<void> {
-	const memberUsage = userId ? await resolveMemberBudgetUsage(projectId, userId) : null;
+	const [memberUsage, groupUsages] = userId
+		? await Promise.all([
+				resolveMemberBudgetUsage(projectId, userId),
+				resolveGroupSharedBudgetUsages(projectId, userId),
+			])
+		: [null, []];
 	const isMemberBudgetExceeded = !!userId && !!memberUsage && memberUsage.ratio >= 1;
 	if (isMemberBudgetExceeded) {
 		await notifyMemberOnBudgetLimitReached(projectId, userId, memberUsage);
 	}
+	const exceededGroupUsages = groupUsages.filter((usage) => usage.ratio >= 1);
+	if (userId) {
+		await Promise.all(
+			exceededGroupUsages.map((usage) => notifyMemberOnGroupSharedBudgetReached(projectId, userId, usage)),
+		);
+	}
 	await assertProviderBudgetNotExceeded(projectId, provider, userId, memberUsage);
 	if (isMemberBudgetExceeded) {
 		throw new BudgetExceededError(buildMemberBudgetMessage(memberUsage));
+	}
+	if (exceededGroupUsages.length > 0) {
+		throw new BudgetExceededError(buildGroupSharedBudgetMessage(exceededGroupUsages[0]));
 	}
 }
 
@@ -216,15 +235,16 @@ type ResolvedBudget = {
 };
 
 function hasModelCost(
-	provider: LlmProvider,
-	modelId: string,
-	declaredSources: Array<{ provider: LlmProvider; models: CustomModelMetadata[] }>,
+	model: { provider: LlmProvider; modelId: string; llmConfigId?: string },
+	declaredSources: Array<{ provider: LlmProvider; llmConfigId?: string; models: CustomModelMetadata[] }>,
 ): boolean {
-	const builtInModel = PROVIDER_META[providerKind(provider)].models.find((model) => model.id === modelId);
 	const declaredModel = declaredSources
-		.find((source) => source.provider === provider)
-		?.models.find((model) => model.id === modelId);
-	return builtInModel?.costPerM !== undefined || (declaredModel !== undefined && hasDeclaredCosts(declaredModel));
+		.find((source) => source.provider === model.provider && source.llmConfigId === model.llmConfigId)
+		?.models.find((candidate) => candidate.id === model.modelId);
+	return (
+		getBuiltInModelPrices(model.provider, model.modelId) !== undefined ||
+		(declaredModel !== undefined && hasDeclaredCosts(declaredModel))
+	);
 }
 
 function hasDeclaredCosts(model: CustomModelMetadata): boolean {
@@ -248,6 +268,12 @@ function buildMemberBudgetMessage(usage: MemberBudgetUsage): string {
 	const scopeLabel = MEMBER_BUDGET_SCOPE_LABELS[usage.source];
 	const resetLabel = formatResetDate(usage.resetsAt, usage.period);
 	return `You've used ${percent}% of ${scopeLabel} for this ${usage.period}. It will reset ${resetLabel}.`;
+}
+
+function buildGroupSharedBudgetMessage(usage: GroupSharedBudgetUsage): string {
+	const percent = Math.min(Math.round(usage.ratio * 100), 100);
+	const resetLabel = formatResetDate(usage.resetsAt, usage.period);
+	return `Your ${usage.groupName} group has used ${percent}% of its shared budget for this ${usage.period}. It will reset ${resetLabel}.`;
 }
 
 async function resolveBudgetUsages(
@@ -439,6 +465,39 @@ async function notifyMemberOnBudgetLimitReached(
 	} catch (error) {
 		await memberBudgetQueries.releaseMemberBudgetNotification(projectId, userId, periodStart).catch(() => {});
 		logger.error(`Failed to send member budget limit notification: ${String(error)}`, { source: 'system' });
+	}
+}
+
+async function notifyMemberOnGroupSharedBudgetReached(
+	projectId: string,
+	userId: string,
+	usage: GroupSharedBudgetUsage,
+): Promise<void> {
+	const periodStart = getCurrentPeriodStart(usage.period);
+	if (!(await memberBudgetQueries.claimGroupBudgetNotification(projectId, usage.groupId, userId, periodStart))) {
+		return;
+	}
+
+	const resetLabel = formatResetDate(usage.resetsAt, usage.period);
+	try {
+		await notify({
+			userId,
+			projectId,
+			category: 'budget',
+			title: `${usage.groupName} shared budget reached`,
+			body: `Your ${usage.groupName} group has used all of its shared budget. Requests are blocked until it resets ${resetLabel}.`,
+			linkUrl: '/settings/project/budgets',
+			channels: ['in_app'],
+			payload: {
+				groupId: usage.groupId,
+				limitUsd: usage.limitUsd,
+				currentSpendUsd: usage.spendUsd,
+				scope: 'group',
+			},
+		});
+	} catch (error) {
+		await memberBudgetQueries.releaseGroupBudgetNotification(usage.groupId, userId, periodStart).catch(() => {});
+		logger.error(`Failed to send group shared budget notification: ${String(error)}`, { source: 'system' });
 	}
 }
 

@@ -1,7 +1,7 @@
 import { generateOnboardingRules, requestWarehouseCredentials } from '@nao/shared/tools';
 
-import type { OnboardingWarehouseState } from '../../types/warehouse';
-import { formatWarehouseSetupForAgent } from '../../utils/warehouse-setup';
+import type { OnboardingWarehouseState } from '../../types/onboarding/warehouse-provisioning';
+import { formatWarehouseSetupForAgent } from '../../utils/onboarding/warehouse-setup';
 
 const NO_WAREHOUSE_STATE: OnboardingWarehouseState = { setup: null, failedConnectionTest: null };
 

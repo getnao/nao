@@ -88,7 +88,13 @@ export function ExploreSubagentPrompt({
 					search again.
 				</ListItem>
 			</List>
-			{userRules && <UserRulesSection rules={userRules} isExcerpt={isUserRulesExcerpt} />}
+			{userRules && (
+				<UserRulesSection
+					rules={userRules}
+					isExcerpt={isUserRulesExcerpt}
+					rulesFile={contextPresence?.rulesFile}
+				/>
+			)}
 		</Block>
 	);
 }

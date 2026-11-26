@@ -7,6 +7,7 @@ export type SummarizedTestResult = Pick<
 	| 'testPath'
 	| 'llmProvider'
 	| 'llmModelId'
+	| 'llmConfigId'
 	| 'reasoningEffort'
 	| 'contextVariant'
 	| 'passed'
@@ -23,9 +24,13 @@ export type SummarizedTestResult = Pick<
 export function summarizeModels(results: SummarizedTestResult[]): TestModelSummary[] {
 	const groups = new Map<string, SummarizedTestResult[]>();
 	for (const result of results) {
-		const key = [result.contextVariant, result.llmProvider, result.llmModelId, result.reasoningEffort].join(
-			'\u0000',
-		);
+		const key = [
+			result.contextVariant,
+			result.llmProvider,
+			result.llmModelId,
+			result.llmConfigId,
+			result.reasoningEffort,
+		].join('\u0000');
 		groups.set(key, [...(groups.get(key) ?? []), result]);
 	}
 	return [...groups.values()].map(summarizeModel).sort(compareSummaries);

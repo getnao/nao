@@ -8,6 +8,7 @@ on:
 
 jobs:
     remove-old-artifacts:
+        if: github.repository == 'getnao/nao'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
@@ -21,6 +22,7 @@ jobs:
                   age: '5 days'
 
     cleanup-pr-previews:
+        if: github.repository == 'getnao/nao'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
@@ -92,6 +94,7 @@ jobs:
                   echo "Cleaned up $CLEANED stale preview(s)"
 
     cleanup-docker-images:
+        if: github.repository == 'getnao/nao'
         runs-on: ubuntu-latest
         timeout-minutes: 10
 

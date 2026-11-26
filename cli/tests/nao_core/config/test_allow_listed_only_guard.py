@@ -575,3 +575,19 @@ def assert_blocked(
 ) -> None:
     with pytest.raises(AllowListedOnlyGuardError, match=match):
         enforce_allow_listed_only(sql, config, project_folder, group_allowed_tables=group_allowed_tables)
+
+
+@pytest.mark.parametrize(
+    ("database_type", "sql"),
+    [
+        ("postgres", "SELECT query_to_xml('SELECT * FROM main.users', true, false, '')"),
+        ("postgres", "SELECT table_to_xml('main.users', true, false, '')"),
+        ("snowflake", "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"),
+        ("snowflake", "SELECT * FROM TABLE(INFORMATION_SCHEMA.QUERY_HISTORY())"),
+    ],
+)
+def test_functions_reading_data_named_by_a_string_are_blocked(tmp_path: Path, database_type: str, sql: str):
+    config = FakeDatabaseConfig(False, database_type=database_type)
+
+    with pytest.raises(AllowListedOnlyGuardError, match="reads data that cannot be validated"):
+        enforce_allow_listed_only(sql, config, tmp_path, group_allowed_tables={("main", "orders")})

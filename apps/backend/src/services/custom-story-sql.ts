@@ -38,6 +38,7 @@ export async function runCustomStorySql(
 		projectId: target.projectId,
 		userId: target.viewerId,
 		chatId: target.chatId,
+		querySource: 'story',
 	});
 	if (!isWarehouseSqlEnabled(toolContext.semanticLayerMode)) {
 		throw new CustomStorySqlError(

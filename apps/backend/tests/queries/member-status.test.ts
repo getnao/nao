@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import { listOrgMembersWithUsers } from '../../src/queries/organization.queries';
-import { listProjectMembersWithRoles } from '../../src/queries/project.queries';
+import { listProjectMembersWithRoles, listUsersWithProjectAccessDetails } from '../../src/queries/project.queries';
 import { deleteExpiredInvitations } from '../../src/queries/user.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -44,6 +44,16 @@ describe('member status', () => {
 			expiresAt: new Date(Date.now() + 60_000),
 			updatedAt: new Date(),
 		});
+		await db.insert(s.account).values([
+			{
+				id: 'credential-account',
+				accountId: ACTIVE_USER_ID,
+				providerId: 'credential',
+				userId: ACTIVE_USER_ID,
+				password: 'hash',
+			},
+			{ id: 'sso-account', accountId: 'okta-subject', providerId: 'okta', userId: LOGGED_OUT_USER_ID },
+		]);
 		await db.insert(s.orgMember).values([
 			{ orgId: ORG_ID, userId: ACTIVE_USER_ID, role: 'admin' },
 			{ orgId: ORG_ID, userId: LOGGED_OUT_USER_ID, role: 'user' },
@@ -66,6 +76,13 @@ describe('member status', () => {
 		const members = await listProjectMembersWithRoles(PROJECT_ID);
 
 		expect(statusById(members)).toEqual(EXPECTED_STATUSES);
+	});
+
+	it('flags only users with a credential password as resettable', async () => {
+		const expected = { [ACTIVE_USER_ID]: true, [LOGGED_OUT_USER_ID]: false, [INVITED_USER_ID]: false };
+
+		expect(hasPasswordById(await listOrgMembersWithUsers(ORG_ID))).toEqual(expected);
+		expect(hasPasswordById(await listUsersWithProjectAccessDetails(PROJECT_ID))).toEqual(expected);
 	});
 });
 
@@ -150,6 +167,10 @@ describe('expired invitation cleanup', () => {
 
 function invitedUser(id: string) {
 	return { id, name: id, email: `${id}@example.com`, requiresPasswordReset: true };
+}
+
+function hasPasswordById(members: { id: string; hasPassword: boolean }[]): Record<string, boolean> {
+	return Object.fromEntries(members.map((member) => [member.id, member.hasPassword]));
 }
 
 function statusById(members: { id: string; status: string }[]): Record<string, string> {

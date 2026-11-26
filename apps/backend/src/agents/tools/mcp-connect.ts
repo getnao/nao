@@ -1,9 +1,11 @@
+import { NAO_INTERNAL_MCP_SERVER } from '@nao/shared';
 import { mcpConnect } from '@nao/shared/tools';
 
 import { mcpService } from '../../services/mcp';
 import { McpAuthRequiredError } from '../../services/mcp-oauth';
+import { listNaoInternalMcpTools } from '../../services/nao-internal-mcp';
 import { createTool } from '../../utils/tools';
-import { authRequiredOutput, authRequiredText, isAuthRequired } from './mcp-call';
+import { assertServerAllowed, authRequiredOutput, authRequiredText, isAuthRequired } from './mcp-call';
 
 const DESCRIPTION = [
 	'Connect an MCP server so its tools become usable, and list the tools it exposes.',
@@ -48,8 +50,10 @@ export const createMcpConnectTool = (allowedServers: string[] | null) =>
 		description: DESCRIPTION,
 		inputSchema: mcpConnect.InputSchema,
 		execute: async ({ server }, context) => {
-			if (allowedServers && !allowedServers.includes(server)) {
-				throw new Error(`MCP server "${server}" is not available in this context.`);
+			assertServerAllowed(server, allowedServers);
+			if (server === NAO_INTERNAL_MCP_SERVER) {
+				const tools = await listNaoInternalMcpTools(context);
+				return { server, tools: tools.map((tool) => tool.name) } satisfies McpConnectedOutput;
 			}
 			try {
 				const tools = await mcpService.connectForUser({

@@ -16,20 +16,18 @@ from pydantic import ValidationError
 INTERNAL_SECRET = "test-internal-secret-at-least-20-characters"
 INTERNAL_HEADERS = {"X-Nao-Internal-Secret": INTERNAL_SECRET}
 UNENFORCED_TABLE_ACCESS = {"enforced": False}
+UNENFORCED_COLUMN_SECURITY = {"enforced": False}
 UNENFORCED_ROW_SECURITY = {"enforced": False}
 
 
 class TestClient(FastApiTestClient):
     def request(self, method, url, **kwargs):
         request_json = kwargs.get("json")
-        if (
-            url in {"/execute_sql", "/validate_sql"}
-            and isinstance(request_json, dict)
-            and "row_security" not in request_json
-        ):
+        if url in {"/execute_sql", "/validate_sql"} and isinstance(request_json, dict):
             kwargs["json"] = {
-                **request_json,
+                "column_security": UNENFORCED_COLUMN_SECURITY,
                 "row_security": UNENFORCED_ROW_SECURITY,
+                **request_json,
             }
         return super().request(method, url, **kwargs)
 
@@ -247,11 +245,27 @@ def test_sql_endpoint_rejects_missing_null_or_malformed_row_security(
         "sql": "SELECT 1",
         "nao_project_folder": duckdb_project_folder,
         "table_access": UNENFORCED_TABLE_ACCESS,
+        "column_security": UNENFORCED_COLUMN_SECURITY,
     }
     if row_security != "missing":
         request["row_security"] = row_security
 
     response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(endpoint, json=request)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_sql_endpoint_rejects_missing_column_security(duckdb_project_folder, endpoint):
+    response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": duckdb_project_folder,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "row_security": UNENFORCED_ROW_SECURITY,
+        },
+    )
 
     assert response.status_code == 422
 
@@ -322,6 +336,7 @@ def test_sql_endpoint_rejects_malformed_row_security_tables(
             "sql": "SELECT 1",
             "nao_project_folder": duckdb_project_folder,
             "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": UNENFORCED_COLUMN_SECURITY,
             "row_security": {"enforced": True, "tables": [table]},
         },
     )
@@ -340,6 +355,7 @@ def test_sql_endpoint_allows_empty_enforced_row_security_tables(
             "sql": "SELECT 1",
             "nao_project_folder": duckdb_project_folder,
             "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": UNENFORCED_COLUMN_SECURITY,
             "row_security": {"enforced": True, "tables": []},
         },
     )
@@ -664,7 +680,7 @@ def test_table_access_is_scoped_per_connection_sharing_database_name(shared_data
     denied = client.post("/execute_sql", json={**request, "database_id": "shop_b_ro"})
 
     assert allowed.status_code == 200, allowed.text
-    assert denied.status_code == 400
+    assert denied.status_code == 403
     assert "Denied table(s): main.orders" in denied.json()["detail"]
 
 
@@ -772,7 +788,7 @@ def test_table_access_is_filtered_to_active_database_folder(
     }
 
     denied = client.post("/execute_sql", json=request)
-    assert denied.status_code == 400
+    assert denied.status_code == 403
     assert "main.users" in denied.json()["detail"]
 
     request["table_access"]["tables"][0]["database"] = "test"
@@ -840,6 +856,100 @@ def test_validate_sql_reuses_guards_without_executing(
 
 
 @pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_column_security_rejects_denied_column_for_execute_and_validate(
+    duckdb_project_with_excluded_columns,
+    endpoint,
+):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT email FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": {
+                "enforced": True,
+                "tables": [
+                    {
+                        "database_type": "duckdb",
+                        "database": "test",
+                        "schema": "main",
+                        "table": "users",
+                        "restricted_columns": ["email"],
+                        "access": "restricted",
+                        "denied_columns": ["email"],
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "main.users.email" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_column_security_does_not_enable_static_exclusions(
+    duckdb_project_with_excluded_columns,
+    endpoint,
+):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT email FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": {
+                "enforced": True,
+                "tables": [
+                    {
+                        "database_type": "duckdb",
+                        "database": "test",
+                        "schema": "main",
+                        "table": "users",
+                        "restricted_columns": ["email"],
+                        "access": "full",
+                    }
+                ],
+            },
+            "row_security": {"enforced": False},
+            "enforce_excluded_columns": False,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+
+def test_column_security_rejects_duplicate_active_table_policies(
+    duckdb_project_with_excluded_columns,
+):
+    table = {
+        "database_type": "duckdb",
+        "database": "test",
+        "schema": "main",
+        "table": "users",
+        "restricted_columns": ["email"],
+    }
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/validate_sql",
+        json={
+            "sql": "SELECT id FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": {
+                "enforced": True,
+                "tables": [
+                    {**table, "access": "full"},
+                    {**table, "access": "restricted", "denied_columns": ["email"]},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Duplicate column security policy" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
 def test_motherduck_excluded_columns_apply_to_execute_and_validate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -856,6 +966,9 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
 
         def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
             return column != "email"
+
+        def requires_user_access_token(self) -> bool:
+            return False
 
         def execute_sql(self, sql: str):
             assert sql == "SELECT 1 AS value"
@@ -901,8 +1014,113 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
         endpoint,
         json={**base_request, "sql": "SELECT * FROM users"},
     )
-    assert guarded.status_code == 400
+    assert guarded.status_code == (403 if endpoint == "/execute_sql" else 400)
     assert "main.users.email" in guarded.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("sql", "query_tag", "executed_sql"),
+    [
+        ("SELECT 1", None, "SELECT 1"),
+        ("SELECT 1", {"comment": "nao user=ada"}, "/* nao user=ada */\nSELECT 1"),
+        ("SELECT 1", {"comment": "nao user=ada", "position": "end"}, "SELECT 1\n/* nao user=ada */"),
+        ("SELECT 1;\n", {"comment": "nao user=ada", "position": "end"}, "SELECT 1\n/* nao user=ada */;"),
+        (
+            "SELECT 1",
+            {"comment": "nao */ DROP TABLE users; /* !50000 x"},
+            "/* nao * / DROP TABLE users; / * !50000 x */\nSELECT 1",
+        ),
+    ],
+)
+def test_execute_sql_tags_the_query_sent_to_the_warehouse(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sql: str,
+    query_tag: dict | None,
+    executed_sql: str,
+):
+    executed: list[str] = []
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = False
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return False
+
+        def execute_sql(self, sql: str):
+            executed.append(sql)
+            return main.pd.DataFrame({"value": [1]})
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": sql,
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            **({"query_tag": query_tag} if query_tag else {}),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert executed == [executed_sql]
+
+
+@pytest.mark.parametrize("execution_path", ["user_token", "guarded_connection"])
+def test_execute_sql_tags_the_validated_query_on_every_execution_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    execution_path: str,
+):
+    executed: list[str] = []
+    result = main.pd.DataFrame({"value": [1]})
+
+    class DatabaseConfig:
+        name = "warehouse"
+        type = "duckdb"
+        allow_listed_only = True
+
+        def get_database_name(self) -> str:
+            return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return execution_path == "user_token"
+
+        def connect(self):
+            return SimpleNamespace(disconnect=lambda: None)
+
+        def execute_sql(self, sql: str, conn=None):
+            executed.append(sql)
+            return result
+
+        def execute_sql_with_token(self, sql: str, access_token: str):
+            executed.append(sql)
+            return result
+
+    config = SimpleNamespace(databases=[DatabaseConfig()])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+    monkeypatch.setattr(main, "_validate_sql", lambda *args, **kwargs: "SELECT 1 AS validated")
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": str(tmp_path),
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "user_access_token": "token",
+            "query_tag": {"comment": "nao"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert executed == ["/* nao */\nSELECT 1 AS validated"]
 
 
 def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -928,6 +1146,9 @@ def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatc
 
         def get_database_name(self) -> str:
             return "warehouse"
+
+        def requires_user_access_token(self) -> bool:
+            return False
 
         def execute_sql(self, sql: str):
             return result
@@ -1009,7 +1230,7 @@ def test_execute_sql_blocks_star_with_excluded_columns(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     assert response.json()["detail"] == (
         "Query blocked because SELECT * would include excluded column(s): main.users.email. "
         "Use SELECT * EXCLUDE (email) to exclude them."
@@ -1031,7 +1252,7 @@ def test_execute_sql_blocks_explicit_excluded_column(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     assert "main.users.email" in response.json()["detail"]
 
 
@@ -1097,49 +1318,61 @@ def test_execute_sql_blocks_table_missing_from_synced_context(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     detail = response.json()["detail"]
     assert "allow_listed_only is enabled" in detail
     assert "Unlisted table(s): main.users" in detail
     assert "Only synced context tables are allowed - list/read context to see them." in detail
 
 
-def test_azure_entra_tableless_query_does_not_require_sync_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    class AzureDatabaseConfig:
-        name = "test-redshift"
-        type = "redshift"
-        auth_mode = SimpleNamespace(value="azure_entra_id")
-        user = None
-        password = None
-        allow_listed_only = True
-        exclude_columns = ["*.secret"]
+class UserTokenDatabaseConfig:
+    name = "test-warehouse"
+    type = "snowflake"
+    allow_listed_only = True
+    exclude_columns = ["*.secret"]
 
-        def get_database_name(self) -> str:
-            return "analytics"
+    def get_database_name(self) -> str:
+        return "analytics"
 
-        def execute_sql_with_token(self, sql: str, access_token: str):
-            assert sql == "SELECT 1 AS value"
-            assert access_token == "token"
-            return main.pd.DataFrame([{"value": 1}])
+    def requires_user_access_token(self) -> bool:
+        return True
 
-    config = SimpleNamespace(databases=[AzureDatabaseConfig()])
+    def has_sync_credentials(self) -> bool:
+        return False
+
+    def execute_sql(self, sql: str):
+        raise AssertionError("queries must run with the user access token")
+
+    def execute_sql_with_token(self, sql: str, access_token: str):
+        assert sql == "SELECT 1 AS value"
+        assert access_token == "token"
+        return main.pd.DataFrame([{"value": 1}])
+
+
+@pytest.fixture
+def user_token_database(monkeypatch: pytest.MonkeyPatch):
+    config = SimpleNamespace(databases=[UserTokenDatabaseConfig()])
     monkeypatch.setattr(
         main.NaoConfig,
         "try_load",
         staticmethod(lambda *args, **kwargs: config),
     )
 
-    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+
+def post_user_token_query(sql: str, **extra):
+    return TestClient(app, headers=INTERNAL_HEADERS).post(
         "/execute_sql",
         json={
-            "sql": "SELECT 1 AS value",
+            "sql": sql,
             "nao_project_folder": "/unused",
             "table_access": UNENFORCED_TABLE_ACCESS,
-            "azure_access_token": "token",
+            **extra,
         },
     )
+
+
+def test_user_token_tableless_query_does_not_require_sync_credentials(user_token_database):
+    response = post_user_token_query("SELECT 1 AS value", user_access_token="token")
 
     assert response.status_code == 200
     assert_sql_result(
@@ -1148,6 +1381,22 @@ def test_azure_entra_tableless_query_does_not_require_sync_credentials(
         columns=["value"],
         expected_data=[{"value": 1}],
     )
+
+
+@pytest.mark.parametrize(
+    ("sql", "extra", "expected_detail"),
+    [
+        ("SELECT 1 AS value", {}, "nao has no access token for them"),
+        ("SELECT * FROM users", {"user_access_token": "token"}, "require sync credentials"),
+    ],
+)
+def test_user_token_database_rejects_queries_it_cannot_run_safely(
+    user_token_database, sql: str, extra: dict, expected_detail: str
+):
+    response = post_user_token_query(sql, **extra)
+
+    assert response.status_code == 400
+    assert expected_detail in response.json()["detail"]
 
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):

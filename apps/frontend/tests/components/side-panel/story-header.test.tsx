@@ -11,8 +11,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 type ClassicStoryHeaderProps = Extract<StoryHeaderProps, { viewMode: StoryViewMode }>;
 
-const { favoritesQuery, mentionedStories } = vi.hoisted(() => ({
+const { favoritesQuery, mentionedStories, movableStory } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	movableStory: { value: undefined as { storyId: string; isOwner: boolean } | undefined },
 	mentionedStories: {
 		value: {
 			conversationChatId: null as string | null,
@@ -30,9 +31,23 @@ vi.mock('@/contexts/mentioned-stories', () => ({
 
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: (options: { queryKey?: string[] }) => {
-		return options.queryKey?.[0] === 'favorites' ? favoritesQuery : { data: undefined };
+		switch (options.queryKey?.[0]) {
+			case 'favorites':
+				return favoritesQuery;
+			case 'resolveStory':
+				return { data: { isOwner: true, isArchived: false, projectId: 'project-1' } };
+			case 'currentProject':
+				return { data: { id: 'project-1' } };
+			default:
+				return { data: undefined };
+		}
 	},
 	useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+	useQueryClient: () => ({}),
+}));
+
+vi.mock('@/hooks/use-permissions', () => ({
+	usePermissions: () => ({ isAdmin: false }),
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -61,6 +76,10 @@ vi.mock('@/hooks/use-is-mobile', () => ({
 	useIsMobile: () => false,
 }));
 
+vi.mock('@/hooks/use-movable-story', () => ({
+	useMovableStory: () => movableStory.value,
+}));
+
 vi.mock('@/hooks/use-toggle-favorite', () => ({
 	useToggleFavorite: () => ({ toggle: vi.fn(), isPending: false }),
 }));
@@ -79,6 +98,17 @@ vi.mock('@/main', () => ({
 			listStories: {
 				queryOptions: () => ({ queryKey: ['stories'] }),
 			},
+			archiveShared: {
+				mutationOptions: () => ({}),
+			},
+			unarchiveShared: {
+				mutationOptions: () => ({}),
+			},
+		},
+		project: {
+			getCurrent: {
+				queryOptions: () => ({ queryKey: ['currentProject'] }),
+			},
 		},
 		feedback: {
 			getStoryFeedback: {
@@ -96,6 +126,7 @@ afterEach(cleanup);
 describe('StoryHeader actions', () => {
 	beforeEach(() => {
 		favoritesQuery.data = undefined;
+		movableStory.value = undefined;
 	});
 
 	it('renders a share button that calls onShare', () => {
@@ -126,7 +157,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 	});
 
-	it('lists download, favorite, analytics, expand and duplicate in the actions menu', () => {
+	it('lists download, favorite, analytics, expand, duplicate and archive in the actions menu', () => {
 		renderHeader({ storyId: 'story-1' });
 
 		openDropdownMenu('More actions');
@@ -136,6 +167,19 @@ describe('StoryHeader actions', () => {
 		expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Expand' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
+		expect(screen.getByRole('menuitem', { name: 'Archive' })).toBeDefined();
+	});
+
+	it.each([
+		['can move the story', { storyId: 'story-1', isOwner: true }, 1],
+		['cannot move the story', undefined, 0],
+	])('offers to move the story to a folder only when the user %s', (_, story, expectedCount) => {
+		movableStory.value = story;
+		renderHeader({ storyId: 'story-1' });
+
+		openDropdownMenu('More actions');
+
+		expect(screen.queryAllByRole('menuitem', { name: 'Move to folder' })).toHaveLength(expectedCount);
 	});
 
 	it('only shows the header star once the story is favorited', () => {
@@ -153,6 +197,15 @@ describe('StoryHeader actions', () => {
 		renderHeader({ storyId: 'story-1' });
 
 		expect(screen.queryByRole('button', { name: 'Unfavorite' })).toBeNull();
+	});
+
+	it('offers to select an element of a classic story to ask about', () => {
+		const onSelectingChange = vi.fn();
+		renderHeader({ elementSelection: { isSelecting: false, onSelectingChange } });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Select an element to ask about' }));
+
+		expect(onSelectingChange).toHaveBeenCalledWith(true);
 	});
 });
 

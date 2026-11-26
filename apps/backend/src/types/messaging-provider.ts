@@ -48,6 +48,7 @@ export type SlackSettings = {
 	slackSigningSecret: string;
 	slackllmProvider: string;
 	slackllmModelId: string;
+	slackllmConfigId?: string;
 	autoCreateUsersEnabled?: boolean;
 	autoCreateUsersDomains?: string[];
 	slackTransportMode?: SlackTransportMode;
@@ -68,12 +69,14 @@ export type TeamsSettings = {
 	teamsTenantId: string;
 	teamsLlmProvider: string;
 	teamsLlmModelId: string;
+	teamsLlmConfigId?: string;
 };
 
 export type TelegramSettings = {
 	telegramBotToken: string;
 	telegramLlmProvider: string;
 	telegramLlmModelId: string;
+	telegramLlmConfigId?: string;
 };
 
 export type MattermostSettings = {
@@ -81,6 +84,7 @@ export type MattermostSettings = {
 	mattermostBotToken: string;
 	mattermostLlmProvider: string;
 	mattermostLlmModelId: string;
+	mattermostLlmConfigId?: string;
 	mattermostInteractiveButtonsEnabled?: boolean;
 	mattermostCallbackUrl?: string;
 };
@@ -91,6 +95,7 @@ export type DiscordSettings = {
 	discordPublicKey: string;
 	discordLlmProvider: string;
 	discordLlmModelId: string;
+	discordLlmConfigId?: string;
 	discordMentionRoleIds?: string[];
 	discordRespondToChannelIds?: string[];
 	discordFallbackUserId?: string;
@@ -105,4 +110,5 @@ export type WhatsappSettings = {
 	whatsappVerifyToken: string;
 	whatsappLlmProvider: string;
 	whatsappLlmModelId: string;
+	whatsappLlmConfigId?: string;
 };

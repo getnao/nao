@@ -2,9 +2,12 @@ export const STORY_FILTER_TYPES = ['select', 'multi_select', 'text', 'search', '
 
 export type StoryFilterType = (typeof STORY_FILTER_TYPES)[number];
 
-export const STORY_FILTER_VALUE_TYPES = ['string', 'number'] as const;
+export const STORY_FILTER_VALUE_TYPES = ['string', 'number', 'boolean'] as const;
 
 export type StoryFilterValueType = (typeof STORY_FILTER_VALUE_TYPES)[number];
+
+/** Filter types whose values `value_type` renders unquoted (number, boolean) or as SQL strings. */
+export const TYPED_VALUE_FILTER_TYPES: readonly StoryFilterType[] = ['select', 'multi_select', 'text'];
 
 export interface StoryFilterSpec {
 	type: StoryFilterType;
@@ -26,7 +29,8 @@ const FILTER_OPEN_REGEX = /\{%\s*filter\b[^%}]*%\}/g;
 const FILTER_CLOSE_REGEX = /\{%\s*endfilter\s*%\}/g;
 const FILTER_DELIMITER_REGEX = /\{%\s*(?:filter\b([^%}]*)|(endfilter))\s*%\}/g;
 const LIKE_OPERATOR_REGEX = /\bI?LIKE\b/i;
-const FILTER_NUMBER_REGEX = /^-?\d+(\.\d+)?$/;
+const FILTER_NUMBER_REGEX = /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i;
+const FILTER_BOOLEAN_REGEX = /^(true|false)$/i;
 
 const INVALID_PLACEHOLDER_HINTS: Record<string, string> = {
 	start: "date_range exposes a single {{ filters.<id>.sql }} value that already expands to 'start' AND 'end' — use AND col BETWEEN {{ filters.<id>.sql }}",
@@ -289,15 +293,13 @@ export function renderFilterSqlValue(
 
 	switch (type) {
 		case 'select':
-			return quoteSqlString(selection as string);
-		case 'text': {
-			const value = (selection as string).trim();
-			return valueType === 'number' ? value : quoteSqlString(value);
-		}
+			return renderTypedSqlValue(selection as string, valueType);
+		case 'text':
+			return renderTypedSqlValue((selection as string).trim(), valueType);
 		case 'multi_select':
 			return (selection as string[])
-				.filter((value) => value.trim() !== '')
-				.map(quoteSqlString)
+				.filter((value) => isValidFilterTextValue(value, valueType))
+				.map((value) => renderTypedSqlValue(value, valueType))
 				.join(', ');
 		case 'search':
 			return quoteSqlString(`%${escapeLikePattern(selection as string)}%`);
@@ -319,12 +321,12 @@ export function isFilterSelectionActive(
 
 	switch (type) {
 		case 'text':
-			return typeof selection === 'string' && isValidFilterTextValue(selection, valueType);
 		case 'select':
+			return typeof selection === 'string' && isValidFilterTextValue(selection, valueType);
 		case 'search':
 			return typeof selection === 'string' && selection.trim() !== '';
 		case 'multi_select':
-			return Array.isArray(selection) && selection.some((value) => value.trim() !== '');
+			return Array.isArray(selection) && selection.some((value) => isValidFilterTextValue(value, valueType));
 		case 'date_range':
 			return (
 				Array.isArray(selection) &&
@@ -340,7 +342,14 @@ export function isValidFilterTextValue(value: string, valueType: StoryFilterValu
 	if (trimmed === '') {
 		return false;
 	}
-	return valueType === 'number' ? FILTER_NUMBER_REGEX.test(trimmed) : true;
+	switch (valueType) {
+		case 'number':
+			return FILTER_NUMBER_REGEX.test(trimmed);
+		case 'boolean':
+			return FILTER_BOOLEAN_REGEX.test(trimmed);
+		case 'string':
+			return true;
+	}
 }
 
 export function quoteSqlString(value: string): string {
@@ -348,6 +357,18 @@ export function quoteSqlString(value: string): string {
 		throw new Error('Filter values cannot contain null bytes.');
 	}
 	return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** Numbers and booleans render bare so the warehouse compares them to typed columns (BigQuery rejects BOOL = 'true'). */
+function renderTypedSqlValue(value: string, valueType: StoryFilterValueType): string {
+	switch (valueType) {
+		case 'number':
+			return value.trim();
+		case 'boolean':
+			return value.trim().toLowerCase();
+		case 'string':
+			return quoteSqlString(value);
+	}
 }
 
 function escapeLikePattern(value: string): string {

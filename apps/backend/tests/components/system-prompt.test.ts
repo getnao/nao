@@ -311,6 +311,25 @@ describe('SystemPrompt saved files rules', () => {
 		expect(markdown).not.toContain('**save_to**');
 	});
 
+	it('points to the story-kit skill instead of inlining the guide when the run can load skills', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { customStoriesEnabled: true } }));
+		expect(markdown).toContain('**load_skill** with **custom-story-kit**');
+		expect(markdown).toContain('- **custom-story-kit** — ');
+		expect(markdown).not.toContain('useStoryState("key", initial)');
+	});
+
+	it('does not list the story-kit skill when the run cannot author custom stories', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('Built-in Skills');
+		expect(markdown).not.toContain('custom-story-kit');
+	});
+
+	it('keeps the no-guess column rule when the columns template is not synced', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ templates: ['preview'], internalSkills: [] }));
+		expect(markdown).not.toContain('`columns.md` —');
+		expect(markdown).toContain('Never guess column names');
+	});
+
 	it('tells custom stories to persist what a viewer would redo on every visit', () => {
 		const markdown = renderToMarkdown(
 			SystemPrompt({
@@ -413,7 +432,6 @@ describe('SystemPrompt local database rules', () => {
 		const withoutStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
 
 		expect(withStorage).toContain('**save_to**');
-		expect(withStorage).toContain('format: "parquet"');
 		expect(withStorage).toContain('**saved-file** chip');
 		expect(withoutStorage).not.toContain('**save_to**');
 	});
@@ -610,5 +628,24 @@ describe('SystemPrompt display_map rules', () => {
 		expect(renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql', 'display_chart'] }))).not.toContain(
 			'display_map',
 		);
+	});
+});
+
+describe('SystemPrompt personal skills', () => {
+	const personalSkills = [{ name: 'my-orders', description: 'My weekly orders.', body: 'Completed orders only.' }];
+
+	it('lists each personal skill by name and description and points to load_skill', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ personalSkills }));
+
+		expect(markdown).toContain('Personal Skills');
+		expect(markdown).toContain('**my-orders** — My weekly orders.');
+		expect(markdown).toContain('**load_skill**');
+		expect(markdown).not.toContain('Completed orders only.');
+	});
+
+	it('omits the section when the run has no load_skill tool, since personal skills have no file to read', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ personalSkills, toolNames: ['read'] }));
+
+		expect(markdown).not.toContain('Personal Skills');
 	});
 });

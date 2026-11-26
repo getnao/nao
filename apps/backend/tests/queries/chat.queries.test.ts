@@ -1,10 +1,21 @@
 import '../../src/env';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getLatestContextEditChatId, listGroupedChats } from '../../src/queries/chat.queries';
+import { queryAllProvidersCostsSince } from '../../src/queries/budget.queries';
+import {
+	getChat,
+	getChatMessages,
+	getLatestContextEditChatId,
+	getQueryResultByQueryId,
+	listGroupedChats,
+	softDeleteChat,
+	upsertMessage,
+} from '../../src/queries/chat.queries';
+import { QUERY_RESULT_PREVIEW_ROWS } from '../../src/utils/query-result-preview';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -16,12 +27,12 @@ const OTHER_PROJECT_ID = 'context-hub-other-project';
 const USER_ID = 'context-hub-user';
 const CONTEXT_EDIT = { type: 'context_edit' as const, id: PROJECT_ID, title: 'Context Hub', authorName: '' };
 
+afterAll(() => {
+	db.$client.close();
+});
+
 describe('Context Hub chats', () => {
 	beforeAll(seed);
-
-	afterAll(() => {
-		db.$client.close();
-	});
 
 	it.each([
 		{ projectId: PROJECT_ID, expected: 'latest-context-chat' },
@@ -38,6 +49,123 @@ describe('Context Hub chats', () => {
 		expect(historyIds).not.toContain('latest-context-chat');
 	});
 });
+
+describe('large query results', () => {
+	const chatId = 'large-result-chat';
+	const queryId = 'query_large_result';
+	const rowCount = 5_000;
+
+	beforeAll(async () => {
+		await db.insert(s.user).values({ id: 'large-result-user', name: 'User', email: 'large-result@example.com' });
+		await db.insert(s.project).values({ id: 'large-result-project', name: 'Orders', type: 'local', path: '/tmp' });
+		await db
+			.insert(s.chat)
+			.values({ id: chatId, userId: 'large-result-user', projectId: 'large-result-project', title: 'Orders' });
+		await upsertMessage({
+			chatId,
+			role: 'assistant',
+			parts: [
+				{
+					type: 'tool-execute_sql',
+					toolCallId: 'large-result-call',
+					state: 'output-available',
+					input: { sql_query: 'select * from orders' },
+					output: {
+						_version: '1',
+						id: queryId,
+						columns: ['id'],
+						data: Array.from({ length: rowCount }, (_, index) => ({ id: index })),
+						row_count: rowCount,
+					},
+				},
+			],
+		});
+	});
+
+	it('loads only the first rows of a large result with the chat', async () => {
+		const [chat] = await getChat(chatId, { includeFeedback: true, queryResultPreviews: true });
+		const messages = await getChatMessages(chatId, { queryResultPreviews: true });
+
+		for (const part of [chat?.messages[0].parts[0], messages[0].parts[0]]) {
+			expect(part).toMatchObject({ output: { id: queryId, row_count: rowCount, is_preview: true } });
+			expect(queryRows(part)).toHaveLength(QUERY_RESULT_PREVIEW_ROWS);
+		}
+	});
+
+	it('keeps every row for the callers that need them', async () => {
+		const [chat] = await getChat(chatId);
+		const result = await getQueryResultByQueryId(chatId, queryId);
+
+		expect(queryRows(chat?.messages[0].parts[0])).toHaveLength(rowCount);
+		expect(result?.data).toHaveLength(rowCount);
+	});
+});
+
+describe('a chat its owner deletes', () => {
+	const chatId = 'deleted-chat';
+	const projectId = 'deleted-chat-project';
+	const owner = { projectId, userId: 'deleted-chat-user' };
+	let chatBeforeDeletion: Awaited<ReturnType<typeof getChat>>;
+
+	beforeAll(async () => {
+		await db.insert(s.user).values({ id: owner.userId, name: 'User', email: 'deleted-chat@example.com' });
+		await db.insert(s.project).values({ id: projectId, name: 'Spend', type: 'local', path: '/tmp/deleted-chat' });
+		await db.insert(s.chat).values({ id: chatId, ...owner, title: 'Costly question' });
+		await db.insert(s.chatMessage).values({
+			id: 'deleted-chat-answer',
+			chatId,
+			role: 'assistant',
+			llmProvider: 'anthropic',
+			llmModelId: 'claude-sonnet-4-5',
+			outputTotalTokens: 200_000,
+		});
+		await db
+			.insert(s.messagePart)
+			.values({ messageId: 'deleted-chat-answer', order: 0, type: 'text', text: 'Yes' });
+		await db.insert(s.sharedChat).values({ chatId, visibility: 'project' });
+		await db.insert(s.story).values([
+			{ id: 'story-made-in-chat', chatId, slug: 'made-in-chat', title: 'Made in the chat' },
+			{ id: 'story-opened-in-chat', chatId, ...owner, slug: 'kpis', title: 'Opened in the chat' },
+			{ id: 'story-renamed-on-release', chatId, ...owner, slug: 'churn', title: 'Opened in the chat' },
+			{ id: 'story-that-took-the-slug', ...owner, slug: 'churn', title: 'Made meanwhile' },
+		]);
+		chatBeforeDeletion = await getChat(chatId);
+		await softDeleteChat(chatId);
+	});
+
+	it('leaves the history with its share and the stories made in it', async () => {
+		expect(chatBeforeDeletion[0]?.messages).toHaveLength(1);
+		expect(await getChat(chatId)).toEqual([]);
+		expect(await db.select().from(s.sharedChat).where(eq(s.sharedChat.chatId, chatId))).toEqual([]);
+		expect(await db.select().from(s.story).where(eq(s.story.id, 'story-made-in-chat'))).toEqual([]);
+	});
+
+	it('still counts in the spend of its project', async () => {
+		const [spend] = await queryAllProvidersCostsSince(projectId, new Date(0));
+
+		expect(spend).toMatchObject({ provider: 'anthropic', userId: owner.userId });
+		expect(spend.totalCost).toBeGreaterThan(0);
+	});
+
+	it('releases the standalone stories opened in it, under a free slug', async () => {
+		const released = await db
+			.select({ id: s.story.id, chatId: s.story.chatId, slug: s.story.slug })
+			.from(s.story)
+			.where(eq(s.story.title, 'Opened in the chat'));
+
+		expect(released).toHaveLength(2);
+		expect(released).toContainEqual({ id: 'story-opened-in-chat', chatId: null, slug: 'kpis' });
+		expect(released).toContainEqual({
+			id: 'story-renamed-on-release',
+			chatId: null,
+			slug: 'churn-story-renamed-on-release',
+		});
+	});
+});
+
+function queryRows(part: unknown): unknown[] | undefined {
+	return (part as { output?: { data?: unknown[] } } | undefined)?.output?.data;
+}
 
 async function seed() {
 	await db.insert(s.user).values({ id: USER_ID, name: 'User', email: 'context-hub-user@example.com' });

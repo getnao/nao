@@ -27,7 +27,7 @@ import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { Button } from '@/components/ui/button';
 import { IconSegmentedToggle } from '@/components/ui/icon-segmented-toggle';
 import { Spinner } from '@/components/ui/spinner';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
@@ -216,7 +216,7 @@ export function StoryThemePreviewPanel() {
 		pendingGeneration,
 		setPendingGeneration,
 	} = useStoryThemeEditor();
-	const { close } = useSidePanel();
+	const { close } = useSidePanelActions();
 	const { isAdmin } = usePermissions();
 	const invalidateStoryTheme = useInvalidateStoryTheme();
 	const versionsQuery = useQuery(trpc.storyTheme.listVersions.queryOptions());

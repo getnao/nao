@@ -277,7 +277,7 @@ describe('automation editor runs', () => {
 
 		const run = await authorize(requestWithDraft);
 
-		expect(mocks.getAutomation).toHaveBeenCalledWith('project-1', 'user-1', 'automation-1');
+		expect(mocks.getAutomation).toHaveBeenCalledWith('project-1', 'user-1', 'automation-1', 'editor');
 		expect(run.profile).not.toBe(analyticsAgent);
 		expect(run.profile.promptAppendix).toContain('editing one of their automations');
 	});

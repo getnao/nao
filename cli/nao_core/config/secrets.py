@@ -93,6 +93,10 @@ def process_secrets(
     return _TEMPLATE_REGEX.sub(replacer, content), missing
 
 
+def contains_secret_reference(content: str) -> bool:
+    return _TEMPLATE_REGEX.search(content) is not None
+
+
 def resolve_env(
     identifier: str,
     extra_env: dict[str, str] | None = None,
@@ -252,7 +256,7 @@ def _split_k8s_identifier(identifier: str) -> tuple[str, str, str]:
 
 def _pod_namespace() -> str:
     try:
-        with open(_K8S_NAMESPACE_FILE) as f:
+        with open(_K8S_NAMESPACE_FILE, encoding="utf-8") as f:
             return f.read().strip() or "default"
     except FileNotFoundError:
         return "default"

@@ -12,6 +12,7 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatAccessError } from '@/components/chat-access-error';
 import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
+import { ChatHeaderFeedback } from '@/components/chat-header-feedback';
 import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
@@ -21,10 +22,10 @@ import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
+import { TrialOnboardingBanner } from '@/components/onboarding/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
-import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
+import { useOnboardingCompletion } from '@/hooks/onboarding/use-onboarding-completion';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
@@ -245,6 +246,7 @@ function ChatPage() {
 							</div>
 							<div className='flex shrink-0 items-center justify-end gap-2'>
 								{isExampleChat && !chat.data?.isOnboarding && <ExampleProjectInfoCard compact />}
+								<ChatHeaderFeedback chatId={chatId} />
 								<Button
 									variant='ghost'
 									size='icon-sm'

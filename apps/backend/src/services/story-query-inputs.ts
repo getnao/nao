@@ -1,4 +1,5 @@
 import { renderSqlTemplate } from '@nao/shared/sql-template';
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import {
 	type StoryQueryFilterBindings,
 	type StoryQueryInputs,
@@ -8,8 +9,19 @@ import {
 import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 
 import * as storyQueries from '../queries/story.queries';
-import { createStoryExecutionContext, executeStoryQueries, type StoryQueryResult } from './live-story';
+import {
+	createOwnerExecutionContext,
+	createStoryExecutionContext,
+	executeStoryQueries,
+	resolveChatQueryScope,
+	resolveStoryQueryScope,
+	type StoryExecutionContext,
+	type StoryQueryResult,
+	type StoryQueryScope,
+	type StorySqlQuery,
+} from './live-story';
 import type { SemanticStoryBindings } from './semantic-story-bindings';
+import { loadStorySqlQueries, type StoryQueryOrigin } from './story-sql-queries';
 
 interface StoryQueryInputsExecutionOptions {
 	/** Who asked: the rerun runs with their own access, so a filter or a parameter never reaches past it. */
@@ -34,10 +46,42 @@ export async function executeStoryQueryWithInputs(
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
+	const [chatScope, executionContext] = await Promise.all([
+		resolveChatQueryScope(chatId),
+		createStoryExecutionContext(chatId, options.viewerId),
+	]);
+	const scope = { ...chatScope, ownerId: options.viewerId };
+	return executeQueryWithInputs(scope, executionContext, queryId, query, inputs, options);
+}
+
+/** Same for a story's own saved query, which a standalone story keeps without a chat; null when it has no SQL saved. */
+export async function executeSavedStoryQueryWithInputs(
+	story: StoryQueryOrigin,
+	queryId: string,
+	inputs: StoryQueryInputs,
+	options: StoryQueryInputsExecutionOptions,
+): Promise<StoryQueryResult | null> {
+	const { [queryId]: query } = await loadStorySqlQueries(story, [queryId]);
+	if (!query) {
+		return null;
+	}
+
+	const scope = { ...(await resolveStoryQueryScope(story)), ownerId: options.viewerId };
+	const executionContext = await createOwnerExecutionContext(scope);
+	return executeQueryWithInputs(scope, executionContext, queryId, query, inputs, options);
+}
+
+async function executeQueryWithInputs(
+	scope: StoryQueryScope,
+	executionContext: StoryExecutionContext,
+	queryId: string,
+	query: StorySqlQuery,
+	inputs: StoryQueryInputs,
+	options: StoryQueryInputsExecutionOptions,
+): Promise<StoryQueryResult> {
 	const filterBindings = toStoryFilterBindings(inputs.filters);
-	const executionContext = await createStoryExecutionContext(chatId, options.viewerId);
 	const queryData = await executeStoryQueries(
-		chatId,
+		scope,
 		{ [queryId]: query },
 		{
 			renderSql: (sqlQuery) =>
@@ -51,7 +95,14 @@ export async function executeStoryQueryWithInputs(
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 		},
 	);
-	return queryData[queryId]!;
+	const result = queryData[queryId];
+	if (!result) {
+		throw new Error(`Query ${queryId} cannot be rerun with your access, so its filters cannot apply.`);
+	}
+	if (result.accessDenied) {
+		throw new Error(STORY_QUERY_ACCESS_DENIED_MESSAGE);
+	}
+	return result;
 }
 
 function toSemanticBindings(filterBindings: StoryQueryFilterBindings, inputs: StoryQueryInputs): SemanticStoryBindings {

@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import type { McpEndpointSection } from '@/components/settings/mcp-endpoint';
 import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
 import { SettingsPageWrapper } from '@/components/ui/settings-card';
 import { usePermissions } from '@/hooks/use-permissions';
-import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/mcp-endpoint')({
 	component: McpEndpointPage,
@@ -11,11 +11,11 @@ export const Route = createFileRoute('/_sidebar-layout/settings/mcp-endpoint')({
 
 function McpEndpointPage() {
 	const { isAdmin } = usePermissions();
-	const allProjects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const [section, setSection] = useState<McpEndpointSection>('setup');
 
 	return (
 		<SettingsPageWrapper>
-			<McpEndpointSettings isAdmin={isAdmin} projects={allProjects.data ?? []} />
+			<McpEndpointSettings isAdmin={isAdmin} section={section} onSectionChange={setSection} />
 		</SettingsPageWrapper>
 	);
 }

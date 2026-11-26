@@ -29,7 +29,14 @@ export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export const NOTIFICATION_CATEGORIES = [
+	'budget',
+	'feedback',
+	'story_refresh',
+	'shared',
+	'subscription',
+	'test_run',
+] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
@@ -38,6 +45,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> 
 	story_refresh: 'Story refreshes',
 	shared: 'Shared with you',
 	subscription: 'Subscriptions',
+	test_run: 'Scheduled tests',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
@@ -46,6 +54,7 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	story_refresh: 'Results of your story refreshes.',
 	shared: 'When someone shares a story or chat with you.',
 	subscription: "When you're added to a story's scheduled delivery.",
+	test_run: 'When a scheduled run of the tests you scheduled fails.',
 };
 
 export const FEEDBACK_VOTES = ['up', 'down'] as const;
@@ -107,6 +116,16 @@ export type StorySubscriptionNotificationPayload = {
 	storyId: string;
 	storyTitle: string;
 	ownerName: string;
+};
+
+/** `storyId` and `storyTitle` are set when a single story was handed over. */
+export type StoryTransferNotificationPayload = {
+	kind: 'story_transfer';
+	senderName: string;
+	storyCount: number;
+	storyId: string | null;
+	storyTitle: string | null;
+	previousOwnerName: string | null;
 };
 
 export const MAX_PRELOADED_SKILLS = 50;
@@ -266,18 +285,48 @@ export function isLlmProvider(value: string): value is LlmProvider {
 	return kind === NAMED_PROVIDER_KIND && rest.length === 1 && PROVIDER_NAME_PATTERN.test(rest[0]);
 }
 
+export const LLM_ACCESS_MODES = ['project', 'user_group'] as const;
+export type LlmAccessMode = (typeof LLM_ACCESS_MODES)[number];
+export type LlmModelIdsByConfig = Record<string, string[]>;
+
 export type LlmSelectedModel = {
 	provider: LlmProvider;
 	modelId: string;
+	llmConfigId?: string;
 };
 
 export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
-	return model.provider === other.provider && model.modelId === other.modelId;
+	return (
+		model.provider === other.provider && model.modelId === other.modelId && model.llmConfigId === other.llmConfigId
+	);
+}
+
+/** A selection saved before credentials were named has no `llmConfigId` and only matches a model a single credential serves. */
+export function findSelectedModel<T extends LlmSelectedModel>(
+	available: readonly T[],
+	selection: LlmSelectedModel,
+): T | undefined {
+	const exact = available.find((model) => isSameModel(model, selection));
+	if (exact || selection.llmConfigId) {
+		return exact;
+	}
+	const sameModel = available.filter(
+		(model) => model.provider === selection.provider && model.modelId === selection.modelId,
+	);
+	return sameModel.length === 1 ? sameModel[0] : undefined;
 }
 
 /** The model a stored result names in its own columns, under the shape of a selected model. */
-export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
-	return { provider: result.llmProvider, modelId: result.llmModelId };
+export function resultModel(result: {
+	llmProvider: LlmProvider;
+	llmModelId: string;
+	llmConfigId?: string | null;
+}): LlmSelectedModel {
+	return {
+		provider: result.llmProvider,
+		modelId: result.llmModelId,
+		...(result.llmConfigId && { llmConfigId: result.llmConfigId }),
+	};
 }
 
 export type SummarySegment =
@@ -511,11 +560,18 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
+/** Markdown is rebuilt from a story's code, so only markdown stories offer it: custom stories export a rendered snapshot. */
+export type StoryDownloadFormat = DownloadFormat | 'markdown';
+export const STORY_DOWNLOAD_FORMATS = [
+	...DOWNLOAD_FORMATS,
+	'markdown',
+] as const satisfies readonly StoryDownloadFormat[];
+
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
 /** A file taken out of permanent storage is recorded under its own extension. */
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
+export type AnalyticsDownloadFormat = StoryDownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = [
 	'page_view',

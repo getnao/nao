@@ -1,10 +1,10 @@
 import { useCallback } from 'react';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 
 /** Opens a story of the user, from any of their chats, beside the conversation. */
 export function useOpenStoryInSidePanel() {
-	const { open } = useSidePanel();
+	const { open } = useSidePanelActions();
 	return useCallback(
 		(story: { chatId: string; slug: string }) => {
 			open(<StoryViewer chatId={story.chatId} storySlug={story.slug} />, story.slug);

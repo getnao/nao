@@ -20,6 +20,37 @@ export const mcpOAuthQueriesMock = {
 	hasMcpUserToken: async () => false,
 };
 
+type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
+/** Every MCP SDK HTTP transport the service built, recorded by the fake transports below. Reset it in each test. */
+export const builtHttpTransports: { url: URL; options: { requestInit?: RequestInit; fetch?: FetchLike } }[] = [];
+
+class FakeHttpTransport {
+	constructor(url: URL, options: { requestInit?: RequestInit; fetch?: FetchLike }) {
+		builtHttpTransports.push({ url, options });
+	}
+
+	async close(): Promise<void> {}
+}
+
+class FakeMcpClient {
+	async connect(): Promise<void> {}
+	async close(): Promise<void> {}
+
+	async listTools() {
+		return { tools: [{ name: 'http_tool', description: 'a tool', inputSchema: { type: 'object' } }] };
+	}
+
+	async callTool() {
+		return { ok: true };
+	}
+}
+
+/** Stand in for the MCP SDK client modules, so HTTP servers never reach the network. */
+export const mcpSdkClientMock = { Client: FakeMcpClient };
+export const mcpSdkStreamableHttpMock = { StreamableHTTPClientTransport: FakeHttpTransport };
+export const mcpSdkSseMock = { SSEClientTransport: FakeHttpTransport };
+
 export function useMcpProject(): (mcpServers: Record<string, unknown>) => Promise<void> {
 	const createTemporaryFolder = useTemporaryFolders();
 

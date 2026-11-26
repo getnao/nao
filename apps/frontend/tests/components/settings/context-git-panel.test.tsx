@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 	updateWorktree: vi.fn(),
 	listBranches: vi.fn(),
 	switchBranch: vi.fn(),
+	pullBranch: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -61,6 +62,7 @@ vi.mock('@/main', () => ({
 			getFileSummaries: { queryKey: () => ['file-summaries'] },
 			getRecentChanges: { queryKey: () => ['recent-changes'] },
 			switchBranch: { mutationOptions: mutationOptions(mocks.switchBranch) },
+			pullBranch: { mutationOptions: mutationOptions(mocks.pullBranch) },
 			updateWorktree: { mutationOptions: mutationOptions(mocks.updateWorktree) },
 			createBranch: { mutationOptions: mutationOptions(mocks.mutation) },
 			commitChanges: { mutationOptions: mutationOptions(mocks.commitChanges) },
@@ -109,13 +111,16 @@ describe('ContextGitPanel', () => {
 
 	afterEach(cleanup);
 
-	it('does not show the update action when File Explorer is current', async () => {
+	it('offers to pull the branch instead of the update action when File Explorer is current', async () => {
 		mocks.getRepositoryStatus.mockResolvedValue(createRepositoryStatus(false));
+		mocks.pullBranch.mockResolvedValue(undefined);
 		renderPanel();
 
 		await screen.findByText('Nothing to commit');
+		fireEvent.click(screen.getByRole('button', { name: 'Pull the latest commit' }));
 
 		expect(screen.queryByRole('button', { name: 'Update File Explorer' })).toBeNull();
+		await waitFor(() => expect(mocks.pullBranch).toHaveBeenCalled());
 	});
 
 	it('opens the update dialog from the banner without updating first', async () => {

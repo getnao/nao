@@ -74,9 +74,11 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
 	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
 	const [hasFileChanges, setHasFileChanges] = useState(false);
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
 	const presence = useStoryEditSession({
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
+		conversationChatId: questionChatId,
 	});
 	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && presence.canEdit;
 	useCloseWhenUneditable(canEditBlocks, () => {
@@ -195,7 +197,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 						)
 					}
 				/>
-				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit />}
+				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit onChatChange={setQuestionChatId} />}
 			</div>
 
 			<CustomStoryBlockEditDialog
@@ -224,8 +226,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 					<LiveStorySettingsDialog
 						open={isLiveSettingsOpen}
 						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
+						story={{ chatId, storySlug }}
 						isLive={live.isLive}
 						isLiveTextDynamic={live.isLiveTextDynamic}
 						cacheSchedule={live.cacheSchedule}
@@ -258,9 +259,17 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 	);
 	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
 	const sharing = useStoryViewerSharing({ storyId });
+	const live = useStoryViewerLiveSettings({ storyId });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: content?.needsRefresh ?? false,
+		isRefreshing: live.isRefreshing,
+		refresh: live.handleRefreshData,
+	});
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const renderExport = useCallback(
 		(format: DownloadFormat, html: string) =>
 			trpcClient.standaloneCustomStory.download.mutate({ storyId, format, html, versionNumber }),
@@ -296,6 +305,15 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				}}
 				canDuplicate={!isArchived && customStoryCreationEnabled}
 				viewedVersionNumber={versionNumber}
+				live={{
+					isLive: live.isLive,
+					cachedAt: content?.cachedAt,
+					lastRefreshFailure: content?.lastRefreshFailure,
+					isRefreshing: live.isRefreshing,
+					isUpdating: live.isUpdating,
+					onRefresh: live.handleRefreshData,
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
 				download={{ storyId, isOwner: true, onDownload: download }}
 				storyId={storyId}
 				canRename
@@ -320,7 +338,7 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 					viewMode={viewMode}
 					app={
 						<CustomStoryBody
-							bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
+							bottomInset={isArchived ? undefined : STORY_ASK_BAR_INSET}
 							dataSource={dataSource}
 							content={content}
 							isLoading={contentQuery.isLoading}
@@ -354,6 +372,17 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				onOpenChange={setIsAnalyticsOpen}
 				assetType='story'
 				storyId={storyId}
+			/>
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				story={{ storyId }}
+				isLive={live.isLive}
+				isLiveTextDynamic={live.isLiveTextDynamic}
+				cacheSchedule={live.cacheSchedule}
+				cacheScheduleDescription={live.cacheScheduleDescription}
+				isUpdating={live.isUpdating}
+				onSaveSettings={live.handleSaveSettings}
 			/>
 		</div>
 	);
@@ -412,7 +441,12 @@ export function SharedCustomStoryPage({
 	const download = useCustomStoryDownload(content, dataSource, renderExport);
 	const canAsk = Boolean(storyChatHeader?.storyChat?.canChat);
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
-	const presence = useStoryEditSession({ target: isSignedIn ? { storyId } : null, isEditing: false });
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
+	const presence = useStoryEditSession({
+		target: isSignedIn ? { storyId } : null,
+		isEditing: false,
+		conversationChatId: questionChatId,
+	});
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
@@ -444,7 +478,9 @@ export function SharedCustomStoryPage({
 					onAsk={canAsk ? askAboutSharedStoryElement : undefined}
 					isSelectingElements={canAsk && isSelectingElements}
 				/>
-				{storyChatHeader?.storyChat?.canChat && <StoryAskBar storyId={storyId} canEdit={canEdit} />}
+				{storyChatHeader?.storyChat?.canChat && (
+					<StoryAskBar storyId={storyId} canEdit={canEdit} onChatChange={setQuestionChatId} />
+				)}
 			</div>
 		</div>
 	);

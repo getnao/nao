@@ -1,4 +1,10 @@
-import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, STORY_FILTER_VALUE_TYPES } from './sql-template';
+import {
+	STORY_FILTER_ID_REGEX,
+	STORY_FILTER_TYPES,
+	STORY_FILTER_VALUE_TYPES,
+	type StoryFilterType,
+	TYPED_VALUE_FILTER_TYPES,
+} from './sql-template';
 import {
 	isFilterValueType,
 	parseChartAttributes,
@@ -362,10 +368,11 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 		if (needsOptionsSource) {
 			const hasHardcodedOptions = Boolean(options?.length);
 			const hasTableSource = Boolean(attrs.table && attrs.column);
-			if (!hasHardcodedOptions && !hasTableSource && !attrs.dimension) {
+			const hasOptionsQuerySource = Boolean(attrs.options_query_id);
+			if (!hasHardcodedOptions && !hasTableSource && !hasOptionsQuerySource && !attrs.dimension) {
 				errors.push({
 					message:
-						'Select filters require `options=\'["a","b"]\'`, both `table` and `column`, or a semantic layer `dimension`.',
+						'Select filters require `options=\'["a","b"]\'`, both `table` and `column`, an `options_query_id`, or a semantic layer `dimension`.',
 					line: position.line,
 					column: position.column,
 					length: fullMatch.length,
@@ -415,8 +422,8 @@ function validateFilterExtensionAttributes(
 	if (attrs.value_type !== undefined) {
 		if (!isFilterValueType(attrs.value_type)) {
 			report(`Invalid value_type "${attrs.value_type}". Valid values: ${STORY_FILTER_VALUE_TYPES.join(', ')}.`);
-		} else if (attrs.type !== 'text') {
-			report('`value_type` only applies to type="text" filters.');
+		} else if (!TYPED_VALUE_FILTER_TYPES.includes(attrs.type as StoryFilterType)) {
+			report('`value_type` only applies to select, multi_select and text filters.');
 		}
 	}
 

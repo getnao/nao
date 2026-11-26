@@ -4,12 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import type { RepoBranchList } from '@nao/shared/types';
 
 import { env } from '../env';
 import type { LinkedContextRepo } from '../types/context-recommendation';
-import type { TestContextChange } from '../types/test-run';
-import { extractConfiguredRepos, extractRawRepoConfig } from '../utils/nao-config';
+import type { TestContextChange, TestSuite } from '../types/test-run';
+import { extractConfiguredRepos, extractRawRepoConfig, resolveEnvReferences } from '../utils/nao-config';
+import { assertNoSymlinkInWritePath, resolveWritePath } from '../utils/safe-file-write';
 import {
 	copyProductionContext,
 	getSnapshotsRoot,
@@ -19,6 +21,7 @@ import {
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import type { ReviewRequest } from './review-request-provider';
 import { resolveRepositoryProvider } from './shared-github-token.service';
+import { discoverTests } from './test-suite.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +31,8 @@ const COMMAND_OUTPUT_LIMIT = 2_000;
 const SYNC_PROJECT_NAME = 'upstream-branch-sync';
 const BRANCH_REF_PREFIX = 'refs/heads/';
 const MAX_DIFF_FILE_BYTES = 1024 * 1024;
+/** Changed when the cache holds its folders differently, so a cache written the older way is not reused. */
+const CACHE_LAYOUT = 'context-paths';
 /** What `nao sync` and git need from the server environment: no secret of the project or the server. */
 const INHERITED_ENV_NAMES = [
 	'PATH',
@@ -42,6 +47,7 @@ const INHERITED_ENV_NAMES = [
 	'HTTPS_PROXY',
 	'HTTP_PROXY',
 	'NO_PROXY',
+	'NAO_MODE',
 ];
 
 export interface UpstreamRepo {
@@ -93,9 +99,10 @@ interface UpstreamBranchInput {
 }
 
 interface SyncedUpstreamBranch {
-	/** The repository as `nao sync` writes it at the branch head. */
+	/** What `nao sync` writes at the branch head, each folder at its path in the context. */
 	folder: string;
-	contextPath: string;
+	/** The context folders the repository fills: `repos/<name>` and the folders of its targets. */
+	contextFolders: string[];
 	ref: string;
 	commit: string;
 }
@@ -107,6 +114,8 @@ interface GitRemote {
 	repo: UpstreamRepo;
 	linkedRepo: LinkedContextRepo;
 	env: NodeJS.ProcessEnv;
+	/** Fill in the repository settings before `nao sync` reads them, as its environment holds none of them. */
+	projectVariables: Record<string, string>;
 	/** Removed from command output, as git may print the authenticated URL or a URL holding project variables. */
 	secrets: string[];
 }
@@ -149,22 +158,18 @@ export async function listUpstreamBranches(input: {
 }
 
 /**
- * Copies the production context and replaces one synced repository with its content at the given branch, synced
- * the way production syncs it, so the copy differs from production by that branch's changes only.
+ * Copies the production context and replaces the folders of one synced repository with their content at the given
+ * branch, synced the way production syncs it, so the copy differs from production by that branch's changes only.
  */
 export async function createUpstreamContextSnapshot(input: UpstreamBranchInput): Promise<UpstreamContextSnapshot> {
 	const remote = await resolveGitRemote({ ...input, repo: input.upstream.repo });
 	const synced = await syncUpstreamBranch(input, remote);
 	const folder = copyProductionContext(input.projectId, input.projectFolder);
 	try {
-		const snapshotRepoFolder = path.join(folder, synced.contextPath);
-		const changes = listRepoChanges(snapshotRepoFolder, synced);
-		fs.rmSync(snapshotRepoFolder, { recursive: true, force: true });
-		fs.cpSync(synced.folder, snapshotRepoFolder, {
-			recursive: true,
-			verbatimSymlinks: true,
-			filter: (source) => !isLinkOutside(source, synced.folder),
-		});
+		const changes = listRepoChanges(folder, synced);
+		for (const contextFolder of synced.contextFolders) {
+			replaceSnapshotFolder(folder, synced.folder, contextFolder);
+		}
 		return { folder, ref: synced.ref, commit: synced.commit, changes };
 	} catch (error) {
 		removeContextSnapshot(folder);
@@ -178,16 +183,31 @@ export async function readUpstreamChanges(input: UpstreamBranchInput): Promise<U
 		syncUpstreamBranch(input, remote),
 		findUpstreamReviewRequest(remote, input),
 	]);
-	const productionRepoFolder = path.join(input.projectFolder, synced.contextPath);
-	const changes = listRepoChanges(productionRepoFolder, synced).map((change) => {
-		const repoPath = change.path.slice(synced.contextPath.length + 1);
-		return {
-			...change,
-			productionContent: readTextFile(productionRepoFolder, repoPath),
-			branchContent: readTextFile(synced.folder, repoPath),
-		};
-	});
+	const changes = listRepoChanges(input.projectFolder, synced).map((change) => ({
+		...change,
+		productionContent: readTextFile(input.projectFolder, change.path),
+		branchContent: readTextFile(synced.folder, change.path),
+	}));
 	return { ref: synced.ref, commit: synced.commit, changes, reviewRequest };
+}
+
+/**
+ * The tests as `nao sync` at the branch would leave them: those the repository syncs come from the branch, the others
+ * from production.
+ */
+export async function discoverUpstreamTests(input: UpstreamBranchInput): Promise<TestSuite> {
+	const remote = await resolveGitRemote({ ...input, repo: input.upstream.repo });
+	const synced = await syncUpstreamBranch(input, remote);
+	const isSyncedTest = ({ path: testPath }: { path: string }) =>
+		synced.contextFolders.some((folder) => `${TESTS_FOLDER}/${testPath}`.startsWith(`${folder}/`));
+	const production = discoverTests(input.projectFolder);
+	const branch = discoverTests(synced.folder);
+	return {
+		tests: [...production.tests.filter((test) => !isSyncedTest(test)), ...branch.tests].sort(byPath),
+		invalidFiles: [...production.invalidFiles.filter((file) => !isSyncedTest(file)), ...branch.invalidFiles].sort(
+			byPath,
+		),
+	};
 }
 
 /** A failed lookup only hides the link, as the changes can be reviewed and tested without it. */
@@ -216,17 +236,19 @@ async function syncUpstreamBranch(input: UpstreamBranchInput, remote: GitRemote)
 	const repoConfig = { ...extractRawRepoConfig(input.projectFolder, remote.repo.name), branch: branch.name };
 	const folder = path.join(
 		getSnapshotsRoot(input.projectFolder, input.projectId),
-		`upstream-${toFolderName(remote.repo.name)}-${branch.commit}-${hashConfig(repoConfig)}`,
+		`upstream-${toFolderName(remote.repo.name)}-${branch.commit}-${hashConfig({ CACHE_LAYOUT, repoConfig })}`,
 	);
+	const { linkedRepo } = remote;
+	const contextFolders = [linkedRepo.contextPath, ...linkedRepo.targets.map((target) => target.target)];
 	if (!fs.existsSync(folder)) {
-		await syncIntoCache(remote, repoConfig, folder);
+		await syncIntoCache(remote, repoConfig, folder, contextFolders);
 		await assertBranchStayedAt(remote, branch, folder);
 	}
 	const now = new Date();
 	fs.utimesSync(folder, now, now);
 	return {
 		folder,
-		contextPath: `repos/${remote.repo.name}`,
+		contextFolders,
 		ref: `${remote.repo.name}:${branch.name}`,
 		commit: branch.commit,
 	};
@@ -252,13 +274,27 @@ async function assertBranchStayedAt(remote: GitRemote, branch: UpstreamBranch, f
 	}
 }
 
-/** Syncs into a folder of its own then moves it in place, so a concurrent sync of the same commit cannot mix files. */
-async function syncIntoCache(remote: GitRemote, repoConfig: Record<string, unknown>, folder: string): Promise<void> {
+/**
+ * Syncs into a folder of its own then moves it in place, so a concurrent sync of the same commit cannot mix files.
+ * Only the repository's folders are kept, not the settings written for `nao sync`, which hold resolved secrets.
+ */
+async function syncIntoCache(
+	remote: GitRemote,
+	repoConfig: Record<string, unknown>,
+	folder: string,
+	contextFolders: string[],
+): Promise<void> {
 	const syncFolder = `${folder}-${randomUUID()}`;
 	try {
-		const syncedRepoFolder = await syncRepo(remote, repoConfig, syncFolder);
+		const syncProjectFolder = path.join(syncFolder, 'project');
+		const cacheFolder = path.join(syncFolder, 'cache');
+		await syncRepo(remote, repoConfig, syncProjectFolder);
+		fs.mkdirSync(cacheFolder);
+		for (const contextFolder of contextFolders) {
+			moveIfExists(path.join(syncProjectFolder, contextFolder), path.join(cacheFolder, contextFolder));
+		}
 		try {
-			fs.renameSync(syncedRepoFolder, folder);
+			fs.renameSync(cacheFolder, folder);
 		} catch (error) {
 			if (!fs.existsSync(folder)) {
 				throw error;
@@ -269,11 +305,38 @@ async function syncIntoCache(remote: GitRemote, repoConfig: Record<string, unkno
 	}
 }
 
-function listRepoChanges(productionRepoFolder: string, synced: SyncedUpstreamBranch): TestContextChange[] {
-	return diffFolders(productionRepoFolder, synced.folder).map((change) => ({
-		...change,
-		path: `${synced.contextPath}/${change.path}`,
-	}));
+/** The changes of the branch against `contextRoot`, a production context or a copy of it. */
+function listRepoChanges(contextRoot: string, synced: SyncedUpstreamBranch): TestContextChange[] {
+	return synced.contextFolders
+		.flatMap((contextFolder) =>
+			diffFolders(path.join(contextRoot, contextFolder), path.join(synced.folder, contextFolder)).map(
+				(change) => ({ ...change, path: `${contextFolder}/${change.path}` }),
+			),
+		)
+		.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function replaceSnapshotFolder(snapshotFolder: string, cacheFolder: string, contextFolder: string): void {
+	const target = resolveWritePath(snapshotFolder, contextFolder);
+	assertNoSymlinkInWritePath(snapshotFolder, path.dirname(target), contextFolder);
+	fs.rmSync(target, { recursive: true, force: true });
+	const source = path.join(cacheFolder, contextFolder);
+	if (!fs.existsSync(source)) {
+		return;
+	}
+	fs.cpSync(source, target, {
+		recursive: true,
+		verbatimSymlinks: true,
+		filter: (entry) => !isLinkOutside(entry, source),
+	});
+}
+
+function moveIfExists(source: string, target: string): void {
+	if (!fs.existsSync(source)) {
+		return;
+	}
+	fs.mkdirSync(path.dirname(target), { recursive: true });
+	fs.renameSync(source, target);
 }
 
 /** Null for a missing, oversized or binary file, which the diff cannot show as text. */
@@ -283,6 +346,10 @@ function readTextFile(root: string, repoPath: string): string | null {
 		return null;
 	}
 	return content.toString('utf8');
+}
+
+function byPath(left: { path: string }, right: { path: string }): number {
+	return left.path.localeCompare(right.path);
 }
 
 function toFolderName(name: string): string {
@@ -314,7 +381,8 @@ async function resolveGitRemote(input: {
 	return {
 		repo,
 		linkedRepo,
-		env: createGitEnvironment(repo.url, authenticatedUrl, envVars),
+		env: createGitEnvironment(repo.url, authenticatedUrl),
+		projectVariables: envVars,
 		secrets: [authenticatedUrl, writtenUrl === repo.url ? null : repo.url].filter((secret) => secret !== null),
 	};
 }
@@ -346,14 +414,10 @@ async function resolveAuthenticatedUrl(repo: LinkedContextRepo, user: Repository
 
 /**
  * Git reads the URL rewrite from the environment, so the token reaches `nao sync` without being written to disk. The
- * project's variables go along, for `nao sync` to resolve the repository settings as in production.
+ * project's variables stay out of it: the project picks their names, and git, Python and the loader act on some names.
  */
-function createGitEnvironment(
-	url: string,
-	authenticatedUrl: string | null,
-	envVars: Record<string, string>,
-): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...envVars, GIT_TERMINAL_PROMPT: '0' };
+function createGitEnvironment(url: string, authenticatedUrl: string | null): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: '0' };
 	for (const name of INHERITED_ENV_NAMES) {
 		if (process.env[name] !== undefined) {
 			env[name] = process.env[name];
@@ -389,22 +453,25 @@ function sortProductionBranchFirst(branches: UpstreamBranch[], productionBranch:
 	});
 }
 
-/** Runs `nao sync` on a project holding only this repository, so no database or template of production is touched. */
-async function syncRepo(remote: GitRemote, repoConfig: Record<string, unknown>, syncFolder: string): Promise<string> {
+/**
+ * Runs `nao sync` on a project holding only this repository, so no database or template of production is touched.
+ * Its settings are written with the project's variables filled in, to resolve as in production.
+ */
+async function syncRepo(remote: GitRemote, repoConfig: Record<string, unknown>, syncFolder: string): Promise<void> {
+	const resolvedRepoConfig = resolveEnvReferences(repoConfig, remote.projectVariables);
 	fs.mkdirSync(syncFolder, { recursive: true });
 	fs.writeFileSync(
 		path.join(syncFolder, 'nao_config.yaml'),
-		JSON.stringify({ project_name: SYNC_PROJECT_NAME, repos: [repoConfig] }, null, 2),
+		JSON.stringify({ project_name: SYNC_PROJECT_NAME, repos: [resolvedRepoConfig] }, null, 2),
+		{ mode: 0o600 },
 	);
 	await runCommand(remote, 'nao', ['sync', '--provider', `repos:${remote.repo.name}`], {
 		cwd: syncFolder,
 		timeout: SYNC_TIMEOUT_MS,
 	});
-	const syncedRepoFolder = path.join(syncFolder, 'repos', remote.repo.name);
-	if (!fs.existsSync(syncedRepoFolder)) {
+	if (!fs.existsSync(path.join(syncFolder, 'repos', remote.repo.name))) {
 		throw new UpstreamContextError(`nao sync did not sync ${remote.repo.name} at branch ${repoConfig.branch}.`);
 	}
-	return syncedRepoFolder;
 }
 
 async function runCommand(
