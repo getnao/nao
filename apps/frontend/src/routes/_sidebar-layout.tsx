@@ -18,18 +18,19 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { queryClient, trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout')({
-	loader: preloadSidebarMenu,
+	loader: preloadProjectCustomizations,
 	pendingComponent: PageLoader,
 	pendingMs: 0,
 	pendingMinMs: 0,
 	component: RouteComponent,
 });
 
-/** Loads the project's menu and its icons before the layout mounts, so its custom entries don't pop in after the defaults. */
-async function preloadSidebarMenu() {
+/** Preloads the project's menu, icons and story theme so they don't pop in after the defaults. */
+async function preloadProjectCustomizations() {
 	const [project, menu] = await Promise.all([
 		queryClient.ensureQueryData(trpc.project.getCurrent.queryOptions()).catch(() => null),
 		queryClient.ensureQueryData(trpc.sidebarMenu.get.queryOptions()).catch(() => null),
+		queryClient.ensureQueryData(trpc.storyTheme.getActive.queryOptions()).catch(() => null),
 	]);
 	if (!project) {
 		return;

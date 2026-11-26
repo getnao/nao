@@ -500,6 +500,36 @@ code.dollar:before {
 	}
 }
 
+.story-filter-bar-reveal {
+	display: grid;
+	animation: story-filter-bar-reveal 300ms ease-out;
+}
+
+.story-filter-bar-reveal > * {
+	min-height: 0;
+	animation: story-filter-bar-clip 300ms;
+}
+
+@keyframes story-filter-bar-clip {
+	from,
+	to {
+		overflow: hidden;
+	}
+}
+
+@keyframes story-filter-bar-reveal {
+	from {
+		grid-template-rows: 0fr;
+		margin-bottom: -1rem;
+		opacity: 0;
+	}
+	to {
+		grid-template-rows: 1fr;
+		margin-bottom: 0;
+		opacity: 1;
+	}
+}
+
 .code-query-link {
 	text-decoration: underline;
 	cursor: pointer;

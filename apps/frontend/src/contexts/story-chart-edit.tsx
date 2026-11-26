@@ -58,6 +58,7 @@ interface StoryChartEditProviderProps {
 	storyTitle: string;
 	storyCode: string;
 	storyVersion?: number;
+	enabled?: boolean;
 	children: React.ReactNode;
 }
 
@@ -67,6 +68,7 @@ export function StoryChartEditProvider({
 	storyTitle,
 	storyCode,
 	storyVersion,
+	enabled = true,
 	children,
 }: StoryChartEditProviderProps) {
 	const { replaceBlock, isSaving } = useStoryBlockEdit({
@@ -82,9 +84,12 @@ export function StoryChartEditProvider({
 		[replaceBlock],
 	);
 
-	const value = useMemo<StoryChartEditHandlers>(
-		() => ({ saveChart, isSaving, saveDescription: VERSION_SAVE_DESCRIPTION, story: { chatId, storySlug } }),
-		[saveChart, isSaving, chatId, storySlug],
+	const value = useMemo<StoryChartEditHandlers | null>(
+		() =>
+			enabled
+				? { saveChart, isSaving, saveDescription: VERSION_SAVE_DESCRIPTION, story: { chatId, storySlug } }
+				: null,
+		[enabled, saveChart, isSaving, chatId, storySlug],
 	);
 
 	return <StoryChartEditContext.Provider value={value}>{children}</StoryChartEditContext.Provider>;
