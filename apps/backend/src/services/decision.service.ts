@@ -88,7 +88,11 @@ export async function getDecisionSettings(projectId: string) {
 			};
 		}),
 	);
-	return { providers, model: (await selectModel(context))?.model ?? null };
+	return {
+		providers,
+		model: (await selectModel(context))?.model ?? null,
+		quickEditsEnabled: context.quickEditsEnabled,
+	};
 }
 
 /**
@@ -112,6 +116,7 @@ type AccessContext = {
 	saved: DBProjectDecisionConfig[];
 	config: ConfigDecision | null;
 	pinnedModel: DecisionModel | null;
+	quickEditsEnabled: boolean;
 };
 
 async function loadAccessContext(projectId: string): Promise<AccessContext> {
@@ -124,6 +129,7 @@ async function loadAccessContext(projectId: string): Promise<AccessContext> {
 		saved,
 		config: project?.path ? readProjectConfigDecision(project.path, project.envVars ?? {}) : null,
 		pinnedModel: project?.agentSettings?.decision ?? null,
+		quickEditsEnabled: project?.agentSettings?.decisionQuickEdits === true,
 	};
 }
 

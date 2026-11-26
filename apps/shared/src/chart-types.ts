@@ -85,3 +85,23 @@ export function chartTypeSupportsComboSeries(type: ChartType): boolean {
 export function isComboChart(type: ChartType): boolean {
 	return chartTypeSupportsComboSeries(type);
 }
+
+/** Why a built-in chart cannot be drawn from these columns, or null when it can. */
+export function builtinChartConfigError(
+	chartType: ChartType,
+	{ xAxisKey, seriesCount, hasBreakdown = false }: { xAxisKey?: string; seriesCount: number; hasBreakdown?: boolean },
+): string | null {
+	if (chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
+		return `xAxisKey is required for ${chartType} charts.`;
+	}
+	if (isPieChart(chartType) && seriesCount !== 1) {
+		return `${chartType === 'donut' ? 'Donut' : 'Pie'} charts require exactly one series.`;
+	}
+	if (seriesCount === 0) {
+		return 'At least one series is required.';
+	}
+	if (isStackedChartType(chartType) && chartType !== 'horizontal_bar' && seriesCount < 2 && !hasBreakdown) {
+		return `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. Set breakdown_key to the column whose values should each become a stack.`;
+	}
+	return null;
+}

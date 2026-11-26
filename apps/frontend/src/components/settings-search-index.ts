@@ -573,6 +573,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Pick the model decisions run on and test it.',
 		keywords: ['system one', 'system 1', 'classification', 'yes/no', 'probability', 'luna'],
 	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Decision models',
+		search: { tab: 'decision-models' },
+		title: 'Quick chart edits',
+		description: 'Let the decision model restyle story charts from chat without an agent run.',
+		keywords: ['quick edit', 'chart', 'story', 'jev', 'fast', 'legend', 'chart type'],
+	},
 
 	// ── Project > Agent ──────────────────────────────────────
 	{

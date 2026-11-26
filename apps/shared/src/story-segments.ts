@@ -1,4 +1,4 @@
-import { buildStoryTableBlock } from './chart-block';
+import { buildStoryTableBlock, type StoryChartBlockInput } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 import {
 	STORY_FILTER_ID_REGEX,
@@ -288,6 +288,31 @@ export function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
 		boundaries_join_property: map.boundariesJoinProperty,
 		geometry_key: map.geometryKey,
 		title: map.title,
+	};
+}
+
+/** Maps a parsed story `<chart>` block back to the input `buildStoryChartBlock` writes the tag from. */
+export function chartBlockToInput(chart: ParsedChartBlock): StoryChartBlockInput {
+	return {
+		query_id: chart.queryId,
+		chart_type: chart.chartType as StoryChartBlockInput['chart_type'],
+		x_axis_key: chart.xAxisKey || undefined,
+		x_axis_type: (chart.xAxisType || null) as StoryChartBlockInput['x_axis_type'],
+		x_axis_label: chart.xAxisLabel,
+		series: chart.series,
+		y_axis_min: chart.yAxisMin,
+		y_axis_max: chart.yAxisMax,
+		y_axis_label: chart.yAxisLabel,
+		y_axis_right_min: chart.yAxisRightMin,
+		y_axis_right_max: chart.yAxisRightMax,
+		y_axis_right_label: chart.yAxisRightLabel,
+		title: chart.title,
+		show_data_labels: chart.showDataLabels,
+		show_legend: chart.showLegend,
+		comparison_mode: chart.comparisonMode,
+		hide_total: chart.hideTotal,
+		breakdown_key: chart.breakdownKey,
+		breakdown_limit: chart.breakdownLimit,
 	};
 }
 
