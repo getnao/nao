@@ -1,12 +1,5 @@
 import { getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
-import {
-	type AutomationEventTriggers,
-	FEEDBACK_SOURCES,
-	FEEDBACK_VOTES,
-	SHARE_ROLES,
-	SHARE_VISIBILITY,
-	type UserRole,
-} from '@nao/shared/types';
+import { FEEDBACK_SOURCES, FEEDBACK_VOTES, SHARE_ROLES, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -28,8 +21,8 @@ import {
 	deleteAutomation,
 	getAutomationWithRuns,
 	listAutomations,
+	setAutomationActive,
 	setAutomationEnabled,
-	syncAutomationJob,
 	updateAutomation,
 } from '../services/automation.service';
 import { startAutomationEditChat } from '../services/automation-editor.service';
@@ -417,24 +410,6 @@ async function getProjectAutomationOrThrow(projectId: string, id: string): Promi
 	return automation;
 }
 
-/**
- * Scheduled automations are paused through their job, which also blocks the webhook and nao events.
- * Unscheduled automations have no job, so their webhook and nao events are the on/off switch. Resuming
- * re-enables the configured nao events, and the webhook only when no nao event is configured.
- */
-async function setAutomationActive(
-	automation: AutomationWithSchedule,
-	active: boolean,
-): Promise<AutomationWithSchedule> {
-	if (automation.cron) {
-		return syncAutomationJob(automation, automation.cron, active);
-	}
-	const eventTriggers = setEventTriggersEnabled(automation.eventTriggers, active);
-	const webhookEnabled = active && Object.keys(eventTriggers).length === 0;
-	await automationQueries.setAutomationEventTriggers(automation.id, { webhookEnabled, eventTriggers });
-	return { ...automation, webhookEnabled, eventTriggers };
-}
-
 async function assertCanOwnAutomation(projectId: string, userId: string, previousOwnerId: string): Promise<void> {
 	const role = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (!role) {
@@ -446,10 +421,4 @@ async function assertCanOwnAutomation(projectId: string, userId: string, previou
 	if (!(await hasTableAccessOf(projectId, previousOwnerId, userId))) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: MISSING_TABLE_ACCESS_MESSAGE });
 	}
-}
-
-function setEventTriggersEnabled(eventTriggers: AutomationEventTriggers, enabled: boolean): AutomationEventTriggers {
-	return Object.fromEntries(
-		Object.entries(eventTriggers).map(([eventType, trigger]) => [eventType, { ...trigger, enabled }]),
-	);
 }

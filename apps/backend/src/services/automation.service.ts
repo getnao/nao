@@ -134,7 +134,7 @@ export async function setAutomationEnabled(
 	if (!automation) {
 		return null;
 	}
-	return syncAutomationJob(automation, automation.cron, enabled);
+	return setAutomationActive(automation, enabled);
 }
 
 /** Only the owner deletes an automation: false when there was nothing the user could delete. */
@@ -167,6 +167,33 @@ export function toAutomationSettings(automation: AutomationWithSchedule): Automa
 		webhookEnabled: automation.webhookEnabled,
 		eventTriggers: automation.eventTriggers,
 	};
+}
+
+/**
+ * Scheduled automations are paused through their job, which also blocks the webhook and nao events.
+ * Unscheduled automations have no job, so their webhook and nao events are the on/off switch. Resuming
+ * re-enables the configured nao events, and the webhook only when no nao event is configured.
+ */
+export async function setAutomationActive(
+	automation: AutomationWithSchedule,
+	active: boolean,
+): Promise<AutomationWithSchedule> {
+	if (automation.cron) {
+		return syncAutomationJob(automation, automation.cron, active);
+	}
+	const eventTriggers = setEventTriggersEnabled(automation.eventTriggers, active);
+	const webhookEnabled = active && Object.keys(eventTriggers).length === 0;
+	await automationQueries.setAutomationEventTriggers(automation.id, { webhookEnabled, eventTriggers });
+	return { ...automation, webhookEnabled, eventTriggers };
+}
+
+export function isAutomationPaused(
+	automation: Pick<AutomationWithSchedule, 'cron' | 'enabled' | 'webhookEnabled' | 'eventTriggers'>,
+): boolean {
+	if (automation.cron) {
+		return !automation.enabled;
+	}
+	return !automation.webhookEnabled && !hasEnabledEventTrigger(automation.eventTriggers);
 }
 
 /**
@@ -242,6 +269,12 @@ function isAddingSchedule(current: Pick<AutomationWithSchedule, 'cron'>, cron: s
 
 function hasEnabledEventTrigger(eventTriggers: AutomationEventTriggers): boolean {
 	return Object.values(eventTriggers).some((trigger) => trigger?.enabled);
+}
+
+function setEventTriggersEnabled(eventTriggers: AutomationEventTriggers, enabled: boolean): AutomationEventTriggers {
+	return Object.fromEntries(
+		Object.entries(eventTriggers).map(([eventType, trigger]) => [eventType, { ...trigger, enabled }]),
+	);
 }
 
 function toAutomationColumns(fields: Omit<AutomationSettings, 'cron' | 'enabled' | 'title'>) {

@@ -12,6 +12,7 @@ import {
 	deleteAutomation,
 	getAutomation,
 	getAutomationWithRuns,
+	isAutomationPaused,
 	listAutomations,
 	setAutomationEnabled,
 	toAutomationSettings,
@@ -77,9 +78,8 @@ const UPDATE_AUTOMATION_DESCRIPTION =
 	'Call `get_automation` first to read its current prompt and settings.';
 
 const SET_AUTOMATION_ENABLED_DESCRIPTION =
-	'Pause or resume the schedule of a nao automation. A paused automation does not run, even on its webhook ' +
-	'or feedback trigger. An automation without a schedule cannot be paused: turn its triggers off with ' +
-	'`update_automation` instead.';
+	'Pause or resume a nao automation. A paused automation does not run, on its schedule, its webhook or its ' +
+	'feedback trigger.';
 
 const DELETE_AUTOMATION_DESCRIPTION =
 	'Delete a nao automation and its run history. Only its owner can delete it. Confirm with the user first.';
@@ -189,15 +189,10 @@ function setAutomationEnabledTool(actor: AutomationActor): RegisterMcpToolOption
 			if (!automation) {
 				return unavailableAutomation(automation_id, 'edit');
 			}
-			if (!automation.cron) {
-				return errorResult(
-					`The automation "${automation.title}" has no schedule, so it cannot be paused: turn its triggers off with \`update_automation\` instead.`,
-				);
-			}
 			return jsonToolResult({
 				automation_id: automation.id,
 				title: automation.title,
-				paused: isPaused(automation),
+				paused: isAutomationPaused(automation),
 			});
 		},
 	};
@@ -238,7 +233,7 @@ function toListedAutomation(automation: AutomationListItem) {
 		url: automationUrl(automation.id),
 		access: automation.accessRole,
 		owner: automation.ownerName,
-		paused: isPaused(automation),
+		paused: isAutomationPaused(automation),
 		schedule: automation.cron ? automation.scheduleDescription || automation.cron : null,
 		lastRunStatus: automation.lastRunStatus,
 		lastRunStartedAt: automation.lastRunStartedAt?.toISOString() ?? null,
@@ -249,7 +244,7 @@ function toAutomationOutput(automation: AutomationWithSchedule) {
 	return {
 		automation_id: automation.id,
 		url: automationUrl(automation.id),
-		paused: isPaused(automation),
+		paused: isAutomationPaused(automation),
 		...describeAutomation(toAutomationSettings(automation)),
 	};
 }
@@ -263,12 +258,6 @@ function toRunOutput(run: DBAutomationRun) {
 		error: run.errorMessage,
 	};
 }
-
-/** Only a schedule can be paused; the other triggers are turned on and off one by one. */
-function isPaused(automation: Pick<AutomationWithSchedule, 'cron' | 'enabled'>): boolean {
-	return Boolean(automation.cron) && !automation.enabled;
-}
-
 function unavailableAutomation(automationId: string, action: string): ToolResult {
 	return errorResult(`No automation "${automationId}" that you can ${action}. Call \`list_automations\` for ids.`);
 }

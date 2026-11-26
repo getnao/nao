@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	createAutomation: vi.fn(),
 	deleteAutomation: vi.fn(),
 	getAutomationById: vi.fn(),
+	setAutomationEventTriggers: vi.fn(),
 	updateAutomation: vi.fn(),
 	upsertRecurringJob: vi.fn(),
 }));
@@ -35,6 +36,7 @@ vi.mock('../../../src/queries/automation.queries', () => ({
 	}),
 	getAutomationById: mocks.getAutomationById,
 	linkAutomationJob: vi.fn(),
+	setAutomationEventTriggers: mocks.setAutomationEventTriggers,
 	updateAutomation: mocks.updateAutomation,
 }));
 vi.mock('../../../src/queries/scheduled-job.queries', () => ({
@@ -223,6 +225,35 @@ describe('MCP update_automation', () => {
 		expect(result.isError).toBe(true);
 		expect(JSON.stringify(result.content)).toContain('that you can edit');
 		expect(mocks.updateAutomation).not.toHaveBeenCalled();
+	});
+});
+
+describe('MCP set_automation_enabled', () => {
+	it('pauses and resumes an automation without a schedule through its triggers', async () => {
+		mocks.savedChanges = { cron: '', enabled: false, scheduledJobId: null, webhookEnabled: true };
+		const client = await connect('user');
+
+		const paused = await client.callTool({
+			name: 'set_automation_enabled',
+			arguments: { automation_id: 'automation-1', enabled: false },
+		});
+		expect(mocks.setAutomationEventTriggers).toHaveBeenCalledWith('automation-1', {
+			webhookEnabled: false,
+			eventTriggers: {},
+		});
+		expect(paused.structuredContent).toMatchObject({ paused: true });
+
+		mocks.savedChanges = { ...mocks.savedChanges, webhookEnabled: false };
+		const resumed = await client.callTool({
+			name: 'set_automation_enabled',
+			arguments: { automation_id: 'automation-1', enabled: true },
+		});
+		expect(mocks.setAutomationEventTriggers).toHaveBeenLastCalledWith('automation-1', {
+			webhookEnabled: true,
+			eventTriggers: {},
+		});
+		expect(resumed.structuredContent).toMatchObject({ paused: false });
+		expect(mocks.upsertRecurringJob).not.toHaveBeenCalled();
 	});
 });
 
