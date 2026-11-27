@@ -1,4 +1,5 @@
 import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
+import { randomUUID } from '@nao/shared/utils';
 import { Store } from './abstract-store';
 import type { StoryElementCitation } from '@nao/shared/story-app';
 import type { CitationData } from '@nao/shared/types';
@@ -102,5 +103,5 @@ export function toMessageCitations(
 }
 
 function withId(citation: CitationData): PendingCitation {
-	return { ...citation, id: crypto.randomUUID() };
+	return { ...citation, id: randomUUID() };
 }

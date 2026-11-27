@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, Square, X } from 'lucide-react';
 import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
+import { randomUUID } from '@nao/shared/utils';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { UIMessage } from '@nao/backend/chat';
@@ -564,7 +565,7 @@ function withCitation(session: AskSession, incoming: CitationData): AskSession {
 	if (isDuplicate || session.citations.length >= MAX_CITATIONS_PER_MESSAGE) {
 		return session;
 	}
-	return { ...session, citations: [...session.citations, { ...citation, id: crypto.randomUUID() }] };
+	return { ...session, citations: [...session.citations, { ...citation, id: randomUUID() }] };
 }
 
 function withoutCitations(citations: PendingCitation[], removed: PendingCitation[]): PendingCitation[] {

@@ -1,3 +1,4 @@
+import { sha256 } from '@noble/hashes/sha2.js';
 import { STORY_HOST_MODULE, STORY_RUNTIME_MODULES } from '@nao/shared/story-app';
 import { composeStoryDocument, escapeScript, storyStylesheets } from '@nao/shared/story-document';
 import { storyMapTileCspSources } from '@nao/shared/story-map-tiles';
@@ -20,7 +21,7 @@ export interface StoryFrameDocumentInput {
 }
 
 /** Assembles the HTML a custom story runs in. */
-export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): Promise<string> {
+export function buildStoryFrameDocument(input: StoryFrameDocumentInput): string {
 	const runtimeOrigin = new URL(input.runtime.baseUrl).origin;
 	const importMapScript = escapeScript(JSON.stringify(importMap(input.runtime)));
 	const boot = {
@@ -33,7 +34,8 @@ export async function buildStoryFrameDocument(input: StoryFrameDocumentInput): P
 	const bootScript = `\nimport { bootStory } from ${JSON.stringify(STORY_HOST_MODULE)};\nbootStory(${escapeScript(
 		JSON.stringify(boot),
 	)});\n`;
-	const [importMapHash, bootHash] = await Promise.all([sha256Source(importMapScript), sha256Source(bootScript)]);
+	const importMapHash = sha256Source(importMapScript);
+	const bootHash = sha256Source(bootScript);
 
 	const fontHosts = FONT_STYLESHEET_HOSTS.map((host) => `https://${host}`).join(' ');
 	const tileHosts = storyMapTileCspSources().join(' ');
@@ -71,7 +73,7 @@ function importMap(runtime: StoryRuntimeLocation): { imports: Record<string, str
 	};
 }
 
-async function sha256Source(source: string): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
-	return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
+function sha256Source(source: string): string {
+	const digest = sha256(new TextEncoder().encode(source));
+	return `'sha256-${btoa(String.fromCharCode(...digest))}'`;
 }

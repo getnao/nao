@@ -25,6 +25,7 @@
 		"./sidebar-menu": "./src/sidebar-menu.ts",
 		"./test-paths": "./src/test-paths.ts",
 		"./types": "./src/types.ts",
+		"./utils": "./src/utils.ts",
 		"./member-budget": "./src/member-budget.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",

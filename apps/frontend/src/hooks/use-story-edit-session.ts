@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { TRPCClientError } from '@trpc/client';
+import { randomUUID } from '@nao/shared/utils';
 
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
@@ -15,7 +16,7 @@ const USER_ACTIVITY_EVENTS = ['keydown', 'pointerdown', 'wheel'] as const;
 const LOCK_REFUSAL_CODES = new Set(['CONFLICT', 'FORBIDDEN']);
 
 /** Tells this browser tab apart from the other tabs of the same person. */
-const EDIT_SESSION_ID = crypto.randomUUID();
+const EDIT_SESSION_ID = randomUUID();
 
 let pendingLockRequest: Promise<void> | null = null;
 

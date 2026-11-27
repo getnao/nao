@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { randomUUID } from '@nao/shared/utils';
 
 import { trpc } from '@/main';
 
@@ -89,8 +90,7 @@ export function useCreditTopUp(creditCheckout: string | undefined) {
 		feedback,
 		isPending: checkout.isPending,
 		error: checkout.error?.message ?? null,
-		startCheckout: (creditAmountCents: number) =>
-			checkout.mutate({ creditAmountCents, requestId: crypto.randomUUID() }),
+		startCheckout: (creditAmountCents: number) => checkout.mutate({ creditAmountCents, requestId: randomUUID() }),
 		retryConfirmation: () => {
 			setIsPolling(true);
 		},

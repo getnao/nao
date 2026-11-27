@@ -7,6 +7,7 @@ import {
 	MAX_MENU_ENTRY_LABEL_LENGTH,
 	sidebarMenuEntrySchema,
 } from '@nao/shared/sidebar-menu';
+import { randomUUID } from '@nao/shared/utils';
 import type { CustomMenuEntry, StoriesPageFilters } from '@nao/shared/sidebar-menu';
 
 import { Button } from '@/components/ui/button';
@@ -93,9 +94,7 @@ function EntryForm({
 
 	function handleSubmit(event: React.FormEvent) {
 		event.preventDefault();
-		const parsed = sidebarMenuEntrySchema.safeParse(
-			toEntry(draft, entry?.id ?? crypto.randomUUID(), entry?.icon ?? null),
-		);
+		const parsed = sidebarMenuEntrySchema.safeParse(toEntry(draft, entry?.id ?? randomUUID(), entry?.icon ?? null));
 		if (!parsed.success || parsed.data.type === 'built-in') {
 			setError(getDraftError(draft));
 			return;

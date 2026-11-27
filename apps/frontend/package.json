@@ -21,6 +21,7 @@
 		"@monaco-editor/react": "^4.7.0",
 		"@nao/backend": "*",
 		"@nao/shared": "*",
+		"@noble/hashes": "^2.2.0",
 		"@radix-ui/react-accordion": "^1.2.12",
 		"@radix-ui/react-alert-dialog": "^1.1.15",
 		"@radix-ui/react-dialog": "^1.1.15",

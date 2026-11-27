@@ -33,6 +33,19 @@ export default [
 			'@typescript-eslint/array-type': 'off',
 			'@typescript-eslint/no-unnecessary-condition': 'off',
 			'react-hooks/exhaustive-deps': 'error',
+			'no-restricted-properties': [
+				'error',
+				{
+					object: 'crypto',
+					property: 'randomUUID',
+					message: 'Not available over plain HTTP. Use randomUUID from @nao/shared/utils.',
+				},
+				{
+					object: 'crypto',
+					property: 'subtle',
+					message: 'Not available over plain HTTP. Use @noble/hashes instead.',
+				},
+			],
 			'no-restricted-imports': [
 				'error',
 				{

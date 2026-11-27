@@ -8,6 +8,7 @@ import {
 } from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
 import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
+import { randomUUID } from '@nao/shared/utils';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -472,7 +473,7 @@ function awaitReply<T>(
 	pending: Map<string, PendingRequest<T>>,
 	buildMessage: (requestId: string) => StoryFrameMessage,
 ): Promise<T> {
-	const requestId = crypto.randomUUID();
+	const requestId = randomUUID();
 	return new Promise<T>((resolve, reject) => {
 		const timeout = window.setTimeout(() => {
 			pending.delete(requestId);
