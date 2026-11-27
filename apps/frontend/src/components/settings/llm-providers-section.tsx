@@ -188,6 +188,7 @@ export function LlmProvidersSection({ isAdmin, providerToEdit, onProviderToEditO
 						<LlmProviderForm
 							key={config.id}
 							provider={config.provider}
+							configId={config.id}
 							isEditing={true}
 							inheritedKeySource={editingState.inheritedKeySource}
 							initialName={config.name}

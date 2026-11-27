@@ -5,6 +5,7 @@ import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'luci
 import { useEffect, useRef, useState } from 'react';
 
 import { CustomModelDialog } from './custom-model-dialog';
+import { DatabricksServingEndpoints } from './databricks-serving-endpoints';
 import { ModelParametersDialog } from './model-parameters-dialog';
 import { applySavedModelSettings } from './model-settings-overrides';
 import type { LlmProvider } from '@nao/shared/types';
@@ -24,6 +25,7 @@ const INHERITED_KEY_LABELS: Record<InheritedKeySource, string> = {
 
 export interface LlmProviderFormProps {
 	provider: LlmProvider;
+	configId?: string;
 	isEditing: boolean;
 	inheritedKeySource: InheritedKeySource | null;
 	initialName?: string;
@@ -56,6 +58,7 @@ export interface LlmProviderFormProps {
 
 export function LlmProviderForm({
 	provider,
+	configId,
 	isEditing,
 	inheritedKeySource,
 	initialName,
@@ -460,6 +463,18 @@ export function LlmProviderForm({
 									<Plus className='size-4' />
 								</Button>
 							</div>
+							{kind === 'databricks' && (
+								<DatabricksServingEndpoints
+									configId={configId}
+									getConnection={() => ({
+										baseUrl: form.getFieldValue('baseUrl'),
+										apiKey: form.getFieldValue('apiKey'),
+										credentials: form.getFieldValue('credentials'),
+									})}
+									enabledModels={enabledModels}
+									onAdd={(endpoint) => field.handleChange([...enabledModels, endpoint])}
+								/>
+							)}
 						</div>
 					);
 				}}
