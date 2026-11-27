@@ -82,6 +82,7 @@ import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
+import { slackOAuthRoutes } from './routes/slack-oauth';
 import { ssoRoutes } from './routes/sso';
 import { storyThumbnailRoutes } from './routes/story-thumbnail';
 import { stripeWebhookRoutes } from './routes/stripe-webhook';
@@ -205,10 +206,12 @@ if (requestTracingEnabled) {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
+	const requestPath = request.url.split('?')[0];
+
 	if (
-		request.url.includes('log.listLogs') ||
-		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
-		request.url === HEALTH_PATH
+		requestPath.includes('log.listLogs') ||
+		requestPath.startsWith(BACKOFFICE_LOGS_PATH) ||
+		requestPath === HEALTH_PATH
 	) {
 		done();
 		return;
@@ -217,10 +220,10 @@ app.addHook('onResponse', (request, reply, done) => {
 		done();
 		return;
 	}
-	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
+	logger.info(`${request.method} ${requestPath} ${reply.statusCode}`, {
 		source: 'http',
 		userId: request.actorUserId,
-		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
+		context: { method: request.method, url: requestPath, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
 	});
 	done();
 });
@@ -317,6 +320,10 @@ app.register(ssoRoutes, {
 
 app.register(slackRoutes, {
 	prefix: '/api/webhooks/slack',
+});
+
+app.register(slackOAuthRoutes, {
+	prefix: '/api/slack/oauth',
 });
 
 app.register(teamsRoutes, {

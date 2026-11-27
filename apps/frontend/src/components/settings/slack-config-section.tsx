@@ -31,6 +31,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 
 	const projectConfig = slackConfig.data?.projectConfig;
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
+	const oauthInstallUrl = slackConfig.data?.oauthInstallUrl;
 	const transportMode = projectConfig?.transportMode ?? 'webhook';
 	const replyMode = projectConfig?.replyMode ?? 'thread';
 	const dmThreadsEnabled = projectConfig?.dmThreadsEnabled ?? false;
@@ -183,6 +184,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 		return (
 			<SlackForm
 				webhookUrl={webhookUrl}
+				oauthInstallUrl={oauthInstallUrl}
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
 				onCancel={handleCancel}

@@ -841,6 +841,20 @@
       "when": 1795519219785,
       "tag": "0119_decision_models",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1795529950459,
+      "tag": "0120_cloud-slack-oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1795536377828,
+      "tag": "0121_slack_installation_version_number",
+      "breakpoints": true
     }
   ]
 }

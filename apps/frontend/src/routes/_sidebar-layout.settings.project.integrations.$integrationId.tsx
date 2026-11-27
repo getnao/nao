@@ -1,10 +1,16 @@
 import { createFileRoute, Link, redirect } from '@tanstack/react-router';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, CircleAlert } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import type { IntegrationId } from '@/components/settings/integrations';
 
 import { IntegrationStatusBadge } from '@/components/settings/integration-card';
-import { integrations, isIntegrationId, useIntegrationStatuses } from '@/components/settings/integrations';
+import {
+	integrations,
+	isIntegrationId,
+	SLACK_OAUTH_CONNECTED_STORAGE_KEY,
+	useIntegrationStatuses,
+} from '@/components/settings/integrations';
 import { LinkingCodesCard } from '@/components/settings/linking-code-section';
 import { DiscordConfigSection } from '@/components/settings/discord-config-section';
 import { MattermostConfigSection } from '@/components/settings/mattermost-config-section';
@@ -38,6 +44,45 @@ function IntegrationDetailPage() {
 	const navigate = Route.useNavigate();
 	const integrationStatuses = useIntegrationStatuses();
 	const { isAdmin } = usePermissions();
+	const [slackOAuthError, setSlackOAuthError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (integrationId !== 'slack') {
+			return;
+		}
+
+		const handleConnected = (event: StorageEvent) => {
+			if (event.key === SLACK_OAUTH_CONNECTED_STORAGE_KEY) {
+				setSlackOAuthError(null);
+			}
+		};
+
+		window.addEventListener('storage', handleConnected);
+
+		const callbackUrl = new URL(window.location.href);
+		const result = callbackUrl.searchParams.get('slack');
+
+		if (result) {
+			callbackUrl.searchParams.delete('slack');
+			window.history.replaceState(null, '', callbackUrl);
+
+			if (result === 'connected') {
+				localStorage.setItem(SLACK_OAUTH_CONNECTED_STORAGE_KEY, Date.now().toString());
+				window.close();
+			} else {
+				const messages: Record<string, string> = {
+					unauthorized: 'Please sign in to nao and try connecting Slack again.',
+					missing_project: 'No project was selected for this Slack connection.',
+					forbidden: 'Only project administrators can connect Slack.',
+					error: 'Slack could not be connected. Authorization may have expired, been denied, or the workspace may already be connected.',
+				};
+
+				setSlackOAuthError(messages[result] ?? 'Slack could not be connected. Please try again.');
+			}
+		}
+
+		return () => window.removeEventListener('storage', handleConnected);
+	}, [integrationId]);
 
 	const handleCancelSetup = () => {
 		void navigate({
@@ -75,6 +120,15 @@ function IntegrationDetailPage() {
 					<IntegrationStatusBadge connected={status.connected} />
 				</div>
 			</div>
+			{slackOAuthError && (
+				<div
+					role='alert'
+					className='flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'
+				>
+					<CircleAlert className='mt-0.5 size-4 shrink-0' />
+					<span>{slackOAuthError}</span>
+				</div>
+			)}
 			<IntegrationConfiguration
 				integrationId={integrationId}
 				isAdmin={isAdmin}

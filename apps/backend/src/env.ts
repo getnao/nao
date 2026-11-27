@@ -219,6 +219,10 @@ const baseRawEnvSchema = z.object({
 	CLOUD_GITHUB_PROJECT_INSTALLATION_ID: optionalNonEmptyString,
 	CLOUD_GITHUB_PROJECT_PRIVATE_KEY: optionalNonEmptyString,
 
+	CLOUD_SLACK_OAUTH_CLIENT_ID: optionalNonEmptyString,
+	CLOUD_SLACK_OAUTH_CLIENT_SECRET: optionalNonEmptyString,
+	CLOUD_SLACK_OAUTH_SIGNING_SECRET: optionalNonEmptyString,
+
 	AZURE_AD_CLIENT_ID: z.string().optional(),
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),

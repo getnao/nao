@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { ComponentType } from 'react';
 
@@ -9,9 +10,11 @@ import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import TelegramIcon from '@/components/icons/telegram.svg';
 import WhatsAppIcon from '@/components/icons/whatsapp.svg';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { trpc } from '@/main';
 
 export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost', 'discord'] as const;
+export const SLACK_OAUTH_CONNECTED_STORAGE_KEY = 'nao:slack-oauth-connected';
 
 export type IntegrationId = (typeof integrationIds)[number];
 
@@ -24,6 +27,7 @@ interface IntegrationMetadata {
 interface IntegrationStatus {
 	connected: boolean;
 	summary: string;
+	connectUrl?: string;
 }
 
 type SlackProjectConfig = NonNullable<inferRouterOutputs<TrpcRouter>['project']['getSlackConfig']['projectConfig']>;
@@ -62,6 +66,8 @@ export const integrations: IntegrationMetadata[] = [
 ];
 
 export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatus> {
+	const queryClient = useQueryClient();
+	const isCloud = useIsCloud();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
 	const teamsConfig = useQuery(trpc.project.getTeamsConfig.queryOptions());
 	const telegramConfig = useQuery(trpc.project.getTelegramConfig.queryOptions());
@@ -77,9 +83,20 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 	const mattermostProjectConfig = mattermostConfig.data?.projectConfig;
 	const discordProjectConfig = discordConfig.data?.projectConfig;
 
+	useEffect(() => {
+		const handleSlackOAuthConnected = (event: StorageEvent) => {
+			if (event.key === SLACK_OAUTH_CONNECTED_STORAGE_KEY) {
+				void queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			}
+		};
+		window.addEventListener('storage', handleSlackOAuthConnected);
+		return () => window.removeEventListener('storage', handleSlackOAuthConnected);
+	}, [queryClient]);
+
 	return {
 		slack: {
 			connected: Boolean(slackProjectConfig),
+			connectUrl: isCloud && !slackProjectConfig ? slackConfig.data?.oauthInstallUrl || undefined : undefined,
 			summary: slackProjectConfig
 				? getSlackSummary(slackProjectConfig.transportMode, slackProjectConfig.replyMode)
 				: 'Chat with nao from Slack',

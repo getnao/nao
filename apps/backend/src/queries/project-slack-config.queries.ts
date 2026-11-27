@@ -6,41 +6,62 @@ import { db } from '../db/db';
 import { env } from '../env';
 import { SlackReplyMode, SlackTransportMode } from '../types/messaging-provider';
 import { toLlmSelectedModel, updateProjectSettings } from './project-settings.queries';
+import * as SlackInstallationQueries from './project-slack-installation.queries';
 
 export const getProjectSlackConfig = async (projectId: string): Promise<SlackConfig | null> => {
-	const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId)).execute();
+	const [project, installation] = await Promise.all([
+		db
+			.select()
+			.from(s.project)
+			.where(eq(s.project.id, projectId))
+			.then(([result]) => result),
+		SlackInstallationQueries.getSlackInstallationByProjectId(projectId),
+	]);
+
+	if (!project) {
+		return null;
+	}
+
 	const settings = project?.slackSettings;
+	const isOAuth = Boolean(installation);
+	const botToken = installation?.encryptedBotToken ?? settings?.slackBotToken;
+	const signingSecret = isOAuth ? env.CLOUD_SLACK_OAUTH_SIGNING_SECRET : settings?.slackSigningSecret;
 
-	if (!settings?.slackBotToken) {
+	if (!botToken) {
 		return null;
 	}
 
-	const transportMode: SlackTransportMode = settings.slackTransportMode === 'socket' ? 'socket' : 'webhook';
+	const transportMode: SlackTransportMode = isOAuth
+		? 'webhook'
+		: settings?.slackTransportMode === 'socket'
+			? 'socket'
+			: 'webhook';
 
-	if (transportMode === 'webhook' && !settings.slackSigningSecret) {
+	if (transportMode === 'webhook' && !signingSecret) {
 		return null;
 	}
-	if (transportMode === 'socket' && !settings.slackAppToken) {
+
+	if (transportMode === 'socket' && !settings?.slackAppToken) {
 		return null;
 	}
 
 	return {
 		projectId,
-		botToken: settings.slackBotToken,
-		signingSecret: settings.slackSigningSecret ?? '',
-		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
+		botToken,
+		signingSecret: signingSecret ?? '',
+		redirectUrl: env.BETTER_AUTH_URL,
 		modelSelection: toLlmSelectedModel(
-			settings.slackllmProvider,
-			settings.slackllmModelId,
-			settings.slackllmConfigId,
+			settings?.slackllmProvider,
+			settings?.slackllmModelId,
+			settings?.slackllmConfigId,
 		),
-		autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
-		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+		autoCreateUsersEnabled: settings?.autoCreateUsersEnabled ?? false,
+		autoCreateUsersDomains: settings?.autoCreateUsersDomains ?? [],
 		transportMode,
-		appToken: settings.slackAppToken ?? '',
-		replyMode: toSlackReplyMode(settings.slackReplyMode),
-		dmScopeMissing: settings.slackDmScopeMissing ?? false,
-		dmThreadsEnabled: settings.slackDmThreadsEnabled ?? false,
+		appToken: isOAuth ? '' : (settings?.slackAppToken ?? ''),
+		replyMode: toSlackReplyMode(settings?.slackReplyMode),
+		dmScopeMissing: settings?.slackDmScopeMissing ?? false,
+		dmThreadsEnabled: settings?.slackDmThreadsEnabled ?? false,
 	};
 };
 
@@ -88,6 +109,26 @@ export const upsertProjectSlackConfig = async (data: {
 		),
 		replyMode: toSlackReplyMode(settings?.slackReplyMode),
 	};
+};
+
+export const ensureProjectSlackSettings = async (projectId: string): Promise<void> => {
+	await updateProjectSettings(
+		projectId,
+		'slackSettings',
+		(existing) =>
+			existing ?? {
+				slackBotToken: '',
+				slackSigningSecret: '',
+				slackllmProvider: '',
+				slackllmModelId: '',
+				autoCreateUsersEnabled: false,
+				autoCreateUsersDomains: [],
+				slackTransportMode: 'webhook',
+				slackAppToken: '',
+				slackReplyMode: 'thread',
+				slackDmThreadsEnabled: false,
+			},
+	);
 };
 
 /** Overwrite only the credential and transport fields, keeping the UI-managed ones. */

@@ -56,6 +56,7 @@ import { getMissingProjectEnvVars, reconcileProjectReadiness, updateProjectEnvVa
 import { isProjectSetupComplete } from '../services/project-readiness.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
+import { disconnectSlackWorkspace, isSlackOAuthConfigured } from '../services/slack-oauth.service';
 import { resolveDefaultDatabaseId } from '../services/sql-query-tag.service';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
@@ -604,7 +605,7 @@ export const projectRoutes = {
 
 	getSlackConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, webhookUrl: '' };
+			return { projectConfig: null, webhookUrl: '', oauthInstallUrl: '' };
 		}
 
 		const config = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
@@ -629,9 +630,12 @@ export const projectRoutes = {
 			: null;
 
 		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		const oauthInstallUrl = new URL('/api/slack/oauth/install', baseUrl);
+		oauthInstallUrl.searchParams.set('projectId', ctx.project.id);
 		return {
 			projectConfig,
 			webhookUrl: `${baseUrl}/api/webhooks/slack/${ctx.project.id}`,
+			oauthInstallUrl: isSlackOAuthConfigured() ? oauthInstallUrl.toString() : '',
 		};
 	}),
 
@@ -736,6 +740,7 @@ export const projectRoutes = {
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await disconnectSlackWorkspace(ctx.project.id);
 		await slackConfigQueries.deleteProjectSlackConfig(ctx.project.id);
 		await slackService.stopProject(ctx.project.id);
 		return { success: true };

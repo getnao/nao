@@ -1,0 +1,1 @@
+ALTER TABLE "project_slack_installation" ADD COLUMN "installation_version" integer DEFAULT 1 NOT NULL;
