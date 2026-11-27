@@ -95,6 +95,7 @@ describe('WarehouseCredentialsForm', () => {
 		);
 
 		expect(screen.getByLabelText(/Programmatic Access Token/)).toBeTruthy();
+		expect(screen.getByLabelText(/^Role/)).toBeTruthy();
 		expect(screen.queryByLabelText(/^Private Key$/)).toBeNull();
 		expect(screen.queryByLabelText(/^Password/)).toBeNull();
 	});

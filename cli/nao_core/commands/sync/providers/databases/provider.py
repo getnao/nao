@@ -355,6 +355,12 @@ def sync_database(
                 )
             schema_tables[schema] = tables
 
+        if schemas and len(failed_schemas) == len(schemas):
+            raise RuntimeError(
+                f"Unable to inspect any of the {len(schemas)} discovered schemas. "
+                "Check the configured role's permissions and database settings."
+            )
+
         if empty_schemas and len(empty_schemas) + len(failed_schemas) == len(schemas):
             UI.print(
                 f"  [yellow]⚠[/yellow] [dim]No tables listed in[/dim] {', '.join(empty_schemas)} "

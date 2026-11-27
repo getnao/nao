@@ -42,6 +42,7 @@ export interface WarehouseCredentialsFormValues {
 	awsAccessKeyId: string;
 	awsSecretAccessKey: string;
 	awsSessionToken: string;
+	role: string;
 }
 
 export function getClickHouseDefaultPort(
@@ -94,6 +95,7 @@ export function getWarehouseCredentialsDefaults(provider: SqlProvider): Warehous
 		awsAccessKeyId: '',
 		awsSecretAccessKey: '',
 		awsSessionToken: '',
+		role: '',
 	};
 }
 
@@ -195,6 +197,7 @@ export function buildWarehouseCredentials(
 				accountId: values.accountId,
 				username: values.user,
 				...buildSnowflakeAuthentication(values),
+				role: values.role || undefined,
 			};
 		case 'starrocks':
 			return {

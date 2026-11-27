@@ -157,6 +157,19 @@ class TestSyncDatabaseConnectionCleanup:
         mock_conn.disconnect.assert_called_once()
 
 
+def test_fails_when_every_discovered_schema_cannot_be_inspected(tmp_path, mock_progress):
+    db_config = create_mock_db_config(schemas=["marts", "finance"])
+    mock_conn = db_config.connect.return_value
+    mock_conn.list_tables.side_effect = RuntimeError("access denied")
+    engine = create_mock_engine(templates=[], render_behavior=None)
+
+    with pytest.raises(RuntimeError, match="Unable to inspect any of the 2 discovered schemas"):
+        run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
+
+    assert mock_conn.list_tables.call_count == 2
+    mock_conn.disconnect.assert_called_once()
+
+
 @pytest.mark.parametrize(("tables", "warned"), [([], True), (["orders"], False)], ids=["no_tables", "tables"])
 def test_warns_when_no_schema_lists_any_table(tmp_path, mock_progress, tables, warned):
     db_config = create_mock_db_config(schemas=["marts", "finance"])

@@ -32,7 +32,8 @@ export type WarehouseCredentialField =
 	| 'tenantId'
 	| 'user'
 	| 'warehouse'
-	| 'workgroupName';
+	| 'workgroupName'
+	| 'role';
 
 interface SqlProviderSettings {
 	label: string;
@@ -109,7 +110,7 @@ export const SQL_PROVIDER_SETTINGS: Record<SqlProvider, SqlProviderSettings> = {
 	snowflake: {
 		label: 'Snowflake',
 		defaultPort: 443,
-		fields: ['database', 'user', 'schemaName', 'warehouse', 'accountId'],
+		fields: ['database', 'user', 'schemaName', 'warehouse', 'accountId', 'role'],
 	},
 	starrocks: {
 		label: 'StarRocks',
