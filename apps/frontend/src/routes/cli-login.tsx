@@ -1,38 +1,28 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { CheckCircle2, TerminalSquare, XCircle } from 'lucide-react';
+import { AppWindow, CheckCircle2, TerminalSquare, XCircle } from 'lucide-react';
 
+import type { LoginClient } from '@/lib/cli-login';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ErrorMessage } from '@/components/ui/error-message';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
+import { buildCallbackUrl, getLoginClientCopy, parseCallbackPort, parseLoginClient } from '@/lib/cli-login';
 
 export const Route = createFileRoute('/cli-login')({
 	validateSearch: (search: Record<string, unknown>) => ({
 		port: typeof search.port === 'string' || typeof search.port === 'number' ? String(search.port) : undefined,
 		state: typeof search.state === 'string' ? search.state : undefined,
+		client: search.client === 'desktop' ? ('desktop' as const) : undefined,
 	}),
 	component: CliLogin,
 });
 
-function parseCallbackPort(port: string | undefined): number | null {
-	if (!port || !/^\d+$/.test(port)) {
-		return null;
-	}
-	const parsed = Number(port);
-	if (parsed < 1 || parsed > 65535) {
-		return null;
-	}
-	return parsed;
-}
-
-function buildCallbackUrl(port: number, params: Record<string, string>): string {
-	return `http://127.0.0.1:${port}/callback?${new URLSearchParams(params)}`;
-}
-
 function CliLogin() {
-	const { port, state } = Route.useSearch();
+	const { port, state, client: clientParam } = Route.useSearch();
 	const callbackPort = parseCallbackPort(port);
+	const client = parseLoginClient(clientParam);
+	const copy = getLoginClientCopy(client);
 
 	const decision = useMutation({
 		mutationFn: async (accept: boolean) => {
@@ -46,9 +36,11 @@ function CliLogin() {
 			const response = await fetch('/api/cli-auth/authorize', {
 				method: 'POST',
 				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ client }),
 			});
 			if (!response.ok) {
-				throw new Error('Could not authorize the CLI. Please try again.');
+				throw new Error(copy.authorizeError);
 			}
 			const { code } = (await response.json()) as { code: string };
 			window.location.href = buildCallbackUrl(callbackPort, { code, state });
@@ -57,8 +49,8 @@ function CliLogin() {
 
 	if (!callbackPort || !state) {
 		return (
-			<CenteredCard>
-				<ErrorMessage message='Invalid CLI login request: missing or invalid port or state parameter.' />
+			<CenteredCard heading={copy.heading}>
+				<ErrorMessage message={copy.invalidRequest} />
 			</CenteredCard>
 		);
 	}
@@ -66,7 +58,7 @@ function CliLogin() {
 	if (decision.isSuccess) {
 		const accepted = decision.variables;
 		return (
-			<CenteredCard>
+			<CenteredCard heading={copy.heading}>
 				<div className='flex flex-col items-center gap-4 text-center'>
 					{accepted ? (
 						<CheckCircle2 className='size-10 text-violet' />
@@ -74,11 +66,9 @@ function CliLogin() {
 						<XCircle className='size-10 text-muted-foreground' />
 					)}
 					<div className='space-y-2'>
-						<h2 className='text-lg font-semibold'>{accepted ? 'CLI authorized' : 'Access denied'}</h2>
+						<h2 className='text-lg font-semibold'>{accepted ? copy.authorizedTitle : 'Access denied'}</h2>
 						<p className='text-sm text-muted-foreground'>
-							{accepted
-								? 'You can close this window and return to your terminal.'
-								: 'You have denied the nao CLI access to your account. You can close this window.'}
+							{accepted ? copy.authorizedMessage : copy.deniedMessage}
 						</p>
 					</div>
 				</div>
@@ -87,22 +77,17 @@ function CliLogin() {
 	}
 
 	return (
-		<CenteredCard>
+		<CenteredCard heading={copy.heading}>
 			<Card className='bg-background'>
 				<CardHeader>
 					<CardTitle className='flex items-center gap-2'>
-						<TerminalSquare className='size-5' />
-						Authorize nao CLI
+						<ClientIcon client={client} />
+						{copy.title}
 					</CardTitle>
-					<CardDescription>
-						The nao CLI on this computer is requesting access to your nao account.
-					</CardDescription>
+					<CardDescription>{copy.description}</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<p className='text-xs text-muted-foreground'>
-						Only continue if you started this login from your own terminal, for example by running{' '}
-						<code className='font-mono'>nao login</code> or <code className='font-mono'>nao test</code>.
-					</p>
+					<ClientHint client={client} />
 					{decision.isError && (
 						<div className='mt-3'>
 							<ErrorMessage message={decision.error.message} />
@@ -126,12 +111,35 @@ function CliLogin() {
 	);
 }
 
-function CenteredCard({ children }: { children: React.ReactNode }) {
+function ClientIcon({ client }: { client: LoginClient }) {
+	if (client === 'desktop') {
+		return <AppWindow className='size-5' />;
+	}
+	return <TerminalSquare className='size-5' />;
+}
+
+function ClientHint({ client }: { client: LoginClient }) {
+	if (client === 'desktop') {
+		return (
+			<p className='text-xs text-muted-foreground'>
+				Only continue if you just clicked Sign in in the nao desktop app on this computer.
+			</p>
+		);
+	}
+	return (
+		<p className='text-xs text-muted-foreground'>
+			Only continue if you started this login from your own terminal, for example by running{' '}
+			<code className='font-mono'>nao login</code> or <code className='font-mono'>nao test</code>.
+		</p>
+	);
+}
+
+function CenteredCard({ heading, children }: { heading: string; children: React.ReactNode }) {
 	return (
 		<div className='mx-auto w-full max-w-md p-8 my-auto'>
 			<div className='flex flex-col items-center gap-8 mb-10 pb-2'>
 				<NaoLogo className='w-20 h-auto text-foreground' />
-				<h1 className='font-borna text-2xl font-medium text-center'>Connect the CLI</h1>
+				<h1 className='font-borna text-2xl font-medium text-center'>{heading}</h1>
 			</div>
 			{children}
 		</div>

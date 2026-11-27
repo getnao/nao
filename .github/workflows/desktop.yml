@@ -1,0 +1,309 @@
+name: Desktop
+
+on:
+    pull_request:
+        paths:
+            - 'apps/desktop/**'
+            - 'package-lock.json'
+            - '.github/workflows/desktop.yml'
+    push:
+        branches:
+            - main
+        paths:
+            - 'apps/desktop/**'
+            - '.github/workflows/desktop.yml'
+        tags:
+            - 'desktop-v*'
+    workflow_dispatch:
+
+concurrency:
+    group: desktop-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    LINUX_TAURI_PACKAGES: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+jobs:
+    checks:
+        name: Rust and TypeScript checks
+        runs-on: ubuntu-22.04
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              run: sudo apt-get update && sudo apt-get install -y $LINUX_TAURI_PACKAGES
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt, clippy
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: TypeScript lint
+              run: npm run lint:desktop
+
+            - name: TypeScript unit tests
+              run: npm run test:desktop
+
+            - name: Build the bundled UI
+              run: npm run build:ui -w @nao/desktop
+
+            - name: Rust checks (fmt, clippy, tests)
+              run: npm run lint:desktop:rust
+
+    e2e:
+        name: End-to-end smoke test (Linux)
+        runs-on: ubuntu-22.04
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              run: sudo apt-get update && sudo apt-get install -y $LINUX_TAURI_PACKAGES webkit2gtk-driver xvfb
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            - name: Install tauri-driver
+              run: cargo install tauri-driver --locked
+
+            - name: Build the nao frontend served by the test backend
+              run: npx vite build
+              working-directory: apps/frontend
+
+            - name: Build the desktop app (debug)
+              run: npm run build:e2e -w @nao/desktop
+
+            - name: Run the smoke test
+              run: xvfb-run --auto-servernum npm run test:e2e -w @nao/desktop
+
+            - name: Upload failure screenshots
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: desktop-e2e-output
+                  path: apps/desktop/e2e/output
+                  if-no-files-found: ignore
+
+    release-prepare:
+        name: Prepare the release
+        if: github.ref_type == 'tag'
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: write
+        outputs:
+            release-id: ${{ steps.draft.outputs.release-id }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Check the tag matches the app version
+              run: |
+                  version=$(node -p "require('./apps/desktop/package.json').version")
+                  if [ "${GITHUB_REF_NAME}" != "desktop-v${version}" ]; then
+                      echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/desktop/package.json (desktop-v${version})."
+                      exit 1
+                  fi
+
+            - name: Check the updater public key is configured
+              run: |
+                  if grep -q REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY apps/desktop/src-tauri/tauri.conf.json; then
+                      echo "::error::Set plugins.updater.pubkey in apps/desktop/src-tauri/tauri.conf.json before releasing."
+                      exit 1
+                  fi
+
+            - name: Create the draft release
+              id: draft
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh release create "$GITHUB_REF_NAME" --draft --prerelease --verify-tag \
+                      --title "nao desktop ${GITHUB_REF_NAME#desktop-v}" \
+                      --notes-file .github/desktop-release-notes.md
+                  release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+                      --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | .id" | head -1)
+                  echo "release-id=${release_id}" >> "$GITHUB_OUTPUT"
+
+    build:
+        name: Build (${{ matrix.name }})
+        needs: release-prepare
+        if: ${{ !cancelled() && (needs.release-prepare.result == 'success' || needs.release-prepare.result == 'skipped') }}
+        runs-on: ${{ matrix.platform }}
+        permissions:
+            contents: write
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: macOS universal
+                      slug: macos
+                      platform: macos-latest
+                      args: --target universal-apple-darwin
+                      rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+                    - name: Windows
+                      slug: windows
+                      platform: windows-latest
+                      args: ''
+                      rust-targets: ''
+                    - name: Linux
+                      slug: linux
+                      platform: ubuntu-22.04
+                      args: ''
+                      rust-targets: ''
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y $LINUX_TAURI_PACKAGES
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Use the pinned npm
+              shell: bash
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Setup Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.rust-targets }}
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> target
+
+            # Without the Apple secrets (forks, Dependabot) the app is ad-hoc signed (bundle.macOS.signingIdentity "-"):
+            # it runs, but Gatekeeper blocks it until the quarantine attribute is removed.
+            - name: Use the Apple signing credentials when configured
+              if: runner.os == 'macOS'
+              shell: bash
+              env:
+                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+                  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+                  APPLE_SIGNING_IDENTITY: 'Developer ID Application: nao Labs (SQT966AF5X)'
+                  APPLE_ID: ${{ secrets.APPLE_ID }}
+                  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+                  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+              run: |
+                  if [ -z "$APPLE_CERTIFICATE" ]; then
+                      echo "::warning::No Apple certificate is configured: the macOS app is ad-hoc signed and not notarized."
+                      exit 0
+                  fi
+                  for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+                      delimiter="EOF_$(openssl rand -hex 8)"
+                      printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "${!name}" "$delimiter" >> "$GITHUB_ENV"
+                  done
+
+            - name: Build
+              if: github.ref_type != 'tag'
+              uses: tauri-apps/tauri-action@v0
+              with:
+                  projectPath: apps/desktop
+                  args: ${{ matrix.args }}
+
+            - name: Build and upload to the draft release
+              if: github.ref_type == 'tag'
+              uses: tauri-apps/tauri-action@v0
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+              with:
+                  projectPath: apps/desktop
+                  args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json
+                  releaseId: ${{ needs.release-prepare.outputs.release-id }}
+
+            - name: Upload the installers
+              id: upload
+              if: github.ref_type != 'tag'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: nao-desktop-${{ matrix.slug }}-${{ github.sha }}
+                  path: |
+                      apps/desktop/src-tauri/target/**/release/bundle/dmg/*.dmg
+                      apps/desktop/src-tauri/target/**/release/bundle/nsis/*.exe
+                      apps/desktop/src-tauri/target/**/release/bundle/appimage/*.AppImage
+                      apps/desktop/src-tauri/target/**/release/bundle/deb/*.deb
+                  retention-days: 14
+                  if-no-files-found: error
+
+            - name: Link the installers in the run summary
+              if: github.ref_type != 'tag'
+              shell: bash
+              env:
+                  ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+              run: echo "- ${{ matrix.name }} installer, kept 14 days, ${ARTIFACT_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+    release-publish:
+        name: Publish the release and the update manifest
+        needs: [release-prepare, build]
+        if: github.ref_type == 'tag'
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: write
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GH_REPO: ${{ github.repository }}
+            MANIFEST_TAG: desktop-latest
+
+        steps:
+            # A prerelease never becomes the repository's latest release, which belongs to the CLI.
+            - name: Publish the release
+              run: gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease --latest=false
+
+            # The app checks one fixed URL for updates (plugins.updater.endpoints in tauri.conf.json).
+            - name: Point the update manifest at this version
+              run: |
+                  gh release download "$GITHUB_REF_NAME" --pattern latest.json --dir manifest
+                  if ! gh release view "$MANIFEST_TAG" > /dev/null 2>&1; then
+                      gh release create "$MANIFEST_TAG" --prerelease --latest=false --target "$GITHUB_SHA" \
+                          --title "nao desktop update manifest" \
+                          --notes "Holds latest.json for the nao desktop app's updater. Download the app from the desktop-v* releases."
+                  fi
+                  gh release upload "$MANIFEST_TAG" manifest/latest.json --clobber

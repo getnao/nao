@@ -49,6 +49,7 @@ import {
 	isCloudSsoEmailTrusted,
 } from './services/cloud-sso-auth.service';
 import { activateUserJoinCandidates } from './services/credit-grant.service';
+import { desktopAuthPlugin } from './services/desktop-auth.service';
 import { emailService } from './services/email';
 import { githubApiUrl, githubNoreplyEmail, githubOAuthConfig } from './services/github';
 import { augmentPluginsWithGithubEnterprise } from './services/github-enterprise-auth.service';
@@ -280,6 +281,7 @@ async function createAuthInstance(baseURL: string) {
 				validAudiences: MCP_VALID_AUDIENCES,
 			}),
 			twoFactorPlugin(),
+			desktopAuthPlugin(),
 			...ssoPlugins,
 		],
 		disabledPaths: getCloudSsoDisabledPaths(),
