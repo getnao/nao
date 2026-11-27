@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 
 import { type LlmProvider, providerKind } from '@nao/shared/types';
-import type { ModelMessage } from 'ai';
+import { type ModelMessage, pruneMessages } from 'ai';
+
+import { findLastUserMessageIndex } from './ai';
 
 const PROVIDER_SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const IDENTIFIER_HASH_LENGTH = 8;
@@ -70,6 +72,22 @@ function toSafeIdentifier(value: string, maxLength: number): string {
 	const hash = createHash('sha1').update(value).digest('hex').slice(0, IDENTIFIER_HASH_LENGTH);
 	const cleaned = value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, maxLength - IDENTIFIER_HASH_LENGTH - 1);
 	return `${cleaned}_${hash}`;
+}
+
+/**
+ * Drops reasoning from the turns before the current one: replaying it costs tokens and carries
+ * signatures another model rejects. The current turn keeps its reasoning, because Claude 5.x writes
+ * its progress notes there, including the answer it leaves before `suggest_follow_ups`. Without
+ * them the model cannot see what it already wrote and repeats it as another hidden note.
+ * Run it before steers are inserted: they are user messages inside the turn.
+ */
+export function pruneReasoningBeforeCurrentTurn(messages: ModelMessage[]): ModelMessage[] {
+	const currentTurnStart = findLastUserMessageIndex(messages);
+	if (currentTurnStart <= 0) {
+		return messages;
+	}
+	const previousTurns = pruneMessages({ messages: messages.slice(0, currentTurnStart), reasoning: 'all' });
+	return [...previousTurns, ...messages.slice(currentTurnStart)];
 }
 
 /**

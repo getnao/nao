@@ -2,7 +2,12 @@ import { convertToModelMessages, type ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
 import type { UIMessage } from '../../src/types/chat';
-import { sanitizeToolCalls, stripReasoningParts, toProviderSafeToolCallId } from '../../src/utils/model-message';
+import {
+	pruneReasoningBeforeCurrentTurn,
+	sanitizeToolCalls,
+	stripReasoningParts,
+	toProviderSafeToolCallId,
+} from '../../src/utils/model-message';
 
 const SAFE_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const NAMESPACED_ID = '3f0d9a3e-6f1a-4b8e-9d2c-1a2b3c4d5e6f:functions.get_automation_run_history:0';
@@ -135,6 +140,45 @@ describe('sanitizeToolCalls', () => {
 		expect(call.toolName).toMatch(SAFE_PATTERN);
 		expect(call.toolName.length).toBeLessThanOrEqual(64);
 		expect(result.toolName).toBe(call.toolName);
+	});
+});
+
+describe('pruneReasoningBeforeCurrentTurn', () => {
+	it('drops the reasoning of earlier turns and keeps the notes written in the current one', () => {
+		const messages: ModelMessage[] = [
+			{ role: 'user', content: 'what was revenue last year?' },
+			{
+				role: 'assistant',
+				content: [
+					{ type: 'reasoning', text: 'summing last year' },
+					{ type: 'text', text: 'Revenue was $6.1M.' },
+				],
+			},
+			{ role: 'user', content: 'compare revenue by region' },
+			{
+				role: 'assistant',
+				content: [
+					{ type: 'reasoning', text: 'Revenue rose 12%, APAC drove two-thirds of the gain.' },
+					{ type: 'tool-call', toolCallId: 'call_1', toolName: 'suggest_follow_ups', input: {} },
+				],
+			},
+			{
+				role: 'tool',
+				content: [
+					{
+						type: 'tool-result',
+						toolCallId: 'call_1',
+						toolName: 'suggest_follow_ups',
+						output: { type: 'text', value: 'Write your answer.' },
+					},
+				],
+			},
+		];
+
+		const pruned = pruneReasoningBeforeCurrentTurn(messages);
+
+		expect(pruned[1].content).toEqual([{ type: 'text', text: 'Revenue was $6.1M.' }]);
+		expect(pruned.slice(2)).toEqual(messages.slice(2));
 	});
 });
 

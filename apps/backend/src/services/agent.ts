@@ -100,7 +100,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { sanitizeToolCalls } from '../utils/model-message';
+import { pruneReasoningBeforeCurrentTurn, sanitizeToolCalls } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
@@ -674,10 +674,12 @@ export class AgentManager {
 
 		this._pickUpPendingSteers(steps);
 		const conversationMessages = insertSteerMessages(
-			workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages,
+			pruneReasoningBeforeCurrentTurn(
+				workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages,
+			),
 			this._steers,
 		);
-		const stepMessages = this._addCache(this._pruneMessages(conversationMessages));
+		const stepMessages = this._addCache(this._pruneFollowUpCalls(conversationMessages));
 		return {
 			...this._profile.stepTools?.(steps),
 			messages: stepMessages,
@@ -1417,13 +1419,10 @@ export class AgentManager {
 		return addPromptCache(messages, this._modelSelection);
 	}
 
-	/**
-	 * Prunes certain messages parts like reasoning and tool calls from the conversation.
-	 */
-	private _pruneMessages(messages: ModelMessage[]): ModelMessage[] {
+	/** Keeps only the latest `suggest_follow_ups` call, which asks the model for its answer. */
+	private _pruneFollowUpCalls(messages: ModelMessage[]): ModelMessage[] {
 		return pruneMessages({
 			messages,
-			reasoning: 'before-last-message',
 			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'before-last-message' }],
 			emptyMessages: 'remove',
 		});
