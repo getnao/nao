@@ -407,7 +407,7 @@ function buildStoryContextMessage(slug: string, title: string, code: string): Om
 				toolCallId: crypto.randomUUID(),
 				toolName: 'story',
 				state: 'output-available',
-				input: { action: 'create', id: slug, title, code },
+				input: { action: 'create', title, code },
 				output: { _version: '1', success: true, id: slug, version: 1, code, title },
 				errorText: undefined,
 				providerExecuted: false,

@@ -4,11 +4,11 @@ import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 import { useOpenStoryInSidePanel } from '@/components/side-panel/open-story-in-side-panel';
 import { StoryCard } from '@/components/story-card';
 import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
-import { useOpenMentionedStory, useResolvedStory } from '@/hooks/use-mentioned-stories';
+import { useOpenMentionedStory, useReferencedStory } from '@/hooks/use-mentioned-stories';
 
 /** An existing story the agent hands over in its answer. */
 export function StoryReferenceCard({ storyId, title }: { storyId: string; title: string }) {
-	const { data: story, isError } = useResolvedStory(storyId);
+	const { data: story, isError } = useReferencedStory(storyId);
 	const openStory = useOpenMentionedStory(useOpenStoryInSidePanel());
 
 	return (
@@ -27,7 +27,7 @@ export function StoryReferenceCard({ storyId, title }: { storyId: string; title:
 
 /** A story the agent names in the middle of a sentence. */
 export function StoryReferenceLink({ storyId, children }: { storyId: string; children: ReactNode }) {
-	const { data: story } = useResolvedStory(storyId);
+	const { data: story } = useReferencedStory(storyId);
 	const openStory = useOpenMentionedStory(useOpenStoryInSidePanel());
 
 	if (!story) {

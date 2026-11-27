@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { story } from '@nao/shared/tools';
+
 /**
  * Top-level folder of the virtual tree exposing the draft files of the chat's
  * custom stories, one folder per story id: `/stories/<id>/app.jsx`.
@@ -45,12 +47,7 @@ export const isValidStorySlug = (slug: string): boolean => {
 };
 
 export const generateStorySlug = (title: string): string => {
-	return (
-		title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-|-$/g, '') || `untitled-${randomUUID().slice(0, 8)}`
-	);
+	return story.toStorySlug(title) || `untitled-${randomUUID().slice(0, 8)}`;
 };
 
 /** Virtual path of a story folder, or of a file inside it. */

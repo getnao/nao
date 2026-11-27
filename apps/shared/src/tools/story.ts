@@ -17,9 +17,8 @@ export const InputSchema = z.object({
 		),
 	id: z
 		.string()
-		.describe(
-			'For "create": a new kebab-case slug (e.g. "revenue-dashboard"). For any other action: the id of the story to act on.',
-		),
+		.optional()
+		.describe('The id of the story to act on. Omit it for "create", which returns the new id.'),
 	title: z.string().optional().describe('A concise, descriptive title for the story. Required for "create".'),
 	format: z
 		.enum(['classic', 'custom'])
@@ -56,7 +55,7 @@ export const InputSchema = z.object({
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),
 	success: z.boolean(),
-	id: z.string().describe('The slug of the story.'),
+	id: z.string().describe('The slug of the story, which the UI opens it by.'),
 	version: z.number(),
 	code: z.string().describe('The full story code after the operation.'),
 	title: z.string(),
@@ -74,6 +73,14 @@ export const OutputSchema = z.object({
 		),
 	story_id: z.string().optional().describe('The id of the story.'),
 });
+
+/** "create" names a story after its title, so the UI can open it while the call still streams. */
+export function toStorySlug(title: string): string {
+	return title
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, '');
+}
 
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;

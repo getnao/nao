@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { UIMessage } from '@nao/backend/chat';
-import { findStoryDraft, holdBackIncompleteStoryBlock } from '@/lib/story.utils';
+import { findStoryDraft, findStoryIdBySlug, holdBackIncompleteStoryBlock } from '@/lib/story.utils';
 
 describe('holdBackIncompleteStoryBlock', () => {
 	const chart = '<chart query_id="q1" chart_type="bar" x_axis_key="month" />';
@@ -134,14 +134,11 @@ describe('findStoryDraft', () => {
 		expect(findStoryDraft(messages, 'sales')).toBeNull();
 	});
 
-	it('prefers the streaming input of an in-progress call', () => {
-		const messages = [
-			createStoryMessage({
-				messageId: 'message-1',
-				state: 'input-streaming',
-				input: { id: 'sales', action: 'create', title: 'Sales', code: '# streaming' },
-			}),
-		];
+	it.each([
+		{ name: 'its slug', input: { id: 'sales', action: 'create', title: 'Sales', code: '# streaming' } },
+		{ name: 'its title', input: { action: 'create', title: 'Sales', code: '# streaming' } },
+	])('prefers the streaming input of an in-progress create named by $name', ({ input }) => {
+		const messages = [createStoryMessage({ messageId: 'message-1', state: 'input-streaming', input })];
 
 		expect(findStoryDraft(messages, 'sales')).toEqual({
 			id: 'sales',
@@ -149,6 +146,29 @@ describe('findStoryDraft', () => {
 			code: '# streaming',
 			isStreaming: true,
 		});
+	});
+});
+
+describe('findStoryIdBySlug', () => {
+	it('finds the id of a story of the conversation from its slug', () => {
+		const messages = [
+			createStoryMessage({
+				messageId: 'message-1',
+				state: 'output-available',
+				input: { action: 'create', title: 'Sales', code: '# v1' },
+				output: {
+					success: true,
+					id: 'sales',
+					story_id: 'story-uuid',
+					title: 'Sales',
+					code: '# v1',
+					version: 1,
+				},
+			}),
+		];
+
+		expect(findStoryIdBySlug(messages, 'sales')).toBe('story-uuid');
+		expect(findStoryIdBySlug(messages, 'story-uuid')).toBeUndefined();
 	});
 });
 

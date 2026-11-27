@@ -360,7 +360,7 @@ describe('quick questions on a story', () => {
 		expect((await getLatestVersionByChatAndSlug(QUESTION_CHAT_ID, SLUG))?.code).toBe('# Shadow');
 	});
 
-	it('refuses to create a story under the id of the story the question is about', async () => {
+	it('refuses to create a story named like the story the question is about', async () => {
 		const linkedStory = await resolveLinkedStory({
 			userId: OWNER_ID,
 			projectId: PROJECT_ID,
@@ -368,25 +368,7 @@ describe('quick questions on a story', () => {
 		});
 
 		const output = await runStoryTool(
-			{ action: 'create', id: STORY_ID, code: '# Copy' },
-			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
-		);
-
-		expect(output).toMatchObject({
-			success: false,
-			error: expect.stringContaining('it is the story this question is about'),
-		});
-	});
-
-	it('refuses to create a story under the slug of the story the question is about', async () => {
-		const linkedStory = await resolveLinkedStory({
-			userId: OWNER_ID,
-			projectId: PROJECT_ID,
-			forkMetadata: questionMetadata(),
-		});
-
-		const output = await runStoryTool(
-			{ action: 'create', id: SLUG, code: '# Copy' },
+			{ action: 'create', title: 'Revenue', code: '# Copy' },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 

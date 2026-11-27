@@ -195,7 +195,6 @@ const deliverySettingsInput = z.object({
 
 const storyKitBlockComponent = z.enum(STORY_KIT_EDITABLE_BLOCKS);
 const editSessionInput = z.object({ storyId: z.string(), sessionId: z.string().min(1).max(64) });
-const storyReferenceInput = z.object({ storyId: z.string(), chatId: z.string().optional() });
 
 const bulkStoryItemsInput = z.object({
 	items: z
@@ -303,8 +302,8 @@ export const storyRoutes = {
 			return stories.map(toReferenceableStoryItem);
 		}),
 
-	resolve: protectedProcedure.input(storyReferenceInput).query(async ({ input, ctx }) => {
-		const story = await findReferencedStory(input);
+	resolve: protectedProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await storyQueries.getStoryById(input.storyId);
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
@@ -1459,15 +1458,6 @@ function toReferenceableStoryItem(story: storyReferenceQueries.ReferenceableStor
 		isCertified: story.isCertified,
 		isSharedWithMe: story.isSharedWithMe,
 	};
-}
-
-/** The agent may hand over a story of its own chat by the slug it gave it instead of its id. */
-async function findReferencedStory({ storyId, chatId }: z.infer<typeof storyReferenceInput>) {
-	const story = await storyQueries.getStoryById(storyId);
-	if (story || !chatId) {
-		return story;
-	}
-	return storyQueries.getStoryByChatAndSlug(chatId, storyId);
 }
 
 async function assertCanOpenStory(storyId: string, projectId: string | null, userId: string): Promise<string> {
