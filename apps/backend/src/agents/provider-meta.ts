@@ -922,6 +922,36 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: '',
 		models: [],
 	},
+	databricks: {
+		auth: {
+			apiKey: 'optional',
+			hint: 'Personal access token — leave empty to sign in with the service principal below',
+			// No `envVar`: the environment's credentials only sign in to the environment's workspace.
+			alternativeEnvVars: [
+				['DATABRICKS_HOST', 'DATABRICKS_TOKEN'],
+				['DATABRICKS_HOST', 'DATABRICKS_CLIENT_ID', 'DATABRICKS_CLIENT_SECRET'],
+			],
+			extraFields: [
+				{ name: 'clientId', label: 'Service Principal Client ID', envVar: 'DATABRICKS_CLIENT_ID' },
+				{
+					name: 'clientSecret',
+					label: 'Service Principal Client Secret',
+					envVar: 'DATABRICKS_CLIENT_SECRET',
+					secret: true,
+				},
+			],
+		},
+		baseUrlEnvVar: 'DATABRICKS_HOST',
+		requiresBaseUrl: true,
+		baseUrlField: {
+			label: 'Workspace URL',
+			placeholder: 'https://dbc-xxxxxxxx-xxxx.cloud.databricks.com',
+			description: 'The Databricks workspace whose serving endpoints nao calls.',
+		},
+		extractorModelId: '',
+		summaryModelId: '',
+		models: [],
+	},
 	qwen: {
 		auth: {
 			apiKey: 'required',
@@ -1141,6 +1171,7 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 			return MOONSHOT_ADAPTIVE;
 		case 'meta':
 			return META_CUSTOM;
+		case 'databricks':
 		case 'requesty':
 		case 'openaiCompatible':
 			return OPENAI_COMPATIBLE_CUSTOM;

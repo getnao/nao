@@ -67,6 +67,7 @@ const CREDENTIAL_KEYS: Partial<Record<LlmProviderKind, Record<string, string>>> 
 		key_file: 'keyFile',
 	},
 	azure: { resource_name: 'resourceName', api_version: 'apiVersion' },
+	databricks: { client_id: 'clientId', client_secret: 'clientSecret' },
 };
 
 const SECRET_PATTERN = /\$?\{\{\s*(env|aws|k8s)\(['"]([^'"]+)['"]\)\s*\}\}/g;

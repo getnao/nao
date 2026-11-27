@@ -260,7 +260,14 @@ type Flatten<T> = { [K in keyof T]: T[K] };
 export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
 
 /** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
-export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'meta' | 'requesty' | 'openaiCompatible';
+export type OpenAICompatibleProvider =
+	| 'databricks'
+	| 'qwen'
+	| 'minimax'
+	| 'moonshot'
+	| 'meta'
+	| 'requesty'
+	| 'openaiCompatible';
 
 /** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
@@ -274,6 +281,7 @@ export type ProviderConfigMap = {
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
 	azure: AzureOpenAIResponsesProviderOptions;
+	databricks: OpenAICompatibleOptions;
 	qwen: OpenAICompatibleOptions;
 	minimax: OpenAICompatibleOptions;
 	moonshot: OpenAICompatibleOptions;
@@ -328,6 +336,8 @@ export type ProviderMeta<P extends LlmProviderKind> = {
 	defaultBaseUrl?: string;
 	/** Set when the provider has no vendor endpoint to fall back on, so a base URL must be supplied. */
 	requiresBaseUrl?: boolean;
+	/** How the settings form presents the base URL, when it means something else than an OpenAI-compatible endpoint. */
+	baseUrlField?: { label: string; placeholder: string; description: string };
 	/** Set when nao runs the provider on its own keys and bills it through credits, so projects cannot configure it. */
 	managed?: boolean;
 	models: readonly ProviderModel<P>[];

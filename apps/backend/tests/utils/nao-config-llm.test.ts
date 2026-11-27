@@ -167,6 +167,10 @@ describe('readProjectConfigLlm', () => {
 			'    access_key: AKIA',
 			'    secret_key: secret',
 			'    aws_region: us-east-1',
+			'  - provider: databricks',
+			'    base_url: https://dbc-123.cloud.databricks.com',
+			'    client_id: sp-id',
+			'    client_secret: sp-secret',
 			'  - provider: gemini',
 			'    api_key: gm-key',
 		]);
@@ -177,6 +181,10 @@ describe('readProjectConfigLlm', () => {
 			accessKeyId: 'AKIA',
 			secretAccessKey: 'secret',
 			region: 'us-east-1',
+		});
+		expect(findConfigLlmProvider(config, 'databricks')?.credentials).toEqual({
+			clientId: 'sp-id',
+			clientSecret: 'sp-secret',
 		});
 		expect(findConfigLlmProvider(config, 'google')?.apiKey).toBe('gm-key');
 	});

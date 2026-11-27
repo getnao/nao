@@ -43,6 +43,7 @@ const PRICE_SOURCES: Record<LlmProviderKind, PriceSource[]> = {
 	ollama: [],
 	bedrock: [{ provider: 'amazon-bedrock' }],
 	azure: [{ provider: 'azure' }],
+	databricks: [],
 	qwen: [{ provider: 'alibaba' }],
 	minimax: [{ provider: 'minimax' }],
 	moonshot: [{ provider: 'moonshotai' }],
