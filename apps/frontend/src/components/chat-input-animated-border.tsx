@@ -20,15 +20,25 @@ export function ChatInputAnimatedBorder({
 		if (!element) {
 			return;
 		}
-		const observer = new ResizeObserver(([entry]) => {
+		const parent = element.parentElement;
+		const resizeObserver = new ResizeObserver(([entry]) => {
 			setGeometry({
 				width: entry.contentRect.width,
 				height: entry.contentRect.height,
-				radius: readBorderRadius(element.parentElement),
+				radius: readBorderRadius(parent),
 			});
 		});
-		observer.observe(element);
-		return () => observer.disconnect();
+		const shapeObserver = new MutationObserver(() => {
+			setGeometry((geometry) => ({ ...geometry, radius: readBorderRadius(parent) }));
+		});
+		resizeObserver.observe(element);
+		if (parent) {
+			shapeObserver.observe(parent, { attributes: true, attributeFilter: ['class', 'style'] });
+		}
+		return () => {
+			resizeObserver.disconnect();
+			shapeObserver.disconnect();
+		};
 	}, []);
 
 	useEffect(() => {
