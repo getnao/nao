@@ -11,17 +11,19 @@ export function ChatListSection({
 	query,
 	chats,
 	hasSeparator = true,
+	hasCount = true,
 	onOpen,
 }: {
 	title: string;
-	query: { isError: boolean; refetch: () => unknown };
+	query?: { isError: boolean; refetch: () => unknown };
 	chats: { chatId: string; title: string; updatedAt: string | Date }[];
 	hasSeparator?: boolean;
+	hasCount?: boolean;
 	onOpen: (chatId: string) => void;
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	if (!query.isError && chats.length === 0) {
+	if (!query?.isError && chats.length === 0) {
 		return null;
 	}
 
@@ -33,9 +35,9 @@ export function ChatListSection({
 			{hasSeparator && <DropdownMenuSeparator />}
 			<DropdownMenuLabel className='flex items-center justify-between pt-1.5 text-[11px] uppercase tracking-wide'>
 				<span>{title}</span>
-				<span className='tabular-nums'>{chats.length}</span>
+				{hasCount && <span className='tabular-nums'>{chats.length}</span>}
 			</DropdownMenuLabel>
-			{query.isError && (
+			{query?.isError && (
 				<DropdownMenuItem
 					onSelect={(event) => {
 						event.preventDefault();

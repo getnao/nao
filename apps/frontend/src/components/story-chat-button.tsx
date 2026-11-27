@@ -138,10 +138,13 @@ function StoryChatLists({
 	onOpenChat: (chatId: string) => void;
 }) {
 	const { quickQuestions, mentioningChats } = lists;
-	const mentions = (mentioningChats.data?.chats ?? []).filter((chat) => !chat.isOrigin);
+	const chats = mentioningChats.data?.chats ?? [];
+	const originalChats = chats.filter((chat) => chat.isOrigin);
+	const mentions = chats.filter((chat) => !chat.isOrigin);
 
 	return (
 		<>
+			<ChatListSection title='Original chat' chats={originalChats} hasCount={false} onOpen={onOpenChat} />
 			<ChatListSection
 				title='Quick questions'
 				query={quickQuestions}

@@ -74,16 +74,6 @@ describe('StoryChatButton', () => {
 		expect(mocks.navigate).not.toHaveBeenCalled();
 	});
 
-	it('leaves the original chat out of the menu, the version history opens it', async () => {
-		render(<StoryChatButton storyId='story-1' isOwner canChat />);
-
-		openMenu();
-
-		await screen.findByRole('menuitem', { name: /^Mention story/ });
-		expect(screen.queryByRole('menuitem', { name: /^Open original chat/ })).toBeNull();
-		expect(screen.queryByRole('menuitem', { name: /^Open in a chat/ })).toBeNull();
-	});
-
 	it('opens a standalone story in a new chat from the menu', async () => {
 		const onOpenInChat = vi.fn();
 		mocks.resolvedStory.chatId = null;
@@ -130,14 +120,31 @@ describe('StoryChatButton chats', () => {
 
 	afterEach(cleanup);
 
-	it('lists the quick questions and the mentions, without the original chat', async () => {
+	it('lists the original chat apart from the quick questions and the mentions', async () => {
 		render(<StoryChatButton storyId='story-1' isOwner canChat />);
 
 		openMenu();
 
-		expect(await screen.findByText('Quick questions')).toBeTruthy();
+		expect(await screen.findByText('Original chat')).toBeTruthy();
+		expect(screen.getByText('Quick questions')).toBeTruthy();
 		expect(screen.getByText('Mentions')).toBeTruthy();
-		expect(screen.queryByRole('menuitem', { name: /^Revenue analysis/ })).toBeNull();
+		expect(screen.getAllByRole('menuitem', { name: /^Revenue analysis/ })).toHaveLength(1);
+		expect(screen.queryByRole('menuitem', { name: /^Open in a chat/ })).toBeNull();
+	});
+
+	it('opens the original chat with the story beside it', async () => {
+		render(<StoryChatButton storyId='story-1' isOwner canChat />);
+
+		openMenu();
+		fireEvent.click(await screen.findByRole('menuitem', { name: /^Revenue analysis/ }));
+
+		await vi.waitFor(() =>
+			expect(mocks.navigate).toHaveBeenCalledWith({
+				to: '/$chatId',
+				params: { chatId: 'origin-chat' },
+				state: { openStorySlug: 'revenue' },
+			}),
+		);
 	});
 
 	it('opens a quick question in the ask bar and a mention on its page', async () => {
