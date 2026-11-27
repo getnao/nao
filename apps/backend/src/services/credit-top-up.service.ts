@@ -1,7 +1,9 @@
 import type Stripe from 'stripe';
 
 import { env } from '../env';
-import { calculateCreditTopUp, CREDIT_TOP_UP_CURRENCY } from '../types/billing';
+import { getCloudBillingPolicy } from '../queries/billing.queries';
+import { calculateCreditTopUp, type CloudBillingPolicy, CREDIT_TOP_UP_CURRENCY } from '../types/billing';
+import { HandlerError } from '../utils/error';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { stripeId } from '../utils/stripe';
 import { getStripeClient, getStripeConfig } from './stripe.service';
@@ -67,7 +69,7 @@ export async function getCreditTopUpPurchase(stripeCheckoutSessionId: string): P
 	}
 	const creditAmountCents = metadataInteger(session, CREDIT_AMOUNT_METADATA_KEY);
 	const walletAmountMicroUsd = metadataInteger(session, WALLET_AMOUNT_METADATA_KEY);
-	const platformFeeCents = metadataInteger(session, PLATFORM_FEE_METADATA_KEY);
+	const platformFeeCents = metadataInteger(session, PLATFORM_FEE_METADATA_KEY, 0);
 	const subtotalAmountCents = creditAmountCents + platformFeeCents;
 	if (
 		walletAmountMicroUsd !== creditAmountCents * MICRO_USD_PER_CENT ||
@@ -117,7 +119,8 @@ async function createLockedCreditTopUpCheckoutSession(input: {
 	initiatingUserId: string;
 	requestId: string;
 }): Promise<string> {
-	const topUp = calculateCreditTopUp(input.creditAmountCents);
+	const policy = await getCloudBillingPolicy();
+	const topUp = calculateAllowedCreditTopUp(input.creditAmountCents, policy);
 	const metadata = {
 		[ORGANIZATION_METADATA_KEY]: input.organizationId,
 		[CHECKOUT_KIND_METADATA_KEY]: CREDIT_TOP_UP_CHECKOUT_KIND,
@@ -170,7 +173,7 @@ async function createLockedCreditTopUpCheckoutSession(input: {
 			payment_intent_data: { metadata },
 			custom_text: {
 				submit: {
-					message: 'Your organization receives the credit amount shown. The separate nao platform fee is 5%.',
+					message: `Your organization receives the credit amount shown. The separate nao platform fee is ${policy.platformFeeBasisPoints / 100}%.`,
 				},
 			},
 			success_url: `${creditsUrl.toString()}?creditCheckout={CHECKOUT_SESSION_ID}`,
@@ -183,6 +186,17 @@ async function createLockedCreditTopUpCheckoutSession(input: {
 		throw new Error('Stripe did not return a Checkout URL');
 	}
 	return session.url;
+}
+
+function calculateAllowedCreditTopUp(creditAmountCents: number, policy: CloudBillingPolicy) {
+	try {
+		return calculateCreditTopUp(creditAmountCents, policy);
+	} catch (error) {
+		if (error instanceof RangeError) {
+			throw new HandlerError('BAD_REQUEST', error.message);
+		}
+		throw error;
+	}
 }
 
 async function reuseOrExpireOpenCreditTopUpSessions(
@@ -251,9 +265,9 @@ function validateCreditTopUpLineItems(
 	}
 }
 
-function metadataInteger(session: Stripe.Checkout.Session, key: string): number {
+function metadataInteger(session: Stripe.Checkout.Session, key: string, minimum = 1): number {
 	const value = Number(session.metadata?.[key]);
-	if (!Number.isSafeInteger(value) || value <= 0) {
+	if (!Number.isSafeInteger(value) || value < minimum) {
 		throw new Error(`Stripe Checkout Session "${session.id}" has invalid ${key} metadata`);
 	}
 	return value;

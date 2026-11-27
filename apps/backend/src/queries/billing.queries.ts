@@ -8,7 +8,9 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { type BillingStatus, CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
+import type { BillingStatus, CloudBillingPolicy } from '../types/billing';
+
+const CLOUD_BILLING_POLICY_ID = 'default';
 
 export interface SubscriptionProjection {
 	billingPlan: string | null;
@@ -55,21 +57,52 @@ export async function getOrganizationBilling(orgId: string): Promise<DBOrganizat
 	return billing ?? null;
 }
 
+export async function getCloudBillingPolicy(): Promise<CloudBillingPolicy> {
+	const [policy] = await db
+		.select(cloudBillingPolicyColumns())
+		.from(s.cloudBillingPolicy)
+		.where(eq(s.cloudBillingPolicy.id, CLOUD_BILLING_POLICY_ID))
+		.execute();
+	return requireCloudBillingPolicy(policy);
+}
+
 export function startOrganizationTrial(orgId: string, now: Date, executor: DBExecutor): boolean | Promise<boolean> {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return startPostgresOrganizationTrial(orgId, now, executor);
+	}
+	return startSqliteOrganizationTrial(orgId, now, executor);
+}
+
+function cloudBillingPolicyColumns() {
+	return {
+		trialDays: s.cloudBillingPolicy.trialDays,
+		freeSeatLimit: s.cloudBillingPolicy.freeSeatLimit,
+		teamMinSeats: s.cloudBillingPolicy.teamMinSeats,
+		teamMaxSeats: s.cloudBillingPolicy.teamMaxSeats,
+		creditTopUpMinCents: s.cloudBillingPolicy.creditTopUpMinCents,
+		creditTopUpMaxCents: s.cloudBillingPolicy.creditTopUpMaxCents,
+		platformFeeBasisPoints: s.cloudBillingPolicy.platformFeeBasisPoints,
+	};
+}
+
+function requireCloudBillingPolicy<Policy>(policy: Policy | undefined): Policy {
+	if (!policy) {
+		throw new Error(`Cloud billing policy "${CLOUD_BILLING_POLICY_ID}" is not configured.`);
+	}
+	return policy;
+}
+
+function organizationTrial(orgId: string, now: Date, trialDays: number): OrganizationTrial {
 	const trialEndsAt = new Date(now);
-	trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + CLOUD_BILLING_TRIAL_DAYS);
-	const trial = {
+	trialEndsAt.setUTCDate(trialEndsAt.getUTCDate() + trialDays);
+	return {
 		orgId,
-		billingStatus: 'trialing' as const,
+		billingStatus: 'trialing',
 		trialStartedAt: now,
 		trialEndsAt,
 		billingAccessEndsAt: trialEndsAt,
 		billingUpdatedAt: now,
 	};
-	if (dbConfig.dialect === Dialect.Postgres) {
-		return startPostgresOrganizationTrial(trial, executor);
-	}
-	return startSqliteOrganizationTrial(trial, executor);
 }
 
 type OrganizationTrial = {
@@ -91,7 +124,13 @@ function availableTrialBilling(orgId: string) {
 	);
 }
 
-function startSqliteOrganizationTrial(trial: OrganizationTrial, executor: DBExecutor): boolean {
+function startSqliteOrganizationTrial(orgId: string, now: Date, executor: DBExecutor): boolean {
+	const policy = executor
+		.select({ trialDays: s.cloudBillingPolicy.trialDays })
+		.from(s.cloudBillingPolicy)
+		.where(eq(s.cloudBillingPolicy.id, CLOUD_BILLING_POLICY_ID))
+		.get();
+	const trial = organizationTrial(orgId, now, requireCloudBillingPolicy(policy).trialDays);
 	const updateExisting = () =>
 		executor
 			.update(s.organizationBilling)
@@ -111,7 +150,13 @@ function startSqliteOrganizationTrial(trial: OrganizationTrial, executor: DBExec
 	return Boolean(created || updateExisting());
 }
 
-async function startPostgresOrganizationTrial(trial: OrganizationTrial, executor: DBExecutor): Promise<boolean> {
+async function startPostgresOrganizationTrial(orgId: string, now: Date, executor: DBExecutor): Promise<boolean> {
+	const [policy] = await executor
+		.select({ trialDays: s.cloudBillingPolicy.trialDays })
+		.from(s.cloudBillingPolicy)
+		.where(eq(s.cloudBillingPolicy.id, CLOUD_BILLING_POLICY_ID))
+		.execute();
+	const trial = organizationTrial(orgId, now, requireCloudBillingPolicy(policy).trialDays);
 	const updateExisting = async () =>
 		(
 			await executor

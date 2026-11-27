@@ -1,16 +1,11 @@
 import type { UserRole } from '@nao/shared/types';
 
 import { isCloudBillingEnabled } from '../env';
-import { getOrganizationWithBilling } from '../queries/billing.queries';
+import { getCloudBillingPolicy, getOrganizationWithBilling } from '../queries/billing.queries';
 import { isOrganizationDeactivated } from '../queries/organization.queries';
 import { listOrgSeatCandidates, type OrgSeatCandidate } from '../queries/organization-seat.queries';
 import { getProjectById, isProjectDeactivated } from '../queries/project.queries';
-import {
-	type BillingStatus,
-	type CloudBillingTier,
-	findCloudBillingPlan,
-	FREE_TIER_SEAT_LIMIT,
-} from '../types/billing';
+import { type BillingStatus, type CloudBillingTier, findCloudBillingPlan } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
 
@@ -46,6 +41,8 @@ export type OrganizationSeats = {
 };
 
 type SeatProject = string | { id: string; orgId: string | null };
+
+const BYPASS_ENTITLEMENT: CloudEntitlement = { tier: 'bypass', seatLimit: null, paidAccessEndsAt: null };
 
 export class CloudBillingSeatRestrictedError extends HandlerError {
 	constructor() {
@@ -92,12 +89,9 @@ export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement
 /** Organizations without a live trial or paid plan fall back to the free tier. */
 export function resolveCloudEntitlement(
 	billing: CloudBillingEntitlement | null,
-	bypassBilling: boolean,
+	freeSeatLimit: number,
 	now = Date.now(),
 ): CloudEntitlement {
-	if (!isCloudBillingEnabled() || bypassBilling) {
-		return { tier: 'bypass', seatLimit: null, paidAccessEndsAt: null };
-	}
 	const paidAccessEndsAt = getCloudBillingAccessEndsAt(billing);
 	const paidAccessAlive = paidAccessEndsAt !== null && paidAccessEndsAt.getTime() > now;
 	if (paidAccessAlive && billing?.billingStatus === 'trialing') {
@@ -110,18 +104,23 @@ export function resolveCloudEntitlement(
 	if (plan?.tier === 'team') {
 		return { tier: 'team', seatLimit: billing?.seatQuantity ?? 0, paidAccessEndsAt };
 	}
-	return { tier: 'free', seatLimit: FREE_TIER_SEAT_LIMIT, paidAccessEndsAt: null };
+	return { tier: 'free', seatLimit: freeSeatLimit, paidAccessEndsAt: null };
 }
 
 export async function getOrganizationCloudEntitlement(organizationId: string): Promise<CloudEntitlement> {
 	if (!isCloudBillingEnabled()) {
-		return resolveCloudEntitlement(null, true);
+		return BYPASS_ENTITLEMENT;
 	}
-	const organization = await getOrganizationWithBilling(organizationId);
+	const [organization, policy] = await Promise.all([
+		getOrganizationWithBilling(organizationId),
+		getCloudBillingPolicy(),
+	]);
 	if (!organization) {
 		throw new HandlerError('NOT_FOUND', 'Organization was not found');
 	}
-	return resolveCloudEntitlement(organization.billing, organization.bypassBilling);
+	return organization.bypassBilling
+		? BYPASS_ENTITLEMENT
+		: resolveCloudEntitlement(organization.billing, policy.freeSeatLimit);
 }
 
 export function isActiveLocalTrial(entitlement: CloudBillingEntitlement | null, now = Date.now()): boolean {

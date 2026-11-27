@@ -9,6 +9,8 @@ import { createTestQueryClient } from '../../helpers/query-client';
 import type { AnchorHTMLAttributes } from 'react';
 import { ManagedAiChargesContent, OrganizationCreditsContent } from '@/components/settings/credits-wallet-content';
 
+const topUpPolicy = { creditTopUpMinCents: 2_000, creditTopUpMaxCents: 50_000, platformFeeBasisPoints: 500 };
+
 const mocks = vi.hoisted(() => ({
 	getSummary: vi.fn(),
 	listLedger: vi.fn(),
@@ -86,6 +88,7 @@ describe('credit settings content', () => {
 			lifetimeCreditedMicroUsd: 25_000_000,
 			lifetimeDebitedMicroUsd: 2_000_000,
 			enabled: true,
+			policy: topUpPolicy,
 		});
 		mocks.listLedger.mockResolvedValue({
 			groups: [
@@ -178,6 +181,7 @@ describe('credit settings content', () => {
 			lifetimeCreditedMicroUsd: 25_000_000,
 			lifetimeDebitedMicroUsd: 2_000_000,
 			enabled: true,
+			policy: topUpPolicy,
 		});
 		mocks.listLedger.mockResolvedValue({ groups: [], nextCursor: null });
 		mocks.listUsage.mockResolvedValue({
@@ -242,6 +246,7 @@ describe('credit settings content', () => {
 			lifetimeCreditedMicroUsd: 0,
 			lifetimeDebitedMicroUsd: 0,
 			enabled: true,
+			policy: topUpPolicy,
 		});
 		mocks.listLedger.mockReturnValue(new Promise(() => undefined));
 
@@ -260,6 +265,7 @@ describe('credit settings content', () => {
 			lifetimeCreditedMicroUsd: 0,
 			lifetimeDebitedMicroUsd: 0,
 			enabled: true,
+			policy: topUpPolicy,
 		});
 		mocks.listLedger.mockImplementation(({ cursor, limit }) =>
 			Promise.resolve({
@@ -300,6 +306,7 @@ describe('credit settings content', () => {
 			lifetimeCreditedMicroUsd: 25_000_000,
 			lifetimeDebitedMicroUsd: 2_000_000,
 			enabled: true,
+			policy: topUpPolicy,
 		});
 		mocks.listLedger.mockResolvedValue({
 			groups: [
@@ -333,12 +340,13 @@ describe('credit settings content', () => {
 		expect(screen.queryByRole('button', { name: 'Add credits' })).toBeNull();
 	});
 
-	it('shows the platform fee and starts Checkout with the selected USD credits', async () => {
+	it('shows the configured platform fee and starts Checkout with the selected USD credits', async () => {
 		mocks.getSummary.mockResolvedValue({
 			balanceMicroUsd: 0,
 			lifetimeCreditedMicroUsd: 0,
 			lifetimeDebitedMicroUsd: 0,
 			enabled: true,
+			policy: { ...topUpPolicy, platformFeeBasisPoints: 1_000 },
 		});
 		mocks.listLedger.mockResolvedValue({ groups: [], nextCursor: null });
 		mocks.createCheckout.mockReturnValue(new Promise(() => undefined));
@@ -347,12 +355,12 @@ describe('credit settings content', () => {
 
 		expect(screen.queryByText('Purchase summary')).toBeNull();
 		fireEvent.click(await screen.findByRole('button', { name: 'Add credits' }));
-		expect(await screen.findByText('nao platform fee (5%)')).toBeTruthy();
+		expect(await screen.findByText('nao platform fee (10%)')).toBeTruthy();
 		const amountInput = screen.getByLabelText('Credit amount') as HTMLInputElement;
 		expect(amountInput.type).toBe('text');
 		expect(amountInput.inputMode).toBe('decimal');
 		expect(screen.queryByText('$', { exact: true })).toBeNull();
-		expect(screen.getByText('$1.00')).toBeTruthy();
+		expect(screen.getByText('$2.00')).toBeTruthy();
 		fireEvent.change(amountInput, { target: { value: '30' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Continue to Stripe' }));
 
@@ -366,6 +374,7 @@ describe('credit settings content', () => {
 			lifetimeCreditedMicroUsd: 0,
 			lifetimeDebitedMicroUsd: 0,
 			enabled: true,
+			policy: topUpPolicy,
 		});
 		mocks.listLedger.mockResolvedValue({ groups: [], nextCursor: null });
 		mocks.getCheckoutStatus.mockReturnValue(new Promise(() => undefined));

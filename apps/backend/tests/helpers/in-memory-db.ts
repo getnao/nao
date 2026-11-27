@@ -44,6 +44,7 @@ function openDatabase(filename: string) {
 	for (const statement of inject('sqliteSchemaStatements')) {
 		sqlite.exec(statement);
 	}
+	sqlite.exec(`INSERT INTO cloud_billing_policy (id) VALUES ('default')`);
 	sqlite.pragma('foreign_keys = ON');
 
 	return drizzle(sqlite, { schema: sqliteSchema });

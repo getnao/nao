@@ -319,6 +319,30 @@ export const organizationBilling = sqliteTable('organization_billing', {
 	billingSyncToken: text('billing_sync_token'),
 });
 
+export const cloudBillingPolicy = sqliteTable(
+	'cloud_billing_policy',
+	{
+		id: text('id').primaryKey(),
+		trialDays: integer('trial_days').notNull().default(14),
+		freeSeatLimit: integer('free_seat_limit').notNull().default(3),
+		teamMinSeats: integer('team_min_seats').notNull().default(4),
+		teamMaxSeats: integer('team_max_seats').notNull().default(40),
+		creditTopUpMinCents: integer('credit_top_up_min_cents').notNull().default(2_000),
+		creditTopUpMaxCents: integer('credit_top_up_max_cents').notNull().default(50_000),
+		platformFeeBasisPoints: integer('platform_fee_basis_points').notNull().default(500),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	() => [
+		check(
+			'cloud_billing_policy_valid',
+			sql`trial_days > 0 AND free_seat_limit >= 0 AND team_min_seats > 0 AND team_min_seats <= team_max_seats AND credit_top_up_min_cents > 0 AND credit_top_up_min_cents <= credit_top_up_max_cents AND platform_fee_basis_points BETWEEN 0 AND 10000`,
+		),
+	],
+);
+
 export const stripeWebhookEvent = sqliteTable('stripe_webhook_event', {
 	id: text('id').primaryKey(),
 	type: text('type').notNull(),

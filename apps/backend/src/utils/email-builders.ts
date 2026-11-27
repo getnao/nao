@@ -13,13 +13,13 @@ import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { VerifyEmail } from '../components/email/verify-email';
 import { Welcome } from '../components/email/welcome';
 import { env } from '../env';
-import { CLOUD_BILLING_TRIAL_DAYS } from '../types/billing';
 import type { CreatedEmail, EmailAttachment } from '../types/email';
 import type { NotificationTable } from '../types/notification';
 import { type EmailBranding, resolveEmailBranding } from './email-branding';
 
 const DOCS_URL = 'https://docs.getnao.io';
 const SLACK_URL = 'https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ';
+const MS_PER_DAY = 86_400_000;
 
 export async function buildWelcomeEmail(user: { name: string }): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
@@ -39,7 +39,7 @@ export async function buildWelcomeEmail(user: { name: string }): Promise<Created
 export async function buildTrialStartedEmail(
 	user: { name: string },
 	creditAmountMicroUsd: number,
-	trialEndsAt: Date,
+	trial: { startedAt: Date; endsAt: Date },
 	userJoinCreditAmountMicroUsd?: number,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
@@ -55,8 +55,8 @@ export async function buildTrialStartedEmail(
 				userJoinCreditAmountMicroUsd === undefined
 					? undefined
 					: formatCreditAmount(userJoinCreditAmountMicroUsd),
-			trialDays: CLOUD_BILLING_TRIAL_DAYS,
-			trialEndDate: new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trialEndsAt),
+			trialDays: Math.round((trial.endsAt.getTime() - trial.startedAt.getTime()) / MS_PER_DAY),
+			trialEndDate: new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trial.endsAt),
 			branding,
 		}),
 		branding,

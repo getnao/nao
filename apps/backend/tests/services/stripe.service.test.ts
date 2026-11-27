@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const stripeMocks = vi.hoisted(() => ({
 	construct: vi.fn(),
@@ -72,8 +72,15 @@ vi.mock('stripe', () => ({
 	},
 }));
 
+vi.mock('../../src/db/db', async () => {
+	const { createInMemoryDb } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDb() };
+});
+
 import type Stripe from 'stripe';
 
+import s from '../../src/db/abstractSchema';
+import { db } from '../../src/db/db';
 import { __reloadEnvForTesting } from '../../src/env';
 import {
 	createCreditTopUpCheckoutSession,
@@ -416,53 +423,62 @@ describe('cloud trial placeholder', () => {
 });
 
 describe('cloud Checkout', () => {
-	it('creates an idempotent USD credit Checkout with a separate 5% platform fee', async () => {
-		stripeMocks.createCheckoutSession.mockResolvedValue({
-			url: 'https://checkout.stripe.com/credits',
-		});
+	it.each([
+		[500, 100, '5%'],
+		[1_000, 200, '10%'],
+	])(
+		'creates an idempotent USD credit Checkout with a separate %i basis point platform fee',
+		async (platformFeeBasisPoints, platformFeeCents, feeLabel) => {
+			await db.update(s.cloudBillingPolicy).set({ platformFeeBasisPoints }).execute();
+			onTestFinished(() => db.update(s.cloudBillingPolicy).set({ platformFeeBasisPoints: 500 }).execute());
+			stripeMocks.createCheckoutSession.mockResolvedValue({
+				url: 'https://checkout.stripe.com/credits',
+			});
 
-		await expect(
-			createCreditTopUpCheckoutSession({
-				creditAmountCents: 2_000,
-				organizationId: 'org-id',
-				stripeCustomerId: 'cus_cloud',
-				initiatingUserId: 'user-id',
-				requestId: 'request-id',
-			}),
-		).resolves.toBe('https://checkout.stripe.com/credits');
+			await expect(
+				createCreditTopUpCheckoutSession({
+					creditAmountCents: 2_000,
+					organizationId: 'org-id',
+					stripeCustomerId: 'cus_cloud',
+					initiatingUserId: 'user-id',
+					requestId: 'request-id',
+				}),
+			).resolves.toBe('https://checkout.stripe.com/credits');
 
-		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
-			expect.objectContaining({
-				mode: 'payment',
-				currency: 'usd',
-				customer: 'cus_cloud',
-				allow_promotion_codes: false,
-				line_items: [
-					{
-						price_data: {
-							currency: 'usd',
-							product: 'prod_credits',
-							unit_amount: 2_000,
+			expect(stripeMocks.createCheckoutSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					mode: 'payment',
+					currency: 'usd',
+					customer: 'cus_cloud',
+					allow_promotion_codes: false,
+					line_items: [
+						{
+							price_data: {
+								currency: 'usd',
+								product: 'prod_credits',
+								unit_amount: 2_000,
+							},
+							quantity: 1,
 						},
-						quantity: 1,
-					},
-					{
-						price_data: {
-							currency: 'usd',
-							product: 'prod_platform_fee',
-							unit_amount: 100,
+						{
+							price_data: {
+								currency: 'usd',
+								product: 'prod_platform_fee',
+								unit_amount: platformFeeCents,
+							},
+							quantity: 1,
 						},
-						quantity: 1,
-					},
-				],
-				success_url:
-					'https://cloud.getnao.io/settings/organization/billing?creditCheckout={CHECKOUT_SESSION_ID}',
-				cancel_url: 'https://cloud.getnao.io/settings/organization/billing?creditCheckout=canceled',
-				expires_at: expect.any(Number),
-			}),
-			{ idempotencyKey: 'credit-top-up-v1:org-id:request-id' },
-		);
-	});
+					],
+					custom_text: { submit: { message: expect.stringContaining(`platform fee is ${feeLabel}.`) } },
+					success_url:
+						'https://cloud.getnao.io/settings/organization/billing?creditCheckout={CHECKOUT_SESSION_ID}',
+					cancel_url: 'https://cloud.getnao.io/settings/organization/billing?creditCheckout=canceled',
+					expires_at: expect.any(Number),
+				}),
+				{ idempotencyKey: 'credit-top-up-v1:org-id:request-id' },
+			);
+		},
+	);
 
 	it('reuses an open credit Checkout for the same purchase', async () => {
 		stripeMocks.listCheckoutSessions.mockReturnValue(
@@ -561,15 +577,26 @@ describe('cloud Checkout', () => {
 		expect(stripeMocks.createCheckoutSession).toHaveBeenCalledOnce();
 	});
 
-	it('honours the platform fee the customer paid even after the fee rate changes', async () => {
-		stripeMocks.retrieveCheckoutSession.mockResolvedValue(
-			paidCreditTopUpSession({ platformFeeCents: 50, amount_subtotal: 2_050, amount_total: 2_250 }),
-		);
+	it.each([50, 0])(
+		'honours the %i cent platform fee the customer paid even after the fee rate changes',
+		async (platformFeeCents) => {
+			stripeMocks.retrieveCheckoutSession.mockResolvedValue(
+				paidCreditTopUpSession({
+					platformFeeCents,
+					amount_subtotal: 2_000 + platformFeeCents,
+					amount_total: 2_200 + platformFeeCents,
+				}),
+			);
 
-		await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
-			expect.objectContaining({ creditAmountCents: 2_000, platformFeeCents: 50, totalAmountCents: 2_250 }),
-		);
-	});
+			await expect(getCreditTopUpPurchase('cs_top_up')).resolves.toEqual(
+				expect.objectContaining({
+					creditAmountCents: 2_000,
+					platformFeeCents,
+					totalAmountCents: 2_200 + platformFeeCents,
+				}),
+			);
+		},
+	);
 
 	it('rejects a paid top-up whose line items disagree with its metadata', async () => {
 		stripeMocks.retrieveCheckoutSession.mockResolvedValue(

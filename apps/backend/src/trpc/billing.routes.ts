@@ -30,13 +30,7 @@ import {
 	CloudSubscriptionResumeError,
 	CloudSubscriptionUnavailableError,
 } from '../services/stripe.service';
-import {
-	CLOUD_BILLING_CURRENCIES,
-	CLOUD_BILLING_PLANS,
-	type CloudBillingPlanKey,
-	CREDIT_TOP_UP_MAX_CENTS,
-	CREDIT_TOP_UP_MIN_CENTS,
-} from '../types/billing';
+import { CLOUD_BILLING_CURRENCIES, CLOUD_BILLING_PLANS, type CloudBillingPlanKey } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { publicProcedure, resolveOrganizationMembership } from './trpc';
@@ -99,7 +93,7 @@ const checkoutInput = z.object({
 });
 const selectedUserIdsInput = z.array(z.string().min(1));
 const creditTopUpInput = z.object({
-	creditAmountCents: z.number().int().min(CREDIT_TOP_UP_MIN_CENTS).max(CREDIT_TOP_UP_MAX_CENTS),
+	creditAmountCents: z.number().int().positive(),
 	requestId: z.uuid(),
 });
 

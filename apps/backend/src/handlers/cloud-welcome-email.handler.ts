@@ -38,14 +38,14 @@ async function sendTrialStartedEmail(organizationId: string): Promise<void> {
 		billingQueries.getOrganizationBilling(organizationId),
 		creditWalletQueries.getCreditGrantPolicy('user_join'),
 	]);
-	if (!admin || !grant || !billing?.trialEndsAt) {
+	if (!admin || !grant || !billing?.trialStartedAt || !billing.trialEndsAt) {
 		logger.warn('Skipped cloud trial welcome email because required state is missing', {
 			source: 'system',
 			context: {
 				organizationId,
 				hasAdmin: Boolean(admin),
 				hasGrant: Boolean(grant),
-				hasTrial: Boolean(billing?.trialEndsAt),
+				hasTrial: Boolean(billing?.trialStartedAt && billing.trialEndsAt),
 			},
 		});
 		return;
@@ -55,7 +55,7 @@ async function sendTrialStartedEmail(organizationId: string): Promise<void> {
 		await buildTrialStartedEmail(
 			admin,
 			grant.amountMicroUsd,
-			billing.trialEndsAt,
+			{ startedAt: billing.trialStartedAt, endsAt: billing.trialEndsAt },
 			userJoinPolicy?.enabled ? userJoinPolicy.amountMicroUsd : undefined,
 		),
 	);
