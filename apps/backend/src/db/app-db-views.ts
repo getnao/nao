@@ -1,8 +1,15 @@
 import { and, asc, eq, inArray, or, type SQL, sql } from 'drizzle-orm';
-import { alias as pgAlias, pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
+import {
+	alias as pgAlias,
+	doublePrecision as pgDoublePrecision,
+	pgTable,
+	QueryBuilder as PgQueryBuilder,
+	text as pgText,
+} from 'drizzle-orm/pg-core';
 import {
 	alias as sqliteAlias,
 	QueryBuilder as SqliteQueryBuilder,
+	real as sqliteReal,
 	type SQLiteColumn,
 	sqliteTable,
 	text as sqliteText,
@@ -23,6 +30,7 @@ export interface ScopedView {
 
 type ViewSchema = typeof sqliteSchema;
 type ScopeTable = typeof sqliteScope;
+type ModelCostTable = typeof sqliteModelCost;
 type AliasFn = typeof sqliteAlias;
 type TimestampFn = (column: SQLiteColumn, name: string) => SQL.Aliased<string>;
 
@@ -34,6 +42,26 @@ const sqliteTimestamp: TimestampFn = (column, name) => sql<string>`datetime(${co
 
 const sqliteScope = sqliteTable('_scope', { projectId: sqliteText('project_id').notNull() });
 const pgScope = pgTable('_scope', { projectId: pgText('project_id').notNull() });
+
+/** Price per million tokens of each provider, model and credential, filled per query (see `runScopedAppDbQuery`). */
+const sqliteModelCost = sqliteTable('_model_cost', {
+	provider: sqliteText('provider').notNull(),
+	modelId: sqliteText('model_id').notNull(),
+	llmConfigId: sqliteText('llm_config_id').notNull(),
+	inputNoCache: sqliteReal('input_no_cache').notNull(),
+	inputCacheRead: sqliteReal('input_cache_read').notNull(),
+	inputCacheWrite: sqliteReal('input_cache_write').notNull(),
+	output: sqliteReal('output').notNull(),
+});
+const pgModelCost = pgTable('_model_cost', {
+	provider: pgText('provider').notNull(),
+	modelId: pgText('model_id').notNull(),
+	llmConfigId: pgText('llm_config_id').notNull(),
+	inputNoCache: pgDoublePrecision('input_no_cache').notNull(),
+	inputCacheRead: pgDoublePrecision('input_cache_read').notNull(),
+	inputCacheWrite: pgDoublePrecision('input_cache_write').notNull(),
+	output: pgDoublePrecision('output').notNull(),
+});
 
 /**
  * Project-scoped, read-only views over nao's own usage tables. They are the only
@@ -49,12 +77,20 @@ export function getScopedViews(): ScopedView[] {
 		return buildScopedViews(
 			pgSchema as unknown as ViewSchema,
 			pgScope as unknown as ScopeTable,
+			pgModelCost as unknown as ModelCostTable,
 			new PgQueryBuilder() as unknown as SqliteQueryBuilder,
 			pgAlias as unknown as AliasFn,
 			postgresTimestamp,
 		);
 	}
-	return buildScopedViews(sqliteSchema, sqliteScope, new SqliteQueryBuilder(), sqliteAlias, sqliteTimestamp);
+	return buildScopedViews(
+		sqliteSchema,
+		sqliteScope,
+		sqliteModelCost,
+		new SqliteQueryBuilder(),
+		sqliteAlias,
+		sqliteTimestamp,
+	);
 }
 
 /** View name -> exposed columns. Dialect-independent; safe to use in prompts and allowlists. */
@@ -65,6 +101,7 @@ export const APP_DB_VIEW_COLUMNS: Record<string, string[]> = Object.fromEntries(
 function buildScopedViews(
 	schema: ViewSchema,
 	scope: ScopeTable,
+	modelCost: ModelCostTable,
 	qb: SqliteQueryBuilder,
 	alias: AliasFn,
 	timestamp: TimestampFn,
@@ -83,8 +120,29 @@ function buildScopedViews(
 		storyFeedback,
 		testRun,
 		testRunResult,
+		automation,
+		automationRun,
 	} = schema;
 	const scopedProjectIds = () => qb.select({ projectId: scope.projectId }).from(scope);
+
+	const modelCostOf = (provider: SQLiteColumn, modelId: SQLiteColumn, llmConfigId: SQLiteColumn) =>
+		and(
+			eq(modelCost.provider, provider),
+			eq(modelCost.modelId, modelId),
+			eq(modelCost.llmConfigId, sql`coalesce(${llmConfigId}, '')`),
+		);
+	const costUsd = (tokens: {
+		noCache: SQLiteColumn;
+		cacheRead: SQLiteColumn;
+		cacheWrite: SQLiteColumn;
+		output: SQLiteColumn;
+	}) =>
+		sql<number>`(
+			coalesce(${tokens.noCache}, 0) * ${modelCost.inputNoCache}
+			+ coalesce(${tokens.cacheRead}, 0) * ${modelCost.inputCacheRead}
+			+ coalesce(${tokens.cacheWrite}, 0) * ${modelCost.inputCacheWrite}
+			+ coalesce(${tokens.output}, 0) * ${modelCost.output}
+		) / 1000000.0`.as('cost_usd');
 
 	// Feedback is per message, but v_messages is at the part grain. Attach it only to a
 	// message's first part so the vote/explanation is not repeated across every part.
@@ -130,6 +188,12 @@ function buildScopedViews(
 		output_text_tokens: chatMessage.outputTextTokens,
 		output_reasoning_tokens: chatMessage.outputReasoningTokens,
 		total_tokens: chatMessage.totalTokens,
+		cost_usd: costUsd({
+			noCache: chatMessage.inputNoCacheTokens,
+			cacheRead: chatMessage.inputCacheReadTokens,
+			cacheWrite: chatMessage.inputCacheWriteTokens,
+			output: chatMessage.outputTotalTokens,
+		}),
 		superseded_at: timestamp(chatMessage.supersededAt, 'superseded_at'),
 		message_source: sql<string>`${chatMessage.source}`.as('message_source'),
 		chat_source: chatSource.as('chat_source'),
@@ -157,7 +221,24 @@ function buildScopedViews(
 	const llmInferenceSelection = {
 		id: llmInference.id,
 		type: llmInference.type,
+		user_id: llmInference.userId,
+		user_name: sql<string>`${user.name}`.as('user_name'),
+		chat_id: llmInference.chatId,
+		story_id: llmInference.storyId,
+		llm_provider: llmInference.llmProvider,
+		llm_model_id: llmInference.llmModelId,
+		input_total_tokens: llmInference.inputTotalTokens,
+		input_no_cache_tokens: llmInference.inputNoCacheTokens,
+		input_cache_read_tokens: llmInference.inputCacheReadTokens,
+		input_cache_write_tokens: llmInference.inputCacheWriteTokens,
+		output_total_tokens: llmInference.outputTotalTokens,
 		total_tokens: llmInference.totalTokens,
+		cost_usd: costUsd({
+			noCache: llmInference.inputNoCacheTokens,
+			cacheRead: llmInference.inputCacheReadTokens,
+			cacheWrite: llmInference.inputCacheWriteTokens,
+			output: llmInference.outputTotalTokens,
+		}),
 		created_at: timestamp(llmInference.createdAt, 'created_at'),
 	};
 
@@ -198,6 +279,36 @@ function buildScopedViews(
 		explanation: storyFeedback.explanation,
 		created_at: timestamp(storyFeedback.createdAt, 'created_at'),
 		updated_at: timestamp(storyFeedback.updatedAt, 'updated_at'),
+	};
+
+	const storySelection = {
+		id: story.id,
+		title: story.title,
+		owner_id: storyOwnerId.as('owner_id'),
+		owner_name: sql<string>`${storyOwner.name}`.as('owner_name'),
+		chat_id: story.chatId,
+		format: story.format,
+		is_live: story.isLive,
+		is_live_text_dynamic: story.isLiveTextDynamic,
+		cache_schedule: story.cacheSchedule,
+		cache_schedule_description: story.cacheScheduleDescription,
+		archived_at: timestamp(story.archivedAt, 'archived_at'),
+		created_at: timestamp(story.createdAt, 'created_at'),
+	};
+
+	const automationRunSelection = {
+		id: automationRun.id,
+		automation_id: automationRun.automationId,
+		automation_title: sql<string>`${automation.title}`.as('automation_title'),
+		owner_id: sql<string>`${automation.userId}`.as('owner_id'),
+		owner_name: sql<string>`${user.name}`.as('owner_name'),
+		schedule_description: automation.scheduleDescription,
+		trigger: automationRun.trigger,
+		status: automationRun.status,
+		chat_id: automationRun.chatId,
+		error_message: automationRun.errorMessage,
+		started_at: timestamp(automationRun.startedAt, 'started_at'),
+		completed_at: timestamp(automationRun.completedAt, 'completed_at'),
 	};
 
 	const triggeredBy = alias(schema.user, 'triggered_by');
@@ -260,6 +371,10 @@ function buildScopedViews(
 					and(eq(messagePart.messageId, messageFeedback.messageId), firstPartOfMessage),
 				)
 				.leftJoin(chatMessage, eq(messagePart.messageId, chatMessage.id))
+				.leftJoin(
+					modelCost,
+					modelCostOf(chatMessage.llmProvider, chatMessage.llmModelId, chatMessage.llmConfigId),
+				)
 				.leftJoin(chat, eq(chat.id, chatMessage.chatId))
 				.leftJoin(user, eq(user.id, chat.userId))
 				.where(
@@ -289,6 +404,11 @@ function buildScopedViews(
 			qb
 				.select(llmInferenceSelection)
 				.from(llmInference)
+				.leftJoin(user, eq(user.id, llmInference.userId))
+				.leftJoin(
+					modelCost,
+					modelCostOf(llmInference.llmProvider, llmInference.llmModelId, llmInference.llmConfigId),
+				)
 				.where(inArray(llmInference.projectId, scopedProjectIds())),
 		),
 		toView(
@@ -321,6 +441,26 @@ function buildScopedViews(
 				.leftJoin(user, eq(user.id, storyFeedback.userId))
 				.leftJoin(storyOwner, eq(storyOwner.id, storyOwnerId))
 				.where(or(inArray(story.projectId, scopedProjectIds()), inArray(chat.projectId, scopedProjectIds()))),
+		),
+		toView(
+			'v_stories',
+			storySelection,
+			qb
+				.select(storySelection)
+				.from(story)
+				.leftJoin(chat, eq(chat.id, story.chatId))
+				.leftJoin(storyOwner, eq(storyOwner.id, storyOwnerId))
+				.where(or(inArray(story.projectId, scopedProjectIds()), inArray(chat.projectId, scopedProjectIds()))),
+		),
+		toView(
+			'v_automation_runs',
+			automationRunSelection,
+			qb
+				.select(automationRunSelection)
+				.from(automationRun)
+				.innerJoin(automation, eq(automation.id, automationRun.automationId))
+				.leftJoin(user, eq(user.id, automation.userId))
+				.where(inArray(automation.projectId, scopedProjectIds())),
 		),
 		toView(
 			'v_test_runs',

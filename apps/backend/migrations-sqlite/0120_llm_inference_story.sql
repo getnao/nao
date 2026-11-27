@@ -1,0 +1,1 @@
+ALTER TABLE `llm_inference` ADD `story_id` text;

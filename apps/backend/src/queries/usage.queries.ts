@@ -41,7 +41,7 @@ const USED_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const usedModelsCache = new Map<string, { expiresAt: number; since: Date; models: Promise<ProjectModel[]> }>();
 
-type CostLookupTuple = readonly [
+export type CostLookupTuple = readonly [
 	provider: string,
 	modelId: string,
 	llmConfigId: string,
@@ -672,7 +672,7 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 	}
 }
 
-async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
+export async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
 	const [usedModels, availableModels, declaredSources, retainedConfigs] = await Promise.all([
 		getProjectUsedModels(projectId),
 		getProjectAvailableModels(projectId),

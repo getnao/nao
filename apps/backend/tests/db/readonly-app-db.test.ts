@@ -3,8 +3,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { runScopedAppDbQuery } from '../../src/db/readonly-app-db';
 import {
+	automation,
+	automationRun,
 	chat,
 	chatMessage,
+	llmInference,
 	messagePart,
 	organization,
 	project,
@@ -14,6 +17,7 @@ import {
 	testRunResult,
 	user,
 } from '../../src/db/sqlite-schema';
+import type { CostLookupTuple } from '../../src/queries/usage.queries';
 import { getTemporaryFileDb, removeTemporaryFileDb } from '../helpers/in-memory-db';
 
 vi.mock('../../src/db/dbConfig', async (importOriginal) => {
@@ -131,6 +135,99 @@ describe('runScopedAppDbQuery', () => {
 		]);
 		expect(results.rows).toEqual([
 			{ run_id: 'ro-run-a', run_trigger: 'manual', test_path: 'tests/a.yml', llm_model_id: 'gpt-5', passed: 1 },
+		]);
+	});
+
+	it('prices chat answers and background calls, null when unpriced, and keeps calls of deleted stories', async () => {
+		const modelCosts: CostLookupTuple[] = [['anthropic', 'claude-priced', '', 3, 0.3, 3.75, 15]];
+		await db.insert(chatMessage).values({
+			id: 'ro-msg-answer',
+			chatId: 'ro-chat-a',
+			role: 'assistant',
+			llmProvider: 'anthropic',
+			llmModelId: 'claude-priced',
+			inputNoCacheTokens: 2_000_000,
+		});
+		await db
+			.insert(messagePart)
+			.values({ id: 'ro-part-answer', messageId: 'ro-msg-answer', order: 0, type: 'text', text: 'answer' });
+		await db
+			.insert(story)
+			.values({ id: 'ro-story-live', projectId: PROJECT_A, userId: USER_ID, slug: 'live', title: 'Live' });
+		const inference = {
+			projectId: PROJECT_A,
+			userId: USER_ID,
+			type: 'live_story_refresh' as const,
+			llmProvider: 'anthropic' as const,
+		};
+		await db.insert(llmInference).values([
+			{
+				...inference,
+				id: 'ro-inf-priced',
+				storyId: 'ro-story-live',
+				llmModelId: 'claude-priced',
+				inputNoCacheTokens: 1_000_000,
+				outputTotalTokens: 100_000,
+			},
+			{
+				...inference,
+				id: 'ro-inf-unpriced',
+				storyId: 'ro-story-deleted',
+				llmModelId: 'claude-unknown',
+				inputNoCacheTokens: 1_000_000,
+			},
+		]);
+
+		const inferences = await runScopedAppDbQuery(
+			PROJECT_A,
+			'SELECT id, user_name, story_id, cost_usd FROM v_llm_inference ORDER BY id',
+			modelCosts,
+		);
+		const answers = await runScopedAppDbQuery(
+			PROJECT_A,
+			"SELECT cost_usd FROM v_messages WHERE message_id = 'ro-msg-answer'",
+			modelCosts,
+		);
+
+		expect(inferences.rows).toEqual([
+			{ id: 'ro-inf-priced', user_name: 'RO', story_id: 'ro-story-live', cost_usd: 4.5 },
+			{ id: 'ro-inf-unpriced', user_name: 'RO', story_id: 'ro-story-deleted', cost_usd: null },
+		]);
+		expect(answers.rows).toEqual([{ cost_usd: 6 }]);
+	});
+
+	it('exposes stories and automation runs scoped to the project, with their owner', async () => {
+		await db.insert(automation).values([
+			{
+				id: 'ro-auto-a',
+				projectId: PROJECT_A,
+				userId: USER_ID,
+				title: 'Daily fact',
+				prompt: 'p',
+				scheduleDescription: 'Every day at 9:00',
+			},
+			{ id: 'ro-auto-b', projectId: PROJECT_B, userId: USER_ID, title: 'Other', prompt: 'p' },
+		]);
+		await db.insert(automationRun).values([
+			{ id: 'ro-auto-run-a', automationId: 'ro-auto-a', chatId: 'ro-chat-a', status: 'completed' },
+			{ id: 'ro-auto-run-b', automationId: 'ro-auto-b', status: 'completed' },
+		]);
+
+		const stories = await runScopedAppDbQuery(PROJECT_B, 'SELECT id, title, owner_name FROM v_stories');
+		const runs = await runScopedAppDbQuery(
+			PROJECT_A,
+			'SELECT id, automation_title, owner_name, schedule_description, chat_id FROM v_automation_runs',
+		);
+
+		expect(stories.rows).toEqual([{ id: 'ro-story-b', title: 'Standalone story', owner_name: 'RO' }]);
+		expect(runs.rows).toEqual([
+			{
+				id: 'ro-auto-run-a',
+				automation_title: 'Daily fact',
+				owner_name: 'RO',
+				schedule_description: 'Every day at 9:00',
+				chat_id: 'ro-chat-a',
+			},
 		]);
 	});
 

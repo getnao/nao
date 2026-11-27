@@ -11,6 +11,8 @@ vi.mock('../../src/db/dbConfig', async (importOriginal) => {
 	return { ...actual, default: { ...actual.default, dbUrl: getTemporaryFileDb().path } };
 });
 
+vi.mock('../../src/queries/usage.queries', () => ({ getCostLookupTuples: async () => [] }));
+
 const { db } = getTemporaryFileDb();
 
 const ORG_ID = 'q-org';
