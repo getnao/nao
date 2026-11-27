@@ -36,7 +36,7 @@ function buildAutomation(id: string, overrides: Record<string, unknown> = {}) {
 		id,
 		userId: 'admin-id',
 		scheduledJob: null,
-		enabled: false,
+		enabled: true,
 		eventTriggers: { feedback: { enabled: true, votes: ['down'], sources: ['chat', 'story'] } },
 		...overrides,
 	};
@@ -87,7 +87,7 @@ describe('feedback automation trigger', () => {
 		});
 	});
 
-	it('skips automations whose trigger does not match, is disabled, or whose schedule is paused', async () => {
+	it('skips automations whose trigger does not match, is disabled, or that are paused', async () => {
 		mocks.listEventTriggeredAutomations.mockResolvedValue([
 			buildAutomation('wrong-vote', {
 				eventTriggers: { feedback: { enabled: true, votes: ['up'], sources: ['chat'] } },
@@ -99,6 +99,7 @@ describe('feedback automation trigger', () => {
 				eventTriggers: { feedback: { enabled: false, votes: ['down'], sources: ['chat'] } },
 			}),
 			buildAutomation('paused', { scheduledJob: { id: 'job-id' }, enabled: false }),
+			buildAutomation('paused-unscheduled', { enabled: false }),
 			buildAutomation('scheduled', { scheduledJob: { id: 'job-id' }, enabled: true }),
 		]);
 

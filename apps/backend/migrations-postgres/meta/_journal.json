@@ -848,6 +848,13 @@
       "when": 1795526639698,
       "tag": "0120_story_folder_group",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1795798776776,
+      "tag": "0121_automation_paused",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import { extractConfiguredDatabases } from '../utils/nao-config';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
+import { registerAutomationTools } from './tools/automations';
 import { registerContextAdminTools } from './tools/context-admin-tools';
 import { registerContextLayerTools } from './tools/context-layer';
 import { registerMemberBudgetTools } from './tools/member-budget';
@@ -52,6 +53,7 @@ export async function createMcpServer(
 	}
 
 	registerContextAdminTools(server, ctx);
+	registerAutomationTools(server, ctx);
 	await registerMemberBudgetTools(server, ctx);
 	await registerPersonalSkillTools(server, ctx);
 	registerNaoMcpApps(server);

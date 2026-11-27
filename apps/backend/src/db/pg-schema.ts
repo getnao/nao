@@ -1142,6 +1142,7 @@ export const automation = pgTable(
 		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
 		webhookEnabled: boolean('webhook_enabled').default(false).notNull(),
 		eventTriggers: jsonb('event_triggers').$type<AutomationEventTriggers>().notNull().default({}),
+		paused: boolean('paused').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

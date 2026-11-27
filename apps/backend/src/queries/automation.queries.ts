@@ -104,6 +104,7 @@ export const listProjectAutomations = async (projectId: string): Promise<Project
 			scheduleDescription: s.automation.scheduleDescription,
 			webhookEnabled: s.automation.webhookEnabled,
 			eventTriggers: s.automation.eventTriggers,
+			paused: s.automation.paused,
 			cron: s.scheduledJob.cron,
 			scheduledJobStatus: s.scheduledJob.status,
 			owner: { id: s.user.id, name: s.user.name, email: s.user.email },
@@ -116,10 +117,10 @@ export const listProjectAutomations = async (projectId: string): Promise<Project
 		.execute();
 
 	const latestRuns = await getLatestRunSummaries(rows.map((row) => row.id));
-	return rows.map(({ cron, scheduledJobStatus, ...row }) => ({
+	return rows.map(({ cron, scheduledJobStatus, paused, ...row }) => ({
 		...row,
 		cron: cron ?? '',
-		enabled: scheduledJobStatus !== null && scheduledJobStatus !== 'paused',
+		enabled: scheduledJobStatus ? scheduledJobStatus !== 'paused' : !paused,
 		...(latestRuns.get(row.id) ?? { lastRunStatus: null, lastRunStartedAt: null }),
 	}));
 };
@@ -260,6 +261,7 @@ export const updateAutomation = async (
 			| 'integrations'
 			| 'webhookEnabled'
 			| 'eventTriggers'
+			| 'paused'
 		>
 	>,
 ): Promise<DBAutomation | null> => {
@@ -277,6 +279,10 @@ export const setAutomationEventTriggers = async (
 	triggers: Pick<NewAutomation, 'webhookEnabled' | 'eventTriggers'>,
 ): Promise<void> => {
 	await db.update(s.automation).set(triggers).where(eq(s.automation.id, id)).execute();
+};
+
+export const setAutomationPaused = async (id: string, paused: boolean): Promise<void> => {
+	await db.update(s.automation).set({ paused }).where(eq(s.automation.id, id)).execute();
 };
 
 /** Also hands over the chats of past runs so the new owner can open the run history. */
@@ -331,15 +337,20 @@ async function deleteAutomationMatching(condition: SQL | undefined): Promise<voi
 	});
 }
 
-export const listAutomationRuns = async (projectId: string, automationId: string): Promise<DBAutomationRun[]> => {
+export const listAutomationRuns = async (
+	projectId: string,
+	automationId: string,
+	limit?: number,
+): Promise<DBAutomationRun[]> => {
 	await failStaleAutomationRuns();
-	const rows = await db
+	const query = db
 		.select({ run: s.automationRun })
 		.from(s.automationRun)
 		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
 		.where(and(eq(s.automation.id, automationId), eq(s.automation.projectId, projectId)))
 		.orderBy(desc(s.automationRun.startedAt))
-		.execute();
+		.$dynamic();
+	const rows = await (limit ? query.limit(limit) : query).execute();
 	return rows.map((row) => row.run);
 };
 
@@ -540,7 +551,7 @@ function mapAutomationWithSchedule(
 	return {
 		...automation,
 		cron: scheduledJob?.cron ?? '',
-		enabled: scheduledJob ? scheduledJob.status !== 'paused' : false,
+		enabled: scheduledJob ? scheduledJob.status !== 'paused' : !automation.paused,
 		scheduledJob,
 	};
 }

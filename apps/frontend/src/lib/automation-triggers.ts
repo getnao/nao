@@ -13,15 +13,6 @@ export const NAO_EVENT_LABELS: Record<NaoEventType, string> = {
 	feedback: 'Feedback',
 };
 
-/** Scheduled automations are switched on and off by their schedule; others by their webhook and nao events. */
-export function isAutomationActive(automation: AutomationTriggers): boolean {
-	return automation.cron ? automation.enabled : automation.webhookEnabled || hasNaoEventTrigger(automation);
-}
-
-export function hasNaoEventTrigger(automation: Pick<AutomationTriggers, 'eventTriggers'>): boolean {
-	return getEnabledNaoEvents(automation.eventTriggers).length > 0;
-}
-
 export function getEnabledNaoEvents(eventTriggers: AutomationEventTriggers): NaoEventType[] {
 	return NAO_EVENT_TYPES.filter((eventType) => eventTriggers[eventType]?.enabled);
 }

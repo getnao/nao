@@ -17,6 +17,8 @@ import {
 	router,
 	sessionProcedure,
 } from '../../src/trpc/trpc';
+import { HandlerError } from '../../src/utils/error';
+import { createTestCaller } from '../helpers/trpc-caller';
 
 const testRouter = router({
 	protected: protectedProcedure.query(() => 'app data'),
@@ -42,6 +44,18 @@ describe('procedures of a signed-in user', () => {
 
 	it('rejects a visitor who is not signed in', async () => {
 		await expect(createCaller(null).session()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+	});
+
+	it('answers a handler error with its own code and message', async () => {
+		const failingRouter = router({
+			refused: protectedProcedure.query(() => {
+				throw new HandlerError('FORBIDDEN', 'Viewers cannot perform this action');
+			}),
+		});
+		await expect(createTestCaller(failingRouter).refused()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Viewers cannot perform this action',
+		});
 	});
 });
 

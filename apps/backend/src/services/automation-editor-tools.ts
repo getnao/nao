@@ -24,8 +24,13 @@ export interface UpdateAutomationOutput extends AutomationDraftUpdateResult {
 	automation: AutomationSummary;
 }
 
-interface AutomationSummary {
+interface AutomationSummary extends AutomationDescription {
 	isSaved: boolean;
+	mcp: AutomationMcpDefinition;
+	missingBeforeSave: string[];
+}
+
+export interface AutomationDescription {
 	title: string;
 	prompt: string;
 	schedule: ScheduleSummary | null;
@@ -37,8 +42,6 @@ interface AutomationSummary {
 		github: { enabled: boolean; repositories: string[] } | null;
 	};
 	model: string;
-	mcp: AutomationMcpDefinition;
-	missingBeforeSave: string[];
 }
 
 interface AutomationMcpDefinition {
@@ -82,7 +85,7 @@ const scheduleSchema = z.object({
 		.describe('Short human label shown in the app, e.g. "Every Monday at 9am".'),
 });
 
-const updateAutomationInputSchema = z.object({
+export const updateAutomationInputSchema = z.object({
 	title: z.string().trim().min(1).max(255).optional().describe('New title of the automation.'),
 	prompt: z
 		.string()
@@ -314,9 +317,12 @@ function assertValidEmailRecipients(recipients: string[]): void {
 }
 
 function summarizeAutomation(draft: AutomationDraft, isSaved: boolean): Omit<AutomationSummary, 'mcp'> {
+	return { isSaved, ...describeAutomation(draft), missingBeforeSave: listMissingBeforeSave(draft) };
+}
+
+export function describeAutomation(draft: AutomationDraft): AutomationDescription {
 	const { email, slack, github } = draft.integrations;
 	return {
-		isSaved,
 		title: draft.title,
 		prompt: draft.prompt,
 		schedule: draft.cron ? summarizeSchedule(draft.cron, draft.scheduleDescription) : null,
@@ -330,7 +336,6 @@ function summarizeAutomation(draft: AutomationDraft, isSaved: boolean): Omit<Aut
 			github: github ? { enabled: github.enabled, repositories: github.repositories } : null,
 		},
 		model: draft.modelProvider && draft.modelId ? `${draft.modelProvider}:${draft.modelId}` : 'project default',
-		missingBeforeSave: listMissingBeforeSave(draft),
 	};
 }
 

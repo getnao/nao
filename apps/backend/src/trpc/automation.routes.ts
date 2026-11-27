@@ -1,18 +1,9 @@
 import { getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
-import {
-	type AutomationEventTriggers,
-	FEEDBACK_SOURCES,
-	FEEDBACK_VOTES,
-	SHARE_ROLES,
-	SHARE_VISIBILITY,
-	type UserRole,
-} from '@nao/shared/types';
+import { FEEDBACK_SOURCES, FEEDBACK_VOTES, SHARE_ROLES, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
-import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod/v4';
 
-import { env } from '../env';
-import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.handler';
+import { startAutomationRun } from '../handlers/automation.handler';
 import type {
 	AutomationWithAccess,
 	AutomationWithSchedule,
@@ -23,13 +14,21 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
+import {
+	assertAutomationsEnabled,
+	type AutomationActor,
+	createAutomation,
+	deleteAutomation,
+	getAutomationWithRuns,
+	listAutomations,
+	setAutomationActive,
+	setAutomationEnabled,
+	updateAutomation,
+} from '../services/automation.service';
 import { startAutomationEditChat } from '../services/automation-editor.service';
-import { canRoleReceiveChatFeedback } from '../services/automation-feedback-trigger.service';
 import { getAutomationShareSettings, saveAutomationShareSettings } from '../services/automation-share.service';
-import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { listShareableMembers } from '../services/project-sharing.service';
-import { nextCronTick } from '../services/scheduler.service';
 import { hasTableAccessOf, MISSING_TABLE_ACCESS_MESSAGE } from '../services/user-group-context-access.service';
 import { llmProviderSchema } from '../types/llm';
 import {
@@ -40,13 +39,6 @@ import {
 	cloudBillingProjectProcedure,
 	projectProtectedProcedure,
 } from './trpc';
-import { assertUserGroupFeatureForTrpc } from './user-group-feature-access';
-
-function assertAutomationsEnabled() {
-	if (!env.BETA_AUTOMATIONS_ENABLED) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'Automations are disabled on this instance.' });
-	}
-}
 
 const automationProcedure = canSendProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
@@ -80,10 +72,6 @@ const enablingAutomationBillingMiddleware = cloudBillingMiddleware<
 	{ project: { id: string; orgId: string | null } },
 	{ enabled?: boolean }
 >(({ project }, input) => ((input.enabled ?? true) ? { projectId: project.id, organizationId: project.orgId } : null));
-
-const automationToggleProcedure = automationProcedure
-	.input(setAutomationEnabledSchema)
-	.use(enablingAutomationBillingMiddleware);
 
 const integrationSchema = z
 	.object({
@@ -134,12 +122,6 @@ const eventTriggersSchema = z
 	})
 	.default({});
 
-type AutomationTriggersInput = {
-	cron: string;
-	webhookEnabled: boolean;
-	eventTriggers: AutomationEventTriggers;
-};
-
 const writeAutomationSchema = z.object({
 	title: z.string().trim().min(1).max(255),
 	prompt: z.string().trim().min(1).max(40_000),
@@ -174,8 +156,8 @@ const createAutomationSchema = writeAutomationSchema.extend({
 });
 
 export const automationRoutes = {
-	list: automationReadProcedure.query(async ({ ctx }) => {
-		return automationQueries.listAutomations(ctx.project.id, ctx.user.id);
+	list: projectProtectedProcedure.query(async ({ ctx }) => {
+		return listAutomations(toAutomationActor(ctx));
 	}),
 
 	feed: automationReadProcedure
@@ -184,45 +166,12 @@ export const automationRoutes = {
 			return automationQueries.listAutomationFeedRuns(ctx.project.id, ctx.user.id, input.limit);
 		}),
 
-	get: automationReadProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'viewer');
-		if (!automation) {
-			return null;
-		}
-		const runs = await automationQueries.listAutomationRuns(ctx.project.id, input.id);
-		return { automation, runs };
+	get: projectProtectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+		return getAutomationWithRuns(toAutomationActor(ctx), input.id);
 	}),
 
-	create: automationMutationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
-		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automationCreation');
-		assertTriggers(input, ctx.userRole);
-		const { cron, enabled, title, editorChatId, ...promptInput } = input;
-		const modelSelection =
-			input.modelProvider && input.modelId
-				? {
-						provider: input.modelProvider,
-						modelId: input.modelId,
-						...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
-					}
-				: undefined;
-		const resolvedTitle =
-			title?.trim() || (await inferAutomationTitle(ctx.project.id, ctx.user.id, input.prompt, modelSelection));
-		const automation = await automationQueries.createAutomation({
-			...promptInput,
-			title: resolvedTitle,
-			projectId: ctx.project.id,
-			userId: ctx.user.id,
-			scheduleDescription: input.scheduleDescription || null,
-			timezone: getServerTimezone(),
-			modelProvider: input.modelProvider || null,
-			modelId: input.modelId || null,
-			llmConfigId: input.llmConfigId || null,
-			mcpServers: input.mcpServers,
-		});
-		if (editorChatId) {
-			await chatQueries.linkAutomationEditChat(editorChatId, ctx.user.id, automation);
-		}
-		return syncAutomationJob(automation, cron, enabled);
+	create: projectProtectedProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
+		return createAutomation(toAutomationActor(ctx), input);
 	}),
 
 	startEditChat: automationProcedure
@@ -241,47 +190,19 @@ export const automationRoutes = {
 			return { chatId: await chatQueries.getLatestAutomationEditChatId(ctx.user.id, input.automationId) };
 		}),
 
-	update: automationProcedure
+	update: projectProtectedProcedure
 		.input(writeAutomationSchema.extend({ id: z.string() }))
-		.use(enablingAutomationBillingMiddleware)
 		.mutation(async ({ ctx, input }) => {
-			assertTriggers(input, ctx.userRole);
-			const { id, cron, enabled, ...data } = input;
-			if (!(await automationQueries.getAutomation(ctx.project.id, ctx.user.id, id, 'editor'))) {
-				return null;
-			}
-			const automation = await automationQueries.updateAutomation(ctx.project.id, id, {
-				...data,
-				scheduleDescription: data.scheduleDescription || null,
-				timezone: getServerTimezone(),
-				modelProvider: data.modelProvider || null,
-				modelId: data.modelId || null,
-				llmConfigId: data.llmConfigId || null,
-				mcpServers: data.mcpServers,
-			});
-			if (!automation) {
-				return null;
-			}
-			return syncAutomationJob(automation, cron, enabled);
+			const { id, ...settings } = input;
+			return updateAutomation(toAutomationActor(ctx), id, settings);
 		}),
 
-	setEnabled: automationToggleProcedure.mutation(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'editor');
-		if (!automation) {
-			return null;
-		}
-		return syncAutomationJob(automation, automation.cron, input.enabled);
+	setEnabled: projectProtectedProcedure.input(setAutomationEnabledSchema).mutation(async ({ ctx, input }) => {
+		return setAutomationEnabled(toAutomationActor(ctx), input.id, input.enabled);
 	}),
 
-	delete: automationProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-		const automation = await automationQueries.getAutomation(ctx.project.id, ctx.user.id, input.id, 'owner');
-		if (!automation) {
-			return { success: true };
-		}
-		if (automation.scheduledJobId) {
-			await scheduledJobQueries.deleteJob(automation.scheduledJobId);
-		}
-		await automationQueries.deleteAutomation(ctx.project.id, ctx.user.id, input.id);
+	delete: projectProtectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+		await deleteAutomation(toAutomationActor(ctx), input.id);
 		return { success: true };
 	}),
 
@@ -466,6 +387,10 @@ async function getAutomationToShare(ctx: AutomationRequestContext, id: string): 
 	return { ...projectAutomation, accessRole: 'viewer' };
 }
 
+function toAutomationActor(ctx: AutomationRequestContext): AutomationActor {
+	return { userId: ctx.user.id, projectId: ctx.project.id, role: ctx.userRole };
+}
+
 function toShareActor(ctx: AutomationRequestContext) {
 	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
 }
@@ -485,24 +410,6 @@ async function getProjectAutomationOrThrow(projectId: string, id: string): Promi
 	return automation;
 }
 
-/**
- * Scheduled automations are paused through their job, which also blocks the webhook and nao events.
- * Unscheduled automations have no job, so their webhook and nao events are the on/off switch. Resuming
- * re-enables the configured nao events, and the webhook only when no nao event is configured.
- */
-async function setAutomationActive(
-	automation: AutomationWithSchedule,
-	active: boolean,
-): Promise<AutomationWithSchedule> {
-	if (automation.cron) {
-		return syncAutomationJob(automation, automation.cron, active);
-	}
-	const eventTriggers = setEventTriggersEnabled(automation.eventTriggers, active);
-	const webhookEnabled = active && Object.keys(eventTriggers).length === 0;
-	await automationQueries.setAutomationEventTriggers(automation.id, { webhookEnabled, eventTriggers });
-	return { ...automation, webhookEnabled, eventTriggers };
-}
-
 async function assertCanOwnAutomation(projectId: string, userId: string, previousOwnerId: string): Promise<void> {
 	const role = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (!role) {
@@ -514,93 +421,4 @@ async function assertCanOwnAutomation(projectId: string, userId: string, previou
 	if (!(await hasTableAccessOf(projectId, previousOwnerId, userId))) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: MISSING_TABLE_ACCESS_MESSAGE });
 	}
-}
-
-/**
- * Reconciles an automation's schedule trigger with its linked scheduled job.
- * An empty cron means the automation has no schedule trigger (e.g. it only
- * runs via webhook), so any existing job is removed and the link cleared.
- */
-async function syncAutomationJob(
-	automation: Pick<AutomationWithSchedule, 'id'>,
-	cron: string,
-	enabled: boolean,
-): Promise<AutomationWithSchedule> {
-	const trimmedCron = cron.trim();
-	if (!trimmedCron) {
-		return removeAutomationSchedule(automation.id);
-	}
-
-	assertValidCron(trimmedCron);
-	const uniqueKey = automationQueries.automationJobUniqueKey(automation.id);
-	const runAt = nextCronTick(trimmedCron, new Date());
-	if (!runAt) {
-		throw new Error(`Invalid cron expression: ${trimmedCron}`);
-	}
-
-	const job = await scheduledJobQueries.upsertRecurringJob({
-		name: AUTOMATION_JOB_NAME,
-		cron: trimmedCron,
-		uniqueKey,
-		payload: { automationId: automation.id },
-		runAt,
-		status: enabled ? 'pending' : 'paused',
-		resetRunAtOnConflict: true,
-	});
-
-	await automationQueries.linkAutomationJob(automation.id, job.id);
-	const linked = await automationQueries.getAutomationById(automation.id);
-	if (!linked) {
-		throw new Error(`Automation not found after scheduling: ${automation.id}`);
-	}
-	return linked;
-}
-
-async function removeAutomationSchedule(automationId: string): Promise<AutomationWithSchedule> {
-	const current = await automationQueries.getAutomationById(automationId);
-	if (current?.scheduledJobId) {
-		await scheduledJobQueries.deleteJob(current.scheduledJobId);
-		await automationQueries.linkAutomationJob(automationId, null);
-	}
-	const cleared = await automationQueries.getAutomationById(automationId);
-	if (!cleared) {
-		throw new Error(`Automation not found after scheduling: ${automationId}`);
-	}
-	return cleared;
-}
-
-function assertTriggers(
-	{ cron, webhookEnabled, eventTriggers }: AutomationTriggersInput,
-	userRole: UserRole | null,
-): void {
-	if (!cron.trim() && !webhookEnabled && !hasEnabledEventTrigger(eventTriggers)) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Add at least one trigger.' });
-	}
-	if (cron.trim()) {
-		assertValidCron(cron.trim());
-	}
-	if (eventTriggers.feedback?.sources.includes('chat') && !canRoleReceiveChatFeedback(userRole)) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'Only admins and context admins can trigger automations on chat feedback.',
-		});
-	}
-}
-
-function hasEnabledEventTrigger(eventTriggers: AutomationEventTriggers): boolean {
-	return Object.values(eventTriggers).some((trigger) => trigger?.enabled);
-}
-
-function setEventTriggersEnabled(eventTriggers: AutomationEventTriggers, enabled: boolean): AutomationEventTriggers {
-	return Object.fromEntries(
-		Object.entries(eventTriggers).map(([eventType, trigger]) => [eventType, { ...trigger, enabled }]),
-	);
-}
-
-function assertValidCron(cron: string): void {
-	CronExpressionParser.parse(cron);
-}
-
-function getServerTimezone(): string {
-	return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }

@@ -24,7 +24,7 @@ const AUTOMATION_ID = 'automation-1';
 const VALID_KEY_HEADERS = { authorization: 'Bearer nao_valid' };
 
 function buildAutomation(overrides: Record<string, unknown> = {}) {
-	return { id: AUTOMATION_ID, projectId: 'project-1', webhookEnabled: true, ...overrides };
+	return { id: AUTOMATION_ID, projectId: 'project-1', webhookEnabled: true, enabled: true, ...overrides };
 }
 
 async function post(app: FastifyInstance, headers: Record<string, string> = {}) {
@@ -85,8 +85,11 @@ describe('automation webhook route', () => {
 		expect(vi.mocked(startAutomationRun)).not.toHaveBeenCalled();
 	});
 
-	it('returns 409 when the automation is paused', async () => {
-		mockAuthorizedAutomation({ scheduledJob: { status: 'paused' }, enabled: false });
+	it.each([
+		{ name: 'a scheduled automation', scheduledJob: { status: 'paused' } },
+		{ name: 'an automation without a schedule', scheduledJob: null },
+	])('returns 409 when $name is paused', async ({ scheduledJob }) => {
+		mockAuthorizedAutomation({ scheduledJob, enabled: false });
 		const res = await post(app, VALID_KEY_HEADERS);
 		expect(res.statusCode).toBe(409);
 		expect(vi.mocked(startAutomationRun)).not.toHaveBeenCalled();

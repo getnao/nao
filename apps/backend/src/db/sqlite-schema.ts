@@ -1212,6 +1212,7 @@ export const automation = sqliteTable(
 		integrations: text('integrations', { mode: 'json' }).$type<AutomationIntegrationConfig>().notNull().default({}),
 		webhookEnabled: integer('webhook_enabled', { mode: 'boolean' }).default(false).notNull(),
 		eventTriggers: text('event_triggers', { mode: 'json' }).$type<AutomationEventTriggers>().notNull().default({}),
+		paused: integer('paused', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

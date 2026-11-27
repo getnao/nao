@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, EllipsisVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { isAutomationActive } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
 
@@ -26,7 +27,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
-import { getAutomationTriggerLabel, isAutomationActive } from '@/lib/automation-triggers';
+import { getAutomationTriggerLabel } from '@/lib/automation-triggers';
 import { trpc } from '@/main';
 
 type ProjectAutomation = inferRouterOutputs<TrpcRouter>['automation']['listAllForAdmin'][number];

@@ -20,6 +20,10 @@ export function storyChatUrl(story: { chatId: string | null }): string | null {
 	return story.chatId ? chatUrl(story.chatId) : null;
 }
 
+export function automationUrl(automationId: string): string {
+	return appUrl(`/automations/${automationId}`);
+}
+
 export function storyEmbedUrl(storyId: string, projectId: string): string {
 	const token = generateEmbedToken('story', storyId, projectId);
 	return storyEmbedUrlWithToken(storyId, token);
