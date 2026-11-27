@@ -5,13 +5,14 @@ import { z } from 'zod';
 
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { type FolderContext, getViewer, moveStoryForUser } from '../../services/story-folder-move.service';
-import type { McpContext } from '../logging';
+import type { McpContext, ToolResult } from '../logging';
 import { jsonToolResult, registerMcpTool } from './register-mcp-tool';
 
 const LIST_STORY_FOLDERS_DESCRIPTION =
 	'List the story folders the user can see, with who sees the stories filed in each one.\n\n' +
-	'USE WHEN: the user wants to file a story in a folder ("save it in the Marketing folder"): find the folder ' +
-	'here, then call `move_story` with its `id`. The first entry is Home, the top level of the stories page.';
+	'USE WHEN: the user wants to file a story in a folder ("save it in the Marketing folder"), or you ask them ' +
+	'where to save a new story: find the folder here, then pass its `id` as `folder_id` to `create_story`, or to ' +
+	'`move_story` for an existing story. The first entry is Home, the top level of the stories page.';
 
 const MOVE_STORY_DESCRIPTION =
 	'Move a story to one of the folders from `list_story_folders`, Home included, like moving it in nao.\n\n' +
@@ -23,7 +24,10 @@ const MOVE_STORY_DESCRIPTION =
 	'Only the owner of the story or an admin can move it.';
 
 const STORY_FOLDER_SCHEMA = z.object({
-	id: z.string().nullable().describe('Folder UUID to pass as `folder_id` to `move_story`, null for Home.'),
+	id: z
+		.string()
+		.nullable()
+		.describe('Folder UUID to pass as `folder_id` to `create_story` or `move_story`, null for Home.'),
 	name: z.string().describe('Folder name.'),
 	parentId: z
 		.string()
@@ -43,11 +47,7 @@ type StoryFolderListItem = z.infer<typeof STORY_FOLDER_SCHEMA>;
 const HOME_FOLDER: StoryFolderListItem = { id: null, name: 'Home', parentId: null, access: 'project', teams: [] };
 
 export function registerStoryFolderTools(server: McpServer, ctx: McpContext): void {
-	const folderContext: FolderContext = {
-		user: { id: ctx.userId },
-		project: { id: ctx.projectId },
-		userRole: ctx.role,
-	};
+	const folderContext = toFolderContext(ctx);
 
 	registerMcpTool(server, ctx, {
 		name: 'list_story_folders',
@@ -58,9 +58,8 @@ export function registerStoryFolderTools(server: McpServer, ctx: McpContext): vo
 			folders: z.array(STORY_FOLDER_SCHEMA).describe('Home, then the folders the user can see, sorted by name.'),
 		},
 		handler: async () => {
-			await storyFolderQueries.ensurePrivateRoot(ctx.userId, ctx.projectId);
-			const tree = await storyFolderQueries.listFolderTree(await getViewer(folderContext), ctx.projectId);
-			return jsonToolResult({ folders: [HOME_FOLDER, ...tree.filter(isStoryFolder).map(toStoryFolderListItem)] });
+			const { folders } = await listStoryFolders(folderContext);
+			return jsonToolResult({ folders });
 		},
 	});
 
@@ -87,6 +86,43 @@ export function registerStoryFolderTools(server: McpServer, ctx: McpContext): vo
 			return jsonToolResult({ id: story_id, folderId: folder_id });
 		},
 	});
+}
+
+export function toFolderContext(ctx: McpContext): FolderContext {
+	return { user: { id: ctx.userId }, project: { id: ctx.projectId }, userRole: ctx.role };
+}
+
+/** Agents skip asking where to save a story before creating it, so the result asks it once the story exists. */
+export async function withFolderChoice(result: ToolResult, ctx: McpContext): Promise<ToolResult> {
+	if (result.isError) {
+		return result;
+	}
+	const { privateRootId, folders } = await listStoryFolders(toFolderContext(ctx));
+	const otherFolders = folders.filter((folder) => folder.id !== privateRootId).map(describeFolderChoice);
+	const text =
+		'The story is saved in My private folder, so only the user can see it. Tell them, then ask whether they ' +
+		'want it in another folder, naming the folders, never their ids. If they pick one, call `move_story` with ' +
+		`its \`folder_id\`:\n${otherFolders.join('\n')}`;
+	return { ...result, content: [...result.content, { type: 'text', text }] };
+}
+
+async function listStoryFolders(folderContext: FolderContext) {
+	const { user, project } = folderContext;
+	const privateRootId = await storyFolderQueries.ensurePrivateRoot(user.id, project.id);
+	const tree = await storyFolderQueries.listFolderTree(await getViewer(folderContext), project.id);
+	return { privateRootId, folders: [HOME_FOLDER, ...tree.filter(isStoryFolder).map(toStoryFolderListItem)] };
+}
+
+function describeFolderChoice(folder: StoryFolderListItem): string {
+	const folderId = folder.id === null ? 'null' : `"${folder.id}"`;
+	return `- ${folder.name} (${describeFolderAudience(folder)}): folder_id ${folderId}`;
+}
+
+function describeFolderAudience(folder: StoryFolderListItem): string {
+	if (folder.access === 'team') {
+		return `shared with ${folder.teams.join(', ')}`;
+	}
+	return folder.access === 'project' ? 'shared with the whole project' : 'only the user';
 }
 
 function isStoryFolder(folder: storyFolderQueries.FolderTreeEntry): folder is storyFolderQueries.StoryFolderWithCount {

@@ -16,11 +16,37 @@ export async function moveStoryForUser(storyId: string, folderId: string | null,
 	await storyFolderQueries.moveStoryToFolder(storyId, folderId, {
 		storyOwnerId,
 		projectId: ctx.project.id,
-		assertAllowed: async () => {
-			await resolveMoveTarget(folderId, ctx, 'Folder');
-			await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(folderId), ctx);
-		},
+		assertAllowed: () => assertCanFileStoryIn(folderId, ctx),
 	});
+}
+
+/**
+ * A new story the chosen folder can no longer take stays where it was saved, in its owner's private folder.
+ * It is never deleted: a concurrent create_story with the same chat and title may have returned the same story.
+ */
+export async function fileNewStoryInFolder(
+	storyId: string,
+	folderId: string | null,
+	ctx: FolderContext,
+): Promise<boolean> {
+	try {
+		await storyFolderQueries.moveStoryToFolder(storyId, folderId, {
+			storyOwnerId: ctx.user.id,
+			projectId: ctx.project.id,
+			assertAllowed: () => assertCanFileStoryIn(folderId, ctx),
+		});
+		return true;
+	} catch (error) {
+		if (error instanceof TRPCError) {
+			return false;
+		}
+		throw error;
+	}
+}
+
+export async function assertCanFileStoryIn(folderId: string | null, ctx: FolderContext) {
+	await resolveMoveTarget(folderId, ctx, 'Folder');
+	await assertCanShareWithAudience(await storyFolderQueries.resolveFolderAudience(folderId), ctx);
 }
 
 export async function assertFolderInProject(folderId: string, ctx: FolderContext, label = 'Folder') {
@@ -67,6 +93,9 @@ export async function resolveMoveTarget(folderId: string | null, ctx: FolderCont
 	}
 	const target = await assertFolderInProject(folderId, ctx, label);
 	await assertCanSeeFolder(target, ctx, label);
+	if (target.archivedAt) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: `${label} is archived.` });
+	}
 	assertCanPlaceInDestination(target, ctx.user.id);
 	return target;
 }
