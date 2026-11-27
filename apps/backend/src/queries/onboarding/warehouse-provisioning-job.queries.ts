@@ -200,6 +200,50 @@ export async function claimWarehouseProvisioningJob(
 	return job ?? null;
 }
 
+export async function claimWarehouseProvisioningJobContextFiles(
+	jobId: string,
+	userId: string,
+	workerId: string,
+	staleBefore: Date,
+): Promise<DBWarehouseProvisioningJob | null> {
+	const [job] = await db
+		.update(s.warehouseProvisioningJob)
+		.set({
+			lockedBy: workerId,
+			lockedAt: new Date(),
+			updatedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(s.warehouseProvisioningJob.id, jobId),
+				eq(s.warehouseProvisioningJob.userId, userId),
+				eq(s.warehouseProvisioningJob.status, 'awaiting_sources'),
+				or(isNull(s.warehouseProvisioningJob.lockedAt), lt(s.warehouseProvisioningJob.lockedAt, staleBefore)),
+			),
+		)
+		.returning()
+		.execute();
+
+	return job ?? null;
+}
+
+export async function releaseStaleWarehouseProvisioningJobContextFileLock(
+	jobId: string,
+	staleBefore: Date,
+): Promise<void> {
+	await db
+		.update(s.warehouseProvisioningJob)
+		.set({ lockedBy: null, lockedAt: null, updatedAt: new Date() })
+		.where(
+			and(
+				eq(s.warehouseProvisioningJob.id, jobId),
+				eq(s.warehouseProvisioningJob.status, 'awaiting_sources'),
+				lt(s.warehouseProvisioningJob.lockedAt, staleBefore),
+			),
+		)
+		.execute();
+}
+
 export async function renewWarehouseProvisioningJobLock(jobId: string, workerId: string): Promise<boolean> {
 	const [job] = await db
 		.update(s.warehouseProvisioningJob)

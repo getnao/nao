@@ -70,6 +70,66 @@ describe('generateOnboardingRules', () => {
 		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
 	});
 
+	it('includes uploaded text files in the initial business context', async () => {
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'We rent bicycles to commuters.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('## docs/uploads/company.txt');
+		expect(userPrompt).toContain('We rent bicycles to commuters.');
+	});
+
+	it('reserves file slots for business context when database metadata reaches the file limit', async () => {
+		for (let index = 0; index < 60; index++) {
+			const tableDirectory = path.join(projectPath, 'databases', `table-${index}`);
+			fs.mkdirSync(tableDirectory, { recursive: true });
+			fs.writeFileSync(path.join(tableDirectory, 'columns.md'), `Table ${index}`);
+		}
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'Important uploaded business context.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('Important uploaded business context.');
+	});
+
+	it('reserves characters for business context when database metadata reaches the character limit', async () => {
+		const tableDirectory = path.join(projectPath, 'databases', 'table');
+		fs.mkdirSync(tableDirectory, { recursive: true });
+		fs.writeFileSync(path.join(tableDirectory, 'columns.md'), 'd'.repeat(60_000));
+		const uploadDirectory = path.join(projectPath, 'docs', 'uploads');
+		fs.mkdirSync(uploadDirectory, { recursive: true });
+		fs.writeFileSync(path.join(uploadDirectory, 'company.txt'), 'Important uploaded business context.');
+
+		await generateOnboardingRules(
+			'project-1',
+			{},
+			{ provider: 'openai', modelId: 'gpt-4o-mini' },
+			'model-project-1',
+			'user-1',
+		);
+
+		const userPrompt = mocks.generateText.mock.calls[0]?.[0].messages[0].content as string;
+		expect(userPrompt).toContain('Important uploaded business context.');
+	});
+
 	it('resolves managed models as unbilled usage for the onboarding user', async () => {
 		await generateOnboardingRules(
 			'project-1',

@@ -479,38 +479,52 @@ function DynamicPatterns({
 	);
 }
 
-function DatabaseContextTree({
+function ignoreColumnPoliciesChange(policies: UserGroupColumnPolicies): void {
+	void policies;
+}
+
+function ignoreRowPoliciesChange(policies: UserGroupRowPolicies): void {
+	void policies;
+}
+
+export function DatabaseContextTree({
 	objects,
 	selectionObjects,
 	databaseAccess,
 	onChange,
 	isSearching,
-	search,
+	search = '',
 	draftPattern,
-	columnSecurity,
-	columnPolicies,
-	rowSecurity,
-	rowPolicies,
-	isColumnSecurityLicensed,
-	showRowPolicyValidationErrors,
-	onColumnPoliciesChange,
-	onRowPoliciesChange,
+	showDatabaseRoot = true,
+	showSelectionSourceLabels = true,
+	checkFullySelectedSchemas = false,
+	columnSecurity = EMPTY_PROJECT_COLUMN_SECURITY,
+	columnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	rowSecurity = EMPTY_PROJECT_ROW_SECURITY,
+	rowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
+	isColumnSecurityLicensed = false,
+	showRowPolicyValidationErrors = false,
+	onColumnPoliciesChange = ignoreColumnPoliciesChange,
+	onRowPoliciesChange = ignoreRowPoliciesChange,
 }: {
 	objects: DatabaseContextObject[];
 	selectionObjects: DatabaseContextObject[];
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
 	isSearching: boolean;
-	search: string;
+	search?: string;
 	draftPattern: string;
-	columnSecurity: ProjectColumnSecurity;
-	columnPolicies: UserGroupColumnPolicies;
-	rowSecurity: ProjectRowSecurity;
-	rowPolicies: UserGroupRowPolicies;
-	isColumnSecurityLicensed: boolean;
-	showRowPolicyValidationErrors: boolean;
-	onColumnPoliciesChange: (policies: UserGroupColumnPolicies) => void;
-	onRowPoliciesChange: (policies: UserGroupRowPolicies) => void;
+	showDatabaseRoot?: boolean;
+	showSelectionSourceLabels?: boolean;
+	checkFullySelectedSchemas?: boolean;
+	columnSecurity?: ProjectColumnSecurity;
+	columnPolicies?: UserGroupColumnPolicies;
+	rowSecurity?: ProjectRowSecurity;
+	rowPolicies?: UserGroupRowPolicies;
+	isColumnSecurityLicensed?: boolean;
+	showRowPolicyValidationErrors?: boolean;
+	onColumnPoliciesChange?: (policies: UserGroupColumnPolicies) => void;
+	onRowPoliciesChange?: (policies: UserGroupRowPolicies) => void;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
 	const restrictedTables = useMemo(
@@ -543,28 +557,58 @@ function DatabaseContextTree({
 
 	return (
 		<>
-			{databases.map((database) => (
-				<DatabaseNode
-					key={database.key}
-					database={database}
-					expandedKeys={expandedKeys}
-					isSearching={isSearching}
-					onToggle={toggleFolder}
-					databaseAccess={databaseAccess}
-					onChange={onChange}
-					draftPattern={draftPattern}
-					selectionObjects={selectionObjects}
-					search={search}
-					restrictedTables={restrictedTables}
-					columnPolicies={columnPolicies}
-					filteredTables={filteredTables}
-					rowPolicies={rowPolicies}
-					isColumnSecurityLicensed={isColumnSecurityLicensed}
-					showRowPolicyValidationErrors={showRowPolicyValidationErrors}
-					onColumnPoliciesChange={onColumnPoliciesChange}
-					onRowPoliciesChange={onRowPoliciesChange}
-				/>
-			))}
+			{databases.flatMap((database) =>
+				showDatabaseRoot
+					? [
+							<DatabaseNode
+								key={database.key}
+								database={database}
+								expandedKeys={expandedKeys}
+								isSearching={isSearching}
+								onToggle={toggleFolder}
+								databaseAccess={databaseAccess}
+								onChange={onChange}
+								draftPattern={draftPattern}
+								selectionObjects={selectionObjects}
+								showSelectionSourceLabels={showSelectionSourceLabels}
+								checkFullySelectedSchemas={checkFullySelectedSchemas}
+								search={search}
+								restrictedTables={restrictedTables}
+								columnPolicies={columnPolicies}
+								filteredTables={filteredTables}
+								rowPolicies={rowPolicies}
+								isColumnSecurityLicensed={isColumnSecurityLicensed}
+								showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+								onColumnPoliciesChange={onColumnPoliciesChange}
+								onRowPoliciesChange={onRowPoliciesChange}
+							/>,
+						]
+					: database.schemas.map((schema) => (
+							<SchemaRow
+								key={schema.key}
+								schema={schema}
+								label={schema.schema}
+								depth={0}
+								open={isSearching || expandedKeys.has(schema.key)}
+								onToggle={() => toggleFolder(schema)}
+								databaseAccess={databaseAccess}
+								onChange={onChange}
+								draftPattern={draftPattern}
+								selectionObjects={selectionObjects}
+								showSelectionSourceLabels={showSelectionSourceLabels}
+								checkFullySelectedSchemas={checkFullySelectedSchemas}
+								search={search}
+								restrictedTables={restrictedTables}
+								columnPolicies={columnPolicies}
+								filteredTables={filteredTables}
+								rowPolicies={rowPolicies}
+								isColumnSecurityLicensed={isColumnSecurityLicensed}
+								showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+								onColumnPoliciesChange={onColumnPoliciesChange}
+								onRowPoliciesChange={onRowPoliciesChange}
+							/>
+						)),
+			)}
 		</>
 	);
 }
@@ -607,6 +651,8 @@ function DatabaseNode({
 	onChange,
 	draftPattern,
 	selectionObjects,
+	showSelectionSourceLabels,
+	checkFullySelectedSchemas,
 	search,
 	restrictedTables,
 	columnPolicies,
@@ -625,6 +671,8 @@ function DatabaseNode({
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
+	showSelectionSourceLabels: boolean;
+	checkFullySelectedSchemas: boolean;
 	search: string;
 	restrictedTables: Map<string, SensitiveColumnDefinition>;
 	columnPolicies: UserGroupColumnPolicies;
@@ -651,6 +699,8 @@ function DatabaseNode({
 				onChange={onChange}
 				draftPattern={draftPattern}
 				selectionObjects={selectionObjects}
+				showSelectionSourceLabels={showSelectionSourceLabels}
+				checkFullySelectedSchemas={checkFullySelectedSchemas}
 				search={search}
 				restrictedTables={restrictedTables}
 				columnPolicies={columnPolicies}
@@ -720,6 +770,8 @@ function DatabaseNode({
 							onChange={onChange}
 							draftPattern={draftPattern}
 							selectionObjects={selectionObjects}
+							showSelectionSourceLabels={showSelectionSourceLabels}
+							checkFullySelectedSchemas={checkFullySelectedSchemas}
 							search={search}
 							restrictedTables={restrictedTables}
 							columnPolicies={columnPolicies}
@@ -748,6 +800,8 @@ function SchemaRow({
 	onChange,
 	draftPattern,
 	selectionObjects,
+	showSelectionSourceLabels,
+	checkFullySelectedSchemas,
 	search,
 	restrictedTables,
 	columnPolicies,
@@ -768,6 +822,8 @@ function SchemaRow({
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
+	showSelectionSourceLabels: boolean;
+	checkFullySelectedSchemas: boolean;
 	search: string;
 	restrictedTables: Map<string, SensitiveColumnDefinition>;
 	columnPolicies: UserGroupColumnPolicies;
@@ -786,7 +842,12 @@ function SchemaRow({
 	};
 	const explicitSchema = hasDatabaseContextGrant(databaseAccess, schemaGrant);
 	const inherited = databaseAccess.mode === 'all';
-	const selected = inherited || explicitSchema;
+	const schemaObjects = selectionObjects.filter((object) => sameSchema(object, schema));
+	const fullySelected =
+		checkFullySelectedSchemas &&
+		schemaObjects.length > 0 &&
+		schemaObjects.every((object) => isDatabaseContextTableGranted(databaseAccess, object));
+	const selected = inherited || explicitSchema || fullySelected;
 	const partial =
 		!selected &&
 		selectionObjects.some(
@@ -834,7 +895,9 @@ function SchemaRow({
 					<span className='min-w-0 flex-1 truncate' title={label}>
 						{label}
 					</span>
-					{inherited && <span className='shrink-0 text-[10px] text-primary/80'>Inherited</span>}
+					{inherited && showSelectionSourceLabels && (
+						<span className='shrink-0 text-[10px] text-primary/80'>Inherited</span>
+					)}
 					{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 					{databaseType && (
 						<Badge variant='secondary' className='h-5 shrink-0 px-1.5 text-[10px] font-normal'>
@@ -854,6 +917,7 @@ function SchemaRow({
 							parentSchemaExplicit={explicitSchema}
 							onChange={onChange}
 							draftPattern={draftPattern}
+							showSelectionSourceLabels={showSelectionSourceLabels}
 							search={search}
 							restrictedTable={restrictedTables.get(columnSecurityTableKey(object))}
 							columnPolicies={columnPolicies}
@@ -878,6 +942,7 @@ function TableRow({
 	parentSchemaExplicit,
 	onChange,
 	draftPattern,
+	showSelectionSourceLabels,
 	search,
 	restrictedTable,
 	columnPolicies,
@@ -894,6 +959,7 @@ function TableRow({
 	parentSchemaExplicit: boolean;
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
+	showSelectionSourceLabels: boolean;
 	search: string;
 	restrictedTable?: SensitiveColumnDefinition;
 	columnPolicies: UserGroupColumnPolicies;
@@ -994,7 +1060,7 @@ function TableRow({
 						{visibleSensitiveFields}/{restrictedTable.restrictedColumns.length} sensitive visible
 					</span>
 				)}
-				{inherited && (
+				{inherited && showSelectionSourceLabels && (
 					<span className='shrink-0 text-[10px] text-primary/80'>
 						{patternDerived ? 'Pattern' : 'Inherited'}
 					</span>

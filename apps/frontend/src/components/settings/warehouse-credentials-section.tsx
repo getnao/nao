@@ -16,11 +16,19 @@ export function WarehouseCredentialsSection({ isAdmin }: { isAdmin: boolean }) {
 	const queryClient = useQueryClient();
 	const envVarsQuery = useQuery(trpc.project.getEnvVars.queryOptions());
 	const [replacements, setReplacements] = useState<Record<string, string>>({});
+	const [githubToken, setGithubToken] = useState('');
 
 	const updateMutation = useMutation({
 		...trpc.project.updateWarehouseCredentials.mutationOptions(),
 		onSuccess: () => {
 			setReplacements({});
+			queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
+		},
+	});
+	const githubTokenMutation = useMutation({
+		...trpc.project.updateGithubContextToken.mutationOptions(),
+		onSuccess: () => {
+			setGithubToken('');
 			queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
 		},
 	});
@@ -85,7 +93,54 @@ export function WarehouseCredentialsSection({ isAdmin }: { isAdmin: boolean }) {
 					);
 				})}
 			</div>
+			{credentials.githubConnection && (
+				<div className='grid gap-2 border-t pt-4'>
+					<div>
+						<p className='text-sm font-medium text-foreground'>GitHub context token</p>
+						<p className='text-xs text-muted-foreground'>
+							{credentials.githubConnection.repoFullName} ·{' '}
+							{credentials.githubConnection.connected ? 'Connected' : 'Reconnect required'}
+						</p>
+					</div>
+					<Input
+						type='password'
+						autoComplete='new-password'
+						aria-label='Fine-grained GitHub access token'
+						placeholder='github_pat_...'
+						value={githubToken}
+						onChange={(event) => setGithubToken(event.target.value)}
+						readOnly={!isAdmin}
+						className={isAdmin ? 'font-mono' : 'bg-muted/50 font-mono'}
+					/>
+					{isAdmin && (
+						<div className='flex gap-2'>
+							<Button
+								type='button'
+								size='sm'
+								onClick={() => githubTokenMutation.mutate({ accessToken: githubToken.trim() })}
+								disabled={
+									!githubToken.trim().startsWith('github_pat_') || githubTokenMutation.isPending
+								}
+							>
+								{credentials.githubConnection.connected ? 'Replace token' : 'Reconnect'}
+							</Button>
+							{credentials.githubConnection.connected && (
+								<Button
+									type='button'
+									size='sm'
+									variant='outline'
+									onClick={() => githubTokenMutation.mutate({ accessToken: null })}
+									disabled={githubTokenMutation.isPending}
+								>
+									Remove token
+								</Button>
+							)}
+						</div>
+					)}
+				</div>
+			)}
 			{updateMutation.error && <ErrorMessage message={updateMutation.error.message} />}
+			{githubTokenMutation.error && <ErrorMessage message={githubTokenMutation.error.message} />}
 		</SettingsCard>
 	);
 }

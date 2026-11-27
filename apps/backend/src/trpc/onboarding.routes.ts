@@ -9,17 +9,46 @@ import {
 	getWarehouseProvisioningJob,
 	retryWarehouseProvisioning,
 	startWarehouseProvisioning,
+	submitWarehouseContextSources,
+	validateConfluenceContext,
+	validateGithubContext,
+	validateNotionContext,
 	validateWarehouseCredentials,
 } from '../services/onboarding/warehouse-provisioning';
-import { warehouseProvisioningInputSchema } from '../types/onboarding/warehouse-provisioning';
+import {
+	confluenceContextSourceSchema,
+	confluenceContextValidationResultSchema,
+	githubContextValidationResultSchema,
+	githubRepositoryContextSourceSchema,
+	notionContextSourceSchema,
+	notionContextValidationResultSchema,
+	warehouseContextSourcesInputSchema,
+	warehouseProvisioningInputSchema,
+	warehouseValidationResultSchema,
+} from '../types/onboarding/warehouse-provisioning';
 import { warehouseCredentialsSchema } from '../types/warehouse';
 import { organizationProtectedProcedure, protectedProcedure, router } from './trpc';
 
 export const onboardingRoutes = router({
 	validateWarehouseCredentials: organizationProtectedProcedure
 		.input(warehouseCredentialsSchema)
-		.output(z.object({ valid: z.literal(true) }))
+		.output(warehouseValidationResultSchema)
 		.mutation(({ ctx, input }) => validateWarehouseCredentials(ctx.user.id, input)),
+
+	validateNotionContext: organizationProtectedProcedure
+		.input(notionContextSourceSchema)
+		.output(notionContextValidationResultSchema)
+		.mutation(({ input }) => validateNotionContext(input)),
+
+	validateConfluenceContext: organizationProtectedProcedure
+		.input(confluenceContextSourceSchema)
+		.output(confluenceContextValidationResultSchema)
+		.mutation(({ input }) => validateConfluenceContext(input)),
+
+	validateGithubContext: organizationProtectedProcedure
+		.input(githubRepositoryContextSourceSchema)
+		.output(githubContextValidationResultSchema)
+		.mutation(({ input }) => validateGithubContext(input)),
 
 	startWarehouseProvisioning: organizationProtectedProcedure
 		.input(warehouseProvisioningInputSchema)
@@ -52,6 +81,14 @@ export const onboardingRoutes = router({
 		.mutation(async ({ ctx, input }) => {
 			await assertOwnsChat(input.onboardingChatId, ctx.user.id);
 			return restartOnboarding(ctx.user.id, input.onboardingChatId);
+		}),
+
+	submitWarehouseContextSources: organizationProtectedProcedure
+		.input(warehouseContextSourcesInputSchema)
+		.output(z.object({ status: z.literal('syncing') }))
+		.mutation(async ({ ctx, input }) => {
+			await submitWarehouseContextSources(input.jobId, ctx.user.id, input.contextSources, input.businessContext);
+			return { status: 'syncing' as const };
 		}),
 
 	getWarehouseProvisioningStatus: protectedProcedure

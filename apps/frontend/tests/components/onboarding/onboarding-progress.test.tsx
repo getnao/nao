@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
 	canFinishDeployOnboarding,
 	findCreatedOnboardingProject,
+	WarehouseProvisioningWarnings,
 	hasOnboardingCloudAccess,
 	shouldReturnToOnboarding,
 	getCompletedSteps,
@@ -11,6 +15,8 @@ import {
 } from '@/components/onboarding/onboarding-progress';
 
 vi.mock('@/main', () => ({ trpc: {} }));
+
+afterEach(cleanup);
 
 describe('isDeployStepReached', () => {
 	it.each([
@@ -186,6 +192,7 @@ describe('getCompletedSteps', () => {
 		['queued', 1],
 		['initializing', 1],
 		['debugging', 2],
+		['awaiting_sources', 3],
 		['syncing', 3],
 		['registering', 4],
 		['awaiting_context', 4],
@@ -194,5 +201,30 @@ describe('getCompletedSteps', () => {
 		['ready', 5],
 	] as const)('tracks database provisioning status %s', (status, expected) => {
 		expect(getCompletedSteps({ flow: 'database', step: 0 }, 5, false, status)).toBe(expected);
+	});
+});
+
+describe('WarehouseProvisioningWarnings', () => {
+	it('shows optional source failures without presenting setup as failed', () => {
+		render(
+			<WarehouseProvisioningWarnings
+				warnings={[
+					{
+						source: 'confluence',
+						message: 'Confluence could not be synced. Warehouse setup continued without it.',
+					},
+				]}
+			/>,
+		);
+
+		expect(screen.getByRole('alert')).toBeTruthy();
+		expect(screen.getByText('Some optional business context was not synced')).toBeTruthy();
+		expect(screen.getByText('Confluence could not be synced. Warehouse setup continued without it.')).toBeTruthy();
+		expect(screen.queryByText(/warehouse setup failed/i)).toBeNull();
+	});
+
+	it('renders nothing when every source synced', () => {
+		const view = render(<WarehouseProvisioningWarnings warnings={[]} />);
+		expect(view.container.innerHTML).toBe('');
 	});
 });

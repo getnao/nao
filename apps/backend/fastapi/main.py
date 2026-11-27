@@ -16,7 +16,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_core import to_jsonable_python
 
 __all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
@@ -76,8 +76,12 @@ from nao_core.semantic_layer import (  # noqa: E402
     runtime_manifest_path,
 )
 from warehouse_provisioning import (  # noqa: E402
+    ConfluenceContextValidationError,
+    NotionContextValidationError,
     infer_warehouse_error_fields,
     prepare_warehouse_config,
+    validate_confluence_context,
+    validate_notion_context,
     validate_warehouse_credentials,
 )
 
@@ -197,8 +201,41 @@ class PrepareWarehouseResponse(BaseModel):
     env_vars: dict[str, str]
 
 
+class WarehouseSchemaInventory(BaseModel):
+    schema_name: str = Field(alias="schema", serialization_alias="schema")
+    tables: list[str]
+
+
 class ValidateWarehouseResponse(BaseModel):
     valid: bool
+    schemas: list[WarehouseSchemaInventory]
+
+
+class ValidateNotionRequest(BaseModel):
+    api_key: str
+    pages: list[str]
+
+
+class ValidatedNotionPage(BaseModel):
+    url: str
+    title: str
+
+
+class ValidateNotionResponse(BaseModel):
+    valid: bool
+    pages: list[ValidatedNotionPage]
+
+
+class ValidateConfluenceRequest(BaseModel):
+    base_url: str
+    email: str
+    api_token: str
+    pages: list[str]
+
+
+class ValidateConfluenceResponse(BaseModel):
+    valid: bool
+    pages: list[ValidatedNotionPage]
 
 
 def _validate_sql(
@@ -914,10 +951,10 @@ def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | Non
 )
 async def validate_warehouse(request: PrepareWarehouseRequest):
     try:
-        await asyncio.to_thread(
+        schemas = await asyncio.to_thread(
             validate_warehouse_credentials, request.provider, request.credentials
         )
-        return ValidateWarehouseResponse(valid=True)
+        return ValidateWarehouseResponse(valid=True, schemas=schemas)
     except ValidationError as error:
         fields = sorted(
             {
@@ -980,6 +1017,52 @@ async def prepare_warehouse(request: PrepareWarehouseRequest):
         ) from error
 
 
+@app.post(
+    "/context/notion/validate",
+    response_model=ValidateNotionResponse,
+    dependencies=internal_only,
+)
+async def validate_notion(request: ValidateNotionRequest):
+    try:
+        pages = await asyncio.to_thread(
+            validate_notion_context,
+            request.api_key,
+            request.pages,
+        )
+        return ValidateNotionResponse(valid=True, pages=pages)
+    except NotionContextValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not access the selected Notion pages",
+        ) from error
+
+
+@app.post(
+    "/context/confluence/validate",
+    response_model=ValidateConfluenceResponse,
+    dependencies=internal_only,
+)
+async def validate_confluence(request: ValidateConfluenceRequest):
+    try:
+        pages = await asyncio.to_thread(
+            validate_confluence_context,
+            request.base_url,
+            request.email,
+            request.api_token,
+            request.pages,
+        )
+        return ValidateConfluenceResponse(valid=True, pages=pages)
+    except ConfluenceContextValidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not access the selected Confluence pages",
+        ) from error
+
+
 if __name__ == "__main__":
     should_reload = "--reload" in sys.argv[1:]
     uvicorn.run(
@@ -987,5 +1070,7 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=port,
         reload=should_reload,
-        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")] if should_reload else None,
+        reload_dirs=[str(fastapi_path), str(cli_path / "nao_core")]
+        if should_reload
+        else None,
     )

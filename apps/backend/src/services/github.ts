@@ -256,6 +256,15 @@ export function publicRepoUrl(repoFullName: string): string {
 	return `${githubBaseUrl()}/${repoFullName}.git`;
 }
 
+export async function validateRepositoryAccess(token: string, repoFullName: string): Promise<void> {
+	await githubFetchJson(token, `/repos/${repoFullName}/branches?per_page=1`);
+}
+
+export async function validateRepositoryBranch(token: string, repoFullName: string, branch: string): Promise<void> {
+	await validateRepositoryAccess(token, repoFullName);
+	await githubFetchJson(token, `/repos/${repoFullName}/branches/${encodeURIComponent(branch)}`);
+}
+
 export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);

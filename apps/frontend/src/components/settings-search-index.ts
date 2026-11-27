@@ -329,6 +329,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['warehouse', 'credentials', 'password', 'token', 'secret', 'connection', 'database'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project',
+		pageLabel: 'Project Settings',
+		title: 'Fine-grained GitHub access token',
+		description: 'Replace or revoke the token used to sync a GitHub context repository.',
+		keywords: ['github', 'repository', 'context', 'token', 'fine-grained', 'reconnect'],
+		adminOnly: true,
+	},
 
 	// ── Project > Budget ─────────────────────────────────────
 	{

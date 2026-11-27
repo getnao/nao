@@ -14,6 +14,7 @@ import {
 	isDeployStepReached,
 	OnboardingProgress,
 	useOnboardingMissingEnvVars,
+	WarehouseProvisioningWarnings,
 } from '@/components/onboarding/onboarding-progress';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
@@ -286,6 +287,7 @@ function OnboardingPage() {
 						warehouseStatus={warehouseJob.data?.status}
 						canRestart={canRestart}
 					/>
+					<WarehouseProvisioningWarnings warnings={warehouseJob.data?.warnings} />
 					{showDeployKey && (
 						<Dialog>
 							<div

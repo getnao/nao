@@ -1,0 +1,1 @@
+ALTER TABLE "warehouse_provisioning_job" ADD COLUMN "warnings" jsonb;

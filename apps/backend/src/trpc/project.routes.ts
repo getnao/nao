@@ -72,6 +72,7 @@ import {
 } from '../services/user-group-llm-access.service';
 import {
 	getProjectWarehouseCredentialsSummary,
+	updateProjectGithubContextToken,
 	updateProjectWarehouseCredentials,
 } from '../services/warehouse-credentials';
 import { AgentSettings } from '../types/agent-settings';
@@ -84,6 +85,7 @@ import {
 	llmSelectedModelSchema,
 	modelSettingsMapSchema,
 } from '../types/llm';
+import { githubFineGrainedAccessTokenSchema } from '../types/onboarding/warehouse-provisioning';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { isValidIsoDateString } from '../utils/date';
 import {
@@ -1627,6 +1629,14 @@ export const projectRoutes = {
 		.input(z.object({ values: z.record(z.string(), z.string().min(1)) }))
 		.mutation(async ({ ctx, input }) => {
 			await updateProjectWarehouseCredentials(ctx.project.id, input.values);
+			await reconcileProjectReadiness(ctx.project.id);
+			void mcpService.refreshProjectConfig(ctx.project.id);
+		}),
+
+	updateGithubContextToken: adminProtectedProcedure
+		.input(z.object({ accessToken: githubFineGrainedAccessTokenSchema.nullable() }))
+		.mutation(async ({ ctx, input }) => {
+			await updateProjectGithubContextToken(ctx.project.id, input.accessToken);
 			await reconcileProjectReadiness(ctx.project.id);
 			void mcpService.refreshProjectConfig(ctx.project.id);
 		}),

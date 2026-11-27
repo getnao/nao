@@ -6,6 +6,7 @@ export const SETUP_STATUSES = [
 	'queued',
 	'initializing',
 	'debugging',
+	'awaiting_sources',
 	'syncing',
 	'registering',
 	'awaiting_context',

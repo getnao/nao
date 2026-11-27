@@ -1,12 +1,14 @@
 import type { WarehouseProvisioningStatus, WarehouseSetup } from '../../types/onboarding/warehouse-provisioning';
 import { redactSecretValues } from '../sandbox-secrets';
 
-const SECRET_ENV_VAR_PATTERN = /PASSWORD|PASSPHRASE|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS_JSON/;
+const SECRET_ENV_VAR_PATTERN =
+	/PASSWORD|PASSPHRASE|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|API_KEY|CREDENTIALS_JSON|GITHUB_REPOSITORY_URL/;
 
 const STATUS_DESCRIPTIONS: Record<WarehouseProvisioningStatus, string> = {
 	queued: 'queued, preparing the connection',
 	initializing: 'running nao init',
 	debugging: 'running nao debug to check the connection',
+	awaiting_sources: 'connection verified, waiting for the user to complete or skip the business context card',
 	syncing: 'running nao sync to synchronize warehouse metadata',
 	registering: 'registering the project',
 	awaiting_context: 'metadata synchronized, waiting for business context',
@@ -75,7 +77,15 @@ function findSecretPrefixStart(logs: string, secretValue: string): number {
 
 function toSecretValues(encodedValue: string): string[] {
 	const decodedValue = decodeEnvValue(encodedValue);
-	return [...new Set([encodedValue, decodedValue])].filter((value) => value.length > 0);
+	return [...new Set([encodedValue, decodedValue, getUrlPassword(decodedValue)])].filter((value) => value.length > 0);
+}
+
+function getUrlPassword(value: string): string {
+	try {
+		return new URL(value).password;
+	} catch {
+		return '';
+	}
 }
 
 function decodeEnvValue(encodedValue: string): string {

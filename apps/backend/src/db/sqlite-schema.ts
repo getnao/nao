@@ -129,6 +129,7 @@ import {
 	type WarehouseProvisioningBusinessContext,
 	type WarehouseProvisioningModelSelection,
 	type WarehouseProvisioningStep,
+	type WarehouseProvisioningWarning,
 } from '../types/onboarding/warehouse-provisioning';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
@@ -480,6 +481,7 @@ export const warehouseProvisioningJob = sqliteTable(
 		encryptedCredentials: text('encrypted_credentials'),
 		businessContext: text('business_context', { mode: 'json' }).$type<WarehouseProvisioningBusinessContext>(),
 		modelSelection: text('model_selection', { mode: 'json' }).$type<WarehouseProvisioningModelSelection>(),
+		warnings: text('warnings', { mode: 'json' }).$type<WarehouseProvisioningWarning[]>(),
 		modelProjectId: text('model_project_id'),
 		status: text('status', { enum: WAREHOUSE_PROVISIONING_STATUSES }).notNull().default('queued'),
 		failedStatus: text('failed_status', { enum: WAREHOUSE_PROVISIONING_STATUSES }),

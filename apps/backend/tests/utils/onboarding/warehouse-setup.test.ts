@@ -24,6 +24,17 @@ describe('warehouse log redactor', () => {
 		);
 	});
 
+	it('masks a GitHub token even when a command prints it without the repository URL', () => {
+		const githubRedactor = createWarehouseLogRedactor({
+			NAO_ONBOARDING_GITHUB_REPOSITORY_URL:
+				'"https://x-access-token:github_pat_project-token@github.com/acme/analytics.git"',
+		});
+
+		expect(githubRedactor.redact('Using github_pat_project-token')).toBe(
+			'Using [REDACTED:NAO_ONBOARDING_GITHUB_REPOSITORY_URL]',
+		);
+	});
+
 	it('withholds the start of a secret that the next chunk could complete', () => {
 		expect(redactor.withholdPartialSecret('Connecting with super-sec')).toBe('Connecting with ');
 	});
