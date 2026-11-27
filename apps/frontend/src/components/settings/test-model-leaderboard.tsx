@@ -14,6 +14,7 @@ import {
 	getAccuracy,
 	testModelKey,
 } from '@/components/settings/test-run-types';
+import { SimpleTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 type SortDirection = 'ascending' | 'descending';
@@ -128,14 +129,17 @@ export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 								<span className='flex items-center gap-2'>
 									<ModelName models={run.models} model={summary} isBold />
 									{summary === mostAccurate && summaries.length > 1 && (
-										<span className='rounded-full bg-green-600/10 px-1.5 text-[10.5px] font-medium text-green-700 dark:text-green-400'>
-											Most accurate
-										</span>
+										<LeaderboardBadge
+											label='Most accurate'
+											className='bg-green-600/10 text-green-700 dark:text-green-400'
+										>
+											MA
+										</LeaderboardBadge>
 									)}
 									{summary === bestValue && summary !== mostAccurate && (
-										<span className='rounded-full bg-primary/10 px-1.5 text-[10.5px] font-medium text-primary'>
-											Best value
-										</span>
+										<LeaderboardBadge label='Best value' className='bg-primary/10 text-primary'>
+											BV
+										</LeaderboardBadge>
 									)}
 								</span>
 							</td>
@@ -163,6 +167,20 @@ export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 				</tbody>
 			</table>
 		</div>
+	);
+}
+
+function LeaderboardBadge({ label, className, children }: { label: string; className: string; children: ReactNode }) {
+	return (
+		<SimpleTooltip content={label}>
+			<span
+				tabIndex={0}
+				aria-label={label}
+				className={cn('shrink-0 cursor-default rounded-full px-1.5 text-[10.5px] font-medium', className)}
+			>
+				{children}
+			</span>
+		</SimpleTooltip>
 	);
 }
 
