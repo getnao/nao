@@ -213,7 +213,7 @@ async function finishAutomationRun(
 		}
 		running.agent = agent;
 		const stream = agent.stream(uiChat.messages, { timezone: automation.timezone ?? undefined });
-		await drainAndPersistStream(stream, chat.id, () => agent.isStopped);
+		const streamError = await drainAndPersistStream(stream, chat.id, () => agent.isStopped);
 
 		const messages = await chatQueries.getChatMessages(chat.id);
 		const assistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -234,6 +234,9 @@ async function finishAutomationRun(
 			},
 		});
 
+		if (missingTools.length > 0 && streamError) {
+			throw new Error(`Model error: ${streamError}`);
+		}
 		if (missingTools.length > 0) {
 			throw new Error(
 				`Agent finished without calling required integration tool(s): ${missingTools.join(', ')}. ` +
@@ -298,17 +301,36 @@ async function waitForAgentToSettle(runId: string, agent: RunningAutomation['age
 	}
 }
 
-/** Stops saving snapshots once the agent is stopped, since the agent then saves the settled answer itself. */
+/**
+ * Stops saving snapshots once the agent is stopped, since the agent then saves the settled answer itself.
+ * Resolves with the last error the agent streamed, such as a provider rejecting the request.
+ */
 async function drainAndPersistStream(
 	stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 	chatId: string,
 	isStopped: () => boolean,
-): Promise<void> {
+): Promise<string | undefined> {
 	const persistence = createStreamPersistence(chatId);
-	for await (const message of readUIMessageStream<UIMessage>({ stream })) {
+	let streamError: string | undefined;
+	const onError = (error: unknown) => {
+		streamError = readStreamErrorText(error instanceof Error ? error.message : String(error));
+	};
+	for await (const message of readUIMessageStream<UIMessage>({ stream, onError })) {
 		if (!isStopped()) {
 			await persistence.persist(message);
 		}
+	}
+	return streamError;
+}
+
+/** Stream errors can be JSON payloads meant for the chat UI; keep only their message. */
+function readStreamErrorText(errorText: string): string {
+	try {
+		const payload = JSON.parse(errorText);
+		const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message;
+		return typeof message === 'string' ? message : errorText;
+	} catch {
+		return errorText;
 	}
 }
 
