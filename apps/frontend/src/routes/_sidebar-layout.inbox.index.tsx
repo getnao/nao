@@ -4,8 +4,8 @@ import { CheckCheck, Columns2, Rows3 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import type { AutomationFeedItem, InboxLayout, NotificationFeedItem } from '@/components/automations-feed';
-import { AutomationsFeed, inboxLayoutStorage } from '@/components/automations-feed';
 import type { FeedReadStatus } from '@/components/feed-filter-bar';
+import { AutomationsFeed, inboxLayoutStorage } from '@/components/automations-feed';
 import { applyFeedFilters, FeedFilterBar, useFeedFilters } from '@/components/feed-filter-bar';
 import { MobileHeader } from '@/components/mobile-header';
 import { Button } from '@/components/ui/button';
