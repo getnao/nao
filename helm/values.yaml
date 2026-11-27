@@ -395,6 +395,46 @@ podDisruptionBudget:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+# -- Topology spread constraints. A constraint without a labelSelector gets
+#    the chart's selector labels, so it spreads this release's pods only.
+topologySpreadConstraints: []
+# topologySpreadConstraints:
+#   - maxSkew: 1
+#     topologyKey: kubernetes.io/hostname
+#     whenUnsatisfiable: ScheduleAnyway
+#     matchLabelKeys:
+#       - pod-template-hash
+
+# =============================================================================
+# Rollout and shutdown
+# =============================================================================
+# -- Seconds a new pod must stay ready before it counts as available
+minReadySeconds: 0
+# -- Deployment update strategy (Kubernetes default when empty)
+strategy: {}
+# strategy:
+#   type: RollingUpdate
+#   rollingUpdate:
+#     maxSurge: 1
+#     maxUnavailable: 0
+# -- Pod termination grace period (Kubernetes default of 30s when empty).
+#    supervisord gives the backend up to 120s to stop (stopwaitsecs), so raise
+#    this above 120 to let long-running chats finish on rollouts.
+terminationGracePeriodSeconds: null
+
+# =============================================================================
+# Extra objects
+# =============================================================================
+# -- Extra Kubernetes manifests rendered with the release (NetworkPolicy,
+#    ExternalSecret, ...). Each entry is a map or a string, both passed
+#    through `tpl`.
+extraObjects: []
+# extraObjects:
+#   - apiVersion: networking.k8s.io/v1
+#     kind: NetworkPolicy
+#     metadata:
+#       name: '{{ include "nao.fullname" . }}-allow-ingress'
+#     spec: ...
 
 # =============================================================================
 # Persistence — used when config.contextSource = "local"

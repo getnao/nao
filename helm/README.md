@@ -156,6 +156,11 @@ projectsPersistence:
 | `autoscaling.minReplicas` | `1` | Minimum replicas |
 | `autoscaling.maxReplicas` | `5` | Maximum replicas |
 | `podDisruptionBudget.enabled` | `false` | Enable PDB |
+| `minReadySeconds` | `0` | Seconds a new pod must stay ready before it counts as available |
+| `strategy` | `{}` | Deployment update strategy |
+| `terminationGracePeriodSeconds` | `null` (→ 30s) | Pod termination grace period; set above 120 to let the backend drain long chats |
+| `topologySpreadConstraints` | `[]` | Topology spread constraints; `labelSelector` defaults to the chart's selector labels |
+| `extraObjects` | `[]` | Extra manifests rendered with the release, passed through `tpl` |
 | `persistence.enabled` | `false` | Enable context PVC (local mode) |
 | `persistence.size` | `1Gi` | Context PVC size |
 | `persistence.existingClaim` | `""` | Use an existing PVC |
