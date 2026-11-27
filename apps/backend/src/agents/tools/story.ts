@@ -7,6 +7,7 @@ import { db } from '../../db/db';
 import { env } from '../../env';
 import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
+import type { StoryFileInput } from '../../queries/story-file.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import {
@@ -22,6 +23,7 @@ import { copyQueriesToStoryChat } from '../../services/story-question';
 import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
 import type { LinkedStory, ToolContext } from '../../types/tools';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
+import { injectDataTableFormats } from '../../utils/story-kit-jsx';
 import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
 import { extractCustomStoryQueryIds } from '../../utils/story-query-data';
 import { createTool } from '../../utils/tools';
@@ -58,7 +60,7 @@ export function buildStoryToolDescription({
 		'For classic stories, change part of an existing story with "update" on just that part rather than "replace".',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
 		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
-		'SQL result tables are embedded via <table query_id="..." title="..." />.',
+		'SQL result tables are embedded via <table query_id="..." title="..." />. Story tables keep the conditional formatting of the display_chart table with the same query_id, so they can be colored like in the chat.',
 		...(mapsEnabled
 			? [
 					'Maps are embedded via <map query_id="..." map_type="..." title="..." /> with the same column attributes as display_map:',
@@ -445,6 +447,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			);
 		}
 
+		await carryOverDataTableFormatting(existingStory.id, draft, context.chatId);
 		const result = await publishCustomStoryDraft(existingStory, context, {
 			source: 'assistant',
 			...agentProvenance(context),
@@ -494,6 +497,17 @@ function customResult(id: string, story: { title: string; version: number }, fil
 async function carryOverTableFormatting(code: string, chatId: string): Promise<string> {
 	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);
 	return injectTableFormatting(code, formatsByQueryId);
+}
+
+async function carryOverDataTableFormatting(storyId: string, draft: StoryFileInput[], chatId: string): Promise<void> {
+	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);
+	const files = draft.flatMap((file) => {
+		const content = injectDataTableFormats(file.path, file.content, formatsByQueryId);
+		return content === file.content ? [] : [{ path: file.path, content }];
+	});
+	if (files.length > 0) {
+		await applyCustomStoryDraftChanges(storyId, { files, deletePaths: [] });
+	}
 }
 
 /** The story version is already committed at this point, so a warning failure must not fail the tool. */
