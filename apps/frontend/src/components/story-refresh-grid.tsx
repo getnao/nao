@@ -281,7 +281,13 @@ function StoryRefreshSquares({ schedule }: { schedule: GridSchedule }) {
 						</div>
 					))}
 				</div>
-				<CellDetail cell={selected} isDaily={false} />
+				<div className='min-w-56 flex-1'>
+					{selected?.runs.length === 1 ? (
+						<RunStepsDetail run={selected.runs[0]} />
+					) : (
+						<CellDetail cell={selected} isDaily={false} />
+					)}
+				</div>
 			</div>
 		</section>
 	);
