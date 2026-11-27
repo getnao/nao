@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { chartBlockConfig, kitBlockFromConfig, resolveShowLegend } from '@/story-runtime/story-kit/block-config';
+import {
+	chartBlockConfig,
+	kitBlockFromConfig,
+	resolveChart,
+	resolveShowLegend,
+} from '@/story-runtime/story-kit/block-config';
 import { diffKitBlock } from '@/lib/story-kit-block-edit';
 
 const RESOLVED = { xAxisKey: 'month', series: [{ key: 'inspections' }] };
@@ -20,14 +25,15 @@ describe('story-kit chart legend config', () => {
 		expect(kitBlockFromConfig(config).props).not.toHaveProperty('showLegend');
 	});
 
-	it('defaults the legend to shown only for pies and multi-series charts', () => {
+	it('defaults the legend to shown only for pies, multi-series and broken-down charts', () => {
 		const twoSeries = { xAxisKey: 'month', series: [{ key: 'inspections' }, { key: 'failures' }] };
 
 		expect(resolveShowLegend('bar', RESOLVED)).toBe(false);
 		expect(resolveShowLegend('pie', RESOLVED)).toBe(true);
 		expect(resolveShowLegend('bar', twoSeries)).toBe(true);
-		expect(resolveShowLegend('bar', twoSeries, false)).toBe(false);
-		expect(resolveShowLegend('bar', RESOLVED, true)).toBe(true);
+		expect(resolveShowLegend('bar', RESOLVED, { breakdownKey: 'borough' })).toBe(true);
+		expect(resolveShowLegend('bar', twoSeries, { showLegend: false })).toBe(false);
+		expect(resolveShowLegend('bar', RESOLVED, { showLegend: true })).toBe(true);
 	});
 
 	it('leaves the block untouched when the dialog keeps the default legend', () => {
@@ -50,5 +56,15 @@ describe('story-kit chart legend config', () => {
 			set: { showLegend: false },
 			unset: [],
 		});
+	});
+});
+
+describe('resolveChart', () => {
+	it('leaves the breakdown column out of the series it picks on its own', () => {
+		const rows = [{ month: 'jan', country_id: 33, revenue: 120 }];
+
+		expect(resolveChart(rows, ['month', 'country_id', 'revenue'], { breakdownKey: 'country_id' }).series).toEqual([
+			{ key: 'revenue' },
+		]);
 	});
 });

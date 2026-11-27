@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { DEFAULT_RULES_FILE } from '@nao/shared/rules-template';
 import {
 	DEFAULT_SQL_QUERY_TAG_POSITION,
 	isSqlQueryTagPosition,
@@ -27,14 +28,47 @@ import { getTestScheduleCronError } from './cron';
 import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
-import { resolveFileReferences } from './nao-config-references';
+import { resolveFileReferences, resolveProjectFile } from './nao-config-references';
+import { readProjectFile } from './project-file';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
 const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
+const MAX_SYNC_TEMPLATE_SIZE = 1024 * 1024;
+const SYNC_CONFIG_SECTIONS = ['databases', 'repos', 'notion', 'confluence', 'obsidian', 'semantic_layer'] as const;
+const TEMPLATE_EXCLUDED_DIRECTORIES = new Set([
+	'templates',
+	'.git',
+	'.venv',
+	'venv',
+	'node_modules',
+	'__pycache__',
+	'.nao',
+]);
+const SECRET_REFERENCE_PATTERN = /\$?\{\{\s*(env|aws|k8s)\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
+const AWS_SYNC_ENV_VARS = [
+	'AWS_ACCESS_KEY_ID',
+	'AWS_SECRET_ACCESS_KEY',
+	'AWS_SESSION_TOKEN',
+	'AWS_REGION',
+	'AWS_DEFAULT_REGION',
+	'AWS_BEARER_TOKEN_BEDROCK',
+] as const;
+const GCP_SYNC_ENV_VARS = [
+	'GOOGLE_APPLICATION_CREDENTIALS',
+	'GOOGLE_CLOUD_PROJECT',
+	'GOOGLE_VERTEX_PROJECT',
+	'GOOGLE_VERTEX_LOCATION',
+	'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
+	'VERTEX_GOOGLE_APPLICATION_CREDENTIALS',
+] as const;
+const K8S_SYNC_ENV_VARS = ['KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT'] as const;
+const MOTHERDUCK_SYNC_ENV_VARS = ['MOTHERDUCK_TOKEN', 'motherduck_token'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
+	/** Project-relative path of the rules file, `RULES.md` unless nao_config.yaml sets `rules_file`. */
+	rulesFile?: string;
 	semantics: boolean;
 	docs: boolean;
 	notionDocs: boolean;
@@ -44,8 +78,14 @@ export type ContextPresence = {
 const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
-const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
+const TEST_MODEL_OBJECT_FORMAT =
+	"{ model: 'provider:model_id', llm_config_id: 'credential-id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+const RULES_FILE_CACHE_MAX_ENTRIES = 100;
+const rulesFileCache = new Map<
+	string,
+	{ configSignature: string; configured: string | undefined; fileSignature: string; rulesFile: string }
+>();
 /** Top folders a repository target cannot write into, as other parts of `nao sync` replace them. */
 const RESERVED_TARGET_FOLDERS = ['repos', 'databases'];
 
@@ -71,6 +111,211 @@ export function extractRequiredEnvVars(projectFolder: string): string[] {
 	addEnvVarsFromFile(mcpConfigPath, MCP_CONFIG_ENV_PATTERN, vars);
 
 	return [...vars];
+}
+
+export function extractRequiredSyncEnvVars(projectFolder: string): string[] {
+	const source = readProjectFile(projectFolder, 'nao_config.yaml');
+	const references = new Map<string, { protocol: string; name: string }>();
+	const substituted = source.replace(SECRET_REFERENCE_PATTERN, (_match, protocol: string, name: string) => {
+		const token = `__NAO_SYNC_SECRET_${references.size}__`;
+		references.set(token, { protocol, name });
+		return token;
+	});
+	let config: unknown;
+	try {
+		config = yaml.load(substituted);
+	} catch {
+		throw new Error('Cannot determine sync credentials because nao_config.yaml could not be parsed.');
+	}
+	if (!isRecord(config)) {
+		throw new Error('Cannot determine sync credentials because nao_config.yaml is not an object.');
+	}
+	const activeConfig: unknown[] = SYNC_CONFIG_SECTIONS.map((section) => config[section]);
+	if (syncUsesLlm(config.databases, projectFolder)) {
+		activeConfig.push(config.llm);
+	}
+	const required = new Set<string>();
+	const protocols = new Set<string>();
+	collectReferencedSecrets(activeConfig, references, required, protocols);
+	for (const template of listProjectTemplates(projectFolder)) {
+		const contents = fs.readFileSync(template, 'utf8');
+		for (const [, protocol, name] of contents.matchAll(SECRET_REFERENCE_PATTERN)) {
+			protocols.add(protocol);
+			if (protocol === 'env') {
+				required.add(name);
+			}
+		}
+	}
+	const activeConfigText = JSON.stringify(activeConfig).toLowerCase();
+	if (
+		protocols.has('aws') ||
+		activeConfigText.includes('"athena"') ||
+		activeConfigText.includes('"bedrock"') ||
+		activeConfigText.includes('"auth_mode":"iam"')
+	) {
+		AWS_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	if (activeConfigText.includes('"bigquery"') || activeConfigText.includes('"vertex"')) {
+		GCP_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	if (protocols.has('k8s')) {
+		K8S_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	if (usesAmbientMotherDuckToken(config.databases)) {
+		MOTHERDUCK_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	return [...required].sort();
+}
+
+function usesAmbientMotherDuckToken(databases: unknown): boolean {
+	return (
+		Array.isArray(databases) &&
+		databases.some(
+			(database) =>
+				isRecord(database) &&
+				database.type === 'motherduck' &&
+				(database.token === undefined ||
+					database.token === null ||
+					(typeof database.token === 'string' && database.token.trim() === '')),
+		)
+	);
+}
+
+function collectReferencedSecrets(
+	value: unknown,
+	references: Map<string, { protocol: string; name: string }>,
+	required: Set<string>,
+	protocols: Set<string>,
+): void {
+	if (typeof value === 'string') {
+		for (const [token, reference] of references) {
+			if (value.includes(token)) {
+				protocols.add(reference.protocol);
+				if (reference.protocol === 'env') {
+					required.add(reference.name);
+				}
+			}
+		}
+		return;
+	}
+	if (Array.isArray(value)) {
+		value.forEach((item) => collectReferencedSecrets(item, references, required, protocols));
+		return;
+	}
+	if (isRecord(value)) {
+		Object.values(value).forEach((item) => collectReferencedSecrets(item, references, required, protocols));
+	}
+}
+
+function listProjectTemplates(root: string, relativeDirectory = ''): string[] {
+	const templates: string[] = [];
+	for (const entry of fs.readdirSync(path.join(root, relativeDirectory), { withFileTypes: true })) {
+		if (TEMPLATE_EXCLUDED_DIRECTORIES.has(entry.name)) {
+			continue;
+		}
+		const relativePath = path.join(relativeDirectory, entry.name);
+		if (entry.isDirectory()) {
+			templates.push(...listProjectTemplates(root, relativePath));
+		} else if (entry.isFile() && entry.name.endsWith('.j2')) {
+			templates.push(path.join(root, relativePath));
+		}
+	}
+	return templates;
+}
+
+export function syncUsesLlm(databases: unknown, projectFolder?: string): boolean {
+	if (containsValue(databases, 'ai_summary')) {
+		return true;
+	}
+	if (!projectFolder || !Array.isArray(databases) || !databases.some(isRecord)) {
+		return false;
+	}
+	return configuredTemplatesFromDatabases(databases).some((template) => {
+		const contents = readSyncTemplateOverride(projectFolder, template);
+		if (contents === null) {
+			return false;
+		}
+		return [...contents.matchAll(/{{[\s\S]*?}}|{%[\s\S]*?%}/g)].some(([block]) => /\bprompt\s*\(/.test(block));
+	});
+}
+
+function readSyncTemplateOverride(projectFolder: string, template: string): string | null {
+	const root = fs.realpathSync(projectFolder);
+	const relativePath = path.join('templates', 'databases', `${template}.md.j2`);
+	const templatePath = path.join(root, relativePath);
+	if (!assertSafeTemplatePath(root, relativePath)) {
+		return null;
+	}
+
+	const descriptor = fs.openSync(
+		templatePath,
+		fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+	);
+	try {
+		const stat = fs.fstatSync(descriptor);
+		assertSafeTemplateFile(stat, relativePath);
+		const content = Buffer.alloc(stat.size);
+		let offset = 0;
+		while (offset < content.length) {
+			const bytesRead = fs.readSync(descriptor, content, offset, content.length - offset, offset);
+			if (bytesRead === 0) {
+				break;
+			}
+			offset += bytesRead;
+		}
+		const current = fs.fstatSync(descriptor);
+		if (offset !== stat.size || current.size !== stat.size) {
+			throw new Error(`Sync template "${relativePath}" changed while it was being inspected.`);
+		}
+		if (!assertSafeTemplatePath(root, relativePath)) {
+			throw new Error(`Sync template "${relativePath}" changed while it was being inspected.`);
+		}
+		const pathStat = fs.statSync(templatePath);
+		if (pathStat.dev !== stat.dev || pathStat.ino !== stat.ino) {
+			throw new Error(`Sync template "${relativePath}" changed while it was being inspected.`);
+		}
+		return content.toString('utf8');
+	} finally {
+		fs.closeSync(descriptor);
+	}
+}
+
+function assertSafeTemplatePath(root: string, relativePath: string): boolean {
+	const parts = relativePath.split(path.sep);
+	let current = root;
+	for (const [index, part] of parts.entries()) {
+		current = path.join(current, part);
+		const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+		if (!stat) {
+			return false;
+		}
+		if (stat.isSymbolicLink()) {
+			throw new Error(`Sync template "${relativePath}" cannot contain symbolic links.`);
+		}
+		if (index < parts.length - 1 && !stat.isDirectory()) {
+			throw new Error(`Sync template "${relativePath}" has a non-directory path component.`);
+		}
+	}
+	return true;
+}
+
+function assertSafeTemplateFile(stat: fs.Stats, relativePath: string): void {
+	if (!stat.isFile()) {
+		throw new Error(`Sync template "${relativePath}" must be a regular file.`);
+	}
+	if (stat.size > MAX_SYNC_TEMPLATE_SIZE) {
+		throw new Error(`Sync template "${relativePath}" exceeds the 1 MB size limit.`);
+	}
+}
+
+function containsValue(value: unknown, expected: string): boolean {
+	if (value === expected) {
+		return true;
+	}
+	if (Array.isArray(value)) {
+		return value.some((item) => containsValue(item, expected));
+	}
+	return isRecord(value) && Object.values(value).some((item) => containsValue(item, expected));
 }
 
 function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>) {
@@ -102,8 +347,10 @@ export function extractConfiguredRepos(projectFolder: string, envVars?: Record<s
 }
 
 /** The context folders `nao sync` writes for the repositories' targets, such as `tests/analytics`. */
-export function extractRepoTargetFolders(projectFolder: string): string[] {
-	return extractConfiguredRepos(projectFolder).flatMap((repo) => repo.targets.map((target) => target.target));
+export function extractRepoTargetFolders(projectFolder: string, envVars?: Record<string, string>): string[] {
+	return extractConfiguredRepos(projectFolder, envVars).flatMap((repo) =>
+		repo.targets.map((target) => target.target),
+	);
 }
 
 /** Returns configured database templates, falling back to the default when unavailable. */
@@ -126,13 +373,74 @@ export function readProjectContext(projectFolder: string): {
 
 /** Returns which filesystem-backed project context is available to read. */
 export function extractContextPresence(projectFolder: string): ContextPresence {
+	const rulesFile = extractRulesFile(projectFolder);
 	return {
-		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		rules: fs.existsSync(path.join(projectFolder, rulesFile)),
+		rulesFile,
 		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
 		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
 		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
 		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
 	};
+}
+
+/**
+ * The rules file `rules_file` names, such as one of a synced repository: `repos/business_context/nao/RULES.md`.
+ * It falls back to RULES.md while that file is missing, before its repository is synced, or when it is refused.
+ * Every agent read checks it, so the result is kept until nao_config.yaml or the file it names changes.
+ */
+export function extractRulesFile(projectFolder: string): string {
+	const configSignature = getStatSignature(path.join(projectFolder, 'nao_config.yaml'));
+	const cached = rulesFileCache.get(projectFolder);
+	const configured =
+		cached?.configSignature === configSignature ? cached.configured : readRulesFileSetting(projectFolder);
+	const fileSignature =
+		typeof configured === 'string' ? getStatSignature(path.resolve(projectFolder, configured)) : '';
+	if (cached?.configSignature === configSignature && cached.fileSignature === fileSignature) {
+		return cached.rulesFile;
+	}
+
+	const rulesFile = typeof configured === 'string' ? resolveRulesFile(configured, projectFolder) : DEFAULT_RULES_FILE;
+	rulesFileCache.delete(projectFolder);
+	if (rulesFileCache.size >= RULES_FILE_CACHE_MAX_ENTRIES) {
+		rulesFileCache.delete(rulesFileCache.keys().next().value ?? projectFolder);
+	}
+	rulesFileCache.set(projectFolder, { configSignature, configured, fileSignature, rulesFile });
+	return rulesFile;
+}
+
+/** Read without its `from_file` files, so the signature of nao_config.yaml alone tells when it changes. */
+function readRulesFileSetting(projectFolder: string): string | undefined {
+	try {
+		const config = yaml.load(fs.readFileSync(path.join(projectFolder, 'nao_config.yaml'), 'utf-8'));
+		const rulesFile = isRecord(config) ? config.rules_file : undefined;
+		return typeof rulesFile === 'string' && rulesFile.trim() !== '' ? rulesFile.trim() : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function resolveRulesFile(rulesFile: string, projectFolder: string): string {
+	try {
+		const filePath = resolveProjectFile(rulesFile, projectFolder);
+		if (!fs.statSync(filePath).isFile()) {
+			throw new Error('it is not a file');
+		}
+		return path.relative(fs.realpathSync(projectFolder), filePath).split(path.sep).join('/');
+	} catch (err) {
+		const reason = err instanceof Error ? err.message : String(err);
+		logger.warn(`Ignoring rules_file '${rulesFile}' of nao_config.yaml: ${reason}`, { source: 'system' });
+		return DEFAULT_RULES_FILE;
+	}
+}
+
+function getStatSignature(filePath: string): string {
+	try {
+		const stats = fs.statSync(filePath);
+		return `${stats.ino}:${stats.mtimeMs}:${stats.ctimeMs}:${stats.size}`;
+	} catch {
+		return 'missing';
+	}
 }
 
 function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
@@ -198,9 +506,12 @@ function configuredTemplatesFrom(config: unknown): string[] {
 	if (!isRecord(config) || !Array.isArray(config.databases)) {
 		return [...DEFAULT_DATABASE_TEMPLATES];
 	}
+	return configuredTemplatesFromDatabases(config.databases);
+}
 
+function configuredTemplatesFromDatabases(databases: unknown[]): string[] {
 	const configuredTemplates = new Set<string>();
-	for (const database of config.databases) {
+	for (const database of databases) {
 		if (!isRecord(database)) {
 			continue;
 		}
@@ -331,6 +642,15 @@ export function extractConfiguredDatabases(projectFolder: string): ConfiguredDat
 
 		return [configuredDatabase];
 	});
+}
+
+/** Whether every database of nao_config.yaml sets `allow_listed_only`, so SQL can read only its synced tables. */
+export function areAllDatabasesAllowListedOnly(projectFolder: string): boolean {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !Array.isArray(config.databases) || config.databases.length === 0) {
+		return false;
+	}
+	return config.databases.every((database) => isRecord(database) && database.allow_listed_only === true);
 }
 
 /** The `semantic_layer` section of nao_config.yaml, or null when the project declares none. */
@@ -467,22 +787,27 @@ function parseTestModels(models: unknown, errors: string[]): TestModelSelection[
 	return parsed.length > 0 ? parsed : null;
 }
 
-/** A `provider:model_id` entry, or an object naming the model with the reasoning efforts to run it at, or `all`. */
+/** A `provider:model_id` entry, or an object naming its credential and reasoning efforts. */
 function parseTestModelEntry(entry: unknown): TestModelSelection | string {
 	const invalidEntry = `test.models has an invalid entry ${JSON.stringify(entry)}, expected`;
 	if (!isRecord(entry)) {
 		return parseTestModel(entry) ?? `${invalidEntry} ${TEST_MODEL_FORMAT}.`;
 	}
 	const model = parseTestModel(entry.model);
-	const unknownKeys = Object.keys(entry).filter((key) => key !== 'model' && key !== 'reasoning_efforts');
-	if (!model || unknownKeys.length > 0) {
+	const unknownKeys = Object.keys(entry).filter(
+		(key) => key !== 'model' && key !== 'llm_config_id' && key !== 'reasoning_efforts',
+	);
+	const llmConfigId =
+		entry.llm_config_id === undefined || entry.llm_config_id === null ? null : normalizeString(entry.llm_config_id);
+	if (!model || unknownKeys.length > 0 || (entry.llm_config_id != null && !llmConfigId)) {
 		return `${invalidEntry} ${TEST_MODEL_OBJECT_FORMAT}.`;
 	}
+	const selectedModel = llmConfigId ? { ...model, llmConfigId } : model;
 	if (entry.reasoning_efforts === undefined || entry.reasoning_efforts === null) {
-		return model;
+		return selectedModel;
 	}
-	const reasoningEfforts = parseReasoningEfforts(model, entry.reasoning_efforts);
-	return typeof reasoningEfforts === 'string' ? reasoningEfforts : { ...model, reasoningEfforts };
+	const reasoningEfforts = parseReasoningEfforts(selectedModel, entry.reasoning_efforts);
+	return typeof reasoningEfforts === 'string' ? reasoningEfforts : { ...selectedModel, reasoningEfforts };
 }
 
 function parseTestModel(model: unknown): LlmSelectedModel | null {

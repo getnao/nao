@@ -8,7 +8,7 @@ import type { AutomationWithSchedule } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
 import * as chatQueries from '../queries/chat.queries';
 import * as userQueries from '../queries/user.queries';
-import { agentService } from '../services/agent';
+import { type AgentManager, agentService } from '../services/agent';
 import {
 	AUTOMATION_INTEGRATION_TOOL_NAMES,
 	type AutomationIntegrationToolName,
@@ -25,6 +25,16 @@ import { logger } from '../utils/logger';
 
 export const AUTOMATION_JOB_NAME = 'automation.run';
 const STREAM_PERSIST_INTERVAL_MS = 1_000;
+const AUTOMATION_RUN_INTERRUPTED_MESSAGE = 'The automation run was interrupted because the server running it stopped.';
+const INTERRUPTED_AGENT_WAIT_MS = 5_000;
+
+interface RunningAutomation {
+	isInterrupted: boolean;
+	agent?: Pick<AgentManager, 'stop' | 'waitUntilFinished'>;
+}
+
+/** The automation runs in progress on this instance, by run id. Each gets its agent once its stream starts. */
+const runningAutomations = new Map<string, RunningAutomation>();
 
 type AutomationJobPayload = {
 	automationId?: string;
@@ -71,6 +81,17 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 	return automation.projectId;
 }
 
+/** Fails the automation runs of this instance and stops their agents, so a restart never leaves a run going. */
+export async function interruptRunningAutomations(): Promise<void> {
+	const interruptions = [...runningAutomations].map(([runId, running]) => interruptAutomationRun(runId, running));
+	const results = await Promise.allSettled(interruptions);
+	results
+		.filter((result) => result.status === 'rejected')
+		.forEach((result) =>
+			logger.error(`Failed to interrupt an automation run: ${String(result.reason)}`, { source: 'system' }),
+		);
+}
+
 export async function runAutomation(
 	automationId: string,
 	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
@@ -101,6 +122,7 @@ async function createAutomationRun(
 	}
 	const run = await automationQueries.createAutomationRun({
 		automationId,
+		llmConfigId: automation.llmConfigId,
 		status: 'running',
 		trigger,
 		integrationResults: [],
@@ -118,6 +140,8 @@ async function finishAutomationRun(
 	}: Pick<RunAutomationOptions, 'billingAccessVerifiedProjectId' | 'triggerEvent'>,
 ): Promise<DBAutomationRun> {
 	const automationId = automation.id;
+	const running: RunningAutomation = { isInterrupted: false };
+	runningAutomations.set(run.id, running);
 	try {
 		const automationUser = await userQueries.getUser({ id: automation.userId });
 		if (!automationUser) {
@@ -165,11 +189,16 @@ async function finishAutomationRun(
 		const agent = await agentService.create(
 			{ ...uiChat, userId: automation.userId, projectId: automation.projectId },
 			automation.modelProvider && automation.modelId
-				? { provider: automation.modelProvider, modelId: automation.modelId }
+				? {
+						provider: automation.modelProvider,
+						modelId: automation.modelId,
+						...(automation.llmConfigId && { llmConfigId: automation.llmConfigId }),
+					}
 				: undefined,
 			automationAgent(automation, integrationTools),
 			{ billingAccessVerifiedProjectId },
 		);
+		await automationQueries.setRunLlmConfig(run.id, agent.getModelSelection().llmConfigId ?? null);
 
 		logger.info('Automation run starting', {
 			source: 'system',
@@ -179,8 +208,12 @@ async function finishAutomationRun(
 
 		// Persist partial UIMessage snapshots while draining server-side so users
 		// can open the automation chat and see progress before the stream finishes.
+		if (running.isInterrupted) {
+			throw new Error(AUTOMATION_RUN_INTERRUPTED_MESSAGE);
+		}
+		running.agent = agent;
 		const stream = agent.stream(uiChat.messages, { timezone: automation.timezone ?? undefined });
-		await drainAndPersistStream(stream, chat.id);
+		const streamError = await drainAndPersistStream(stream, chat.id, () => agent.isStopped);
 
 		const messages = await chatQueries.getChatMessages(chat.id);
 		const assistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -201,6 +234,9 @@ async function finishAutomationRun(
 			},
 		});
 
+		if (missingTools.length > 0 && streamError) {
+			throw new Error(`Model error: ${streamError}`);
+		}
 		if (missingTools.length > 0) {
 			throw new Error(
 				`Agent finished without calling required integration tool(s): ${missingTools.join(', ')}. ` +
@@ -228,16 +264,73 @@ async function finishAutomationRun(
 			});
 		}
 		throw err;
+	} finally {
+		runningAutomations.delete(run.id);
 	}
 }
 
+/**
+ * Fails the run before stopping its agent, so the failure of the cut agent loop never replaces the reason.
+ * A run still setting up sees the flag and never starts its agent.
+ */
+async function interruptAutomationRun(runId: string, running: RunningAutomation): Promise<void> {
+	running.isInterrupted = true;
+	try {
+		await automationQueries.failAutomationRun(runId, AUTOMATION_RUN_INTERRUPTED_MESSAGE);
+	} finally {
+		running.agent?.stop();
+		await waitForAgentToSettle(runId, running.agent);
+	}
+}
+
+async function waitForAgentToSettle(runId: string, agent: RunningAutomation['agent']): Promise<void> {
+	if (!agent) {
+		return;
+	}
+	let timer: NodeJS.Timeout | undefined;
+	const deadline = new Promise<'timeout'>((resolve) => {
+		timer = setTimeout(() => resolve('timeout'), INTERRUPTED_AGENT_WAIT_MS).unref();
+	});
+	const outcome = await Promise.race([agent.waitUntilFinished(), deadline]);
+	clearTimeout(timer);
+	if (outcome === 'timeout') {
+		logger.error('An interrupted automation agent did not save its answer in time', {
+			source: 'system',
+			context: { runId },
+		});
+	}
+}
+
+/**
+ * Stops saving snapshots once the agent is stopped, since the agent then saves the settled answer itself.
+ * Resolves with the last error the agent streamed, such as a provider rejecting the request.
+ */
 async function drainAndPersistStream(
 	stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
 	chatId: string,
-): Promise<void> {
+	isStopped: () => boolean,
+): Promise<string | undefined> {
 	const persistence = createStreamPersistence(chatId);
-	for await (const message of readUIMessageStream<UIMessage>({ stream })) {
-		await persistence.persist(message);
+	let streamError: string | undefined;
+	const onError = (error: unknown) => {
+		streamError = readStreamErrorText(error instanceof Error ? error.message : String(error));
+	};
+	for await (const message of readUIMessageStream<UIMessage>({ stream, onError })) {
+		if (!isStopped()) {
+			await persistence.persist(message);
+		}
+	}
+	return streamError;
+}
+
+/** Stream errors can be JSON payloads meant for the chat UI; keep only their message. */
+function readStreamErrorText(errorText: string): string {
+	try {
+		const payload = JSON.parse(errorText);
+		const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message;
+		return typeof message === 'string' ? message : errorText;
+	} catch {
+		return errorText;
 	}
 }
 

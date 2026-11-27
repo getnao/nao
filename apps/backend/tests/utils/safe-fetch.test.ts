@@ -6,6 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchPublicUrl, isPrivateAddress, isPrivateHostname, resolveSafeAddress } from '../../src/utils/safe-fetch';
+import { UnsafeUrlError } from '../../src/utils/security-errors';
 
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('dns/promises', () => ({ default: { lookup } }));
@@ -83,6 +84,7 @@ describe('resolveSafeAddress', () => {
 		resolvesTo('10.0.0.5');
 
 		await expect(resolveSafeAddress('rebinding.example.com')).rejects.toThrow('private IP address');
+		await expect(resolveSafeAddress('rebinding.example.com')).rejects.toBeInstanceOf(UnsafeUrlError);
 	});
 
 	it('rejects a hostname when any of its answers is private', async () => {
@@ -136,6 +138,21 @@ describe('fetchPublicUrl', () => {
 		expect(options).toMatchObject({ host: '93.184.215.14', servername: 'mcp.example.com', method: 'POST' });
 		expect(options.headers).toMatchObject({ host: 'mcp.example.com', 'content-type': 'application/json' });
 		expect(body).toBe('{"jsonrpc":"2.0"}');
+	});
+
+	it('sends a multipart body with its boundary, as an audio transcription does', async () => {
+		resolvesTo('93.184.215.14');
+		const form = new FormData();
+		form.append('model', 'whisper-1');
+
+		await fetchPublicUrl('https://llm.example.com/v1/audio/transcriptions', { method: 'POST', body: form });
+
+		const [{ options, body }] = pinned.requests;
+		const contentType = (options.headers as Record<string, string>)['content-type'];
+		const boundary = contentType.match(/^multipart\/form-data; boundary=(.+)$/)?.[1];
+		expect(boundary).toBeDefined();
+		expect(String(body)).toContain(`--${boundary}`);
+		expect(String(body)).toContain('whisper-1');
 	});
 
 	it('fails a compressed reply whose connection drops midway instead of hanging', async () => {

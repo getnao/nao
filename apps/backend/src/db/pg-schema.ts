@@ -26,6 +26,8 @@ import type {
 	AnalyticsEventMetadata,
 	AutomationEventTriggers,
 	CitationData,
+	LlmAccessMode,
+	LlmModelIdsByConfig,
 	LlmProvider,
 	NotificationChannel,
 	RepoProvider,
@@ -36,6 +38,7 @@ import {
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	LLM_ACCESS_MODES,
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
 	RECIPIENT_MODES,
@@ -89,7 +92,14 @@ import {
 	RecommendationImpact,
 	RecommendationInsight,
 } from '../types/context-recommendation';
-import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
+import type { DecisionProvider } from '../types/decision';
+import {
+	type ActiveEffort,
+	LLM_CREDENTIAL_SOURCES,
+	LLM_INFERENCE_TYPES,
+	type LlmCredentialSource,
+	type ModelSettingsMap,
+} from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
 	CREDIT_GRANT_TYPES,
@@ -135,6 +145,7 @@ import {
 	TestRunResultDetails,
 } from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
+import { USER_SKILL_SHARE_STATUSES } from '../types/user-skill';
 import type { WarehouseProvider } from '../types/warehouse';
 import { pgEncryptedText } from './encrypted-text';
 
@@ -261,6 +272,8 @@ export const organization = pgTable('organization', {
 	license: text('license'),
 	twoFactorRequired: boolean('two_factor_required').default(false).notNull(),
 	twoFactorEmailCodes: boolean('two_factor_email_codes').default(true).notNull(),
+	/** Set from the cloud backoffice: the organization is hidden and every background run stops. */
+	deactivatedAt: timestamp('deactivated_at'),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
@@ -343,9 +356,15 @@ export const project = pgTable(
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		menuSettings: jsonb('menu_settings').$type<SidebarMenu>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
+		llmAccessMode: text('llm_access_mode', { enum: LLM_ACCESS_MODES })
+			.$type<LlmAccessMode>()
+			.notNull()
+			.default('project'),
 		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
+		/** Set from the cloud backoffice: the project is hidden and every background run stops. */
+		deactivatedAt: timestamp('deactivated_at'),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -536,6 +555,7 @@ export const chatMessage = pgTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
+		llmConfigId: text('llm_config_id'),
 		supersededAt: timestamp('superseded_at'),
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
@@ -684,6 +704,8 @@ export const userGroup = pgTable(
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
 		columnPolicies: jsonb('column_policies').$type<StoredUserGroupColumnPolicies>(),
 		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
+		llmConfigIds: jsonb('llm_config_ids').$type<string[]>().notNull().default([]),
+		llmModelIdsByConfig: jsonb('llm_model_ids_by_config').$type<LlmModelIdsByConfig>().notNull().default({}),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -717,6 +739,22 @@ export const userGroupMember = pgTable(
 	],
 );
 
+/** An admin previewing the project as a member of these groups; only honoured while the user stays admin. */
+export const userGroupImpersonation = pgTable(
+	'user_group_impersonation',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		groupIds: jsonb('group_ids').$type<string[]>().notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.projectId] })],
+);
+
 export const projectLlmConfig = pgTable(
 	'project_llm_config',
 	{
@@ -726,7 +764,12 @@ export const projectLlmConfig = pgTable(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
 		provider: text('provider').$type<LlmProvider>().notNull(),
+		credentialSource: text('credential_source', { enum: LLM_CREDENTIAL_SOURCES })
+			.$type<LlmCredentialSource>()
+			.notNull()
+			.default('database'),
 		apiKey: text('api_key').notNull(),
 		credentials: jsonb('credentials').$type<Record<string, string>>(),
 		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
@@ -748,6 +791,7 @@ export const projectLlmConfig = pgTable(
 			.notNull(),
 		modelSettings: jsonb('model_settings').$type<ModelSettingsMap>().default({}).notNull(),
 		baseUrl: text('base_url'),
+		disabledAt: timestamp('disabled_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -756,8 +800,33 @@ export const projectLlmConfig = pgTable(
 	},
 	(t) => [
 		index('project_llm_config_projectId_idx').on(t.projectId),
-		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
+		uniqueIndex('project_llm_config_project_name')
+			.on(t.projectId, t.name)
+			.where(sql`${t.disabledAt} IS NULL`),
 	],
+);
+
+/** Credentials a project saved for a decision (System 1) model provider. */
+export const projectDecisionConfig = pgTable(
+	'project_decision_config',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<DecisionProvider>().notNull(),
+		apiKey: pgEncryptedText('api_key'),
+		credentials: jsonb('credentials').$type<Record<string, string>>(),
+		baseUrl: text('base_url'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [unique('project_decision_config_project_provider').on(t.projectId, t.provider)],
 );
 
 export const projectProviderBudget = pgTable(
@@ -1067,6 +1136,7 @@ export const automation = pgTable(
 		timezone: text('timezone'),
 		modelProvider: text('model_provider').$type<LlmProvider>(),
 		modelId: text('model_id'),
+		llmConfigId: text('llm_config_id'),
 		mcpEnabled: boolean('mcp_enabled').default(true).notNull(),
 		mcpServers: jsonb('mcp_servers').$type<string[]>(),
 		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
@@ -1121,6 +1191,7 @@ export const automationRun = pgTable(
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		completedAt: timestamp('completed_at'),
 		errorMessage: text('error_message'),
+		llmConfigId: text('llm_config_id'),
 		readAt: timestamp('read_at'),
 		integrationResults: jsonb('integration_results').$type<AutomationIntegrationResult[]>().notNull().default([]),
 	},
@@ -1150,6 +1221,7 @@ export const contextRecommendationRun = pgTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
+		llmConfigId: text('llm_config_id'),
 		inputTotalTokens: integer('input_total_tokens'),
 		outputTotalTokens: integer('output_total_tokens'),
 		totalTokens: integer('total_tokens'),
@@ -1328,6 +1400,7 @@ export const testRunResult = pgTable(
 		tags: jsonb('tags').$type<string[]>().notNull().default([]),
 		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		llmConfigId: text('llm_config_id'),
 		/** Null when the model ran at the reasoning effort configured for it. */
 		reasoningEffort: text('reasoning_effort').$type<ActiveEffort>(),
 		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),
@@ -1682,6 +1755,9 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'project.synced',
+	'user_group.impersonation_started',
+	'user_group.impersonation_stopped',
 ] as const;
 
 export const ACTIVITY_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
@@ -1818,6 +1894,36 @@ export const memories = pgTable(
 	],
 );
 
+export const userSkill = pgTable(
+	'user_skill',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		description: text('description').notNull().default(''),
+		body: text('body').notNull(),
+		shareStatus: text('share_status', { enum: USER_SKILL_SHARE_STATUSES }).notNull().default('private'),
+		shareNote: text('share_note'),
+		shareRequestedAt: timestamp('share_requested_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		uniqueIndex('user_skill_project_user_name_unique').on(t.projectId, t.userId, t.name),
+		index('user_skill_project_share_status_idx').on(t.projectId, t.shareStatus),
+	],
+);
+
 export const llmInference = pgTable(
 	'llm_inference',
 	{
@@ -1832,8 +1938,9 @@ export const llmInference = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		type: text('type', { enum: LLM_INFERENCE_TYPES }).notNull(),
-		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmProvider: text('llm_provider').$type<LlmProvider | DecisionProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		llmConfigId: text('llm_config_id'),
 
 		// Token usage
 		inputTotalTokens: integer('input_total_tokens'),
@@ -2387,6 +2494,19 @@ export const storyFolderItem = pgTable(
 			.references(() => storyFolder.id, { onDelete: 'cascade' }),
 	},
 	(t) => [index('story_folder_item_folderId_idx').on(t.folderId)],
+);
+
+export const storyFolderGroup = pgTable(
+	'story_folder_group',
+	{
+		folderId: text('folder_id')
+			.notNull()
+			.references(() => storyFolder.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [primaryKey({ columns: [t.folderId, t.groupId] }), index('story_folder_group_groupId_idx').on(t.groupId)],
 );
 
 export const storyFeedback = pgTable(

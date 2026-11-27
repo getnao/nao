@@ -19,7 +19,7 @@ export default defineConfig({
 		}),
 		tanstackRouter({
 			target: 'react',
-			autoCodeSplitting: false,
+			autoCodeSplitting: true,
 		}),
 		viteReact({ exclude: [/\/node_modules\//, STORY_RUNTIME_SOURCES] }),
 		svgr({

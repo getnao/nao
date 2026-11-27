@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
+import { parseStoryTabs, parseStreamingStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareDialog } from '../share-dialog';
 import { StoryUnsavedChangesDialog } from '../story-unsaved-changes-dialog';
 import { StoryEditor } from './story-editor';
@@ -34,7 +34,7 @@ import { ActionErrorBanner } from '@/components/custom-story/custom-story-body';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { MentionedStoriesProvider } from '@/contexts/mentioned-stories';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanel, useSidePanelActions } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
@@ -170,7 +170,7 @@ function useStoryFormat(
 type MovedStory = { ownerName: string; storyId: string | null };
 
 function ClosableSidePanelNotice({ children, className }: { children: React.ReactNode; className?: string }) {
-	const { close } = useSidePanel();
+	const { close } = useSidePanelActions();
 	return (
 		<div className={cn('relative flex h-full', className)}>
 			<Button
@@ -238,7 +238,6 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
 		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning, viewedStory?.id ?? null);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
-	const isStoryStreaming = Boolean(draftStory?.isStreaming);
 	const prevSlugRef = useRef(resolvedStorySlug);
 	const {
 		versions,
@@ -262,12 +261,14 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const {
 		storyTitle,
 		storyCode,
+		isStreaming: isStoryStreaming,
 		queryData,
 		cachedAt,
 		lastRefreshFailure,
 		needsRefresh,
 		theme,
 		isLoading: isContentLoading,
+		isSaved: isStorySaved,
 	} = useStoryViewerContent({
 		storySlug,
 		resolvedStorySlug,
@@ -288,12 +289,16 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isViewingLatest,
 		latestQueryData: queryData ?? null,
 	});
-	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
+	const tabs = useMemo(
+		() => (isStoryStreaming ? parseStreamingStoryTabs(storyCode ?? '') : parseStoryTabs(storyCode ?? '')),
+		[storyCode, isStoryStreaming],
+	);
 	const isTabbedStory = Boolean(tabs?.length);
 	const [activeTab, setActiveTabIndex] = useActiveStoryTab({
 		tabs,
 		storySlug: resolvedStorySlug,
 		initialIndex: initialTabIndex,
+		followNewTabs: isStoryStreaming,
 	});
 	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
 	const isCodeDirty = storyBuffer.isDirty;
@@ -459,7 +464,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
-		isAppendingContent: Boolean(draftStory?.isStreaming),
+		isAppendingContent: isStoryStreaming,
 		code: storyCode,
 		viewMode,
 	});
@@ -596,7 +601,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 									storyId={storyId}
 									storySlug={resolvedStorySlug}
 									versionKey={isViewingLatest ? undefined : currentVersionNumber}
-									filtersEnabled={isViewingLatest && !isStoryUpdating}
+									filtersEnabled={isViewingLatest && isStorySaved && !isStoryUpdating}
 									isStreaming={isStoryStreaming}
 									isDataPending={isVersionQueryDataPending}
 									isViewingLatest={isViewingLatest}
@@ -690,9 +695,6 @@ function renderWithEditProvider(
 	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string; storyVersion?: number },
 	children: React.ReactNode,
 ) {
-	if (!enabled) {
-		return children;
-	}
 	return (
 		<StoryChartEditProvider
 			chatId={params.chatId}
@@ -700,6 +702,7 @@ function renderWithEditProvider(
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
 			storyVersion={params.storyVersion}
+			enabled={enabled}
 		>
 			<StoryTableEditProvider
 				chatId={params.chatId}
@@ -707,6 +710,7 @@ function renderWithEditProvider(
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
 				storyVersion={params.storyVersion}
+				enabled={enabled}
 			>
 				<StoryMapEditProvider
 					chatId={params.chatId}
@@ -714,6 +718,7 @@ function renderWithEditProvider(
 					storyTitle={params.storyTitle}
 					storyCode={params.storyCode}
 					storyVersion={params.storyVersion}
+					enabled={enabled}
 				>
 					{children}
 				</StoryMapEditProvider>

@@ -111,7 +111,7 @@ export function ContextWindowRing({ className }: { className?: string }) {
 		trpc.chat.getContextUsage.queryOptions(
 			{
 				chatId: chatId ?? '',
-				model: selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : undefined,
+				model: selectedModel ?? undefined,
 			},
 			{
 				enabled: !!chatId && !isRunning && hasAssistantMessage && !!selectedModel,

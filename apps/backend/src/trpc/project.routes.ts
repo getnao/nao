@@ -5,13 +5,19 @@ import {
 	SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH,
 	type SqlQueryTagVariables,
 } from '@nao/shared/sql-query-tag';
-import { type LlmProvider, type LlmSelectedModel, SEMANTIC_LAYER_MODES } from '@nao/shared/types';
+import {
+	LLM_ACCESS_MODES,
+	type LlmProvider,
+	type LlmSelectedModel,
+	providerLabel,
+	SEMANTIC_LAYER_MODES,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import { getProviderAuth, isManagedProvider, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
-import { env } from '../env';
+import { env, isCloud } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
@@ -28,6 +34,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
+import { getDecisionKeysByLlmProvider } from '../services/decision.service';
 import {
 	type DefaultModelsOverview,
 	getDefaultModelsOverview,
@@ -38,6 +45,7 @@ import {
 } from '../services/default-models.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { deleteBoundaryFile, saveBoundaryFile } from '../services/map-boundary-files';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
@@ -51,7 +59,17 @@ import { slackService } from '../services/slack';
 import { resolveDefaultDatabaseId } from '../services/sql-query-tag.service';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
-import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
+import {
+	flagRecipientsWithTableAccess,
+	isDatabaseObjectAllowed,
+	resolveWarehouseTableAccess,
+} from '../services/user-group-context-access.service';
+import {
+	getAvailableModelsForUser,
+	getDefaultChatModelForUser,
+	getLlmAccessReadiness,
+	seedAllUsersLlmAccess,
+} from '../services/user-group-llm-access.service';
 import {
 	getProjectWarehouseCredentialsSummary,
 	updateProjectWarehouseCredentials,
@@ -70,12 +88,13 @@ import { getChatContextUsage } from '../utils/chat-context-usage';
 import { isValidIsoDateString } from '../utils/date';
 import {
 	getEnvApiKey,
+	getEnvBaseUrl,
 	getEnvBaseUrls,
 	getEnvProviders,
-	getProjectAvailableModels,
+	getProjectAvailableModelsForConfigs,
 	getProjectConfigLlm,
 	getProjectModelNameResolver,
-	resolveDefaultChatModel,
+	hasEnvApiKey,
 } from '../utils/llm';
 import {
 	extractConfiguredSemanticLayer,
@@ -84,7 +103,7 @@ import {
 } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
-import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
+import { assertSafeHost, parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, getProcessEnvSourcedVarNames, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
@@ -94,6 +113,7 @@ import {
 	projectProtectedProcedure,
 	protectedProcedure,
 	publicProcedure,
+	rateLimitedBy,
 } from './trpc';
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
@@ -103,6 +123,7 @@ const isoDateString = z.string().refine(isValidIsoDateString, {
 const backgroundModelSelectionSchema = z.object({
 	provider: llmProviderSchema,
 	modelId: z.string().min(1),
+	llmConfigId: z.string().min(1).optional(),
 });
 
 const backgroundModelCategoriesSchema = z.object(
@@ -121,10 +142,28 @@ const defaultModelSettingsSchema = z.object({
 const integrationModelInputSchema = z.object({
 	modelProvider: llmProviderSchema.optional(),
 	modelId: z.string().optional(),
+	llmConfigId: z.string().optional(),
 });
 
 function toIntegrationModelSelection(input: z.infer<typeof integrationModelInputSchema>): LlmSelectedModel | null {
-	return input.modelProvider && input.modelId ? { provider: input.modelProvider, modelId: input.modelId } : null;
+	return input.modelProvider && input.modelId
+		? {
+				provider: input.modelProvider,
+				modelId: input.modelId,
+				...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
+			}
+		: null;
+}
+
+function hasReplacementProviderCredentials(
+	provider: LlmProvider,
+	credentials: Record<string, string> | undefined,
+): boolean {
+	return (
+		getProviderAuth(provider).extraFields?.some(
+			(field) => (field.secret || field.name === 'keyFile') && Boolean(credentials?.[field.name]),
+		) ?? false
+	);
 }
 
 const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
@@ -142,6 +181,19 @@ function toDiscordConfigResponse(config: discordConfigQueries.DiscordConfig) {
 		fallbackUserEmail: config.fallbackUserEmail ?? '',
 		hideAnswerLink: config.hideAnswerLink ?? false,
 	};
+}
+
+/** Refused up front so the admin hears why, before a chat would fail on the same check. */
+async function assertPublicBaseUrl(baseUrl: string): Promise<void> {
+	const { protocol, hostname } = new URL(baseUrl);
+	if (protocol !== 'https:' && protocol !== 'http:') {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The base URL must use http or https.' });
+	}
+	try {
+		await assertSafeHost(hostname);
+	} catch (error) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
+	}
 }
 
 async function resolveDiscordFallbackUser(projectId: string, email: string) {
@@ -186,6 +238,12 @@ async function getRoleInProjectOrThrow(projectId: string, userId: string) {
 
 const boundaryUploadSchema = z.object({ fileName: z.string().trim().min(1).max(255), geojson: z.unknown() });
 
+const limitOutboundFetchesByUser = rateLimitedBy('outbound-fetch', (ctx: { user: { id: string } }) => ctx.user.id);
+const limitLlmConfigWritesByProject = rateLimitedBy(
+	'llm-config-write',
+	(ctx: { project: { id: string } }) => ctx.project.id,
+);
+
 const BOUNDARY_SOURCE_MESSAGE = 'Provide either a GeoJSON URL or an uploaded GeoJSON file.';
 
 type BoundarySource = Pick<CustomBoundarySet, 'url' | 'file' | 'featureCount'>;
@@ -216,6 +274,7 @@ async function validateBoundarySource(url: string): Promise<number> {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: `Could not load boundaries from URL: ${error instanceof Error ? error.message : String(error)}`,
+			cause: error,
 		});
 	}
 }
@@ -288,25 +347,45 @@ export const projectRoutes = {
 	getLlmConfigs: projectProtectedProcedure
 		.output(
 			z.object({
-				projectConfigs: z.array(llmConfigSchema),
+				projectConfigs: z.array(
+					llmConfigSchema.extend({
+						availableModels: z.array(z.object({ id: z.string(), name: z.string() })),
+					}),
+				),
 				configProviders: z.array(configLlmProviderSchema),
 				envProviders: z.array(llmProviderSchema),
+				decisionKeyProviders: z.array(llmProviderSchema),
 				envBaseUrls: z.record(z.string(), z.string()),
 			}),
 		)
 		.query(async ({ ctx }) => {
 			if (!ctx.project) {
-				return { projectConfigs: [], configProviders: [], envProviders: [], envBaseUrls: {} };
+				return {
+					projectConfigs: [],
+					configProviders: [],
+					envProviders: [],
+					decisionKeyProviders: [],
+					envBaseUrls: {},
+				};
 			}
 
 			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
+			const availableModels = await getProjectAvailableModelsForConfigs(
+				ctx.project.id,
+				configs.map((config) => config.id),
+			);
 
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
+				name: c.name,
 				provider: c.provider as LlmProvider,
+				credentialSource: c.credentialSource,
 				apiKeyPreview: previewApiKey(c.apiKey),
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
+				availableModels: availableModels
+					.filter((model) => model.llmConfigId === c.id)
+					.map((model) => ({ id: model.modelId, name: model.name })),
 				customModels: c.customModels ?? [],
 				modelSettings: c.modelSettings ?? {},
 				baseUrl: c.baseUrl ?? null,
@@ -330,7 +409,41 @@ export const projectRoutes = {
 				(provider) => !configProviders.some((p) => p.provider === provider),
 			);
 
-			return { projectConfigs, configProviders, envProviders, envBaseUrls: getEnvBaseUrls() };
+			return {
+				projectConfigs,
+				configProviders,
+				envProviders,
+				decisionKeyProviders: [...(await getDecisionKeysByLlmProvider(ctx.project.id)).keys()],
+				envBaseUrls: getEnvBaseUrls(),
+			};
+		}),
+
+	getLlmAccessReadiness: adminProtectedProcedure.query(({ ctx }) => {
+		return getLlmAccessReadiness(ctx.project.id);
+	}),
+
+	updateLlmAccessMode: adminProtectedProcedure
+		.input(z.object({ mode: z.enum(LLM_ACCESS_MODES) }))
+		.mutation(async ({ ctx, input }) => {
+			if (
+				input.mode === 'user_group' &&
+				!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
+			) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'An Enterprise user-groups license is required to configure group LLM access.',
+				});
+			}
+			if (input.mode === 'user_group') {
+				await seedAllUsersLlmAccess(ctx.project.id);
+			}
+			if (input.mode === 'user_group' && !(await getLlmAccessReadiness(ctx.project.id)).canEnable) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Assign at least one active LLM credential to a user group before enabling restrictions.',
+				});
+			}
+			return { mode: await projectQueries.updateLlmAccessMode(ctx.project.id, input.mode) };
 		}),
 
 	/** Get all available models for the current project (for user model selection) */
@@ -342,6 +455,8 @@ export const projectRoutes = {
 					modelId: z.string(),
 					name: z.string(),
 					baseUrl: z.string().nullable(),
+					llmConfigId: z.string().optional(),
+					llmConfigName: z.string().optional(),
 				}),
 			),
 		)
@@ -349,12 +464,15 @@ export const projectRoutes = {
 			if (!ctx.project) {
 				return [];
 			}
-			return getProjectAvailableModels(ctx.project.id);
+			return getAvailableModelsForUser(ctx.project.id, ctx.user.id);
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure
+		.use(limitLlmConfigWritesByProject)
 		.input(
 			z.object({
+				configId: z.string().optional(),
+				name: z.string().trim().min(1).max(80).optional(),
 				provider: llmProviderSchema,
 				apiKey: z.string().min(1).optional(),
 				credentials: z.record(z.string(), z.string()).optional(),
@@ -369,13 +487,29 @@ export const projectRoutes = {
 			if (isManagedProvider(input.provider)) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
 			}
-			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
+			if (isCloud && input.baseUrl) {
+				await assertPublicBaseUrl(input.baseUrl);
+			}
+			const existingConfig = input.configId
+				? await llmConfigQueries.getProjectLlmConfigById(ctx.project.id, input.configId)
+				: input.name
+					? null
+					: await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const inheritedConfig = existingConfig
 				? null
 				: findConfigLlmProvider(await getProjectConfigLlm(ctx.project.id), input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
+			const decisionApiKey = (await getDecisionKeysByLlmProvider(ctx.project.id)).get(input.provider);
 
 			const hasNewCredentials = Object.values(input.credentials ?? {}).some(Boolean);
+			const hasReplacementCredentials =
+				Boolean(input.apiKey) || hasReplacementProviderCredentials(input.provider, input.credentials);
+			const credentialSource =
+				!hasReplacementCredentials &&
+				(existingConfig?.credentialSource === 'env' ||
+					(!existingConfig && !inheritedConfig && hasEnvApiKey(input.provider)))
+					? 'env'
+					: 'database';
 			const credentials = hasNewCredentials
 				? {
 						...(existingConfig?.credentials ?? inheritedConfig?.credentials),
@@ -385,7 +519,9 @@ export const projectRoutes = {
 
 			let apiKey: string | null;
 
-			if (input.apiKey) {
+			if (credentialSource === 'env') {
+				apiKey = existingConfig ? null : '';
+			} else if (input.apiKey) {
 				apiKey = input.apiKey;
 			} else if (hasNewCredentials) {
 				apiKey = '';
@@ -395,6 +531,8 @@ export const projectRoutes = {
 				apiKey = inheritedConfig.apiKey;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
+			} else if (decisionApiKey) {
+				apiKey = decisionApiKey;
 			} else if (getProviderAuth(input.provider).apiKey !== 'required') {
 				apiKey = '';
 			} else {
@@ -411,20 +549,37 @@ export const projectRoutes = {
 					)
 				: undefined;
 
-			const config = await llmConfigQueries.upsertProjectLlmConfig({
+			const values = {
 				projectId: ctx.project.id,
+				name: input.name ?? existingConfig?.name ?? providerLabel(input.provider),
 				provider: input.provider,
+				credentialSource,
 				apiKey,
 				credentials,
 				enabledModels,
 				customModels,
 				modelSettings,
-				baseUrl: input.baseUrl || null,
-			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
+				baseUrl:
+					credentialSource === 'env' && input.baseUrl === getEnvBaseUrl(input.provider)
+						? null
+						: input.baseUrl || null,
+			};
+			const config = await handleLlmConfigQuery(values.name, () =>
+				input.configId || input.name
+					? llmConfigQueries.saveProjectLlmConfig(
+							values as Parameters<typeof llmConfigQueries.saveProjectLlmConfig>[0],
+							input.configId,
+						)
+					: llmConfigQueries.upsertProjectLlmConfig(
+							values as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0],
+						),
+			);
 
 			return {
 				id: config.id,
+				name: config.name,
 				provider: config.provider as LlmProvider,
+				credentialSource: config.credentialSource,
 				apiKeyPreview: previewApiKey(config.apiKey),
 				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
@@ -435,10 +590,15 @@ export const projectRoutes = {
 		}),
 
 	deleteLlmConfig: adminProtectedProcedure
-		.input(z.object({ provider: llmProviderSchema }))
+		.use(limitLlmConfigWritesByProject)
+		.input(z.union([z.object({ configId: z.string().min(1) }), z.object({ provider: llmProviderSchema })]))
 		.output(z.object({ success: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
-			await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			if ('configId' in input) {
+				await llmConfigQueries.deactivateProjectLlmConfig(ctx.project.id, input.configId);
+			} else {
+				await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			}
 			return { success: true };
 		}),
 
@@ -485,6 +645,7 @@ export const projectRoutes = {
 					transportMode: z.enum(['webhook', 'socket']).default('webhook'),
 					modelProvider: llmProviderSchema.optional(),
 					modelId: z.string().optional(),
+					llmConfigId: z.string().optional(),
 				})
 				.refine(
 					(value) =>
@@ -504,6 +665,7 @@ export const projectRoutes = {
 				transportMode: input.transportMode,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.SlackConfigured, {
@@ -612,6 +774,7 @@ export const projectRoutes = {
 				tenantId: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -622,6 +785,7 @@ export const projectRoutes = {
 				tenantId: input.tenantId,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.TeamsConfigured, {
@@ -677,6 +841,7 @@ export const projectRoutes = {
 				botToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -685,6 +850,7 @@ export const projectRoutes = {
 				botToken: input.botToken,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.TelegramConfigured, {
@@ -740,6 +906,7 @@ export const projectRoutes = {
 				botToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 				interactiveButtonsEnabled: z.boolean().default(false),
 				callbackUrl: z.union([z.literal(''), httpUrlSchema]).optional(),
 			}),
@@ -766,6 +933,7 @@ export const projectRoutes = {
 				botToken: input.botToken,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 				interactiveButtonsEnabled: input.interactiveButtonsEnabled,
 				callbackUrl: input.callbackUrl,
 			});
@@ -832,6 +1000,7 @@ export const projectRoutes = {
 					.regex(/^[0-9a-f]{64}$/i, 'Enter the 64-character hex public key from the Discord application.'),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 				mentionRoleIds: z.array(z.string()).optional(),
 				respondToChannelIds: z.array(z.string()).optional(),
 				fallbackUserEmail: z.string().trim().toLowerCase().optional(),
@@ -958,6 +1127,7 @@ export const projectRoutes = {
 				verifyToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -969,6 +1139,7 @@ export const projectRoutes = {
 				verifyToken: input.verifyToken,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.WhatsappConfigured, {
@@ -1023,6 +1194,15 @@ export const projectRoutes = {
 		return projectQueries.listUsersWithProjectAccessDetails(ctx.project.id);
 	}),
 
+	listTransferRecipients: adminProtectedProcedure
+		.input(z.object({ fromUserId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const recipients = (await projectQueries.listUsersWithProjectAccess(ctx.project.id))
+				.filter((user) => user.role !== 'viewer' && user.id !== input.fromUserId)
+				.map(({ id, name, email }) => ({ id, name, email }));
+			return flagRecipientsWithTableAccess(ctx.project.id, input.fromUserId, recipients);
+		}),
+
 	getProjectMembersByChatId: protectedProcedure
 		.input(z.object({ chatId: z.string() }))
 		.query(async ({ ctx, input }) =>
@@ -1038,7 +1218,7 @@ export const projectRoutes = {
 	}),
 
 	getKnownTranscribeModels: projectProtectedProcedure.query(({ ctx }) => {
-		return getAvailableTranscribeModels(ctx.project.id);
+		return getAvailableTranscribeModels(ctx.project.id, ctx.user.id);
 	}),
 
 	removeProjectMember: adminProtectedProcedure
@@ -1161,6 +1341,7 @@ export const projectRoutes = {
 					})
 					.optional(),
 				mapEnabled: z.boolean().optional(),
+				requireConversationFeedback: z.boolean().optional(),
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
@@ -1208,6 +1389,7 @@ export const projectRoutes = {
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
+				requireConversationFeedback: input.requireConversationFeedback ?? existing.requireConversationFeedback,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -1226,6 +1408,7 @@ export const projectRoutes = {
 				codemode_enabled: merged.experimental?.codemode,
 				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
+				require_conversation_feedback: merged.requireConversationFeedback,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
 				semantic_layer_mode: merged.semanticLayer?.mode,
@@ -1294,7 +1477,7 @@ export const projectRoutes = {
 		if (!ctx.project) {
 			return null;
 		}
-		return resolveDefaultChatModel(ctx.project.id);
+		return getDefaultChatModelForUser(ctx.project.id, ctx.user.id);
 	}),
 
 	updateDefaultModels: adminProtectedProcedure
@@ -1460,6 +1643,7 @@ export const projectRoutes = {
 	}),
 
 	validateMapBoundaryUrl: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(z.object({ url: z.url() }))
 		.mutation(async ({ ctx: _ctx, input }) => {
 			const text = await safeFetch(input.url);
@@ -1468,6 +1652,7 @@ export const projectRoutes = {
 		}),
 
 	addMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z
 				.object({
@@ -1503,6 +1688,7 @@ export const projectRoutes = {
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z.object({
 				key: z.string().trim().min(1),
@@ -1573,3 +1759,35 @@ export const projectRoutes = {
 			return boundaries;
 		}),
 };
+
+async function handleLlmConfigQuery<T>(name: string, operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		if (isProjectLlmConfigNameUniqueViolation(error)) {
+			throw new TRPCError({ code: 'CONFLICT', message: `A credential named '${name}' already exists.` });
+		}
+		throw error;
+	}
+}
+
+function isProjectLlmConfigNameUniqueViolation(error: unknown): boolean {
+	const databaseError = error instanceof Error && error.cause ? error.cause : error;
+	if (!databaseError || typeof databaseError !== 'object') {
+		return false;
+	}
+	const {
+		code,
+		constraint,
+		constraint_name: constraintName,
+		errno,
+		message,
+	} = databaseError as Record<string, unknown>;
+	const expectedConstraint = 'project_llm_config_project_name';
+	return (
+		(code === '23505' && (constraint === expectedConstraint || constraintName === expectedConstraint)) ||
+		((code === 'SQLITE_CONSTRAINT_UNIQUE' || errno === 2067) &&
+			typeof message === 'string' &&
+			message.includes('UNIQUE constraint failed: project_llm_config.project_id, project_llm_config.name'))
+	);
+}

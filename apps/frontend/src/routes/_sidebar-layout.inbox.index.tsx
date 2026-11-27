@@ -1,25 +1,39 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { CheckCheck, Timer } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { CheckCheck, Columns2, Rows3 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
-import type { AutomationFeedItem, NotificationFeedItem } from '@/components/automations-feed';
-import { AutomationsFeed } from '@/components/automations-feed';
+import type { AutomationFeedItem, InboxLayout, NotificationFeedItem } from '@/components/automations-feed';
+import type { FeedReadStatus } from '@/components/feed-filter-bar';
+import { AutomationsFeed, inboxLayoutStorage } from '@/components/automations-feed';
 import { applyFeedFilters, FeedFilterBar, useFeedFilters } from '@/components/feed-filter-bar';
 import { MobileHeader } from '@/components/mobile-header';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { IconSegmentedToggle } from '@/components/ui/icon-segmented-toggle';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
-import { getActiveProjectId } from '@/lib/active-project';
 import { trpc } from '@/main';
 import {
+	NOTIFICATION_LIST_LIMIT,
 	useNotificationMutations,
 	useNotifications,
 	useUnreadAutomationRunCount,
 	useUnreadCount,
 } from '@/queries/use-notifications';
+
+const READ_STATUS_OPTIONS: { value: FeedReadStatus; label: string }[] = [
+	{ value: 'all', label: 'All' },
+	{ value: 'unread', label: 'Unread' },
+];
+
+const LAYOUT_OPTIONS: { value: InboxLayout; label: string; icon: typeof Columns2 }[] = [
+	{ value: 'split', label: 'Reading pane', icon: Columns2 },
+	{ value: 'rows', label: 'Rows', icon: Rows3 },
+];
 
 export const Route = createFileRoute('/_sidebar-layout/inbox/')({
 	component: InboxPage,
@@ -74,8 +88,37 @@ function InboxPage() {
 		}
 	}
 
-	function handleOpenAutomation(runId: string) {
-		markRunRead.mutate({ runId });
+	function handleSetRead(item: AutomationFeedItem, read: boolean) {
+		const readAt = read ? new Date() : null;
+		if (read) {
+			setReadThisVisitIds((ids) => new Set(ids).add(item.id));
+		}
+		if (item.kind === 'automation') {
+			const queryKey = trpc.automation.feed.queryKey({});
+			queryClient.setQueryData(queryKey, (runs) =>
+				runs?.map((run) => (run.run.id === item.run.id ? { ...run, run: { ...run.run, readAt } } : run)),
+			);
+			markRunRead.mutate(
+				{ runId: item.run.id, read },
+				{ onError: () => queryClient.invalidateQueries({ queryKey }) },
+			);
+		} else {
+			const queryKey = trpc.notification.list.queryKey({ limit: NOTIFICATION_LIST_LIMIT });
+			queryClient.setQueryData(queryKey, (list) =>
+				list?.map((notification) =>
+					notification.id === item.notification.id ? { ...notification, readAt } : notification,
+				),
+			);
+			markRead.mutate(
+				{ notificationId: item.notification.id, read },
+				{ onError: () => queryClient.invalidateQueries({ queryKey }) },
+			);
+		}
+	}
+
+	function handleReadStatusChange(readStatus: FeedReadStatus) {
+		setReadThisVisitIds(new Set());
+		setFilters({ ...filters, readStatus });
 	}
 
 	function handleMarkAllRead() {
@@ -95,81 +138,84 @@ function InboxPage() {
 	const unreadRunCount = useUnreadAutomationRunCount(automationsEnabled, project.data?.id).data ?? 0;
 	const hasUnread = unreadNotificationCount > 0 || unreadRunCount > 0;
 	const [filters, setFilters] = useFeedFilters();
+	const [readThisVisitIds, setReadThisVisitIds] = useState<ReadonlySet<string>>(() => new Set());
+	const [layout, setLayout] = useLocalStorage(inboxLayoutStorage);
 	const displayedItems = useMemo(
-		() => applyFeedFilters(feedItems, filters, currentUserName),
-		[feedItems, filters, currentUserName],
+		() => applyFeedFilters(feedItems, filters, currentUserName, readThisVisitIds),
+		[feedItems, filters, currentUserName, readThisVisitIds],
 	);
-	const lastSeenAt = useFeedLastSeen(feedItems);
 	const isLoading = notifications.isLoading || (automationsEnabled && feed.isLoading);
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-auto bg-background'>
+		<div className='flex h-full flex-1 flex-col overflow-hidden bg-background'>
 			<MobileHeader />
-			<div className='mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 md:px-8 md:py-10'>
-				<header className='flex items-center justify-between gap-3 flex-wrap'>
-					<div>
-						<h1 className='text-xl font-semibold tracking-tight'>Inbox</h1>
-						<p className='text-sm text-muted-foreground'>
-							Catch up on all your activity and notifications. Latest first.
-						</p>
-					</div>
-					<div className='flex items-center gap-2'>
-						{hasUnread && (
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										variant='ghost'
-										size='icon'
-										onClick={handleMarkAllRead}
-										disabled={markAllRead.isPending || markAllRunsRead.isPending}
-									>
-										<CheckCheck className='size-4' />
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent>Mark all as read</TooltipContent>
-							</Tooltip>
-						)}
-						{!isLoading && feedItems.length > 0 && (
-							<FeedFilterBar
-								filters={filters}
-								onChange={setFilters}
-								items={feedItems}
-								showAutomations={automationsEnabled}
-								currentUserName={currentUserName}
-							/>
-						)}
-					</div>
-				</header>
-
-				<section className='mx-auto w-full'>
-					{!isLoading && feedItems.length > 0 && displayedItems.length === 0 ? (
-						<FeedNoMatches />
-					) : (
-						<AutomationsFeed
-							items={displayedItems}
-							isLoading={isLoading}
-							hasAutomations={automationItems.length > 0}
-							canCreateAutomation={canCreateAutomation}
-							lastSeenAt={filters.sort === 'newest' ? lastSeenAt : 0}
-							onCancelRun={handleCancelRun}
-							cancellingRunId={cancelRun.isPending ? (cancelRun.variables?.runId ?? null) : null}
-							onOpenNotification={handleOpenNotification}
-							onOpenAutomation={handleOpenAutomation}
+			<header className='flex items-center justify-between gap-3 border-b px-4 py-3 md:px-6'>
+				<h1 className='text-lg font-semibold tracking-tight'>Inbox</h1>
+				<div className='flex items-center gap-1'>
+					<IconSegmentedToggle
+						options={LAYOUT_OPTIONS}
+						value={layout}
+						onValueChange={setLayout}
+						className='mr-2 hidden md:flex'
+					/>
+					<SegmentedControl
+						label='Show'
+						options={READ_STATUS_OPTIONS}
+						value={filters.readStatus}
+						onChange={handleReadStatusChange}
+						className='mr-1'
+					/>
+					{!isLoading && feedItems.length > 0 && (
+						<FeedFilterBar
+							filters={filters}
+							onChange={setFilters}
+							items={feedItems}
+							showAutomations={automationsEnabled}
+							currentUserName={currentUserName}
 						/>
 					)}
-				</section>
-			</div>
+					<SimpleTooltip content='Mark all as read'>
+						<Button
+							variant='ghost'
+							className='h-8 px-2 text-muted-foreground'
+							aria-label='Mark all as read'
+							onClick={handleMarkAllRead}
+							disabled={!hasUnread || markAllRead.isPending || markAllRunsRead.isPending}
+						>
+							<CheckCheck className='size-4' />
+						</Button>
+					</SimpleTooltip>
+				</div>
+			</header>
+
+			{!isLoading && feedItems.length > 0 && displayedItems.length === 0 ? (
+				<FeedNoMatches isUnreadOnly={filters.readStatus === 'unread'} />
+			) : (
+				<AutomationsFeed
+					items={displayedItems}
+					layout={layout}
+					isLoading={isLoading}
+					hasAutomations={automationItems.length > 0}
+					canCreateAutomation={canCreateAutomation}
+					onSetRead={handleSetRead}
+					onCancelRun={handleCancelRun}
+					cancellingRunId={cancelRun.isPending ? (cancelRun.variables?.runId ?? null) : null}
+					onOpenNotification={handleOpenNotification}
+				/>
+			)}
 		</div>
 	);
 }
 
-function FeedNoMatches() {
+function FeedNoMatches({ isUnreadOnly }: { isUnreadOnly: boolean }) {
 	return (
-		<div className='flex flex-col items-center justify-center rounded-xl border border-dashed bg-background/40 p-10 text-center'>
-			<Timer className='size-8 text-muted-foreground mb-3' />
-			<h2 className='font-medium'>No matching activity</h2>
+		<div className='flex flex-1 flex-col items-center justify-center px-4 py-16 text-center'>
+			<CheckCheck className='mb-3 size-6 text-muted-foreground' />
+			<h2 className='text-sm font-medium'>{isUnreadOnly ? 'You are all caught up' : 'No matching activity'}</h2>
 			<p className='mt-1 text-sm text-muted-foreground'>
-				Nothing matches your current filters. Try clearing or adjusting them.
+				{isUnreadOnly
+					? 'Nothing unread matches your filters.'
+					: 'Nothing matches your current filters. Try clearing or adjusting them.'}
 			</p>
 		</div>
 	);
@@ -209,64 +255,9 @@ function mergeFeedItems(activity: AutomationFeedItem[], notifications: Notificat
 	);
 }
 
-const FEED_LAST_SEEN_KEY_PREFIX = 'nao.automation-feed-last-seen:';
-
-/**
- * Captures the persisted last-seen timestamp once on mount so the "new since
- * last visit" separator stays stable during the session, while continuously
- * updating localStorage as new runs come in for the next visit.
- */
-function useFeedLastSeen(items: AutomationFeedItem[]): number {
-	const [lastSeenAt] = useState<number>(() => readLastSeenAt());
-
-	useEffect(() => {
-		if (items.length === 0) {
-			return;
-		}
-		const latest = items.reduce((max, item) => {
-			const ts = new Date(item.startedAt).getTime();
-			return ts > max ? ts : max;
-		}, 0);
-		if (latest > 0) {
-			writeLastSeenAt(latest);
-		}
-	}, [items]);
-
-	return lastSeenAt;
-}
-
 function isFeedItemRunning(item: AutomationFeedItem): boolean {
 	if (item.kind === 'automation') {
 		return item.run.status === 'running';
 	}
 	return false;
-}
-
-function getFeedLastSeenKey(): string | null {
-	const projectId = getActiveProjectId();
-	return projectId ? `${FEED_LAST_SEEN_KEY_PREFIX}${projectId}` : null;
-}
-
-function readLastSeenAt(): number {
-	if (typeof window === 'undefined') {
-		return 0;
-	}
-	const key = getFeedLastSeenKey();
-	if (!key) {
-		return 0;
-	}
-	const stored = window.localStorage.getItem(key);
-	const parsed = stored ? Number(stored) : 0;
-	return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function writeLastSeenAt(value: number): void {
-	if (typeof window === 'undefined') {
-		return;
-	}
-	const key = getFeedLastSeenKey();
-	if (!key) {
-		return;
-	}
-	window.localStorage.setItem(key, String(value));
 }

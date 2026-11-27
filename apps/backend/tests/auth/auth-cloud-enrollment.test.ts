@@ -84,6 +84,7 @@ vi.mock('../../src/services/cloud-sso-auth.service', () => ({
 	getCloudSsoDisabledPaths: vi.fn(() => []),
 	isCloudSsoEmailTrusted: vi.fn().mockResolvedValue(false),
 }));
+vi.mock('../../src/services/session-rotation-auth.service', () => ({ sessionRotation: vi.fn(() => ({})) }));
 vi.mock('../../src/services/credit-grant.service', () => ({
 	activateUserJoinCandidates: vi.fn(),
 }));
@@ -221,6 +222,10 @@ describe('Cloud Google organization enrollment', () => {
 				'/send-verification-email': {
 					window: 60,
 					max: 3,
+				},
+				'/sign-up/email': {
+					window: 3600,
+					max: 5,
 				},
 			},
 		});

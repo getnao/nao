@@ -244,7 +244,7 @@ export async function disableStoryDelivery(storyId: string): Promise<void> {
 
 export async function teardownStoryDelivery(storyId: string): Promise<void> {
 	await syncStoryDeliveryJob(storyId, false, null);
-	await storyDeliveryQueries.disableAndResetRecipients(storyId);
+	await storyDeliveryQueries.disableAndResetRecipients([storyId]);
 	await notificationUnsubscribeQueries.removeUnsubscribesForStory(storyId);
 }
 
@@ -276,7 +276,7 @@ async function grantSpecificShareAccess(storyId: string, projectId: string, user
 	if (access?.visibility !== 'specific') {
 		return;
 	}
-	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
+	const missing = userIds.filter((id) => !access.recipientUserIds.includes(id));
 	await sharedStoryQueries.addSharedStoryAllowedUsers(access.shareId, missing);
 }
 

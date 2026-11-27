@@ -4,7 +4,9 @@ import type { ShareRole } from '@nao/shared/types';
 
 import type { ShareCandidate, ShareOwner } from '@/lib/share-access';
 import type { ShareDraft } from '@/lib/share-draft';
+import type { TransferCandidate } from '@/components/transfer-ownership-dialog';
 import { SHARE_ROLE_LABELS, ShareRoleSelect } from '@/components/share-role-select';
+import { MISSING_TABLE_ACCESS_REASON, NO_ELIGIBLE_RECIPIENT_MESSAGE } from '@/components/transfer-ownership-dialog';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -29,7 +31,6 @@ import {
 import { cn } from '@/lib/utils';
 
 export interface ShareAccessPanelProps {
-	itemLabel: string;
 	owner: ShareOwner | null;
 	currentUserId?: string;
 	draft: ShareDraft;
@@ -43,13 +44,15 @@ export interface ShareAccessPanelProps {
 	canNotify: boolean;
 	notify: boolean;
 	onNotifyChange: (notify: boolean) => void;
-	ownerCandidates?: ShareOwner[];
+	ownerCandidates?: TransferCandidate[];
 	onChangeOwner?: (owner: ShareOwner) => void;
 	roleDescriptions?: Record<ShareRole, string>;
+	children?: React.ReactNode;
 }
 
 export function ShareAccessPanel(props: ShareAccessPanelProps) {
-	const { draft, onDraftChange, canManage, withRoles } = props;
+	const { draft, onDraftChange, canManage, withRoles, children } = props;
+	const hasNotifyToggle = canManage && props.canNotify;
 
 	return (
 		<div className='flex flex-col gap-3'>
@@ -61,12 +64,13 @@ export function ShareAccessPanel(props: ShareAccessPanelProps) {
 			/>
 			{draft.visibility === 'specific' && <SpecificPeopleList {...props} />}
 			{draft.visibility === 'project' && withRoles && <ProjectMemberList {...props} />}
-			{canManage && props.canNotify && (
-				<NotifyPeopleToggle
-					checked={props.notify}
-					onCheckedChange={props.onNotifyChange}
-					itemLabel={props.itemLabel}
-				/>
+			{(hasNotifyToggle || children) && (
+				<div className='mt-1 flex flex-col gap-2'>
+					{hasNotifyToggle && (
+						<NotifyPeopleToggle checked={props.notify} onCheckedChange={props.onNotifyChange} />
+					)}
+					{children}
+				</div>
 			)}
 			{!canManage && (
 				<p className='text-xs text-muted-foreground'>Only the owner or an admin can change who has access.</p>
@@ -361,7 +365,7 @@ function OwnerRow({
 }: {
 	owner: ShareOwner;
 	currentUserId?: string;
-	candidates?: ShareOwner[];
+	candidates?: TransferCandidate[];
 	onChange?: (owner: ShareOwner) => void;
 }) {
 	return (
@@ -378,7 +382,13 @@ function OwnerRow({
 	);
 }
 
-function OwnerSelect({ candidates, onChange }: { candidates: ShareOwner[]; onChange: (owner: ShareOwner) => void }) {
+function OwnerSelect({
+	candidates,
+	onChange,
+}: {
+	candidates: TransferCandidate[];
+	onChange: (owner: ShareOwner) => void;
+}) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -397,15 +407,25 @@ function OwnerSelect({ candidates, onChange }: { candidates: ShareOwner[]; onCha
 					Transfer ownership to
 				</DropdownMenuLabel>
 				{candidates.map((candidate) => (
-					<DropdownMenuItem key={candidate.id} className='py-1.5' onSelect={() => onChange(candidate)}>
+					<DropdownMenuItem
+						key={candidate.id}
+						className='py-1.5'
+						disabled={!candidate.hasTableAccess}
+						onSelect={() => onChange(candidate)}
+					>
 						<div className='flex min-w-0 flex-col gap-0.5'>
 							<span className='truncate text-xs font-medium'>{candidate.name}</span>
 							<span className='truncate text-[11px] leading-tight text-muted-foreground'>
-								{candidate.email}
+								{candidate.hasTableAccess ? candidate.email : MISSING_TABLE_ACCESS_REASON}
 							</span>
 						</div>
 					</DropdownMenuItem>
 				))}
+				{candidates.every((candidate) => !candidate.hasTableAccess) && (
+					<p className='px-2 py-1.5 text-[11px] leading-tight text-muted-foreground'>
+						{NO_ELIGIBLE_RECIPIENT_MESSAGE}
+					</p>
+				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -483,20 +503,15 @@ function RoleControl({
 function NotifyPeopleToggle({
 	checked,
 	onCheckedChange,
-	itemLabel,
 }: {
 	checked: boolean;
 	onCheckedChange: (checked: boolean) => void;
-	itemLabel: string;
 }) {
 	return (
-		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
-			<div className='flex flex-col'>
-				<label htmlFor='notify-people' className='text-md font-medium'>
-					Notify people
-				</label>
-				<p className='text-xs text-muted-foreground'>Send an email letting them know about this {itemLabel}</p>
-			</div>
+		<div className='flex min-h-8 items-center justify-between gap-3'>
+			<label htmlFor='notify-people' className='text-sm font-medium'>
+				Notify people by email
+			</label>
 			<Switch id='notify-people' checked={checked} onCheckedChange={onCheckedChange} />
 		</div>
 	);

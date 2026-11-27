@@ -7,15 +7,18 @@ import { trpc } from '@/main';
 
 interface TransferStoriesDialogProps {
 	member: TransferRecipient | null;
-	recipients: TransferRecipient[];
 	onOpenChange: (open: boolean) => void;
 }
 
 /** Hands every story a member owns in the project to another member, e.g. when they leave or are away for long. */
-export function TransferStoriesDialog({ member, recipients, onOpenChange }: TransferStoriesDialogProps) {
+export function TransferStoriesDialog({ member, onOpenChange }: TransferStoriesDialogProps) {
 	const queryClient = useQueryClient();
 	const ownedStories = useQuery({
 		...trpc.story.countOwnedStories.queryOptions({ userId: member?.id ?? '' }),
+		enabled: !!member,
+	});
+	const recipients = useQuery({
+		...trpc.project.listTransferRecipients.queryOptions({ fromUserId: member?.id ?? '' }),
 		enabled: !!member,
 	});
 	const transfer = useMutation(
@@ -44,11 +47,15 @@ export function TransferStoriesDialog({ member, recipients, onOpenChange }: Tran
 					? 'Their stories could not be counted. Close this dialog and try again.'
 					: describeOwnedStories(member?.name ?? '', storyCount)
 			}
-			recipients={recipients}
+			recipients={recipients.data}
 			canTransfer={!!storyCount}
 			hasNothingToTransfer={storyCount === 0}
 			isPending={transfer.isPending}
-			error={transfer.error?.message ?? describeFailedTransfers(transfer.data?.failedCount)}
+			error={
+				recipients.error?.message ??
+				transfer.error?.message ??
+				describeFailedTransfers(transfer.data?.failedCount)
+			}
 			onTransfer={(recipientId) => member && transfer.mutate({ fromUserId: member.id, recipientId })}
 		/>
 	);

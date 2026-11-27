@@ -1,5 +1,6 @@
 import { bucketPieData, buildChart, buildStoryChartBlock, labelize, resolveDataKey, useChartStyle } from '@nao/shared';
 import {
+	applyBreakdown,
 	buildSeriesChartConfig,
 	buildSeriesLegendPayload,
 	seriesColorAt,
@@ -50,7 +51,7 @@ import { useDateFormat } from '@/hooks/use-date-format';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
 import { useStoryIds } from '@/hooks/use-story-ids';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
@@ -76,7 +77,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	const agent = useOptionalAgentContext();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
-	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
+	const { open: openSidePanel, getState: getSidePanelState } = useSidePanelActions();
 	const { isSettled } = useToolCallContext();
 	const config = state !== 'input-streaming' ? input : undefined;
 	const chartConfig = config && displayChart.isChartInput(config) ? config : undefined;
@@ -166,6 +167,13 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				: undefined,
 		[chartConfig],
 	);
+	const editableChartConfig = useMemo(
+		() =>
+			chartConfig && isBuiltinChartType(chartConfig.chart_type)
+				? { ...chartConfig, chart_type: chartConfig.chart_type }
+				: undefined,
+		[chartConfig],
+	);
 
 	if (isTableVariant) {
 		return <DisplayChartTable config={tableConfig} outputError={output?.error} toolCallId={toolCallId} />;
@@ -218,6 +226,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	}
 
 	const handleAddToStory = async () => {
+		const { isVisible, currentStorySlug, currentStoryTabIndex } = getSidePanelState();
 		const latestStoryId = storyIds[storyIds.length - 1];
 		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
 		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
@@ -415,12 +424,12 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				</div>
 			)}
 
-			{isEditable && isBuiltinChartType(chartConfig.chart_type) && (
+			{isEditable && isEditOpen && editableChartConfig && (
 				<DisplayChartEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
 					toolCallId={toolCallId}
-					config={{ ...chartConfig, chart_type: chartConfig.chart_type }}
+					config={editableChartConfig}
 					availableColumns={sourceData.columns ?? []}
 					data={sourceData.data ?? []}
 					sourceQuery={sourceQuery ?? undefined}
@@ -452,6 +461,8 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					showLegend={chartConfig.show_legend}
 					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
 					hideTotal={chartConfig.hide_total}
+					breakdownKey={chartConfig.breakdown_key}
+					breakdownLimit={chartConfig.breakdown_limit}
 					className={isPieChart(chartConfig.chart_type) ? 'flex-1 justify-center' : undefined}
 					chartContentClassName={isPieChart(chartConfig.chart_type) ? 'aspect-4/3' : undefined}
 				/>
@@ -488,12 +499,14 @@ export interface ChartDisplayProps {
 	chartContentClassName?: string;
 	normalSize?: boolean;
 	hideTotal?: boolean;
+	breakdownKey?: string;
+	breakdownLimit?: number;
 	kpiLeadingSlot?: React.ReactNode;
 	disableTooltip?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
-	data,
+	data: dataProp,
 	chartType,
 	xAxisKey: xAxisKeyProp,
 	xAxisType,
@@ -520,6 +533,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 	chartContentClassName,
 	normalSize = false,
 	hideTotal,
+	breakdownKey,
+	breakdownLimit,
 	kpiLeadingSlot,
 	disableTooltip = false,
 }: ChartDisplayProps) {
@@ -528,20 +543,34 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const [width, setWidth] = useState(0);
 	const [plotWidth, setPlotWidth] = useState(0);
 	useResizeObserver(containerRef, (element) => {
-		setWidth(element.getBoundingClientRect().width);
+		setWidth(Math.round(element.getBoundingClientRect().width));
 	});
 	const gradientIdPrefix = `${useId().replace(/[^a-zA-Z0-9]/g, '')}-`;
 	const handlePlotWidthChange = useCallback((nextPlotWidth: number) => {
 		setPlotWidth((currentPlotWidth) => (currentPlotWidth === nextPlotWidth ? currentPlotWidth : nextPlotWidth));
 	}, []);
 
+	const brokenDown = useMemo(
+		() =>
+			applyBreakdown({
+				rows: dataProp,
+				chartType,
+				xAxisKey: xAxisKeyProp,
+				series: seriesProp,
+				breakdownKey,
+				breakdownLimit,
+			}),
+		[dataProp, chartType, xAxisKeyProp, seriesProp, breakdownKey, breakdownLimit],
+	);
+	const data = brokenDown.rows;
 	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
 	const series = useMemo(
-		() => seriesProp.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) })),
-		[data, seriesProp],
+		() => brokenDown.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) })),
+		[data, brokenDown.series],
 	);
 
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility, handleIsolateSeries } =
+		useSeriesVisibility(series);
 	const isPercentStacked = isPercentStackedChartType(chartType);
 
 	const isPie = isPieChart(chartType);
@@ -716,6 +745,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 								<ChartLegendContent
 									className={isPie ? 'flex-wrap' : undefined}
 									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
+									onItemDoubleClick={isPie ? undefined : handleIsolateSeries}
 								/>
 							}
 						/>
@@ -758,6 +788,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handlePlotWidthChange,
 			legendPayload,
 			handleToggleSeriesVisibility,
+			handleIsolateSeries,
 			title,
 			isPercentStacked,
 			showLegend,
@@ -798,6 +829,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 						payload={legendPayload}
 						align='right'
 						onItemClick={handleToggleSeriesVisibility}
+						onItemDoubleClick={handleIsolateSeries}
 						className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
 					/>
 				</div>

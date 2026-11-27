@@ -33,6 +33,14 @@ export async function getProjectWarehouseEnvVars(projectId: string): Promise<Rec
 	return storedCredentials ? decryptStoredEnvVars(storedCredentials.encryptedCredentials) : {};
 }
 
+export async function getProjectWarehouseEnvVarsByIdentity(
+	projectId: string,
+	orgId: string | null,
+): Promise<Record<string, string> | null> {
+	const storedCredentials = await credentialsQueries.getProjectWarehouseCredentialsByIdentity(projectId, orgId);
+	return storedCredentials ? decryptStoredEnvVars(storedCredentials.encryptedCredentials) : null;
+}
+
 /** Describes the stored warehouse credentials of a project without revealing their values. */
 export async function getProjectWarehouseCredentialsSummary(
 	projectId: string,

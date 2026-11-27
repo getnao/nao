@@ -96,7 +96,12 @@ function ButtonConnection({ children }: React.ComponentProps<'button'>) {
 	);
 }
 
-function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'button'> & { showStop: boolean }) {
+function ChatSendButton({
+	showStop,
+	disabled,
+	icon,
+	...props
+}: React.ComponentProps<'button'> & { showStop: boolean; icon?: React.ReactNode }) {
 	disabled = !showStop && disabled;
 
 	return (
@@ -105,12 +110,12 @@ function ChatSendButton({ showStop, disabled, ...props }: React.ComponentProps<'
 			disabled={disabled}
 			size='icon-sm'
 			variant='primary-gradient-border'
-			className='rounded-full ml-auto size-7'
+			className='rounded-full ml-auto size-7 motion-safe:hover:scale-110'
 		>
 			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />
 			) : (
-				<ArrowUpIcon className='size-4' />
+				(icon ?? <ArrowUpIcon className='size-4' />)
 			)}
 		</Button>
 	);

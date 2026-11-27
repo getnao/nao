@@ -10,7 +10,12 @@ import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
 import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
-import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
+import {
+	AUTOMATION_JOB_NAME,
+	automationHandler,
+	interruptRunningAutomations,
+	resolveAutomationProjectId,
+} from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
@@ -53,6 +58,7 @@ import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './
 import { flushTelemetry, requestTracingEnabled } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
 import { registerRequestTracing } from './middleware/request-tracing';
+import { failInterruptedProjectSyncActivities } from './queries/activity.queries';
 import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
@@ -86,6 +92,7 @@ import { whatsappRoutes } from './routes/whatsapp';
 import { reconcileOrganizationSetupGrants } from './services/credit-grant.service';
 import { validateCreditTopUpConfiguration } from './services/credit-top-up.service';
 import { discordService } from './services/discord';
+import { registerEnvLlmConfigsForAllProjects } from './services/env-llm-config.service';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
@@ -116,7 +123,9 @@ import {
 } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { describeError, logger } from './utils/logger';
+import { RateLimitExceededError } from './utils/rate-limiter';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
+import { reportSecuritySignalOfError } from './utils/security-signal';
 import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
@@ -164,6 +173,7 @@ app.setErrorHandler((error, request, reply) => {
 		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
+	reportSecuritySignalOfError(error, { userId: request.actorUserId });
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
@@ -179,6 +189,9 @@ app.setErrorHandler((error, request, reply) => {
 	}
 	if (error instanceof OnboardingChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED' });
+	}
+	if (error instanceof RateLimitExceededError) {
+		reply.header('Retry-After', String(error.retryAfterSeconds));
 	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });
@@ -237,6 +250,7 @@ app.register(fastifyTRPCPlugin, {
 				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
+			reportSecuritySignalOfError(error, { userId: req.actorUserId, path });
 		},
 	} satisfies FastifyTRPCPluginOptions<TrpcRouter>['trpcOptions'],
 });
@@ -538,6 +552,12 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	} else {
 		await ensureOrganizationSetup();
 	}
+	const registeredEnvLlmConfigs = await registerEnvLlmConfigsForAllProjects();
+	if (registeredEnvLlmConfigs > 0) {
+		logger.info(`Registered ${registeredEnvLlmConfigs} environment-backed LLM credentials`, {
+			source: 'system',
+		});
+	}
 	await logLicenseStatus();
 	await reconcileOrganizationSetupGrants();
 
@@ -630,6 +650,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	startScheduler();
 	await startLicenseHeartbeat();
+	await failInterruptedProjectSyncActivities().catch((error) => {
+		logger.error(`Failed to close interrupted project syncs: ${describeError(error)}`, { source: 'system' });
+	});
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
@@ -644,6 +667,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 
 	const handleShutdown = async () => {
+		await interruptRunningAutomations();
 		await closeBrowser();
 		await flushTelemetry();
 		await posthog.shutdown();

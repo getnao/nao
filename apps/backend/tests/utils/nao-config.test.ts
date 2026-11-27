@@ -3,7 +3,14 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos, extractRequiredEnvVars, resolveEnvReferences } from '../../src/utils/nao-config';
+import {
+	extractConfiguredRepos,
+	extractContextPresence,
+	extractRequiredEnvVars,
+	extractRequiredSyncEnvVars,
+	extractRulesFile,
+	resolveEnvReferences,
+} from '../../src/utils/nao-config';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -66,6 +73,147 @@ describe('extractRequiredEnvVars', () => {
 		fs.mkdirSync(path.join(dir, 'agent', 'mcps', 'mcp.json'), { recursive: true });
 
 		expect(extractRequiredEnvVars(dir)).toEqual([]);
+	});
+});
+
+describe('extractRequiredSyncEnvVars', () => {
+	it('includes only active sync and rendered-template variables', () => {
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'databases:',
+				'  - name: warehouse',
+				'    type: postgres',
+				'    host: "{{ env(\'DB_HOST\') }}"',
+				'    password: "{{ env(\'DB_PASSWORD\') }}"',
+				'repos:',
+				'  - name: app',
+				'    url: "{{ env(\'REPO_URL\') }}"',
+				'llm:',
+				'  provider: anthropic',
+				'  api_key: "{{ env(\'ANTHROPIC_API_KEY\') }}"',
+				'slack:',
+				'  bot_token: "{{ env(\'SLACK_BOT_TOKEN\') }}"',
+			],
+			mcpServers: { dbt: { env: { DBT_TOKEN: '${DBT_TOKEN}' } } },
+		});
+		fs.mkdirSync(path.join(dir, 'reports'));
+		fs.writeFileSync(path.join(dir, 'reports', 'summary.md.j2'), "{{ env('TEMPLATE_VALUE') }}");
+
+		expect(extractRequiredSyncEnvVars(dir)).toEqual(['DB_HOST', 'DB_PASSWORD', 'REPO_URL', 'TEMPLATE_VALUE']);
+	});
+
+	it('does not read nao_config.yaml through a symlink outside the project', () => {
+		const outside = createTemporaryFolder('outside-nao-config-');
+		const secret = 'host-file-secret';
+		const outsideConfig = path.join(outside, 'nao_config.yaml');
+		fs.writeFileSync(outsideConfig, `project_name: ${secret}\n`);
+		const dir = createProject({});
+		fs.symlinkSync(outsideConfig, path.join(dir, 'nao_config.yaml'));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow("'nao_config.yaml' resolves outside the project folder");
+		try {
+			extractRequiredSyncEnvVars(dir);
+		} catch (error) {
+			expect(error instanceof Error ? error.message : String(error)).not.toContain(secret);
+		}
+	});
+
+	it('does not expose malformed YAML in its error', () => {
+		const secret = 'host-file-secret';
+		const dir = createProject({
+			naoConfig: [`project_name: ${secret}`, 'databases: ['],
+		});
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow(
+			'Cannot determine sync credentials because nao_config.yaml could not be parsed.',
+		);
+		try {
+			extractRequiredSyncEnvVars(dir);
+		} catch (error) {
+			expect(error instanceof Error ? error.message : String(error)).not.toContain(secret);
+		}
+	});
+
+	it('includes ambient provider credentials only when the active sync needs them', () => {
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'databases:',
+				'  - name: warehouse',
+				'    type: athena',
+				'    templates: [columns, ai_summary]',
+				'    password: "{{ aws(\'warehouse/password\') }}"',
+				'llm:',
+				'  provider: vertex',
+				'  service_account_json: "{{ env(\'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON\') }}"',
+			],
+		});
+
+		expect(extractRequiredSyncEnvVars(dir)).toEqual(
+			expect.arrayContaining([
+				'AWS_ACCESS_KEY_ID',
+				'AWS_SECRET_ACCESS_KEY',
+				'AWS_SESSION_TOKEN',
+				'GOOGLE_VERTEX_PROJECT',
+				'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
+			]),
+		);
+	});
+
+	it.each([
+		{ token: undefined, expected: ['MOTHERDUCK_TOKEN', 'motherduck_token'] },
+		{ token: 'configured-token', expected: [] },
+	])('includes ambient MotherDuck tokens only when token is omitted', ({ token, expected }) => {
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'databases:',
+				'  - name: analytics',
+				'    type: motherduck',
+				'    database: production',
+				...(token ? [`    token: ${token}`] : []),
+			],
+		});
+
+		expect(extractRequiredSyncEnvVars(dir)).toEqual(expected);
+	});
+
+	it('includes LLM credentials when a selected template override calls prompt', () => {
+		const dir = createSelectedTemplateProject();
+		const templateDirectory = path.join(dir, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(path.join(templateDirectory, 'columns.md.j2'), "{{ prompt('Summarize these columns') }}");
+
+		expect(extractRequiredSyncEnvVars(dir)).toContain('ANTHROPIC_API_KEY');
+	});
+
+	it('rejects a selected template override that is a symbolic link', () => {
+		const dir = createSelectedTemplateProject();
+		const templateDirectory = path.join(dir, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.symlinkSync('/dev/zero', path.join(templateDirectory, 'columns.md.j2'));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow('cannot contain symbolic links');
+	});
+
+	it('rejects symbolic links in a selected template override path', () => {
+		const dir = createSelectedTemplateProject();
+		const linkedDirectory = path.join(dir, 'linked-templates');
+		fs.mkdirSync(path.join(linkedDirectory, 'databases'), { recursive: true });
+		fs.writeFileSync(path.join(linkedDirectory, 'databases', 'columns.md.j2'), "{{ prompt('Summarize') }}");
+		fs.symlinkSync(linkedDirectory, path.join(dir, 'templates'));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow('cannot contain symbolic links');
+	});
+
+	it('rejects an oversized selected template override', () => {
+		const dir = createSelectedTemplateProject();
+		const templateDirectory = path.join(dir, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(path.join(templateDirectory, 'columns.md.j2'), Buffer.alloc(1024 * 1024 + 1));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow('exceeds the 1 MB size limit');
 	});
 });
 
@@ -239,6 +387,45 @@ describe('extractConfiguredRepos', () => {
 	});
 });
 
+describe('extractRulesFile', () => {
+	const syncedRulesFile = 'repos/business_context/nao/RULES.md';
+
+	it('returns the file rules_file names, such as one of a synced repository', () => {
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: " ${syncedRulesFile} "`] });
+		writeProjectFile(dir, syncedRulesFile);
+
+		expect(extractRulesFile(dir)).toBe(syncedRulesFile);
+		expect(extractContextPresence(dir)).toMatchObject({ rules: true, rulesFile: syncedRulesFile });
+	});
+
+	it.each([
+		{ reason: 'is not synced yet', rulesFile: syncedRulesFile },
+		{ reason: 'leads outside the project', rulesFile: '../RULES.md' },
+		{ reason: 'is a dotfile', rulesFile: '.env' },
+		{ reason: 'is a folder', rulesFile: 'docs' },
+	])('falls back to RULES.md when the configured file $reason', ({ rulesFile }) => {
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: ${rulesFile}`] });
+		writeProjectFile(dir, '.env');
+		writeProjectFile(dir, 'docs/glossary.md');
+
+		expect(extractRulesFile(dir)).toBe('RULES.md');
+	});
+
+	it('picks up the configured file once its repository is synced', () => {
+		const dir = createProject({ naoConfig: ['project_name: demo', `rules_file: ${syncedRulesFile}`] });
+		expect(extractRulesFile(dir)).toBe('RULES.md');
+
+		writeProjectFile(dir, syncedRulesFile);
+
+		expect(extractRulesFile(dir)).toBe(syncedRulesFile);
+	});
+});
+
+function writeProjectFile(dir: string, file: string) {
+	fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+	fs.writeFileSync(path.join(dir, file), 'content\n');
+}
+
 function createProject({ naoConfig, mcpServers }: { naoConfig?: string[]; mcpServers?: Record<string, unknown> }) {
 	const dir = createTemporaryFolder('nao-config-');
 	if (naoConfig) {
@@ -250,4 +437,19 @@ function createProject({ naoConfig, mcpServers }: { naoConfig?: string[]; mcpSer
 		fs.writeFileSync(path.join(mcpDir, 'mcp.json'), JSON.stringify({ mcpServers }));
 	}
 	return dir;
+}
+
+function createSelectedTemplateProject(): string {
+	return createProject({
+		naoConfig: [
+			'project_name: demo',
+			'databases:',
+			'  - name: warehouse',
+			'    type: duckdb',
+			'    templates: [columns]',
+			'llm:',
+			'  provider: anthropic',
+			'  api_key: "{{ env(\'ANTHROPIC_API_KEY\') }}"',
+		],
+	});
 }

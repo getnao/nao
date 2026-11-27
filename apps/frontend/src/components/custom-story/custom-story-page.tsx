@@ -338,7 +338,7 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 					viewMode={viewMode}
 					app={
 						<CustomStoryBody
-							bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
+							bottomInset={isArchived ? undefined : STORY_ASK_BAR_INSET}
 							dataSource={dataSource}
 							content={content}
 							isLoading={contentQuery.isLoading}

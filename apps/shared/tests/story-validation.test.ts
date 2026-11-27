@@ -369,12 +369,22 @@ describe('validateStoryCode', () => {
 			);
 		});
 
-		it('flags value_type on non-text filters and unknown value types', () => {
+		it('accepts select filters with a boolean value type', () => {
+			expect(
+				validateStoryCode(
+					`<filter id="open" type="select" dimension="pr__is_open" options='["true","false"]' value_type="boolean" />`,
+				),
+			).toEqual([]);
+		});
+
+		it('flags value_type on untyped filters and unknown value types', () => {
 			const messages = [
 				...validateStoryCode('<filter id="q" type="search" value_type="number" />'),
 				...validateStoryCode('<filter id="user" type="text" value_type="integer" />'),
 			].map((error) => error.message);
-			expect(messages.some((message) => message.includes('only applies to type="text"'))).toBe(true);
+			expect(messages.some((message) => message.includes('only applies to select, multi_select and text'))).toBe(
+				true,
+			);
 			expect(messages.some((message) => message.includes('Invalid value_type "integer"'))).toBe(true);
 		});
 

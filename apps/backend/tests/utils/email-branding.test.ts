@@ -15,7 +15,7 @@ vi.mock('../../src/services/branding.service', () => ({
 	resolveAppName: (branding: { appName: string | null } | null) => branding?.appName?.trim() || 'nao',
 }));
 
-import { resolveEmailBranding } from '../../src/utils/email-branding';
+import { defaultEmailBranding, resolveEmailBranding } from '../../src/utils/email-branding';
 import { buildNotificationEmail, buildTrialStartedEmail, buildUserAddedEmail } from '../../src/utils/email-builders';
 
 const whiteLabel = {
@@ -81,13 +81,15 @@ describe('resolveEmailBranding', () => {
 		expect(branding.logo).toBeUndefined();
 	});
 
-	it('falls back to defaults for missing name and color', async () => {
+	it('falls back to defaults for missing name, color and logo', async () => {
 		mocks.getActiveBranding.mockResolvedValue({ ...whiteLabel, appName: '  ', brandColor: null, logo: null });
 		mocks.getActiveBrandingAsset.mockResolvedValue(null);
 
 		const branding = await resolveEmailBranding();
 
-		expect(branding).toMatchObject({ appName: 'nao', brandColor: '#522bff', isWhiteLabel: true, logo: undefined });
+		expect(branding).toMatchObject({ appName: 'nao', brandColor: '#522bff', isWhiteLabel: true });
+		expect(branding.logo).toBeDefined();
+		expect(branding.logo).toBe(defaultEmailBranding.logo);
 	});
 });
 

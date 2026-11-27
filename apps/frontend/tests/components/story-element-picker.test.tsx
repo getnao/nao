@@ -27,6 +27,7 @@ describe('StoryElementPicker', () => {
 		renderStory(true);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Legend' }));
+		fireEvent.doubleClick(screen.getByRole('button', { name: 'Legend' }));
 
 		expect(onPick).toHaveBeenCalledWith({
 			block: { kind: 'stacked-bar-chart', title: 'Revenue', queryId: 'q1' },
@@ -58,7 +59,7 @@ describe('StoryElementPicker', () => {
 			<StoryElementPicker isPicking={isPicking} onPick={onPick}>
 				<StoryBlock block={chartBlockReference(chart)}>
 					<h3>Revenue</h3>
-					<button type='button' onClick={onStoryClick}>
+					<button type='button' onClick={onStoryClick} onDoubleClick={onStoryClick}>
 						Legend
 					</button>
 				</StoryBlock>

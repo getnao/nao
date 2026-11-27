@@ -43,6 +43,11 @@ fullnameOverride: ""
 #    below — Helm does not propagate top-level values to subcharts automatically.
 commonAnnotations: {}
 
+# -- Labels added to metadata.labels of every object this chart creates,
+#    including the Pod template. Never added to selectors.
+#    Set postgresql.commonLabels too for the subchart objects.
+commonLabels: {}
+
 # -- Number of replicas
 replicaCount: 1
 
@@ -67,6 +72,9 @@ serviceAccount:
 #    Does NOT cover metadata.annotations of the Deployment itself — see
 #    commonAnnotations above for that (required by Kyverno).
 podAnnotations: {}
+
+# -- Extra labels added to the Pod template only (spec.template.metadata).
+podLabels: {}
 
 # -- Pod-level security context.
 # NOTE: supervisord inside the image starts as root (uid 0) and drops privileges

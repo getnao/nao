@@ -12,8 +12,10 @@ import {
 	Clock,
 	Columns3,
 	FileCheck,
+	FolderUsers,
 	KeyRound,
 	LifeBuoy,
+	MessageCircleQuestion,
 	Palette,
 	Plug,
 	ShieldCheck,
@@ -264,6 +266,12 @@ export const ENTERPRISE_FEATURES = [
 		icon: Boxes,
 	},
 	{
+		key: 'conversation-feedback',
+		label: 'Required conversation feedback',
+		description: 'Keep conversation rating controls visible in chat headers until users rate the latest answer.',
+		icon: MessageCircleQuestion,
+	},
+	{
 		key: 'exclude-columns',
 		label: 'Excluded columns',
 		description: 'Block the agent from querying columns marked as excluded.',
@@ -286,6 +294,12 @@ export const ENTERPRISE_FEATURES = [
 		label: 'MCP access per group',
 		description: 'Choose which MCP servers and tools each group can use.',
 		icon: Plug,
+	},
+	{
+		key: 'row-level-security',
+		label: 'Team folders',
+		description: 'Keep story folders visible only to the groups they belong to.',
+		icon: FolderUsers,
 	},
 	{
 		label: 'Data rights impersonation from warehouse',

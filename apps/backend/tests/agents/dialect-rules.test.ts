@@ -99,6 +99,35 @@ describe('dialect-aware system prompt', () => {
 		expect(tsql).not.toContain('`ILIKE`');
 	});
 
+	it('injects Snowflake rules for the functions and grouping it rejects', () => {
+		const section = sqlQueryRulesSection(renderWith([{ type: 'snowflake', database: 'db' }]));
+
+		expect(section).toContain('**Snowflake dialect:** Use `DATEDIFF(day, start, end)`');
+		expect(section).toContain('`BOOLOR_AGG(col)`');
+		expect(section).toContain('Prefer `GROUP BY ALL`');
+		expect(section).toContain('`QUALIFY` only filters on a window function');
+		expect(section).not.toContain('**BigQuery dialect:**');
+	});
+
+	it('does not send an exclusive semantic layer project to the warehouse', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({ connections: [{ type: 'bigquery', database: 'db' }], semanticLayerMode: 'exclusive' }),
+		);
+		const localDatabase = markdown.slice(markdown.indexOf('## The local database'));
+
+		expect(localDatabase).toContain('Warehouse data only reaches this database as an earlier result');
+		expect(localDatabase).not.toContain('database_id, then');
+	});
+
+	it('gives the local DuckDB its own rules, whatever the warehouse', () => {
+		const markdown = renderWith([{ type: 'bigquery', database: 'db' }]);
+		const localDatabase = markdown.slice(markdown.indexOf('## The local database'));
+
+		expect(localDatabase).toContain('instead of `SAFE_DIVIDE`');
+		expect(localDatabase).toContain('`regexp_matches(col, pattern)` instead of `REGEXP_CONTAINS`');
+		expect(localDatabase).toContain('Those `query_…` tables exist only here, never in the warehouse');
+	});
+
 	it('injects the ClickHouse tool-call rule under Tool Calls', () => {
 		const markdown = renderWith([{ type: 'clickhouse', database: 'events' }]);
 		const toolCalls = markdown.slice(markdown.indexOf('## Tool Calls'), markdown.indexOf('## SQL Query Rules'));

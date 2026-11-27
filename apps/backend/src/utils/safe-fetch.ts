@@ -6,6 +6,7 @@ import net from 'net';
 import { pipeline, Readable } from 'stream';
 import zlib from 'zlib';
 
+import { UnsafeUrlError } from './security-errors';
 const MAX_BYTES = 25 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
@@ -138,7 +139,7 @@ export async function assertSafeHost(hostname: string): Promise<void> {
 export async function resolveSafeAddress(hostname: string): Promise<string> {
 	const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
 	if (isPrivateHostname(host)) {
-		throw new Error(`Access to private address "${hostname}" is not allowed.`);
+		throw new UnsafeUrlError(`Access to private address "${hostname}" is not allowed.`, hostname);
 	}
 	if (net.isIP(host)) {
 		return host;
@@ -155,7 +156,10 @@ export async function resolveSafeAddress(hostname: string): Promise<string> {
 		throw new Error(`Could not resolve hostname "${hostname}".`);
 	}
 	if (addresses.some(isPrivateAddress)) {
-		throw new Error(`Hostname "${hostname}" resolves to a private IP address, which is not allowed.`);
+		throw new UnsafeUrlError(
+			`Hostname "${hostname}" resolves to a private IP address, which is not allowed.`,
+			hostname,
+		);
 	}
 	return addresses[0];
 }
@@ -174,7 +178,7 @@ export async function safeFetchWithUrl(url: string, options: SafeFetchOptions = 
  */
 export async function fetchPublicUrl(input: string | URL, init: RequestInit = {}): Promise<Response> {
 	let url = new URL(input);
-	let hopInit = init;
+	let hopInit = await withEncodedBody(init);
 	for (let redirectCount = 0; ; redirectCount++) {
 		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
 			throw new Error('Only http and https URLs are allowed.');
@@ -208,6 +212,20 @@ function redirectedInit(init: RequestInit, status: number, crossesOrigin: boolea
 	}
 	const keepsMethod = status === 307 || status === 308;
 	return keepsMethod ? { ...init, headers } : { ...init, headers, method: 'GET', body: undefined };
+}
+
+/** Multipart and blob bodies are encoded once up front, so every hop sends the same bytes. */
+async function withEncodedBody(init: RequestInit): Promise<RequestInit> {
+	if (!(init.body instanceof FormData) && !(init.body instanceof Blob)) {
+		return init;
+	}
+	const encoded = new Response(init.body);
+	const headers = new Headers(init.headers);
+	const contentType = encoded.headers.get('content-type');
+	if (contentType && !headers.has('content-type')) {
+		headers.set('content-type', contentType);
+	}
+	return { ...init, headers, body: Buffer.from(await encoded.arrayBuffer()) };
 }
 
 function pinnedRequestOf(init: RequestInit): PinnedRequest {

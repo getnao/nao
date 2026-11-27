@@ -15,11 +15,13 @@ const SAVE_SHORTCUT_LABEL = isMac ? '⌘S' : 'Ctrl+S';
 export function FileSaveStatus({
 	isDirty,
 	isSaving,
+	disabledReason = null,
 	savedAt,
 	onSave,
 }: {
 	isDirty: boolean;
 	isSaving: boolean;
+	disabledReason?: string | null;
 	/** When the last save succeeded, to confirm it for a moment. */
 	savedAt: number | null;
 	onSave: () => void;
@@ -41,7 +43,14 @@ export function FileSaveStatus({
 					<span aria-hidden='true' className='size-1.5 rounded-full bg-amber-500' />
 					Unsaved changes
 				</span>
-				<Button type='button' variant='outline' className='h-6 gap-1.5 px-2 text-[11px]' onClick={onSave}>
+				<Button
+					type='button'
+					variant='outline'
+					className='h-6 gap-1.5 px-2 text-[11px]'
+					title={disabledReason ?? undefined}
+					disabled={disabledReason !== null}
+					onClick={onSave}
+				>
 					Save
 					<kbd className='font-sans text-muted-foreground'>{SAVE_SHORTCUT_LABEL}</kbd>
 				</Button>

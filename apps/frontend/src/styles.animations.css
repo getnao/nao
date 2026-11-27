@@ -11,6 +11,55 @@
 	--animate-fade-out-up: fade-out-up var(--animation-duration) var(--animation-curve) both;
 
 	--animate-jump-up-down: jump-up-down 1s infinite;
+
+	--ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+	--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+	--animate-rise: rise 420ms var(--ease-out-soft) backwards;
+	--animate-pop: pop 320ms var(--ease-spring) backwards;
+}
+
+/* `backwards` fill leaves no transform behind, so animated elements keep their stacking context and fixed children. */
+
+@keyframes rise {
+	0% {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
+
+@keyframes pop {
+	0% {
+		opacity: 0;
+		transform: scale(0.5);
+	}
+}
+
+@utility stagger-children {
+	& > * {
+		animation: var(--animate-rise);
+	}
+	& > :nth-child(2) {
+		animation-delay: 40ms;
+	}
+	& > :nth-child(3) {
+		animation-delay: 80ms;
+	}
+	& > :nth-child(4) {
+		animation-delay: 120ms;
+	}
+	& > :nth-child(5) {
+		animation-delay: 160ms;
+	}
+	& > :nth-child(6) {
+		animation-delay: 200ms;
+	}
+	& > :nth-child(n + 7) {
+		animation-delay: 240ms;
+	}
+}
+
+[data-slot='button'] > .lucide-check {
+	animation: var(--animate-pop);
 }
 
 @keyframes fade-in {
@@ -219,6 +268,12 @@
 
 	.confetti-piece {
 		display: none;
+	}
+
+	.animate-rise,
+	.stagger-children > *,
+	[data-slot='button'] > .lucide-check {
+		animation: none;
 	}
 }
 

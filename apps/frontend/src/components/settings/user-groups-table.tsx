@@ -9,6 +9,7 @@ import type { DatabaseContextObject } from '@/components/settings/user-group-con
 import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { ImpersonateGroupsButton } from '@/components/group-impersonation';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { ProjectColumnSecurity } from '@/components/settings/project-column-security';
 import { ProjectRowSecurity } from '@/components/settings/project-row-security';
@@ -217,6 +218,7 @@ function GroupsTable({
 	const customGroupCount = groups.filter((group) => !group.isDefault).length;
 	const canCreateGroup = entitlement === 'unlimited' || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
 	const normalizedSearch = search.trim().toLowerCase();
+	const impersonableGroups = groups.filter((group) => !group.isDefault && !group.isLocked);
 	const sortedGroups = groups
 		.filter((group) => group.name.toLowerCase().includes(normalizedSearch))
 		.sort(compareUserGroupsForDisplay);
@@ -226,18 +228,21 @@ function GroupsTable({
 			title='Group access'
 			description='Configure the features, database tables, docs, and project files each group can access.'
 			action={
-				entitlement === 'loading' ? (
-					<Button disabled>Loading group access...</Button>
-				) : entitlement === 'error' ? (
-					<Button disabled>Create group unavailable</Button>
-				) : canCreateGroup ? (
-					<Button onClick={onCreateGroup}>
-						<Plus />
-						Create group
-					</Button>
-				) : (
-					<CreateGroupUpgradeNudge />
-				)
+				<div className='flex items-center gap-2'>
+					<ImpersonateGroupsButton groups={impersonableGroups} />
+					{entitlement === 'loading' ? (
+						<Button disabled>Loading group access...</Button>
+					) : entitlement === 'error' ? (
+						<Button disabled>Create group unavailable</Button>
+					) : canCreateGroup ? (
+						<Button onClick={onCreateGroup}>
+							<Plus />
+							Create group
+						</Button>
+					) : (
+						<CreateGroupUpgradeNudge />
+					)}
+				</div>
 			}
 			flush
 		>

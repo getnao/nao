@@ -12,10 +12,18 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+export const MISSING_TABLE_ACCESS_REASON = 'Missing access to some tables';
+export const NO_ELIGIBLE_RECIPIENT_MESSAGE =
+	'No other member can access all the tables the current owner can. Add a member to the groups that grant these tables, then try again.';
+
 export interface TransferRecipient {
 	id: string;
 	name: string;
 	email: string;
+}
+
+export interface TransferCandidate extends TransferRecipient {
+	hasTableAccess: boolean;
 }
 
 interface TransferOwnershipDialogProps {
@@ -23,7 +31,7 @@ interface TransferOwnershipDialogProps {
 	onOpenChange: (open: boolean) => void;
 	title: string;
 	description: ReactNode;
-	recipients: TransferRecipient[] | undefined;
+	recipients: TransferCandidate[] | undefined;
 	canTransfer?: boolean;
 	hasNothingToTransfer?: boolean;
 	isPending: boolean;
@@ -44,6 +52,7 @@ export function TransferOwnershipDialog({
 	onTransfer,
 }: TransferOwnershipDialogProps) {
 	const [recipientId, setRecipientId] = useState('');
+	const hasEligibleRecipient = recipients?.some((recipient) => recipient.hasTableAccess) ?? false;
 
 	useEffect(() => {
 		if (open) {
@@ -90,16 +99,22 @@ export function TransferOwnershipDialog({
 							<label htmlFor='transfer-ownership-recipient' className='text-sm font-medium'>
 								New owner
 							</label>
-							<Select value={recipientId} onValueChange={setRecipientId} disabled={!recipients?.length}>
+							<Select value={recipientId} onValueChange={setRecipientId} disabled={!hasEligibleRecipient}>
 								<SelectTrigger id='transfer-ownership-recipient' size='input'>
 									<SelectValue placeholder={recipients ? 'Choose a member' : 'Loading members…'} />
 								</SelectTrigger>
 								<SelectContent>
 									{recipients?.map((recipient) => (
-										<SelectItem key={recipient.id} value={recipient.id}>
+										<SelectItem
+											key={recipient.id}
+											value={recipient.id}
+											disabled={!recipient.hasTableAccess}
+										>
 											<span className='truncate'>{recipient.name}</span>
 											<span className='truncate text-xs text-muted-foreground'>
-												{recipient.email}
+												{recipient.hasTableAccess
+													? recipient.email
+													: MISSING_TABLE_ACCESS_REASON}
 											</span>
 										</SelectItem>
 									))}
@@ -109,6 +124,9 @@ export function TransferOwnershipDialog({
 								<p className='text-xs text-muted-foreground'>
 									No other member who can edit is available.
 								</p>
+							)}
+							{!!recipients?.length && !hasEligibleRecipient && (
+								<p className='text-xs text-muted-foreground'>{NO_ELIGIBLE_RECIPIENT_MESSAGE}</p>
 							)}
 						</div>
 						{error && (

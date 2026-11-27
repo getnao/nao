@@ -1,6 +1,6 @@
 import { AlertTriangle, FilterX, Info, X } from 'lucide-react';
 import { format } from 'date-fns';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isFilterSelectionActive, isValidFilterTextValue } from '@nao/shared/sql-template';
 import type { StoryFilterSelection } from '@nao/shared/sql-template';
 import type { DateRange } from 'react-day-picker';
@@ -13,9 +13,12 @@ import { StoryFilterOptionsSelect } from '@/components/story-filter-options-sele
 import { StoryParameterControl } from '@/components/story-parameter-control';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useStoryFilterHover } from '@/contexts/story-query-sql';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
 const PARENT_SELECTION_DEBOUNCE_MS = 300;
+const FILTER_HOVER_INTENT_MS = 250;
 
 export function StoryFilterBar({
 	filters,
@@ -106,6 +109,22 @@ export function StoryFilterBar({
 	);
 }
 
+export function StoryFilterBarPlaceholder({ labels }: { labels: string[] }) {
+	if (labels.length === 0) {
+		return null;
+	}
+	return (
+		<div className='nao-filter-bar flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
+			{labels.map((label, index) => (
+				<div key={index} className='nao-filter flex min-w-36 flex-col gap-1'>
+					<span className='nao-label text-xs font-medium text-muted-foreground'>{label}</span>
+					<Skeleton className='h-8 w-full' />
+				</div>
+			))}
+		</div>
+	);
+}
+
 function SkippedFiltersNotice({ skippedFilters }: { skippedFilters: SkippedStoryFilter[] }) {
 	if (skippedFilters.length === 0) {
 		return null;
@@ -160,9 +179,10 @@ function StoryFilterControl({
 	const isActive = isFilterSelectionActive(filter.filterType, selection, filter.valueType);
 	const hasSelection = isActive || (typeof selection === 'string' && selection !== '');
 	const isInvalidNumber = filter.valueType === 'number' && hasSelection && !isActive;
+	const hoverTarget = useFilterHoverTarget(filter.id);
 
 	return (
-		<div className='nao-filter flex min-w-36 flex-col gap-1' data-active={isActive || undefined}>
+		<div className='nao-filter flex min-w-36 flex-col gap-1' data-active={isActive || undefined} {...hoverTarget}>
 			<div className='flex items-center justify-between gap-1'>
 				<span className='nao-label text-xs font-medium text-muted-foreground'>{filter.label}</span>
 				{isInvalidNumber && <span className='text-xs text-destructive'>Numbers only</span>}
@@ -328,4 +348,48 @@ function FilterOptionsErrorBanner({
 			<FixInChatButton message={fixMessage} className='shrink-0 gap-1.5' />
 		</div>
 	);
+}
+
+/**
+ * Tracks the pointer against the control's DOM node: React counts portal content such as an open
+ * dropdown as inside the control, so its leave events would keep the charts highlighted.
+ */
+function useFilterHoverTarget(filterId: string) {
+	const ref = useRef<HTMLDivElement>(null);
+	const intentTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const hover = useStoryFilterHover();
+	const setHoveredFilterId = hover?.setHoveredFilterId;
+	const isHovered = hover?.hoveredFilterId === filterId;
+
+	useEffect(() => {
+		if (!isHovered || !setHoveredFilterId) {
+			return;
+		}
+		const clearWhenOutside = (event: PointerEvent) => {
+			if (!ref.current?.contains(event.target as Node)) {
+				clearTimeout(intentTimer.current);
+				setHoveredFilterId(null);
+			}
+		};
+		document.addEventListener('pointermove', clearWhenOutside);
+		document.addEventListener('pointerdown', clearWhenOutside);
+		return () => {
+			document.removeEventListener('pointermove', clearWhenOutside);
+			document.removeEventListener('pointerdown', clearWhenOutside);
+		};
+	}, [isHovered, setHoveredFilterId]);
+
+	useEffect(() => () => clearTimeout(intentTimer.current), []);
+
+	return {
+		ref,
+		onPointerEnter: () => {
+			clearTimeout(intentTimer.current);
+			intentTimer.current = setTimeout(() => setHoveredFilterId?.(filterId), FILTER_HOVER_INTENT_MS);
+		},
+		onPointerLeave: () => {
+			clearTimeout(intentTimer.current);
+			setHoveredFilterId?.(null);
+		},
+	};
 }

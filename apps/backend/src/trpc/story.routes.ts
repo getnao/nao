@@ -74,6 +74,8 @@ import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
 	getFilteredStoryQueryDataByStoryId,
+	getStoryFilterTargets,
+	getStoryFilterTargetsByStoryId,
 	getStoryQuerySql,
 	getStoryQuerySqlByStoryId,
 } from '../services/story-filters';
@@ -401,7 +403,9 @@ export const storyRoutes = {
 		}
 
 		const storyData = story.chatId
-			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+					viewerUserId: ctx.user.id,
+				})
 			: await getStandaloneStoryLiveQueryData(story.id, story.code, story.isLive, story.cacheSchedule, {
 					deferRefresh: lastRefreshFailure !== null,
 					deferFirstRefresh: true,
@@ -499,7 +503,11 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				{ deferRefresh: ctx.isChatOwner && lastRefreshFailure !== null, deferFirstRefresh: ctx.isChatOwner },
+				{
+					deferRefresh: ctx.isChatOwner && lastRefreshFailure !== null,
+					deferFirstRefresh: ctx.isChatOwner,
+					viewerUserId: ctx.isChatOwner ? ctx.user.id : undefined,
+				},
 			);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -937,8 +945,7 @@ export const storyRoutes = {
 		const actor = toShareActor(ctx);
 		await assertCanManageStoryShare(story, actor);
 		const ownerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
-		const recipients = await listStoryRecipients(actor, ownerId);
-		return recipients.map(({ id, name, email }) => ({ id, name, email }));
+		return listStoryRecipients(actor, ownerId);
 	}),
 
 	transferOwnership: canSendProcedure
@@ -1180,6 +1187,15 @@ export const storyRoutes = {
 			});
 		}),
 
+	getFilterTargets: storyEditorProcedure
+		.input(
+			z.object({ chatId: z.string(), storySlug: z.string(), selections: storyFilterSelectionsInput.default({}) }),
+		)
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getStoryFilterTargets(input.chatId, input.storySlug, input.selections);
+		}),
+
 	getQuerySql: storyEditorProcedure
 		.input(
 			z.object({
@@ -1210,6 +1226,13 @@ export const storyRoutes = {
 			return getFilteredStoryQueryDataByStoryId(input.storyId, input.selections, {
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
+		}),
+
+	getStandaloneFilterTargets: storyOwnerProjectProcedure
+		.input(z.object({ storyId: z.string(), selections: storyFilterSelectionsInput.default({}) }))
+		.query(async ({ input }) => {
+			assertStoryFiltersEnabled();
+			return getStoryFilterTargetsByStoryId(input.storyId, input.selections);
 		}),
 
 	getStandaloneQuerySql: storyOwnerProjectProcedure
@@ -1270,7 +1293,7 @@ export const storyRoutes = {
 		}),
 
 	listSharedArchived: projectProtectedProcedure.query(async ({ ctx }) => {
-		const stories = await sharedStoryQueries.listProjectArchivedSharedStories(ctx.project.id);
+		const stories = await sharedStoryQueries.listUserSharedStories(ctx.project.id, ctx.user.id, { archived: true });
 		return listSharedStoriesForViewer(stories, ctx.project.id, ctx.user.id);
 	}),
 
@@ -1389,6 +1412,7 @@ export const storyRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
+						{ viewerUserId: ctx.isChatOwner ? ctx.user.id : undefined },
 					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -1507,7 +1531,9 @@ async function getStandaloneClassicStory(storyId: string) {
 async function getStandaloneLatestDownloadContent(story: storyQueries.UserStoryRow) {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	const storyData = story.chatId
-		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+				viewerUserId: story.userId ?? undefined,
+			})
 		: await getStandaloneStoryLiveQueryData(story.id, story.code, story.isLive, story.cacheSchedule);
 	const queryData =
 		storyData.allowsPersistedFallback && story.chatId

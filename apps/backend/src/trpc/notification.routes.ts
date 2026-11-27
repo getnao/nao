@@ -27,9 +27,9 @@ export const notificationRoutes = {
 	}),
 
 	markRead: projectProtectedProcedure
-		.input(z.object({ notificationId: z.string() }))
+		.input(z.object({ notificationId: z.string(), read: z.boolean().default(true) }))
 		.mutation(async ({ ctx, input }) => {
-			await notificationQueries.markRead(ctx.user.id, input.notificationId);
+			await notificationQueries.markRead(ctx.user.id, input.notificationId, input.read);
 			return { success: true };
 		}),
 

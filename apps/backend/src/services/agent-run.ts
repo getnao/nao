@@ -17,6 +17,7 @@ import { resolveEditedAutomationId } from './automation-editor.service';
 import { canRoleReceiveChatFeedback } from './automation-feedback-trigger.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { assertCanEditContextFromChat } from './context-editor.service';
+import { describeShownContextHubPage } from './context-hub-shown-page.service';
 import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './onboarding/example-agent-run';
 
 export interface AgentRunRequest {
@@ -115,7 +116,11 @@ async function resolveMemberAgentProfile(
 	}
 	if (body.contextHub) {
 		await assertCanEditContextFromChat(body.chatId, userRole);
-		return contextEditorAgent({ editor: await getContextEditor(userId), openPath: body.contextHub.openPath });
+		const [editor, shown] = await Promise.all([
+			getContextEditor(userId),
+			describeShownContextHubPage(body.contextHub.shown, { projectId, userId }),
+		]);
+		return contextEditorAgent({ editor, shown });
 	}
 	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
 	return body.adminMode && canUseAdminAgent ? adminAgent : analyticsAgent;

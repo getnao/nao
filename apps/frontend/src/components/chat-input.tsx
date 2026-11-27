@@ -12,10 +12,12 @@ import {
 	Check,
 	MessageCircleOff,
 	LockKeyhole,
+	SquarePlus,
 } from 'lucide-react';
 import { ALLOWED_IMAGE_MEDIA_TYPES, ATTACHMENT_ACCEPT } from '@nao/shared/attachments';
 import { toStoryReferenceMentionId } from '@nao/shared';
 import { story } from '@nao/shared/tools';
+import { isModifierPressed } from '@nao/shared/keyboard-shortcut';
 import { Button, ChatButton, MicButton } from './ui/button';
 import { SlidingWaveform } from './chat-input-sliding-waveform';
 import {
@@ -30,7 +32,7 @@ import {
 } from './chat-input-prompt';
 import { ChatInputAnimatedBorder } from './chat-input-animated-border';
 import { ChatInputModelSelect } from './chat-input-model-select';
-import { ChatInputMessageQueue } from './chat-input-message-queue';
+import { ChatInputMessageQueue, SteerOrQueueButton, steerOnEnterStorage } from './chat-input-message-queue';
 import { ChatInputAttachmentPreview } from './chat-input-attachment-preview';
 import { ManagedCreditsExhausted } from './managed-credits-exhausted';
 import { ContactSupportButton } from './contact-support-dialog';
@@ -68,10 +70,12 @@ import {
 } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
 import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
+import { useLocalStorage } from '@/hooks/use-local-storage';
 import {
 	STORIES_ROOT_ID,
 	TABLES_ROOT_ID,
@@ -100,6 +104,7 @@ import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts
 import { useIsCloud } from '@/hooks/use-nao-mode';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
+const swapSteerQueueShortcut = getShortcut('swap-steer-queue').shortcut;
 const TRIAL_ATTACHMENT_ACCEPT = ALLOWED_IMAGE_MEDIA_TYPES.join(',');
 const TRIAL_DOCUMENTS_DISABLED_REASON = 'Documents can be attached once your project is set up. Images work now.';
 
@@ -210,11 +215,14 @@ function ChatInputBase({
 		setAdminMode,
 		setMentions,
 		submitQueuedMessageNow,
+		steerQueuedMessage,
 		error,
 		clearError,
 		selectedModel,
 		mode,
 	} = useAgentContext();
+	const isSwapShortcutRef = useRef(false);
+	const [steerOnEnter] = useLocalStorage(steerOnEnterStorage);
 	const navigate = useNavigate();
 	const { canChatWithNaoData, isAdmin, isOrgAdmin } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
@@ -568,7 +576,9 @@ function ChatInputBase({
 				const { images, documents } = attachmentUpload.getPayload();
 				attachmentUpload.clearAttachments();
 
-				return onSubmitMessage({ text: message.text, images, documents, citations, mentions });
+				const steer = steerOnEnter !== isSwapShortcutRef.current;
+				isSwapShortcutRef.current = false;
+				return onSubmitMessage({ text: message.text, images, documents, citations, mentions, steer });
 			});
 		},
 		[
@@ -584,6 +594,7 @@ function ChatInputBase({
 			citationScope,
 			runGuardedAgentSend,
 			submitQueuedMessageWithGuard,
+			steerOnEnter,
 		],
 	);
 
@@ -642,8 +653,11 @@ function ChatInputBase({
 	const isInputEmpty = !inputText.trim() && !attachmentUpload.hasAttachments;
 
 	const skills = useQuery({ ...trpc.skill.list.queryOptions(), enabled: hasProject });
+	const canManagePersonalSkills = useCanManagePersonalSkills();
 	const databaseObjects = useQuery({ ...trpc.project.getDatabaseObjects.queryOptions(), enabled: hasProject });
 	const hasSkills = hasProject && Boolean(skills.data?.length);
+	const canCreateSkill = hasProject && canManagePersonalSkills;
+	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const hasDatabases = hasProject && Boolean(databaseObjects.data?.length);
 	const shortcutPlaceholder = buildShortcutPlaceholder({
 		hasContext: hasDatabases || storyReferenceOptions.length > 0,
@@ -652,7 +666,7 @@ function ChatInputBase({
 	});
 	const effectivePlaceholder =
 		isRunning && allowQueueing
-			? 'Add a follow-up...'
+			? 'Queue a follow-up, or steer the answer...'
 			: variant === 'onboarding'
 				? 'Tell me where you are starting from...'
 				: (placeholder ?? shortcutPlaceholder);
@@ -683,6 +697,15 @@ function ChatInputBase({
 		[promptRef],
 	);
 
+	const sendWithClickModifier = (event: React.MouseEvent<HTMLButtonElement>) => {
+		isSwapShortcutRef.current = isModifierPressed(event);
+		void handleSubmitMessage(event);
+	};
+
+	const rememberSwapShortcut = (event: React.KeyboardEvent) => {
+		isSwapShortcutRef.current = matchesShortcut(event.nativeEvent, swapSteerQueueShortcut);
+	};
+
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {
 			const isTypingInPrompt = event.target instanceof HTMLElement && event.target.isContentEditable;
@@ -704,6 +727,7 @@ function ChatInputBase({
 					<ChatInputMessageQueue
 						onEditMessage={handleEditQueuedMessage}
 						onSubmitNow={submitQueuedMessageWithGuard}
+						onSteer={steerQueuedMessage}
 					/>
 					<BudgetBanner />
 					{allowQueueing && !isAdminMode && (
@@ -732,6 +756,7 @@ function ChatInputBase({
 			)}
 			<form
 				onSubmit={handleSubmitMessage}
+				onKeyDownCapture={rememberSwapShortcut}
 				onKeyDown={handleKeyDown}
 				className={cn('@container mx-auto relative', isManagedCreditsBlocked && 'hidden')}
 			>
@@ -763,6 +788,7 @@ function ChatInputBase({
 						onChange={(value) => setInputText(value)}
 						onEnter={(value, mentions) => submitMessage(value, mentions)}
 						onMentionDeleted={citationPills.handleMentionDeleted}
+						newSkillDialog={{ isOpen: isNewSkillOpen, onOpenChange: setIsNewSkillOpen }}
 					/>
 
 					<input
@@ -789,6 +815,7 @@ function ChatInputBase({
 									hasDatabases={hasDatabases}
 									hasStoryReferences={storyReferenceOptions.length > 0}
 									hasSkills={hasSkills}
+									canCreateSkill={canCreateSkill}
 									storyMentions={storyMentionOptions}
 									canChatWithNaoData={canChatWithNaoData && adminModeAvailable}
 									isAdminMode={isAdminMode}
@@ -796,6 +823,7 @@ function ChatInputBase({
 									isTrial={isTrial}
 									onSelectAdminMode={handleSelectAdminMode}
 									onAddAttachment={attachmentUpload.openFilePicker}
+									onCreateSkill={() => setIsNewSkillOpen(true)}
 									onAddStory={(mention) => {
 										promptRef.current?.appendMention({ id: mention.id, label: mention.label }, '#');
 									}}
@@ -824,13 +852,18 @@ function ChatInputBase({
 							)}
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}
 
-							{allowQueueing && isRunning ? (
-								<ChatButton
-									showStop={isInputEmpty}
-									disabled={!isInputEmpty && isSendBlocked}
-									onClick={isInputEmpty ? cancelAgent : handleSubmitMessage}
-									type='button'
+							{allowQueueing && isRunning && !isInputEmpty ? (
+								<SteerOrQueueButton
+									disabled={isSendBlocked}
+									isDraftSteerable={
+										!attachmentUpload.hasAttachments &&
+										pendingCitations.length === 0 &&
+										!promptRef.current?.getMentions().length
+									}
+									onSend={sendWithClickModifier}
 								/>
+							) : allowQueueing && isRunning ? (
+								<ChatButton showStop onClick={cancelAgent} type='button' />
 							) : (
 								<ChatButton
 									showStop={isRunning}
@@ -967,12 +1000,14 @@ function ChatInputPlusMenu({
 	hasDatabases,
 	hasStoryReferences,
 	hasSkills,
+	canCreateSkill,
 	storyMentions,
 	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
 	onSelectAdminMode,
 	onAddAttachment,
+	onCreateSkill,
 	onAddStory,
 	onOpenMentionMenu,
 	onOpenReferenceMenu,
@@ -981,6 +1016,7 @@ function ChatInputPlusMenu({
 	hasDatabases: boolean;
 	hasStoryReferences: boolean;
 	hasSkills: boolean;
+	canCreateSkill: boolean;
 	storyMentions: MentionOption[];
 	canChatWithNaoData: boolean;
 	isAdminMode: boolean;
@@ -988,23 +1024,24 @@ function ChatInputPlusMenu({
 	isTrial: boolean;
 	onSelectAdminMode: () => void;
 	onAddAttachment: () => void;
+	onCreateSkill: () => void;
 	onAddStory: (mention: MentionOption) => void;
 	onOpenMentionMenu: (trigger: string) => void;
 	onOpenReferenceMenu: (rootId: string) => void;
 	onFocusPrompt: () => void;
 }) {
-	const pendingMentionMenuRef = useRef<(() => void) | null>(null);
+	const pendingActionRef = useRef<(() => void) | null>(null);
 
-	/** The menu takes focus back while closing, so the mention menu is opened once the prompt has it again. */
-	const deferMentionMenu = (openMentionMenu: () => void) => {
-		pendingMentionMenuRef.current = openMentionMenu;
+	/** The menu takes focus back while closing, so what an item opens is opened once the menu has closed. */
+	const deferUntilClosed = (open: () => void) => {
+		pendingActionRef.current = open;
 	};
 
 	const restorePromptFocus = () => {
-		const openPendingMentionMenu = pendingMentionMenuRef.current;
-		pendingMentionMenuRef.current = null;
-		if (openPendingMentionMenu) {
-			openPendingMentionMenu();
+		const runPendingAction = pendingActionRef.current;
+		pendingActionRef.current = null;
+		if (runPendingAction) {
+			runPendingAction();
 		} else {
 			onFocusPrompt();
 		}
@@ -1036,13 +1073,13 @@ function ChatInputPlusMenu({
 					<span>Attach file</span>
 				</DropdownMenuItem>
 				{hasDatabases && (
-					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenReferenceMenu(TABLES_ROOT_ID))}>
+					<DropdownMenuItem onSelect={() => deferUntilClosed(() => onOpenReferenceMenu(TABLES_ROOT_ID))}>
 						<Database className='size-4' />
 						<span>Database tables</span>
 					</DropdownMenuItem>
 				)}
 				{hasStoryReferences && (
-					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenReferenceMenu(STORIES_ROOT_ID))}>
+					<DropdownMenuItem onSelect={() => deferUntilClosed(() => onOpenReferenceMenu(STORIES_ROOT_ID))}>
 						<Library className='size-4' />
 						<span>Reference stories</span>
 					</DropdownMenuItem>
@@ -1054,9 +1091,15 @@ function ChatInputPlusMenu({
 					</DropdownMenuItem>
 				))}
 				{hasSkills && (
-					<DropdownMenuItem onSelect={() => deferMentionMenu(() => onOpenMentionMenu(SKILL_MENTION_TRIGGER))}>
+					<DropdownMenuItem onSelect={() => deferUntilClosed(() => onOpenMentionMenu(SKILL_MENTION_TRIGGER))}>
 						<PencilRuler className='size-4' />
 						<span>Skills</span>
+					</DropdownMenuItem>
+				)}
+				{canCreateSkill && (
+					<DropdownMenuItem onSelect={() => deferUntilClosed(onCreateSkill)}>
+						<SquarePlus className='size-4' />
+						<span>Create a skill</span>
 					</DropdownMenuItem>
 				)}
 				{canChatWithNaoData && (

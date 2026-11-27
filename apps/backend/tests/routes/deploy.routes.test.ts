@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectByOrgAndName: vi.fn(),
 	post: vi.fn(),
 	recordProjectDeployment: vi.fn(),
+	reportSecuritySignal: vi.fn(),
 	validateApiKey: vi.fn(),
 }));
 
@@ -28,6 +29,10 @@ vi.mock('../../src/services/api-key.service', () => ({
 vi.mock('../../src/services/project.service', () => ({
 	createProject: mocks.createProject,
 	recordProjectDeployment: mocks.recordProjectDeployment,
+}));
+
+vi.mock('../../src/utils/security-signal', () => ({
+	reportSecuritySignal: mocks.reportSecuritySignal,
 }));
 
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
@@ -201,6 +206,37 @@ describe('deploy route deployment record', () => {
 		});
 	});
 
+	it('deploys a config whose from_file leaves the project, and reports it as a security signal', async () => {
+		const send = vi.fn();
+		const config = 'repos:\n  - name: r1\n    url: { from_file: ../../../../proc/self/environ }\n';
+
+		await handler()(deployRequest('envprobe', config), { status: vi.fn(() => ({ send })), send });
+
+		expect(mocks.reportSecuritySignal).toHaveBeenCalledWith(
+			'path-escape',
+			'from_file ../../../../proc/self/environ',
+			{
+				userId: 'user-id',
+			},
+		);
+		expect(send).toHaveBeenCalledWith(expect.objectContaining({ status: 'created' }));
+	});
+
+	it('reports at most ten escaping references of one config, then how many more it holds', async () => {
+		const send = vi.fn();
+		const references = Array.from({ length: 25 }, (_, index) => `  r${index}: { from_file: ../${index}.yml }`);
+
+		await handler()(deployRequest('flood', `tables:\n${references.join('\n')}\n`), {
+			status: vi.fn(() => ({ send })),
+			send,
+		});
+
+		expect(mocks.reportSecuritySignal).toHaveBeenCalledTimes(11);
+		expect(mocks.reportSecuritySignal).toHaveBeenLastCalledWith('path-escape', 'from_file: 15 more references', {
+			userId: 'user-id',
+		});
+	});
+
 	it('stamps the existing project when a deployment updates it', async () => {
 		const projectDir = createTemporaryFolder('nao-deploy-existing-');
 		mocks.getProjectByOrgAndName.mockResolvedValue({ id: 'existing-project', path: projectDir });
@@ -229,9 +265,9 @@ async function upload(file: () => Promise<{ file: AsyncIterable<Buffer> } | unde
 	return { status, send };
 }
 
-function deployRequest(projectName: string) {
+function deployRequest(projectName: string, extraConfig = '') {
 	const sourceDir = createTemporaryFolder('nao-deploy-source-');
-	fs.writeFileSync(path.join(sourceDir, 'nao_config.yaml'), `project_name: ${projectName}\n`);
+	fs.writeFileSync(path.join(sourceDir, 'nao_config.yaml'), `project_name: ${projectName}\n${extraConfig}`);
 	return {
 		headers: { authorization: 'Bearer nao_valid' },
 		file: vi.fn().mockResolvedValue({ file: toAsyncIterable(createArchive(sourceDir)) }),

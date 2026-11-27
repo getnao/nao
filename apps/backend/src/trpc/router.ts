@@ -14,6 +14,7 @@ import { citationRoutes } from './citation.routes';
 import { contextExplorerRoutes } from './context-explorer.routes';
 import { contextRecommendationRoutes } from './context-recommendation.routes';
 import { customStoryViewerRoutes } from './custom-story-viewer.routes';
+import { decisionRoutes } from './decision.routes';
 import { embedRoutes } from './embed.routes';
 import { favoriteRoutes } from './favorite.routes';
 import { feedbackRoutes } from './feedback.routes';
@@ -33,6 +34,7 @@ import { onboardingRoutes } from './onboarding.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { projectSyncRoutes } from './project-sync.routes';
 import { sandboxSecretRoutes } from './sandbox-secret.routes';
 import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
@@ -83,6 +85,7 @@ export const trpcRouter = router({
 	log: logRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
+	projectSync: projectSyncRoutes,
 	storage: storageRoutes,
 	storyShare: sharedStoryRoutes,
 	story: storyRoutes,
@@ -107,6 +110,7 @@ export const trpcRouter = router({
 	skill: skillRoutes,
 	testRun: testRunRoutes,
 	transcribe: transcribeRoutes,
+	decision: decisionRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;

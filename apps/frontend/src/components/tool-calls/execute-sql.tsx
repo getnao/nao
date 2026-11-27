@@ -12,7 +12,7 @@ import type { ToolCallComponentProps } from '.';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanelActions } from '@/contexts/side-panel';
 import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
@@ -27,7 +27,7 @@ export const ExecuteSqlToolCall = ({
 	const [conditionalFormats, setConditionalFormats] = useState<ColumnConditionalFormats>({});
 	const [isFormatOpen, setIsFormatOpen] = useState(false);
 	const { isSettled } = useToolCallContext();
-	const { open: openSidePanel } = useSidePanel();
+	const { open: openSidePanel } = useSidePanelActions();
 	const agent = useOptionalAgentContext();
 	const chatId = agent?.chatId;
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && output?.id && input?.sql_query);

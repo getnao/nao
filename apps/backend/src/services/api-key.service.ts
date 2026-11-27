@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 
-import type { DBOrganization } from '../db/abstractSchema';
+import type { DBOrganization, User } from '../db/abstractSchema';
 import * as apiKeyQueries from '../queries/api-key.queries';
+import { getOrganizationById } from '../queries/organization.queries';
+import { getUser } from '../queries/user.queries';
 
 const KEY_PREFIX = 'nao_';
 const KEY_RANDOM_BYTES = 16;
@@ -14,6 +16,7 @@ export interface GeneratedKey {
 
 export interface ValidatedApiKey {
 	createdBy: string;
+	creator: User;
 	organization: DBOrganization;
 }
 
@@ -33,6 +36,7 @@ export const isApiKey = (token: string): boolean => {
 	return token.startsWith(KEY_PREFIX);
 };
 
+/** A key stops working once its organization or the user who created it is deactivated. */
 export const validateApiKey = async (plaintext: string): Promise<ValidatedApiKey | null> => {
 	if (!isApiKey(plaintext)) {
 		return null;
@@ -46,7 +50,12 @@ export const validateApiKey = async (plaintext: string): Promise<ValidatedApiKey
 
 	apiKeyQueries.updateApiKeyLastUsed(apiKey.id).catch(() => {});
 
-	const { getOrganizationById } = await import('../queries/organization.queries');
-	const organization = await getOrganizationById(apiKey.orgId);
-	return organization ? { createdBy: apiKey.createdBy, organization } : null;
+	const [organization, creator] = await Promise.all([
+		getOrganizationById(apiKey.orgId),
+		getUser({ id: apiKey.createdBy }),
+	]);
+	if (!organization || organization.deactivatedAt || !creator || creator.deactivatedAt) {
+		return null;
+	}
+	return { createdBy: apiKey.createdBy, creator, organization };
 };

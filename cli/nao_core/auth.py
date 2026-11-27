@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
+from nao_core.text_files import read_text
 from nao_core.ui import UI, ask_text
 
 # Store credentials in user's home directory
@@ -48,7 +49,7 @@ def _read_auth_file() -> dict:
         return {}
 
     try:
-        return json.loads(AUTH_FILE.read_text())
+        return json.loads(read_text(AUTH_FILE))
     except json.JSONDecodeError:
         return {}
 
@@ -57,7 +58,7 @@ def _write_auth_file(data: dict) -> None:
     AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
     AUTH_FILE.touch(mode=0o600, exist_ok=True)
     AUTH_FILE.chmod(0o600)
-    AUTH_FILE.write_text(json.dumps(data))
+    AUTH_FILE.write_text(json.dumps(data), encoding="utf-8")
 
 
 def get_stored_token() -> str | None:

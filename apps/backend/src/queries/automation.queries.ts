@@ -34,6 +34,22 @@ export type AutomationListItem = AutomationWithAccess & {
 	lastRunStartedAt: Date | null;
 };
 
+export const listProjectAutomationModelSelections = async (
+	projectId: string,
+): Promise<Array<Pick<DBAutomation, 'id' | 'userId' | 'modelProvider' | 'modelId' | 'llmConfigId'>>> => {
+	return db
+		.select({
+			id: s.automation.id,
+			userId: s.automation.userId,
+			modelProvider: s.automation.modelProvider,
+			modelId: s.automation.modelId,
+			llmConfigId: s.automation.llmConfigId,
+		})
+		.from(s.automation)
+		.where(eq(s.automation.projectId, projectId))
+		.execute();
+};
+
 /** The automations the user owns or that are shared with them. */
 export const listAutomations = async (projectId: string, userId: string): Promise<AutomationListItem[]> => {
 	await failStaleAutomationRuns();
@@ -238,6 +254,7 @@ export const updateAutomation = async (
 			| 'timezone'
 			| 'modelProvider'
 			| 'modelId'
+			| 'llmConfigId'
 			| 'mcpEnabled'
 			| 'mcpServers'
 			| 'integrations'
@@ -396,6 +413,10 @@ export const attachRunChat = async (runId: string, chatId: string): Promise<void
 	await db.update(s.automationRun).set({ chatId }).where(eq(s.automationRun.id, runId)).execute();
 };
 
+export const setRunLlmConfig = async (runId: string, llmConfigId: string | null): Promise<void> => {
+	await db.update(s.automationRun).set({ llmConfigId }).where(eq(s.automationRun.id, runId)).execute();
+};
+
 export const completeAutomationRun = async (
 	runId: string,
 	integrationResults: AutomationIntegrationResult[],
@@ -415,15 +436,24 @@ export const failAutomationRun = async (runId: string, errorMessage: string): Pr
 		.execute();
 };
 
-export const markAutomationRunRead = async (projectId: string, userId: string, runId: string): Promise<boolean> => {
+export const markAutomationRunRead = async (
+	projectId: string,
+	userId: string,
+	runId: string,
+	read = true,
+): Promise<boolean> => {
 	const run = await getAutomationRunForUser(projectId, userId, runId);
 	if (!run) {
 		return false;
 	}
-	if (run.readAt) {
+	if (Boolean(run.readAt) === read) {
 		return true;
 	}
-	await db.update(s.automationRun).set({ readAt: new Date() }).where(eq(s.automationRun.id, runId)).execute();
+	await db
+		.update(s.automationRun)
+		.set({ readAt: read ? new Date() : null })
+		.where(eq(s.automationRun.id, runId))
+		.execute();
 	return true;
 };
 

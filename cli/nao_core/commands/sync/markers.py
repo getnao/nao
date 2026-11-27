@@ -53,4 +53,4 @@ def ensure_annotations_file(folder: Path) -> None:
     annotations_file = folder / "annotations.md"
     if annotations_file.exists():
         return
-    annotations_file.write_text(f"{marker_for(ContextFileKind.MANUAL)}\n")
+    annotations_file.write_text(f"{marker_for(ContextFileKind.MANUAL)}\n", encoding="utf-8")

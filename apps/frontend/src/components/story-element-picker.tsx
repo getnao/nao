@@ -41,6 +41,13 @@ export function StoryElementPicker({ isPicking, storySlug, onPick, children }: S
 		onPick(describeElement(element, containerRef.current));
 	};
 
+	const handleDoubleClickCapture = (event: MouseEvent) => {
+		if (isPicking && findPickable(event.target)) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
+	};
+
 	return (
 		<div
 			ref={containerRef}
@@ -48,6 +55,7 @@ export function StoryElementPicker({ isPicking, storySlug, onPick, children }: S
 			onPointerOver={handlePointerOver}
 			onPointerLeave={() => setPointedElement(null)}
 			onClickCapture={handleClickCapture}
+			onDoubleClickCapture={handleDoubleClickCapture}
 		>
 			{children}
 			{hovered && <PickOutline element={hovered} />}

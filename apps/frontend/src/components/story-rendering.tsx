@@ -20,6 +20,7 @@ const markdownComponents = {
 interface SegmentRendererProps {
 	segments: Segment[];
 	versionKey?: string | number;
+	isStreaming?: boolean;
 	renderChart: (chart: ParsedChartBlock, key: number) => React.ReactNode;
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 	renderMap: (map: ParsedMapBlock, key: number) => React.ReactNode;
@@ -28,6 +29,7 @@ interface SegmentRendererProps {
 export const SegmentList = memo(function SegmentList({
 	segments,
 	versionKey,
+	isStreaming = false,
 	renderChart,
 	renderTable,
 	renderMap,
@@ -40,7 +42,13 @@ export const SegmentList = memo(function SegmentList({
 				const key = getSegmentKey(segment, i, blockOccurrences, versionKey);
 				switch (segment.type) {
 					case 'markdown':
-						return <MarkdownSegment key={key} content={segment.content} />;
+						return (
+							<MarkdownSegment
+								key={key}
+								content={segment.content}
+								isStreaming={isStreaming && i === segments.length - 1}
+							/>
+						);
 					case 'chart':
 						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
@@ -67,11 +75,17 @@ export const SegmentList = memo(function SegmentList({
 	);
 });
 
-const MarkdownSegment = memo(function MarkdownSegment({ content }: { content: string }) {
+const MarkdownSegment = memo(function MarkdownSegment({
+	content,
+	isStreaming = false,
+}: {
+	content: string;
+	isStreaming?: boolean;
+}) {
 	return (
 		<Streamdown
 			linkSafety={markdownLinkSafety}
-			mode='static'
+			mode={isStreaming ? 'streaming' : 'static'}
 			plugins={markdownPlugins}
 			components={markdownComponents}
 		>
@@ -98,6 +112,46 @@ const StoryGrid = memo(function StoryGrid({
 	const blockOccurrences = new Map<string, number>();
 
 	return (
+		<StoryGridLayout cols={cols} widths={widths}>
+			{children.map((segment, i) => (
+				<StoryGridProvider key={getSegmentKey(segment, i, blockOccurrences)}>
+					<div className='min-w-0'>
+						{segment.type === 'markdown' ? (
+							<MarkdownSegment content={segment.content} />
+						) : segment.type === 'chart' ? (
+							renderChart(segment.chart, i)
+						) : segment.type === 'table' ? (
+							renderTable(segment.table, i)
+						) : segment.type === 'map' ? (
+							renderMap(segment.map, i)
+						) : segment.type === 'grid' ? (
+							<StoryGrid
+								cols={segment.cols}
+								widths={segment.widths}
+								children={segment.children}
+								renderChart={renderChart}
+								renderTable={renderTable}
+								renderMap={renderMap}
+							/>
+						) : null}
+					</div>
+				</StoryGridProvider>
+			))}
+		</StoryGridLayout>
+	);
+});
+
+/** The responsive columns of a story grid, shared by rendered grids and their loading placeholders. */
+export function StoryGridLayout({
+	cols,
+	widths,
+	children,
+}: {
+	cols: number;
+	widths: number[] | null;
+	children: React.ReactNode;
+}) {
+	return (
 		<div className='@container'>
 			<div
 				className={
@@ -109,34 +163,11 @@ const StoryGrid = memo(function StoryGrid({
 					? { style: { ['--nao-grid-cols' as string]: getGridTemplateColumns(widths) } }
 					: {})}
 			>
-				{children.map((segment, i) => (
-					<StoryGridProvider key={getSegmentKey(segment, i, blockOccurrences)}>
-						<div className='min-w-0'>
-							{segment.type === 'markdown' ? (
-								<MarkdownSegment content={segment.content} />
-							) : segment.type === 'chart' ? (
-								renderChart(segment.chart, i)
-							) : segment.type === 'table' ? (
-								renderTable(segment.table, i)
-							) : segment.type === 'map' ? (
-								renderMap(segment.map, i)
-							) : segment.type === 'grid' ? (
-								<StoryGrid
-									cols={segment.cols}
-									widths={segment.widths}
-									children={segment.children}
-									renderChart={renderChart}
-									renderTable={renderTable}
-									renderMap={renderMap}
-								/>
-							) : null}
-						</div>
-					</StoryGridProvider>
-				))}
+				{children}
 			</div>
 		</div>
 	);
-});
+}
 
 function getSegmentKey(
 	segment: Segment,

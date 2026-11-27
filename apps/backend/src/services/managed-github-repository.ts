@@ -3,10 +3,11 @@ import { createPrivateKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { TRPCError } from '@trpc/server';
 import { SignJWT } from 'jose';
 
 import { env } from '../env';
-import { NAO_CO_AUTHOR } from '../utils/git-identity';
+import { type GitIdentity, NAO_CO_AUTHOR } from '../utils/git-identity';
 import { getGitOAuthCredential, runGitWithOAuthAsync } from '../utils/git-oauth';
 import { describeError, logger } from '../utils/logger';
 
@@ -19,6 +20,9 @@ const APP_CONFIGURATION_ERROR_STATUSES = new Set([401, 404]);
 /** Publishing cannot succeed on this instance until an operator fixes its managed GitHub configuration. */
 export class ManagedGithubConfigurationError extends Error {}
 
+/** The push failed and GitHub could not confirm whether it accepted the commit, so the local commit was preserved. */
+export class ManagedGithubPublishUncertainError extends Error {}
+
 interface ManagedRepositoryInput {
 	projectId: string;
 	projectName: string;
@@ -29,6 +33,14 @@ interface ManagedRepository {
 	repoFullName: string;
 	url: string;
 	created: boolean;
+}
+
+interface ManagedRepositoryUpdateInput {
+	projectDir: string;
+	repoFullName: string;
+	paths: string[];
+	message: string;
+	author: GitIdentity;
 }
 
 interface ManagedGithubConfig {
@@ -56,6 +68,10 @@ interface GithubAppInstallation {
 export async function provisionManagedGithubRepository(
 	input: ManagedRepositoryInput,
 ): Promise<ManagedRepository | null> {
+	if (env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING) {
+		return null;
+	}
+
 	const config = getManagedGithubConfig();
 	if (!config) {
 		return null;
@@ -107,8 +123,102 @@ export async function deleteManagedGithubRepository(repoFullName: string): Promi
 	await deleteRepository(repoFullName, token);
 }
 
+export async function readManagedGithubRepositoryFullName(projectDir: string): Promise<string | null> {
+	const org = env.CLOUD_GITHUB_PROJECT_ORG;
+	if (!org || !isGitRepository(projectDir)) {
+		return null;
+	}
+	const origin = await runGit(projectDir, ['remote', 'get-url', 'origin']).catch(() => '');
+	const repoFullName = origin.trim().match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\.git$/)?.[1];
+	return repoFullName?.toLowerCase().startsWith(`${org.toLowerCase()}/`) ? repoFullName : null;
+}
+
+export async function assertRepositoryEditable(projectPath: string | null): Promise<void> {
+	if (projectPath && (await readManagedGithubRepositoryFullName(projectPath))) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: "This project's repository is managed by nao and can't be changed yet.",
+		});
+	}
+}
+
+export async function publishManagedGithubRepositoryUpdate(input: ManagedRepositoryUpdateInput): Promise<boolean> {
+	const config = getManagedGithubConfig();
+	if (!config) {
+		throw new ManagedGithubConfigurationError('Managed GitHub publishing is not configured');
+	}
+
+	const previousCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
+	let committed = false;
+	let committedCommit: string | null = null;
+	let token: string | null = null;
+
+	try {
+		await runGit(input.projectDir, ['add', '--', ...input.paths]);
+		const stagedFiles = (
+			await runGit(input.projectDir, ['diff', '--cached', '--name-only', '--', ...input.paths])
+		).trim();
+		if (stagedFiles) {
+			assertNoSecrets(stagedFiles);
+			await runGit(input.projectDir, ['commit', '-m', input.message, '--', ...input.paths], {
+				GIT_AUTHOR_NAME: input.author.name,
+				GIT_AUTHOR_EMAIL: input.author.email,
+				GIT_COMMITTER_NAME: NAO_CO_AUTHOR.name,
+				GIT_COMMITTER_EMAIL: NAO_CO_AUTHOR.email,
+			});
+			committed = true;
+			committedCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
+		} else {
+			committedCommit = previousCommit;
+		}
+
+		token = await createInstallationToken(config);
+		await pushRepositoryWithAuthenticationRetry(
+			input.projectDir,
+			input.repoFullName,
+			token,
+			config,
+			(refreshedToken) => {
+				token = refreshedToken;
+			},
+		);
+		return true;
+	} catch (error) {
+		if (committedCommit && token) {
+			let remoteCommit: string | null;
+			try {
+				remoteCommit = await readRemoteMainCommit(input.projectDir, input.repoFullName, token);
+			} catch (verificationError) {
+				throw new ManagedGithubPublishUncertainError(
+					`Managed repository push failed and its remote status could not be verified: ${getErrorMessage(error)}`,
+					{ cause: new AggregateError([error, verificationError]) },
+				);
+			}
+			if (remoteCommit === committedCommit) {
+				return true;
+			}
+		}
+		try {
+			if (committed) {
+				await runGit(input.projectDir, ['reset', '--soft', previousCommit]);
+			}
+			await runGit(input.projectDir, ['reset', previousCommit, '--', ...input.paths]);
+		} catch (rollbackError) {
+			throw new Error(
+				`Managed repository update failed: ${getErrorMessage(error)}; the local commit could not be rolled back: ${getErrorMessage(rollbackError)}`,
+				{ cause: new AggregateError([error, rollbackError]) },
+			);
+		}
+		throw error;
+	}
+}
+
 /** Publishing only runs at the end of a warehouse setup, so a broken configuration is reported when the server starts. */
 export async function reportManagedGithubConfiguration(): Promise<void> {
+	if (env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING) {
+		return;
+	}
+
 	try {
 		const org = await verifyManagedGithubConfiguration();
 		if (org) {
@@ -350,6 +460,17 @@ async function pushRepository(projectDir: string, repoFullName: string, token: s
 		['push', cleanUrl, 'HEAD:refs/heads/main'],
 		getGitOAuthCredential('github', token),
 	);
+}
+
+async function readRemoteMainCommit(projectDir: string, repoFullName: string, token: string): Promise<string | null> {
+	const cleanUrl = `https://github.com/${repoFullName}.git`;
+	const output = await runGitWithOAuthAsync(
+		projectDir,
+		['ls-remote', cleanUrl, 'refs/heads/main'],
+		getGitOAuthCredential('github', token),
+	);
+	const [commit, ref] = output.toString('utf-8').trim().split(/\s+/);
+	return ref === 'refs/heads/main' && /^[a-f0-9]{40,64}$/i.test(commit) ? commit : null;
 }
 
 function isGithubAuthenticationError(error: unknown): boolean {

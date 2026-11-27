@@ -8,6 +8,7 @@ export const BUILT_IN_MENU_ENTRY_IDS = [
 	'stories',
 	'inbox',
 	'automations',
+	'skills',
 	'context-hub',
 ] as const;
 export type BuiltInMenuEntryId = (typeof BUILT_IN_MENU_ENTRY_IDS)[number];
@@ -18,8 +19,12 @@ export const BUILT_IN_MENU_ENTRY_LABELS: Record<BuiltInMenuEntryId, string> = {
 	stories: 'Stories',
 	inbox: 'Inbox',
 	automations: 'Automations',
+	skills: 'Skills',
 	'context-hub': 'Context Hub',
 };
+
+/** Built-in entries the menu leaves out until an admin turns them on in the menu settings. */
+const BUILT_IN_MENU_ENTRY_IDS_HIDDEN_BY_DEFAULT: ReadonlySet<BuiltInMenuEntryId> = new Set(['skills']);
 
 export const MAX_CUSTOM_MENU_ENTRIES = 30;
 export const MAX_MENU_ENTRY_LABEL_LENGTH = 40;
@@ -140,7 +145,7 @@ export function isBuiltInMenuEntryId(id: string): id is BuiltInMenuEntryId {
 }
 
 function createBuiltInEntry(id: BuiltInMenuEntryId): BuiltInMenuEntry {
-	return { type: 'built-in', id, label: null, icon: null, hidden: false };
+	return { type: 'built-in', id, label: null, icon: null, hidden: BUILT_IN_MENU_ENTRY_IDS_HIDDEN_BY_DEFAULT.has(id) };
 }
 
 /** Drops entries a newer or older build cannot read instead of failing the whole menu. */

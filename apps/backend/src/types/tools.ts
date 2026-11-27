@@ -11,6 +11,7 @@ import type {
 	ResolvedSkillsAccess,
 } from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
+import type { PersonalSkill } from './user-skill';
 
 export interface QueryResult {
 	columns: string[];
@@ -59,6 +60,10 @@ export interface ToolContext {
 	userRulesGroupAccess: UserRulesGroupAccess;
 	/** Project skills the user's groups load in full into the system prompt. */
 	preloadedSkillNames?: string[];
+	/** The user's own skills, stored in nao rather than in the context files and offered to nobody else. */
+	personalSkills?: PersonalSkill[];
+	/** Whether the user may write personal skills, which gives the run the tools of nao's own MCP server. */
+	canManagePersonalSkills?: boolean;
 	/**
 	 * The user's identity provider access token (Microsoft Entra ID or OIDC, EE only), forwarded to
 	 * warehouses that run queries as the signed-in user; always null in the open-source edition.

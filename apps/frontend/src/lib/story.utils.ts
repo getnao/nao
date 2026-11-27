@@ -1,4 +1,9 @@
+import { parseChartAttributes, resolveGridWidths, TAG_ATTRS } from '@nao/shared/story-segments';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+
+export type PendingStoryBlock =
+	| { type: 'chart' | 'table' | 'map' }
+	| { type: 'grid'; cols: number; widths: number[] | null };
 
 export interface StorySummary {
 	id: string;
@@ -13,6 +18,7 @@ export interface StoryDraft {
 }
 
 const storiesByMessages = new WeakMap<UIMessage[], StorySummary[]>();
+const storiesByMessage = new WeakMap<UIMessage, StorySummary[]>();
 
 export interface ViewedStory {
 	slug: string;
@@ -48,24 +54,21 @@ export function findStories(messages: UIMessage[]): StorySummary[] {
 		return cachedStories;
 	}
 
-	const seen = new Map<string, string>();
-
-	for (const message of messages) {
-		for (const part of message.parts) {
-			if (part.type !== 'tool-story') {
-				continue;
-			}
-
-			const output = part.output;
-			if (output?.success && output.id && !output.story_chat_id) {
-				seen.set(output.id, output.title);
-			}
-		}
+	const titleById = new Map<string, string>();
+	for (const story of messages.flatMap(findMessageStories)) {
+		titleById.set(story.id, story.title);
 	}
 
-	const stories = [...seen.entries()].map(([id, title]) => ({ id, title }));
+	const stories = [...titleById.entries()].map(([id, title]) => ({ id, title }));
 	storiesByMessages.set(messages, stories);
 	return stories;
+}
+
+export function areStoriesEqual(left: StorySummary[], right: StorySummary[]): boolean {
+	return (
+		left.length === right.length &&
+		left.every((story, index) => story.id === right[index]?.id && story.title === right[index]?.title)
+	);
 }
 
 export function findStoryIds(messages: UIMessage[]): string[] {
@@ -123,4 +126,79 @@ export function findStoryDraft(
 	}
 
 	return prefixMatchedDraft;
+}
+
+/** Cuts the story block still being written off the end of streamed code, so its raw markup is never shown. */
+export function holdBackIncompleteStoryBlock(code: string): { code: string; pendingBlock: PendingStoryBlock | null } {
+	const openGridStart = findOpenGridStart(code);
+	if (openGridStart !== null) {
+		return { code: code.slice(0, openGridStart), pendingBlock: toPendingGrid(code.slice(openGridStart)) };
+	}
+	const incompleteTag = findIncompleteTrailingTag(code);
+	if (!incompleteTag) {
+		return { code, pendingBlock: null };
+	}
+	return { code: code.slice(0, incompleteTag.start), pendingBlock: toPendingStoryBlock(incompleteTag.name) };
+}
+
+const STORY_TAG_START_REGEX = /<\/?(chart|table|map|filter|parameter|grid|tabs?)\b/g;
+const PARTIAL_TAG_NAME_REGEX = /<\/?[a-z]*$/;
+
+function findOpenGridStart(code: string): number | null {
+	const openGridStarts: number[] = [];
+	for (const match of code.matchAll(/<grid\b|<\/grid>/g)) {
+		if (match[0] === '</grid>') {
+			openGridStarts.pop();
+		} else {
+			openGridStarts.push(match.index);
+		}
+	}
+	return openGridStarts[0] ?? null;
+}
+
+function findIncompleteTrailingTag(code: string): { start: number; name: string | null } | null {
+	const lastTag = [...code.matchAll(STORY_TAG_START_REGEX)].at(-1);
+	if (lastTag && !isCompleteTagAt(code, lastTag.index)) {
+		return { start: lastTag.index, name: lastTag[1] };
+	}
+	const partialTagName = PARTIAL_TAG_NAME_REGEX.exec(code);
+	return partialTagName ? { start: partialTagName.index, name: null } : null;
+}
+
+function isCompleteTagAt(code: string, start: number): boolean {
+	const completeTagRegex = new RegExp(String.raw`<\/?[a-z]+\b${TAG_ATTRS}\/?>`, 'y');
+	completeTagRegex.lastIndex = start;
+	return completeTagRegex.test(code);
+}
+
+function toPendingStoryBlock(tagName: string | null): PendingStoryBlock | null {
+	return tagName === 'chart' || tagName === 'table' || tagName === 'map' ? { type: tagName } : null;
+}
+
+const DEFAULT_PENDING_GRID_COLUMNS = 2;
+
+function toPendingGrid(openGridCode: string): PendingStoryBlock {
+	const openingTag = new RegExp(String.raw`^<grid\b(${TAG_ATTRS})>`).exec(openGridCode);
+	const attributes = parseChartAttributes(openingTag?.[1] ?? '');
+	const announcedWidths = attributes.widths?.split(',').length ?? 0;
+	const widths = resolveGridWidths(attributes.widths, announcedWidths);
+	const cols = widths?.length ?? (parseInt(attributes.cols ?? '', 10) || DEFAULT_PENDING_GRID_COLUMNS);
+	return { type: 'grid', cols, widths };
+}
+
+function findMessageStories(message: UIMessage): StorySummary[] {
+	const cachedStories = storiesByMessage.get(message);
+	if (cachedStories) {
+		return cachedStories;
+	}
+
+	const stories = message.parts.flatMap((part) => {
+		if (part.type !== 'tool-story') {
+			return [];
+		}
+		const output = part.output;
+		return output?.success && output.id && !output.story_chat_id ? [{ id: output.id, title: output.title }] : [];
+	});
+	storiesByMessage.set(message, stories);
+	return stories;
 }

@@ -1,5 +1,6 @@
 import { buildChart, labelize } from '@nao/shared/chart-builder';
 import {
+	applyBreakdown,
 	buildSeriesChartConfig,
 	buildSeriesLegendPayload,
 	seriesColorAt as seriesColor,
@@ -61,7 +62,7 @@ export function ChartBlock({
 }: ChartBlockProps) {
 	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options, chartType) : null;
-	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options.showLegend) : false;
+	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options) : false;
 	const edit =
 		resolved && source.status === 'ready'
 			? {
@@ -113,10 +114,18 @@ interface ChartBodyProps {
 	options: ChartOptions;
 }
 
-function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, showGrid, options }: ChartBodyProps) {
+function ChartBody({ chartType, xAxisKey, height, showLegend, showGrid, options, ...data }: ChartBodyProps) {
+	const { rows, series } = applyBreakdown({
+		...data,
+		chartType,
+		xAxisKey,
+		breakdownKey: options.breakdownKey,
+		breakdownLimit: options.breakdownLimit,
+	});
 	const theme = useStoryTheme();
 	const gradientIdPrefix = useId();
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility, handleIsolateSeries } =
+		useSeriesVisibility(series);
 	const isDualAxis = isComboChart(chartType) && visibleSeries.some((item) => item.y_axis === 'right');
 	const pie = isPieChart(chartType) && series[0] ? piePresentation(rows, xAxisKey, series[0]) : null;
 
@@ -168,7 +177,12 @@ function ChartBody({ rows, chartType, xAxisKey, series, height, showLegend, show
 					layout='horizontal'
 					align='center'
 					verticalAlign='bottom'
-					content={<ChartLegendContent onItemClick={pie ? undefined : handleToggleSeriesVisibility} />}
+					content={
+						<ChartLegendContent
+							onItemClick={pie ? undefined : handleToggleSeriesVisibility}
+							onItemDoubleClick={pie ? undefined : handleIsolateSeries}
+						/>
+					}
 				/>
 			),
 		].filter(Boolean),

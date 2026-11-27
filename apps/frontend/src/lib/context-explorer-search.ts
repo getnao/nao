@@ -17,6 +17,10 @@ export interface ContextExplorerSearch extends TestDrawerSearch {
 	tests?: 'open';
 	/** The recommendation whose proposed change to the file is shown when the file opens. */
 	recommendation?: string;
+	/** Opens the doc view on every skill, the project's and the personal ones. */
+	skills?: 'open';
+	/** Opens the doc view on one of the user's personal skills, by its name. */
+	skill?: string;
 }
 
 export type DocViewTestsPage = { type: 'suite' } | { type: 'test'; path: string };
@@ -32,6 +36,8 @@ export function validateContextExplorerSearch(search: Record<string, unknown>): 
 		...validateFileSearch(search),
 		...validateTestDrawerSearch(search),
 		...(search.tests === 'open' && { tests: 'open' as const }),
+		...(search.skills === 'open' && { skills: 'open' as const }),
+		...validateSkillSearch(search),
 		...validateRecommendationSearch(search),
 	};
 }
@@ -96,6 +102,11 @@ function validateTestDrawerSearch(search: Record<string, unknown>): TestDrawerSe
 	const test = parseContextExplorerPath(search.test);
 	const testRun = parseIdentifier(search.testRun);
 	return { ...(test && { test }), ...(testRun && { testRun }) };
+}
+
+function validateSkillSearch(search: Record<string, unknown>): Pick<ContextExplorerSearch, 'skill'> {
+	const skill = parseIdentifier(search.skill);
+	return skill ? { skill } : {};
 }
 
 function validateRecommendationSearch(search: Record<string, unknown>): Pick<ContextExplorerSearch, 'recommendation'> {

@@ -37,6 +37,7 @@ import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 
 export function OwnedStoryPage({
 	chatId,
@@ -99,13 +100,7 @@ export function OwnedStoryPage({
 		latestQueryData: story.queryData as QueryDataMap | null,
 	});
 	const unarchiveMutation = useMutation(
-		trpc.story.unarchive.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }) });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-			},
-		}),
+		trpc.story.unarchive.mutationOptions({ onSuccess: () => invalidateStoryArchiveCaches(queryClient) }),
 	);
 
 	const isArchived = Boolean(story.archivedAt);

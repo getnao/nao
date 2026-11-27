@@ -4,7 +4,11 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 import { describe, expect, it, vi } from 'vitest';
 
-import { holdsFileReference, resolveFileReferences } from '../../src/utils/nao-config-references';
+import {
+	holdsFileReference,
+	listEscapingFileReferences,
+	resolveFileReferences,
+} from '../../src/utils/nao-config-references';
 import { logger } from '../helpers/logger-mock';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -112,6 +116,19 @@ describe('resolveFileReferences', () => {
 describe('holdsFileReference', () => {
 	it('finds no reference under an alias to its own parent', () => {
 		expect(holdsFileReference(yaml.load(ALIAS_TO_ITS_OWN_PARENT))).toBe(false);
+	});
+});
+
+describe('listEscapingFileReferences', () => {
+	it('lists the references that try to leave the project, wherever they sit', () => {
+		const config = {
+			repos: [{ name: 'r1', url: { from_file: '../../../../proc/self/environ' } }],
+			include: { from_file: '/etc/passwd' },
+			tables: { from_file: 'tables.yml' },
+			dotted: { from_file: 'folder/..hidden.yml' },
+		};
+
+		expect(listEscapingFileReferences(config)).toEqual(['../../../../proc/self/environ', '/etc/passwd']);
 	});
 });
 

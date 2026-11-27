@@ -37,10 +37,10 @@ export const countUnread = async (userId: string, projectId: string): Promise<nu
 	return row?.value ?? 0;
 };
 
-export const markRead = async (userId: string, notificationId: string): Promise<void> => {
+export const markRead = async (userId: string, notificationId: string, read = true): Promise<void> => {
 	await db
 		.update(s.notification)
-		.set({ readAt: new Date() })
+		.set({ readAt: read ? new Date() : null })
 		.where(and(eq(s.notification.id, notificationId), eq(s.notification.userId, userId)))
 		.execute();
 };
