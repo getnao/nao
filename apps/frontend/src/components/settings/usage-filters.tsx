@@ -89,6 +89,17 @@ export function UsageFilters({
 							))}
 						</SelectContent>
 					</Select>
+					<UsagePeriodFilter
+						value={periodSelection}
+						savedPeriods={savedPeriods}
+						isLoading={isPeriodLoading}
+						error={periodError}
+						onRetry={onRetryPeriod}
+						onChange={onPeriodSelectionChange}
+						onCreateSavedPeriod={onCreateSavedPeriod}
+						onUpdateSavedPeriod={onUpdateSavedPeriod}
+						onDeleteSavedPeriod={onDeleteSavedPeriod}
+					/>
 					{onSelectedCredentialIdsChange && (
 						<MultiSelectFilter
 							label='Credentials'
@@ -101,17 +112,6 @@ export function UsageFilters({
 							onChange={onSelectedCredentialIdsChange}
 						/>
 					)}
-					<UsagePeriodFilter
-						value={periodSelection}
-						savedPeriods={savedPeriods}
-						isLoading={isPeriodLoading}
-						error={periodError}
-						onRetry={onRetryPeriod}
-						onChange={onPeriodSelectionChange}
-						onCreateSavedPeriod={onCreateSavedPeriod}
-						onUpdateSavedPeriod={onUpdateSavedPeriod}
-						onDeleteSavedPeriod={onDeleteSavedPeriod}
-					/>
 				</>
 			)}
 

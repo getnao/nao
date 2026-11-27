@@ -1,5 +1,5 @@
 import { isLlmProvider, type LlmProvider } from '@nao/shared/types';
-import { and, eq, gte, inArray, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, type Column, eq, gte, inArray, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { DECISION_PROVIDER_META } from '../agents/decision.providers';
 import { type PricedProvider, resolveModelPrices } from '../agents/model-prices';
@@ -95,27 +95,9 @@ export async function createCostLookup(projectId: string) {
 	return { table, joinCondition };
 }
 
-const MESSAGE_USAGE_PROVIDER_EXPR = sql<LlmProvider | null>`case
-	when ${s.chatMessage.role} = 'user' then (
-		select next_message.llm_provider
-		from chat_message as next_message
-		where next_message.chat_id = ${s.chatMessage.chatId}
-			and next_message.role = 'assistant'
-			and next_message.llm_provider is not null
-			and next_message.created_at > ${s.chatMessage.createdAt}
-			and not exists (
-				select 1
-				from chat_message as next_user_message
-				where next_user_message.chat_id = ${s.chatMessage.chatId}
-					and next_user_message.role = 'user'
-					and next_user_message.created_at > ${s.chatMessage.createdAt}
-					and next_user_message.created_at < next_message.created_at
-			)
-		order by next_message.created_at asc
-		limit 1
-	)
-	else ${s.chatMessage.llmProvider}
-end`;
+const MESSAGE_USAGE_PROVIDER_EXPR = replyValueForUserMessage<LlmProvider | null>(s.chatMessage.llmProvider);
+
+const MESSAGE_USAGE_LLM_CONFIG_EXPR = replyValueForUserMessage<string | null>(s.chatMessage.llmConfigId);
 
 const MESSAGE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`case
 	when ${s.chatMessage.role} = 'assistant' then (
@@ -394,6 +376,9 @@ export const getTotalUsage = async (
 	if (provider) {
 		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 	}
+	if (filter.llmConfigIds?.length) {
+		whereConditions.push(inArray(MESSAGE_USAGE_LLM_CONFIG_EXPR, filter.llmConfigIds));
+	}
 	if (userId) {
 		whereConditions.push(eq(MESSAGE_SENDER_EXPR, userId));
 	} else {
@@ -581,7 +566,7 @@ function buildUsageWhereConditions(projectId: string, filter: UsageFilter, userI
 		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
 	}
 	if (filter.llmConfigIds?.length) {
-		messageWhereConditions.push(inArray(s.chatMessage.llmConfigId, filter.llmConfigIds));
+		messageWhereConditions.push(inArray(MESSAGE_USAGE_LLM_CONFIG_EXPR, filter.llmConfigIds));
 		inferenceWhereConditions.push(inArray(s.llmInference.llmConfigId, filter.llmConfigIds));
 	}
 	if (userId) {
@@ -629,6 +614,32 @@ function addSourceCondition(
 	if (expr) {
 		whereConditions.push(expr);
 	}
+}
+
+/** A user message has no model of its own, so it takes the value of the assistant reply that answered it. */
+function replyValueForUserMessage<T>(column: Column): SQL<T> {
+	const replyColumn = sql`next_message.${sql.identifier(column.name)}`;
+	return sql<T>`case
+	when ${s.chatMessage.role} = 'user' then (
+		select ${replyColumn}
+		from chat_message as next_message
+		where next_message.chat_id = ${s.chatMessage.chatId}
+			and next_message.role = 'assistant'
+			and ${replyColumn} is not null
+			and next_message.created_at > ${s.chatMessage.createdAt}
+			and not exists (
+				select 1
+				from chat_message as next_user_message
+				where next_user_message.chat_id = ${s.chatMessage.chatId}
+					and next_user_message.role = 'user'
+					and next_user_message.created_at > ${s.chatMessage.createdAt}
+					and next_user_message.created_at < next_message.created_at
+			)
+		order by next_message.created_at asc
+		limit 1
+	)
+	else ${column}
+end`;
 }
 
 function getDateExpr(field: SQLWrapper, granularity: Granularity): SQL<string> {
