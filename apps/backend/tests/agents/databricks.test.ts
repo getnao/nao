@@ -179,6 +179,19 @@ describe('listDatabricksChatEndpoints', () => {
 		]);
 	});
 
+	it('refuses a plain http workspace URL before sending any credentials', async () => {
+		const fake = fakeFetch();
+
+		await expect(
+			listDatabricksChatEndpoints({
+				apiKey: 'dapi-token',
+				baseURL: 'http://dbc-123.cloud.databricks.com',
+				fetch: fake.fetch,
+			}),
+		).rejects.toThrow('must use https');
+		expect(fake.calls).toEqual([]);
+	});
+
 	it('relays why Databricks refused the request', async () => {
 		const failing = vi.fn(async () => new Response('{"message":"Invalid access token."}', { status: 403 }));
 

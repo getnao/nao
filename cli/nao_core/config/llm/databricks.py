@@ -60,4 +60,6 @@ def workspace_url(config: ProviderConfig) -> str:
         raise ValueError("base_url (the Databricks workspace URL) is not set")
     url = config.base_url if re.match(r"^https?://", config.base_url, re.IGNORECASE) else f"https://{config.base_url}"
     parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}"
+    if parts.scheme.lower() != "https":
+        raise ValueError("base_url (the Databricks workspace URL) must use https")
+    return f"https://{parts.netloc}"

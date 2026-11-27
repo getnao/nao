@@ -46,7 +46,11 @@ function resolveWorkspaceUrl(settings: ProviderSettings): string {
 	if (!settings.baseURL) {
 		throw new Error('Databricks needs a workspace URL: set one on the provider before using it');
 	}
-	return toOrigin(settings.baseURL);
+	const workspaceUrl = toOrigin(settings.baseURL);
+	if (!workspaceUrl.startsWith('https://')) {
+		throw new Error('The Databricks workspace URL must use https');
+	}
+	return workspaceUrl;
 }
 
 function toOrigin(url: string): string {

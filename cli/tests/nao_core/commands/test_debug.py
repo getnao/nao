@@ -230,6 +230,20 @@ class TestLLMConnection:
         assert mock_get.call_args.args[0] == "https://dbc-123.cloud.databricks.com/api/2.0/serving-endpoints"
         assert mock_get.call_args.kwargs["headers"] == {"Authorization": "Bearer m2m-token"}
 
+    def test_databricks_refuses_a_plain_http_workspace_before_sending_credentials(self):
+        config = ProviderConfig(
+            provider=LLMProvider.DATABRICKS,
+            base_url="http://dbc-123.cloud.databricks.com",
+            api_key="dapi-token",
+        )
+
+        with patch("nao_core.config.llm.databricks.httpx.get") as mock_get:
+            success, message = check_llm_connection(config)
+
+        assert success is False
+        assert "must use https" in message
+        mock_get.assert_not_called()
+
     def test_minimax_falls_back_to_a_probe_completion_without_a_model_list(self):
         """MiniMax answers GET /v1/models with a 404, so credentials are checked with a completion."""
         config = ProviderConfig(
