@@ -119,7 +119,7 @@ export function resolveTestScheduleProjectId(payload: TestScheduleJobPayload): s
 
 /** Picks up the schedules added to, or removed from, the nao_config.yaml of every project since the last sync. */
 export async function syncAllConfiguredTestSchedules(): Promise<void> {
-	for (const project of await projectQueries.listProjectFolders()) {
+	for (const project of await projectQueries.listActiveProjectFolders()) {
 		try {
 			await syncConfiguredTestSchedules(project.id, project.path);
 		} catch (error) {

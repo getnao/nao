@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { PathEscapeError } from './security-errors';
 /**
  * Project folders can hold symlinks (a cloned repository keeps them), so a file is only read when
  * its real location is inside the project folder. The check is made on the opened file, so a link
@@ -23,7 +24,7 @@ export function readProjectFile(projectFolder: string, relativePath: string): st
 function assertInsideRoot(root: string, realPath: string, relativePath: string): void {
 	const relativeToRoot = path.relative(root, realPath);
 	if (relativeToRoot === '..' || relativeToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToRoot)) {
-		throw new Error(`'${relativePath}' resolves outside the project folder`);
+		throw new PathEscapeError(`'${relativePath}' resolves outside the project folder`, relativePath);
 	}
 }
 

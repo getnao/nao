@@ -1,4 +1,4 @@
-import { buildStoryTableBlock } from './chart-block';
+import { buildStoryTableBlock, type StoryChartBlockInput } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 import {
 	STORY_FILTER_ID_REGEX,
@@ -6,6 +6,7 @@ import {
 	STORY_FILTER_VALUE_TYPES,
 	type StoryFilterType,
 	type StoryFilterValueType,
+	TYPED_VALUE_FILTER_TYPES,
 } from './sql-template';
 import {
 	type ResolvedStoryParameters,
@@ -40,6 +41,8 @@ export interface ParsedChartBlock {
 	showLegend?: boolean;
 	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
 	hideTotal?: boolean;
+	breakdownKey?: string;
+	breakdownLimit?: number;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -210,6 +213,8 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		showLegend: parseOptionalBooleanAttr(attrs.show_legend),
 		comparisonMode: (attrs.comparison_mode as ParsedChartBlock['comparisonMode']) || undefined,
 		hideTotal: attrs.hide_total === 'true',
+		breakdownKey: attrs.breakdown_key || undefined,
+		breakdownLimit: parseOptionalNumberAttr(attrs.breakdown_limit),
 	};
 }
 
@@ -286,6 +291,31 @@ export function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
 	};
 }
 
+/** Maps a parsed story `<chart>` block back to the input `buildStoryChartBlock` writes the tag from. */
+export function chartBlockToInput(chart: ParsedChartBlock): StoryChartBlockInput {
+	return {
+		query_id: chart.queryId,
+		chart_type: chart.chartType as StoryChartBlockInput['chart_type'],
+		x_axis_key: chart.xAxisKey || undefined,
+		x_axis_type: (chart.xAxisType || null) as StoryChartBlockInput['x_axis_type'],
+		x_axis_label: chart.xAxisLabel,
+		series: chart.series,
+		y_axis_min: chart.yAxisMin,
+		y_axis_max: chart.yAxisMax,
+		y_axis_label: chart.yAxisLabel,
+		y_axis_right_min: chart.yAxisRightMin,
+		y_axis_right_max: chart.yAxisRightMax,
+		y_axis_right_label: chart.yAxisRightLabel,
+		title: chart.title,
+		show_data_labels: chart.showDataLabels,
+		show_legend: chart.showLegend,
+		comparison_mode: chart.comparisonMode,
+		hide_total: chart.hideTotal,
+		breakdown_key: chart.breakdownKey,
+		breakdown_limit: chart.breakdownLimit,
+	};
+}
+
 export function incompleteMapMessage(map: ParsedMapBlock): string {
 	return `Map cannot be displayed: the <map> tag is missing ${map.missingAttributes?.join(', ')} (query: ${map.queryId})`;
 }
@@ -320,7 +350,8 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 		...(attrs.database_id && { databaseId: attrs.database_id }),
 		...(hasHardcodedOptions && { options }),
 		...(optionsQueryId && { optionsQueryId }),
-		...(filterType === 'text' && isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
+		...(TYPED_VALUE_FILTER_TYPES.includes(filterType) &&
+			isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
 		...(needsOptionsSource && attrs.depends_on && { dependsOn: attrs.depends_on }),
 		...(needsOptionsSource && attrs.allow_custom === 'true' && { allowCustom: true }),
 		...(attrs.dimension && { dimension: attrs.dimension }),

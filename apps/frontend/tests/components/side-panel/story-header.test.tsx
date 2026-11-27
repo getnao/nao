@@ -31,9 +31,23 @@ vi.mock('@/contexts/mentioned-stories', () => ({
 
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: (options: { queryKey?: string[] }) => {
-		return options.queryKey?.[0] === 'favorites' ? favoritesQuery : { data: undefined };
+		switch (options.queryKey?.[0]) {
+			case 'favorites':
+				return favoritesQuery;
+			case 'resolveStory':
+				return { data: { isOwner: true, isArchived: false, projectId: 'project-1' } };
+			case 'currentProject':
+				return { data: { id: 'project-1' } };
+			default:
+				return { data: undefined };
+		}
 	},
 	useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+	useQueryClient: () => ({}),
+}));
+
+vi.mock('@/hooks/use-permissions', () => ({
+	usePermissions: () => ({ isAdmin: false }),
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -84,6 +98,17 @@ vi.mock('@/main', () => ({
 			listStories: {
 				queryOptions: () => ({ queryKey: ['stories'] }),
 			},
+			archiveShared: {
+				mutationOptions: () => ({}),
+			},
+			unarchiveShared: {
+				mutationOptions: () => ({}),
+			},
+		},
+		project: {
+			getCurrent: {
+				queryOptions: () => ({ queryKey: ['currentProject'] }),
+			},
 		},
 		feedback: {
 			getStoryFeedback: {
@@ -132,7 +157,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 	});
 
-	it('lists download, favorite, analytics, expand and duplicate in the actions menu', () => {
+	it('lists download, favorite, analytics, expand, duplicate and archive in the actions menu', () => {
 		renderHeader({ storyId: 'story-1' });
 
 		openDropdownMenu('More actions');
@@ -142,6 +167,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Expand' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
+		expect(screen.getByRole('menuitem', { name: 'Archive' })).toBeDefined();
 	});
 
 	it.each([

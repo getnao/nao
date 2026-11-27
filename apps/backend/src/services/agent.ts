@@ -30,7 +30,6 @@ import {
 	type OutputInterface,
 	type PrepareStepResult,
 	pruneMessages,
-	readUIMessageStream,
 	stepCountIs,
 	type StepResult,
 	type StopCondition,
@@ -89,6 +88,7 @@ import {
 } from '../utils/ai';
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { normalizeCitationMarkersStream } from '../utils/citation-markers-stream';
+import { drainUIMessageStream } from '../utils/drain-ui-message-stream';
 import { fromPromise, repeatInBackground } from '../utils/effect-runtime';
 import { HandlerError } from '../utils/error';
 import {
@@ -104,6 +104,7 @@ import { sanitizeToolCalls } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
+import { type QueryResultSummary, summarizeQueryResults } from '../utils/query-results-summary';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { AnchoredSteer, insertSteerMessages, splitSteeredMessages } from '../utils/steering';
 import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
@@ -123,6 +124,7 @@ import { memoryService } from './memory';
 import { hasNaoInternalMcpTools } from './nao-internal-mcp';
 import { posthog, PostHogEvent } from './posthog';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
+import { answerWithoutAgent } from './quick-answer';
 import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
@@ -715,18 +717,8 @@ export class AgentManager {
 		return this._toolContext.queryResults.get(queryId);
 	}
 
-	get queryResultsSummary(): {
-		id: string;
-		columns: string[];
-		row_count: number;
-		preview: Record<string, unknown>[];
-	}[] {
-		return [...this._toolContext.queryResults.entries()].map(([id, result]) => ({
-			id,
-			columns: result.columns,
-			row_count: result.data.length,
-			preview: result.data.slice(0, 3),
-		}));
+	get queryResultsSummary(): QueryResultSummary[] {
+		return summarizeQueryResults(this._toolContext.queryResults);
 	}
 
 	stream(
@@ -770,6 +762,10 @@ export class AgentManager {
 						type: 'data-newUserMessage',
 						data: opts.events.newUserMessage,
 					});
+				}
+
+				if (await this._answerWithoutAgent(writer, uiMessages, opts.mentions)) {
+					return;
 				}
 
 				this._streamWriter = writer;
@@ -829,6 +825,23 @@ export class AgentManager {
 					this._finish();
 				}
 			},
+		});
+	}
+
+	/** A web message a quick-answer gate covers, such as a chart restyle, is answered by the decision model, without the LLM. */
+	private async _answerWithoutAgent(
+		writer: UIMessageStreamWriter<UIMessage>,
+		uiMessages: UIMessage[],
+		mentions?: Mention[],
+	): Promise<boolean> {
+		if (this._profile.source !== 'web' || mentions?.length) {
+			return false;
+		}
+		return answerWithoutAgent(writer, {
+			messages: uiMessages,
+			tools: this._agentTools,
+			context: this._toolContext,
+			abortSignal: this._abortController.signal,
 		});
 	}
 
@@ -1164,10 +1177,7 @@ export class AgentManager {
 	 */
 	async streamToCompletion(uiMessages: UIMessage[]): Promise<AgentRunResult> {
 		const startTime = performance.now();
-		const stream = this.stream(uiMessages);
-		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
-			void message;
-		}
+		await drainUIMessageStream(this.stream(uiMessages));
 		await this.waitUntilFinished();
 
 		const result = this._streamResult;

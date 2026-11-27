@@ -6,6 +6,7 @@ import net from 'net';
 import { pipeline, Readable } from 'stream';
 import zlib from 'zlib';
 
+import { UnsafeUrlError } from './security-errors';
 const MAX_BYTES = 25 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
@@ -138,7 +139,7 @@ export async function assertSafeHost(hostname: string): Promise<void> {
 export async function resolveSafeAddress(hostname: string): Promise<string> {
 	const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
 	if (isPrivateHostname(host)) {
-		throw new Error(`Access to private address "${hostname}" is not allowed.`);
+		throw new UnsafeUrlError(`Access to private address "${hostname}" is not allowed.`, hostname);
 	}
 	if (net.isIP(host)) {
 		return host;
@@ -155,7 +156,10 @@ export async function resolveSafeAddress(hostname: string): Promise<string> {
 		throw new Error(`Could not resolve hostname "${hostname}".`);
 	}
 	if (addresses.some(isPrivateAddress)) {
-		throw new Error(`Hostname "${hostname}" resolves to a private IP address, which is not allowed.`);
+		throw new UnsafeUrlError(
+			`Hostname "${hostname}" resolves to a private IP address, which is not allowed.`,
+			hostname,
+		);
 	}
 	return addresses[0];
 }

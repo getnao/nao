@@ -1338,7 +1338,11 @@ function buildAreaChart(props: ResolvedProps) {
 					fillOpacity={isStacked ? 1 : undefined}
 					stackId={isStacked ? 'stack' : undefined}
 					dot={renderPartDot(data, s, xAxisKey)}
-					activeDot={renderPartActiveDot(s, xAxisKey)}
+					activeDot={renderPartActiveDot(
+						s,
+						xAxisKey,
+						isStacked ? { fill: colorFor(s.data_key, i), stroke: separatorColor } : undefined,
+					)}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
@@ -1642,7 +1646,12 @@ interface ActiveDotProps {
 	payload: Record<string, unknown>;
 }
 
-function renderPartActiveDot(series: displayChart.SeriesConfig, xAxisKey: string) {
+/** Stacked areas stroke with the background color, which Recharts would otherwise reuse as the dot color. */
+function renderPartActiveDot(
+	series: displayChart.SeriesConfig,
+	xAxisKey: string,
+	colors?: { fill: string; stroke: string },
+) {
 	return function PartActiveDot(props: unknown) {
 		const { cx, cy, r, fill, stroke, strokeWidth, payload } = props as ActiveDotProps;
 		const centerX = toFiniteNumber(cx);
@@ -1656,8 +1665,8 @@ function renderPartActiveDot(series: displayChart.SeriesConfig, xAxisKey: string
 				cx={centerX}
 				cy={centerY}
 				r={r}
-				fill={fill}
-				stroke={stroke}
+				fill={colors?.fill ?? fill}
+				stroke={colors?.stroke ?? stroke}
 				strokeWidth={strokeWidth}
 				{...partAttributes(dataPointPart(payload, series, xAxisKey))}
 			/>

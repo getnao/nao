@@ -573,6 +573,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Pick the model decisions run on and test it.',
 		keywords: ['system one', 'system 1', 'classification', 'yes/no', 'probability', 'luna'],
 	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Decision models',
+		search: { tab: 'decision-models' },
+		title: 'Quick chart edits',
+		description: 'Let the decision model restyle story charts from chat without an agent run.',
+		keywords: ['quick edit', 'chart', 'story', 'jev', 'fast', 'legend', 'chart type'],
+	},
 
 	// ── Project > Agent ──────────────────────────────────────
 	{
@@ -700,6 +709,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Conversation feedback',
+		description: 'Collect conversation ratings and prompt users when they leave an unrated chat.',
+		keywords: ['feedback', 'rating', 'thumbs up', 'thumbs down', 'conversation'],
+		adminOnly: true,
+		licenseFeature: 'conversation-feedback',
+		cloudHidden: true,
 	},
 	{
 		page: '/settings/project/agent',

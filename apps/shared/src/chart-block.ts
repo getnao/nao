@@ -29,6 +29,8 @@ export type StoryChartBlockInput = Pick<
 	| 'show_legend'
 	| 'comparison_mode'
 	| 'hide_total'
+	| 'breakdown_key'
+	| 'breakdown_limit'
 > & {
 	title?: displayChart.KpiCardInput['title'];
 	x_axis_key?: displayChart.KpiCardInput['x_axis_key'];
@@ -57,7 +59,11 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
 	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${showLegendAttr}${comparisonModeAttr}${hideTotalAttr} />`;
+	const breakdownKeyAttr = input.breakdown_key
+		? ` breakdown_key="${escapeDoubleQuotedStoryAttr(input.breakdown_key)}"`
+		: '';
+	const breakdownLimitAttr = input.breakdown_limit !== undefined ? ` breakdown_limit="${input.breakdown_limit}"` : '';
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${showLegendAttr}${comparisonModeAttr}${hideTotalAttr}${breakdownKeyAttr}${breakdownLimitAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;

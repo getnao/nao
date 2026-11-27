@@ -38,6 +38,7 @@ import { StoryFolderPickerDialog, StoryMoveToFolderMenuItem } from '@/components
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryArchiveMenuItem,
 	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
@@ -277,7 +278,7 @@ export const StoryHeader = memo(function StoryHeader({
 							)}
 						>
 							<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
-							<span className='text-xs font-medium'>Live story</span>
+							<span className='text-xs font-medium whitespace-nowrap'>Live story</span>
 							{isLiveUpdating ? (
 								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
 							) : (
@@ -370,6 +371,7 @@ export const StoryHeader = memo(function StoryHeader({
 					</>
 				)}
 				{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} versionNumber={versionNumber} />}
+				{!isReadonlyMode && storyId && <StoryArchiveMenuItem storyId={storyId} />}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

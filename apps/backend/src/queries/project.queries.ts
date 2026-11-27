@@ -372,9 +372,20 @@ export const listProjectFolders = async ({ servedOnly = false } = {}): Promise<{
 	const projects = await db
 		.select({ id: s.project.id, path: s.project.path })
 		.from(s.project)
-		.where(and(isNotNull(s.project.path), servedOnly ? await selfHostedServedProjectsFilter() : undefined))
+		.where(
+			and(
+				isNotNull(s.project.path),
+				notDeactivatedProjectsFilter(),
+				servedOnly ? await selfHostedServedProjectsFilter() : undefined,
+			),
+		)
 		.execute();
 	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
+};
+
+/** The folders of the projects still in service: background jobs leave deactivated projects untouched. */
+export const listActiveProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+	return listProjectFolders();
 };
 
 export const getDefaultProject = async (): Promise<DBProject | null> => {

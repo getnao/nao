@@ -3,7 +3,6 @@ import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import type { UIToolPart } from '@nao/backend/chat';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
-import { cn } from '@/lib/utils';
 
 export const FollowUpSuggestions = ({ toolPart }: { toolPart: UIToolPart<'suggest_follow_ups'> }) => {
 	const setPromptCallback = useSetChatInputCallback();
@@ -30,7 +29,7 @@ export const FollowUpSuggestions = ({ toolPart }: { toolPart: UIToolPart<'sugges
 	}
 
 	return (
-		<div key={'suggestions'} className={cn('flex flex-col gap-1', 'animate-fade-in-up delay-100')}>
+		<div key={'suggestions'} className='flex flex-col gap-1 stagger-children'>
 			<p className='px-3 pb-1 text-sm text-muted-foreground'>
 				Pick a suggestion below to keep going, or ask me anything else.
 			</p>

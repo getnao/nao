@@ -8,6 +8,7 @@ export type WebSearchMode = 'provider';
 export interface AgentSettings {
 	memoryEnabled?: boolean;
 	mapEnabled?: boolean;
+	requireConversationFeedback?: boolean;
 	experimental?: {
 		codemode?: boolean;
 		sandboxes?: boolean;
@@ -32,6 +33,8 @@ export interface AgentSettings {
 	};
 	/** Model decisions run on; absent means the first model of a connected provider. */
 	decision?: DecisionModel;
+	/** Lets the decision model answer chat messages that only restyle a story chart, without an agent run. */
+	decisionQuickEdits?: boolean;
 	subagent?: {
 		/** Model subagents run on; null or absent means the model of the chat that spawned them. */
 		model?: LlmSelectedModel | null;

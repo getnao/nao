@@ -43,7 +43,8 @@ import {
 	updateCustomStoryForMcp,
 } from './custom-story-mcp';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
-import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
+import { jsonToolResult, registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
+import { NOT_LIVE_SETTINGS, saveMcpLiveSettings, STORY_LIVE_INPUT, type StoryLiveInput } from './story-live-settings';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
 	'Run a single SQL query against the connected warehouse. Read-only unless the workspace admin ' +
@@ -92,6 +93,7 @@ const CREATE_STORY_DESCRIPTION =
 	'Use `table` plus `column` for direct database-column values. For computed labels or other database-derived values, ' +
 	"run a separate `execute_sql` query that returns exactly one column named `value`, then set the filter's " +
 	'`options_query_id` to that query ID.\n\n' +
+	'LIVE STORIES: pass `live` when the user wants the story to stay up to date, e.g. "refresh it every Monday at 9am".\n\n' +
 	'IMPORTANT: once `create_story` returns, present its output directly to the user. Do NOT call ' +
 	'`display_chart` again for charts already embedded in the story content — the story embed renders ' +
 	'them automatically and re-calling `display_chart` would duplicate the output.';
@@ -101,7 +103,9 @@ const UPDATE_STORY_DESCRIPTION =
 	'current value.\n\n' +
 	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
-	'stays valid.';
+	'stays valid.\n\n' +
+	'LIVE STORIES: pass `live` to turn live on or off or change its schedule. Pass only `story_id` and `live` to ' +
+	'change the live settings without creating a new version.';
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
 type ExecuteSemanticQueryMcpInput = executeSemanticQuery.Input & { chat_id?: string };
@@ -329,16 +333,17 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					.describe(
 						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
 					),
+				live: STORY_LIVE_INPUT,
 				...(ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_INPUT : {}),
 			},
 			outputSchema: STORY_OUTPUT_SCHEMA,
 			_meta: uiToolMeta(STORY_APP_URI),
-			handler: async ({ title, content, query_data, chat_id, format, files }) => {
+			handler: async ({ title, content, query_data, chat_id, live, format, files }) => {
 				if (format === 'custom') {
 					if (content !== undefined) {
 						return errorResult('A custom story takes `files`, not `content`.');
 					}
-					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data }, ctx);
+					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data, live }, ctx);
 				}
 				if (files !== undefined) {
 					return errorResult('`files` only applies to `format: "custom"`.');
@@ -355,6 +360,10 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 
 				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);
 				await saveStandaloneStoryQuerySql(story, code, ctx);
+				const savedLive = await saveMcpLiveSettings({ ...story, ...NOT_LIVE_SETTINGS }, live);
+				if ('error' in savedLive) {
+					return errorResult(savedLive.error);
+				}
 
 				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 				const output: StoryMcpToolPayload = {
@@ -364,6 +373,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					createdAt: story.createdAt,
 					url: storyUrl(story.id),
 					chatUrl: storyChatUrl(story),
+					...savedLive,
 				};
 				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
 			},
@@ -407,11 +417,16 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					'Chat UUID to associate this revision with (e.g. `chatId` from `ask_nao`). ' +
 						"Sets the 'Open in nao' button on the story's embedded charts.",
 				),
+			live: STORY_LIVE_INPUT,
 			...(ctx.customStoryCreationEnabled ? UPDATE_CUSTOM_STORY_INPUT : {}),
 		},
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ story_id, title, content, query_data, chat_id, files, delete_paths }) => {
+		handler: async (input) => {
+			const { story_id, title, content, query_data, chat_id, live, files, delete_paths } = input;
+			if (live && isLiveOnlyUpdate(input)) {
+				return updateLiveSettingsOnly(story_id, live, ctx);
+			}
 			const customStory = ctx.customStoryCreationEnabled ? await resolveCustomStory(story_id, ctx) : null;
 			if (customStory) {
 				if (content !== undefined) {
@@ -419,7 +434,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				}
 				return updateCustomStoryForMcp(
 					customStory,
-					{ title, files: files ?? [], deletePaths: delete_paths ?? [], queryData: query_data },
+					{ title, files: files ?? [], deletePaths: delete_paths ?? [], queryData: query_data, live },
 					ctx,
 				);
 			}
@@ -457,14 +472,39 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
 			await cacheStoryQueryData(story, newCode, query_data, effectiveChatId, ctx);
 			await saveStandaloneStoryQuerySql(story, newCode, ctx);
+			const savedLive = await saveMcpLiveSettings({ ...story, title: newTitle }, live);
+			if ('error' in savedLive) {
+				return errorResult(savedLive.error);
+			}
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
 				url: storyUrl(story.id),
 				chatUrl: storyChatUrl(story),
+				...savedLive,
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);
 		},
+	});
+}
+
+function isLiveOnlyUpdate(input: Record<string, unknown>): boolean {
+	return Object.entries(input).every(([key, value]) => key === 'story_id' || key === 'live' || value === undefined);
+}
+
+/** Live settings belong to the story, not to a version, so changing only them leaves its history untouched. */
+async function updateLiveSettingsOnly(storyId: string, live: StoryLiveInput, ctx: McpContext): Promise<ToolResult> {
+	const story = (await resolveCustomStory(storyId, ctx)) ?? (await resolveStory(storyId, ctx));
+	const savedLive = await saveMcpLiveSettings(story, live);
+	if ('error' in savedLive) {
+		return errorResult(savedLive.error);
+	}
+	return jsonToolResult({
+		id: story.id,
+		title: story.title,
+		url: storyUrl(story.id),
+		chatUrl: storyChatUrl(story),
+		...savedLive,
 	});
 }
 

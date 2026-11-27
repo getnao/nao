@@ -118,6 +118,42 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 		],
 	},
 	{
+		matches: ['snowflake'],
+		label: 'Snowflake dialect',
+		sqlRules: [
+			<>
+				Use <Code>DATEDIFF(day, start, end)</Code> and <Code>DATEADD(day, n, date)</Code>. There is no{' '}
+				<Code>DATE_DIFF</Code>, <Code>TIMESTAMP_DIFF</Code> or <Code>SAFE_DIVIDE</Code>: divide with{' '}
+				<Code>DIV0(a, b)</Code> or <Code>a / NULLIF(b, 0)</Code>, and raise to a power with{' '}
+				<Code>POWER(x, n)</Code>, not <Code>^</Code>.
+			</>,
+			<>
+				Aggregate booleans with <Code>BOOLOR_AGG(col)</Code>/<Code>BOOLAND_AGG(col)</Code>, not{' '}
+				<Code>BOOL_OR</Code>/<Code>LOGICAL_OR</Code>. <Code>BOOLOR(a, b)</Code> and <Code>BOOLAND(a, b)</Code>{' '}
+				are not aggregates and take two arguments.
+			</>,
+			<>
+				In a <Code>GROUP BY</Code> query, every expression in <Code>SELECT</Code>, <Code>ORDER BY</Code> or a{' '}
+				<Code>CASE</Code> must be grouped or aggregated. Prefer <Code>GROUP BY ALL</Code>, and order by a
+				selected alias.
+			</>,
+			<>
+				A window function cannot sit inside an aggregate, and aggregates cannot be nested: compute the window or
+				the first aggregate in a CTE, then aggregate its result. <Code>QUALIFY</Code> only filters on a window
+				function of the query (in <Code>SELECT</Code> or in its condition); without one, use <Code>WHERE</Code>{' '}
+				or <Code>HAVING</Code>.
+			</>,
+			<>
+				Correlated subqueries are rarely supported (<Code>Unsupported subquery type</Code>): rewrite them as a
+				CTE joined on the correlation keys.
+			</>,
+			<>
+				Comparing a text column holding values like <Code>'GP-123'</Code> to a number fails: compare it as text,
+				or use <Code>TRY_TO_NUMBER(col)</Code>.
+			</>,
+		],
+	},
+	{
 		matches: ['mysql'],
 		label: 'MySQL dialect',
 		sqlRules: [
@@ -159,6 +195,28 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 			</>,
 		],
 	},
+];
+
+/** Rules for nao's own DuckDB (`duckdb_local`), where agents keep writing the dialect of the project's warehouse. */
+export const LOCAL_DUCKDB_SQL_RULES: ReactNode[] = [
+	<>
+		Warehouse functions do not exist here. Use <Code>a / NULLIF(b, 0)</Code> instead of <Code>SAFE_DIVIDE</Code>,{' '}
+		<Code>regexp_matches(col, pattern)</Code> instead of <Code>REGEXP_CONTAINS</Code>, and{' '}
+		<Code>date_diff('day', start, end)</Code> with the unit first.
+	</>,
+	<>
+		Warehouse tables are not here: <Code>database.schema.table</Code> fails with{' '}
+		<Code>Catalog … does not exist</Code>. Warehouse data only reaches this database as an earlier result, read by
+		its query id. Those <Code>query_…</Code> tables exist only here, never in the warehouse.
+	</>,
+	<>
+		Every selected column that is not aggregated must be in the <Code>GROUP BY</Code>; prefer{' '}
+		<Code>GROUP BY ALL</Code>. Every branch of a <Code>UNION</Code> returns the same number of columns.
+	</>,
+	<>
+		Columns read from CSV or from a result can be text: cast before comparing or calling date functions, e.g.{' '}
+		<Code>month(col::DATE)</Code> or <Code>col::TIMESTAMP &gt;= TIMESTAMP '2026-01-01'</Code>.
+	</>,
 ];
 
 export function getDialectSqlQueryRules(connections: ConnectionLike[]): ReactNode[] {

@@ -110,7 +110,7 @@ function ChatSendButton({
 			disabled={disabled}
 			size='icon-sm'
 			variant='primary-gradient-border'
-			className='rounded-full ml-auto size-7'
+			className='rounded-full ml-auto size-7 motion-safe:hover:scale-110'
 		>
 			{showStop ? (
 				<SquareIcon fill='currentColor' stroke='currentColor' className='size-3' />

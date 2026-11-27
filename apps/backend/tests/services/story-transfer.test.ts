@@ -20,6 +20,7 @@ import { notifyStoryTransfer } from '../../src/services/notification.service';
 import { acquireStoryEditLock, releaseStoryEditLock } from '../../src/services/story-edit-lock.service';
 import type { ShareActor } from '../../src/services/story-share-settings.service';
 import { StoryTransferError, transferAllStoriesOfUser, transferStory } from '../../src/services/story-transfer.service';
+import { hasTableAccessOf, MISSING_TABLE_ACCESS_MESSAGE } from '../../src/services/user-group-context-access.service';
 import { buildQueryDataMessages } from '../../src/utils/chat-message-story';
 
 vi.mock('../../src/db/db', async () => {
@@ -37,10 +38,14 @@ vi.mock('../../src/services/project-sharing.service', async () => {
 	return {
 		assertCanShareToProject: vi.fn(),
 		assertCanShareWith: vi.fn(),
-		listShareableMembers: projectQueries.listUsersWithProjectAccess,
+		listShareableMembers: (projectId: string) => projectQueries.listUsersWithProjectAccess(projectId),
 	};
 });
 vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
+vi.mock('../../src/services/user-group-context-access.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/user-group-context-access.service')>()),
+	hasTableAccessOf: vi.fn(async () => true),
+}));
 
 const PROJECT_ID = 'transfer-project';
 const OWNER_ID = 'transfer-owner';
@@ -107,6 +112,14 @@ describe('transferring story ownership', () => {
 
 	it('refuses to hand a story to a member who cannot edit', async () => {
 		await expect(transferStory(ADMIN_STORY_ID, VIEWER_ID, ADMIN)).rejects.toThrow(StoryTransferError);
+		expect(await getStoryOwnerId(ADMIN_STORY_ID)).toBe(ADMIN_ID);
+	});
+
+	it("refuses to hand a story to a member missing some of its owner's tables", async () => {
+		vi.mocked(hasTableAccessOf).mockResolvedValueOnce(false);
+
+		await expect(transferStory(ADMIN_STORY_ID, OWNER_ID, ADMIN)).rejects.toThrow(MISSING_TABLE_ACCESS_MESSAGE);
+		expect(hasTableAccessOf).toHaveBeenCalledWith(PROJECT_ID, ADMIN_ID, OWNER_ID);
 		expect(await getStoryOwnerId(ADMIN_STORY_ID)).toBe(ADMIN_ID);
 	});
 

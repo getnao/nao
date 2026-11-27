@@ -119,7 +119,7 @@ def render_template(
 
     output_path = project_path / str(template_path)[:-3]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(rendered)
+    output_path.write_text(rendered, encoding="utf-8")
 
     return output_path
 

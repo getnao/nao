@@ -1,5 +1,6 @@
 import { bucketPieData, buildChart, buildStoryChartBlock, labelize, resolveDataKey, useChartStyle } from '@nao/shared';
 import {
+	applyBreakdown,
 	buildSeriesChartConfig,
 	buildSeriesLegendPayload,
 	seriesColorAt,
@@ -460,6 +461,8 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					showLegend={chartConfig.show_legend}
 					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
 					hideTotal={chartConfig.hide_total}
+					breakdownKey={chartConfig.breakdown_key}
+					breakdownLimit={chartConfig.breakdown_limit}
 					className={isPieChart(chartConfig.chart_type) ? 'flex-1 justify-center' : undefined}
 					chartContentClassName={isPieChart(chartConfig.chart_type) ? 'aspect-4/3' : undefined}
 				/>
@@ -496,12 +499,14 @@ export interface ChartDisplayProps {
 	chartContentClassName?: string;
 	normalSize?: boolean;
 	hideTotal?: boolean;
+	breakdownKey?: string;
+	breakdownLimit?: number;
 	kpiLeadingSlot?: React.ReactNode;
 	disableTooltip?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
-	data,
+	data: dataProp,
 	chartType,
 	xAxisKey: xAxisKeyProp,
 	xAxisType,
@@ -528,6 +533,8 @@ export const ChartDisplay = memo(function ChartDisplay({
 	chartContentClassName,
 	normalSize = false,
 	hideTotal,
+	breakdownKey,
+	breakdownLimit,
 	kpiLeadingSlot,
 	disableTooltip = false,
 }: ChartDisplayProps) {
@@ -543,13 +550,27 @@ export const ChartDisplay = memo(function ChartDisplay({
 		setPlotWidth((currentPlotWidth) => (currentPlotWidth === nextPlotWidth ? currentPlotWidth : nextPlotWidth));
 	}, []);
 
+	const brokenDown = useMemo(
+		() =>
+			applyBreakdown({
+				rows: dataProp,
+				chartType,
+				xAxisKey: xAxisKeyProp,
+				series: seriesProp,
+				breakdownKey,
+				breakdownLimit,
+			}),
+		[dataProp, chartType, xAxisKeyProp, seriesProp, breakdownKey, breakdownLimit],
+	);
+	const data = brokenDown.rows;
 	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
 	const series = useMemo(
-		() => seriesProp.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) })),
-		[data, seriesProp],
+		() => brokenDown.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) })),
+		[data, brokenDown.series],
 	);
 
-	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
+	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility, handleIsolateSeries } =
+		useSeriesVisibility(series);
 	const isPercentStacked = isPercentStackedChartType(chartType);
 
 	const isPie = isPieChart(chartType);
@@ -724,6 +745,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 								<ChartLegendContent
 									className={isPie ? 'flex-wrap' : undefined}
 									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
+									onItemDoubleClick={isPie ? undefined : handleIsolateSeries}
 								/>
 							}
 						/>
@@ -766,6 +788,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			handlePlotWidthChange,
 			legendPayload,
 			handleToggleSeriesVisibility,
+			handleIsolateSeries,
 			title,
 			isPercentStacked,
 			showLegend,
@@ -806,6 +829,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 						payload={legendPayload}
 						align='right'
 						onItemClick={handleToggleSeriesVisibility}
+						onItemDoubleClick={handleIsolateSeries}
 						className='w-max min-w-full gap-3 p-0 text-[10px] [&>*]:shrink-0'
 					/>
 				</div>

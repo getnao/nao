@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { PanelLeft } from 'lucide-react';
 import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
+import { ChatHeaderFeedback } from '@/components/chat-header-feedback';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ export function MobileHeader({
 				</>
 			)}
 			<div className='ml-auto flex shrink-0 items-center gap-1'>
+				{chatId && <ChatHeaderFeedback chatId={chatId} />}
 				{showAutomationLink && automationId && (
 					<Button variant='ghost' size='sm' asChild>
 						<Link to='/automations/$automationId' params={{ automationId }}>

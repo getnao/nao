@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	inactivityDelays: [] as number[],
 	storyId: null as string | null,
 	mode: 'default' as 'default' | 'onboarding',
+	isFeedbackRequired: false,
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
@@ -59,8 +60,9 @@ vi.mock('@/components/side-panel/hooks/use-story-viewer-live-settings', () => ({
 		handleRefreshData: vi.fn(),
 	}),
 }));
-vi.mock('@tanstack/react-query', () => ({
-	useMutation: () => ({ isPending: false, mutate: mocks.submitFeedback }),
+vi.mock('@/hooks/use-message-feedback', () => ({
+	useSubmitMessageFeedback: () => ({ isPending: false, mutate: mocks.submitFeedback }),
+	useIsConversationFeedbackRequired: () => mocks.isFeedbackRequired,
 }));
 vi.mock('@/main', () => ({
 	trpc: {
@@ -74,6 +76,7 @@ beforeEach(() => {
 	mocks.inactivityDelays = [];
 	mocks.storyId = null;
 	mocks.mode = 'default';
+	mocks.isFeedbackRequired = false;
 	mocks.messages = [{ id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Result' }] }];
 	const observerCallbacks = new Map<ResizeObserver, ResizeObserverCallback>();
 	globalThis.ResizeObserver = class {
@@ -116,8 +119,21 @@ describe('ChatInputSuggestions', () => {
 		expect(screen.getByText('How did this conversation go?')).toBeTruthy();
 	});
 
-	it('does not show conversation feedback for onboarding chats', () => {
-		mocks.mode = 'onboarding';
+	it.each([
+		[
+			'for onboarding chats',
+			() => {
+				mocks.mode = 'onboarding';
+			},
+		],
+		[
+			'when the project requires conversation feedback',
+			() => {
+				mocks.isFeedbackRequired = true;
+			},
+		],
+	])('does not show conversation feedback %s', (_, arrange) => {
+		arrange();
 
 		render(<ChatInputSuggestions storyCreationEnabled={false} />);
 

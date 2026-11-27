@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Collection
 
+from nao_core.text_files import read_text
+
 COLUMN_CATALOG_VERSION = 1
 
 Column = dict[str, str]
@@ -17,7 +19,7 @@ def column_catalog_path(project_path: Path, database_type: str, database_folder:
 
 def load_column_catalog(path: Path) -> Schemas:
     try:
-        document = json.loads(path.read_text())
+        document = json.loads(read_text(path))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     if not isinstance(document, dict):
@@ -34,7 +36,7 @@ def write_column_catalog(path: Path, schemas: Schemas) -> None:
         "version": COLUMN_CATALOG_VERSION,
         "schemas": schemas,
     }
-    temporary_path.write_text(json.dumps(document, indent=2) + "\n")
+    temporary_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     temporary_path.replace(path)
 
 

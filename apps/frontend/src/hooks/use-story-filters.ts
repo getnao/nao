@@ -24,11 +24,27 @@ const NO_SELECTIONS: StoryFilterSelections = {};
 const NO_PARAMETERS: ParsedParameterBlock[] = [];
 const NO_FILTERS: ParsedFilterBlock[] = [];
 const NO_SKIPPED_FILTERS: SkippedStoryFilter[] = [];
+const NO_LABELS: string[] = [];
 
 export interface SkippedStoryFilter {
 	id: string;
 	label: string;
 }
+
+/** How the active story filters reached one query of the story. */
+export type StoryQueryFilterStatus =
+	| { state: 'filtered'; summary: string }
+	| { state: 'skipped'; filterLabels: string[] }
+	| { state: 'failed'; error: string };
+
+export type StoryQueryFilterStatuses = Record<string, StoryQueryFilterStatus>;
+
+/** Filter ids per query id: the filters that can change each query, whatever their selection. */
+export type StoryFilterTargets = Record<string, string[]>;
+
+const NO_FILTER_TARGETS: StoryFilterTargets = {};
+
+const NO_QUERY_FILTER_STATUSES: StoryQueryFilterStatuses = {};
 
 export function useStoryFilters({
 	code,
@@ -140,6 +156,11 @@ export function useStoryFilters({
 	});
 
 	const activeQuery = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
+	const parameterSelections = useMemo(
+		() => pickSelections(debouncedSelections, parameters),
+		[debouncedSelections, parameters],
+	);
+	const filterTargets = useStoryFilterTargets(api, parameterSelections, filtersEnabled && filters.length > 0);
 	const filteredQueryData = activeQuery.data as FilteredQueryDataMap | undefined;
 	const isFetching = activeQuery.isFetching;
 	const displayedSelections = useDisplayedSelections({
@@ -154,6 +175,35 @@ export function useStoryFilters({
 	const skippedFilters = useMemo(
 		() => (debouncedHasActive ? listSkippedFilters(filters, filteredQueryData) : NO_SKIPPED_FILTERS),
 		[debouncedHasActive, filters, filteredQueryData],
+	);
+	const hasSettledData = !activeQuery.isPlaceholderData && !activeQuery.isFetching;
+	const requestError = activeQuery.error?.message;
+	const queryFilterStatuses = useMemo(
+		() =>
+			debouncedHasActive && hasSettledData
+				? listQueryFilterStatuses({
+						filters,
+						selections: debouncedSelections,
+						filterTargets,
+						filteredQueryData,
+						requestError,
+						baselineQueryData,
+					})
+				: NO_QUERY_FILTER_STATUSES,
+		[
+			debouncedHasActive,
+			hasSettledData,
+			filters,
+			debouncedSelections,
+			filterTargets,
+			filteredQueryData,
+			requestError,
+			baselineQueryData,
+		],
+	);
+	const filterSummary = useMemo(
+		() => summarizeSelections([...parameters, ...filters], debouncedSelections),
+		[parameters, filters, debouncedSelections],
 	);
 	const isSelectionsPending = !areSelectionsEqual(activeSelections, debouncedSelections);
 	const isFiltering = isSelectionsPending || isFetching;
@@ -173,6 +223,9 @@ export function useStoryFilters({
 		parameters,
 		resolvedParameters,
 		skippedFilters,
+		queryFilterStatuses,
+		filterSummary,
+		filterTargets,
 		selections,
 		activeSelections,
 		debouncedSelections,
@@ -182,6 +235,32 @@ export function useStoryFilters({
 		isFiltering,
 		queryData,
 	};
+}
+
+/** The labels of the parameters and filters written so far, shown as placeholders until the story is saved. */
+export function useStreamingStoryFilterLabels(code: string, isStreaming: boolean): string[] {
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const isEnabled = config.data?.betaStoryFiltersEnabled === true;
+	const labels = useStructurallyShared(
+		useMemo(
+			() =>
+				isEnabled
+					? [...getStoryParametersFromCode(code), ...dedupeFilters(getStoryFiltersFromCode(code))].map(
+							(block) => block.label,
+						)
+					: NO_LABELS,
+			[code, isEnabled],
+		),
+	);
+	const [previousLabels, setPreviousLabels] = useState(labels);
+	if (labels !== previousLabels && (!isStreaming || labels.length > 0)) {
+		setPreviousLabels(labels);
+	}
+
+	if (!isStreaming) {
+		return NO_LABELS;
+	}
+	return labels.length > 0 ? labels : previousLabels;
 }
 
 /** Sets one selection and clears the filters that cascade from it, so their stale values are never queried. */
@@ -220,9 +299,9 @@ function listDependentFilterIds(filters: ParsedFilterBlock[], parentId: string):
 	return dependentIds;
 }
 
-type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[] }>;
+type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[]; error?: string }>;
 
-/** Queries a filter could not rerun, e.g. rows saved without their SQL, keep showing their unfiltered rows. */
+/** Queries a filter could not rerun or that failed with it keep showing their unfiltered rows. */
 function withFilteredRows(
 	baselineQueryData: QueryDataMap | null | undefined,
 	filteredQueryData: FilteredQueryDataMap | undefined,
@@ -230,7 +309,112 @@ function withFilteredRows(
 	if (!filteredQueryData) {
 		return baselineQueryData ?? null;
 	}
-	return { ...baselineQueryData, ...filteredQueryData };
+	const succeeded = Object.entries(filteredQueryData).filter(([, result]) => !result.error);
+	return { ...baselineQueryData, ...Object.fromEntries(succeeded) };
+}
+
+function useStoryFilterTargets(
+	api: StoryFilterApi | null | undefined,
+	selections: StoryFilterSelections,
+	enabled: boolean,
+): StoryFilterTargets {
+	const ownedQuery = useQuery({
+		...trpc.story.getFilterTargets.queryOptions({
+			chatId: api?.kind === 'owned' ? api.chatId : '',
+			storySlug: api?.kind === 'owned' ? api.storySlug : '',
+			selections,
+		}),
+		enabled: enabled && api?.kind === 'owned',
+	});
+	const sharedQuery = useQuery({
+		...trpc.storyShare.getFilterTargets.queryOptions({
+			storyId: api?.kind === 'shared' ? api.storyId : '',
+			selections,
+		}),
+		enabled: enabled && api?.kind === 'shared',
+	});
+	const standaloneQuery = useQuery({
+		...trpc.story.getStandaloneFilterTargets.queryOptions({
+			storyId: api?.kind === 'standalone' ? api.storyId : '',
+			selections,
+		}),
+		enabled: enabled && api?.kind === 'standalone',
+	});
+	const query = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
+	return query.data ?? NO_FILTER_TARGETS;
+}
+
+/** A failed request fails every saved query; otherwise each query reports its own outcome. */
+function listQueryFilterStatuses({
+	filters,
+	selections,
+	filterTargets,
+	filteredQueryData,
+	requestError,
+	baselineQueryData,
+}: {
+	filters: ParsedFilterBlock[];
+	selections: StoryFilterSelections;
+	filterTargets: StoryFilterTargets;
+	filteredQueryData: FilteredQueryDataMap | undefined;
+	requestError: string | undefined;
+	baselineQueryData: QueryDataMap | null | undefined;
+}): StoryQueryFilterStatuses {
+	if (requestError) {
+		return Object.fromEntries(
+			Object.keys(baselineQueryData ?? {}).map((queryId) => [queryId, { state: 'failed', error: requestError }]),
+		);
+	}
+	return Object.fromEntries(
+		Object.entries(filteredQueryData ?? {}).flatMap(([queryId, result]) => {
+			const appliedFilters = filters.filter(
+				(filter) => filter.id in selections && filterTargets[queryId]?.includes(filter.id),
+			);
+			const status = toQueryFilterStatus(result, filters, appliedFilters, selections);
+			return status ? [[queryId, status]] : [];
+		}),
+	);
+}
+
+/** Queries no active filter reached have no status. */
+function toQueryFilterStatus(
+	result: FilteredQueryDataMap[string],
+	filters: ParsedFilterBlock[],
+	appliedFilters: ParsedFilterBlock[],
+	selections: StoryFilterSelections,
+): StoryQueryFilterStatus | null {
+	if (result.error) {
+		return { state: 'failed', error: result.error };
+	}
+	if (result.skippedFilterIds?.length) {
+		const skipped = filters.filter((filter) => result.skippedFilterIds!.includes(filter.id));
+		return { state: 'skipped', filterLabels: skipped.map((filter) => filter.label) };
+	}
+	if (appliedFilters.length === 0) {
+		return null;
+	}
+	return { state: 'filtered', summary: summarizeSelections(appliedFilters, selections) };
+}
+
+/** Parameters and filters in words, e.g. "Metric = revenue · Returned = false". */
+function summarizeSelections(
+	controls: (ParsedFilterBlock | ParsedParameterBlock)[],
+	selections: StoryFilterSelections,
+): string {
+	return controls
+		.filter((control) => control.id in selections)
+		.map((control) => {
+			const selection = selections[control.id];
+			const value = Array.isArray(selection)
+				? selection.join('filterType' in control && control.filterType === 'date_range' ? ' → ' : ', ')
+				: selection;
+			return `${control.label} = ${value}`;
+		})
+		.join(' · ');
+}
+
+function pickSelections(selections: StoryFilterSelections, controls: { id: string }[]): StoryFilterSelections {
+	return Object.fromEntries(controls.filter(({ id }) => id in selections).map(({ id }) => [id, selections[id]]));
 }
 
 /**

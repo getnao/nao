@@ -36,7 +36,8 @@ vi.mock('@tanstack/react-query', () => ({
 		const mutate = options.mutationKey[0] === 'set-memberships' ? mocks.setMemberships : mocks.setMembership;
 		return { mutateAsync, mutate, reset: vi.fn(), isPending: false };
 	},
-	useQuery: mocks.useQuery,
+	useQuery: (options: { queryKey?: string[] }) =>
+		options.queryKey?.[0] === 'transfer-recipients' ? { data: [] } : mocks.useQuery(options),
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 vi.mock('@tanstack/react-router', () => ({
@@ -82,6 +83,7 @@ vi.mock('@/main', () => ({
 		project: {
 			listAllUsersWithRoles: { queryKey: () => ['project-members'] },
 			listUsersWithAccess: { queryOptions: () => ({ queryKey: ['users-with-access'] }) },
+			listTransferRecipients: { queryOptions: () => ({ queryKey: ['transfer-recipients'] }) },
 			removeProjectMember: { mutationOptions: () => ({ mutationKey: ['remove-user'] }) },
 		},
 		automation: {

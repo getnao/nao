@@ -110,6 +110,8 @@ export interface StoryQueryResult {
 	/** Story filters not applied to this semantic-layer query because its metrics lack their dimension. */
 	skippedFilterIds?: string[];
 	accessDenied?: true;
+	/** Why the query failed, when the caller asked to keep the other queries running. */
+	error?: string;
 }
 
 export async function executeLiveQuery(
@@ -694,6 +696,10 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	);
 }
 
+function toFailedQueryResult(error: unknown): ExecutedQueryResult {
+	return { data: [], columns: [], error: error instanceof Error ? error.message : String(error) };
+}
+
 export function omitAccessDeniedQueries(queryData: StoryQueryData): StoryQueryData {
 	return Object.fromEntries(Object.entries(queryData).filter(([, result]) => !result.accessDenied));
 }
@@ -714,7 +720,7 @@ export interface ViewerExecutionContext extends StoryExecutionContext {
 	permissionRevision: string;
 }
 
-type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'accessDenied' | 'skippedFilterIds'>;
+type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'accessDenied' | 'skippedFilterIds' | 'error'>;
 
 interface StoryQueryExecutionOptions {
 	renderSql: (sqlQuery: string) => string;
@@ -722,6 +728,8 @@ interface StoryQueryExecutionOptions {
 	semanticBindings?: SemanticStoryBindings;
 	executionContext?: StoryExecutionContext;
 	billingAccessVerifiedProjectId?: string;
+	/** A failing query comes back with its `error` instead of failing every query of the story. */
+	isolateQueryFailures?: boolean;
 }
 
 /**
@@ -794,7 +802,13 @@ export async function executeStoryQueries(
 	const entries = await Promise.all(
 		Object.keys(sqlQueries)
 			.filter((queryId) => runnableIds.has(queryId))
-			.map(async (queryId) => [queryId, await run(queryId, new Set())] as const),
+			.map(async (queryId) => {
+				const result = run(queryId, new Set());
+				return [
+					queryId,
+					await (options.isolateQueryFailures ? result.catch(toFailedQueryResult) : result),
+				] as const;
+			}),
 	);
 	return Object.fromEntries(entries);
 }

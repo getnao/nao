@@ -324,6 +324,10 @@ async function createAuthInstance(baseURL: string) {
 							window: 60,
 							max: 3,
 						},
+						'/sign-up/email': {
+							window: 60 * 60,
+							max: 5,
+						},
 					},
 				}
 			: undefined,

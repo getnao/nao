@@ -59,7 +59,11 @@ import { slackService } from '../services/slack';
 import { resolveDefaultDatabaseId } from '../services/sql-query-tag.service';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { resolveAvailableUserGroupAccess } from '../services/user-group-availability.service';
-import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
+import {
+	flagRecipientsWithTableAccess,
+	isDatabaseObjectAllowed,
+	resolveWarehouseTableAccess,
+} from '../services/user-group-context-access.service';
 import {
 	getAvailableModelsForUser,
 	getDefaultChatModelForUser,
@@ -109,6 +113,7 @@ import {
 	projectProtectedProcedure,
 	protectedProcedure,
 	publicProcedure,
+	rateLimitedBy,
 } from './trpc';
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
@@ -233,6 +238,12 @@ async function getRoleInProjectOrThrow(projectId: string, userId: string) {
 
 const boundaryUploadSchema = z.object({ fileName: z.string().trim().min(1).max(255), geojson: z.unknown() });
 
+const limitOutboundFetchesByUser = rateLimitedBy('outbound-fetch', (ctx: { user: { id: string } }) => ctx.user.id);
+const limitLlmConfigWritesByProject = rateLimitedBy(
+	'llm-config-write',
+	(ctx: { project: { id: string } }) => ctx.project.id,
+);
+
 const BOUNDARY_SOURCE_MESSAGE = 'Provide either a GeoJSON URL or an uploaded GeoJSON file.';
 
 type BoundarySource = Pick<CustomBoundarySet, 'url' | 'file' | 'featureCount'>;
@@ -263,6 +274,7 @@ async function validateBoundarySource(url: string): Promise<number> {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: `Could not load boundaries from URL: ${error instanceof Error ? error.message : String(error)}`,
+			cause: error,
 		});
 	}
 }
@@ -456,6 +468,7 @@ export const projectRoutes = {
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure
+		.use(limitLlmConfigWritesByProject)
 		.input(
 			z.object({
 				configId: z.string().optional(),
@@ -577,6 +590,7 @@ export const projectRoutes = {
 		}),
 
 	deleteLlmConfig: adminProtectedProcedure
+		.use(limitLlmConfigWritesByProject)
 		.input(z.union([z.object({ configId: z.string().min(1) }), z.object({ provider: llmProviderSchema })]))
 		.output(z.object({ success: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
@@ -1180,6 +1194,15 @@ export const projectRoutes = {
 		return projectQueries.listUsersWithProjectAccessDetails(ctx.project.id);
 	}),
 
+	listTransferRecipients: adminProtectedProcedure
+		.input(z.object({ fromUserId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const recipients = (await projectQueries.listUsersWithProjectAccess(ctx.project.id))
+				.filter((user) => user.role !== 'viewer' && user.id !== input.fromUserId)
+				.map(({ id, name, email }) => ({ id, name, email }));
+			return flagRecipientsWithTableAccess(ctx.project.id, input.fromUserId, recipients);
+		}),
+
 	getProjectMembersByChatId: protectedProcedure
 		.input(z.object({ chatId: z.string() }))
 		.query(async ({ ctx, input }) =>
@@ -1318,6 +1341,7 @@ export const projectRoutes = {
 					})
 					.optional(),
 				mapEnabled: z.boolean().optional(),
+				requireConversationFeedback: z.boolean().optional(),
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
@@ -1365,6 +1389,7 @@ export const projectRoutes = {
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
+				requireConversationFeedback: input.requireConversationFeedback ?? existing.requireConversationFeedback,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -1383,6 +1408,7 @@ export const projectRoutes = {
 				codemode_enabled: merged.experimental?.codemode,
 				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
+				require_conversation_feedback: merged.requireConversationFeedback,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
 				semantic_layer_mode: merged.semanticLayer?.mode,
@@ -1617,6 +1643,7 @@ export const projectRoutes = {
 	}),
 
 	validateMapBoundaryUrl: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(z.object({ url: z.url() }))
 		.mutation(async ({ ctx: _ctx, input }) => {
 			const text = await safeFetch(input.url);
@@ -1625,6 +1652,7 @@ export const projectRoutes = {
 		}),
 
 	addMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z
 				.object({
@@ -1660,6 +1688,7 @@ export const projectRoutes = {
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
 		.input(
 			z.object({
 				key: z.string().trim().min(1),

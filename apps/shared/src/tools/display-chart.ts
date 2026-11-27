@@ -178,6 +178,20 @@ export const ChartInputObjectSchema = z.object({
 			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
 		)
 		.optional(),
+	breakdown_key: z
+		.string()
+		.describe(
+			'Column whose values each become their own series, e.g. "country" to draw one line per country from rows shaped (month, country, revenue) with series [{ data_key: "revenue" }]. Prefer it over pivoting in SQL: values that appear in a later refresh (a new country, a new version) show up without editing the chart. A series color becomes shades of that color across the values (suits ordered values such as versions); omit it to color the values with the theme palette. Not for pie or donut charts, whose slices already come from x_axis_key, nor scatter charts.',
+		)
+		.optional(),
+	breakdown_limit: z
+		.number()
+		.int()
+		.positive()
+		.describe(
+			'With breakdown_key: keep this many values and sum the rest into "Other" (the largest in the latest period on a date axis, the largest totals otherwise). Set it when the column can hold more than ~8 values.',
+		)
+		.optional(),
 	title: z
 		.string()
 		.describe(
@@ -262,6 +276,8 @@ const BaseInputSchema = z.object({
 			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
 		)
 		.optional(),
+	breakdown_key: ChartInputObjectSchema.shape.breakdown_key,
+	breakdown_limit: ChartInputObjectSchema.shape.breakdown_limit,
 	title: z.string().describe('A concise, descriptive title for the visualization. Required for charts.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.describe(
 		'Conditional formatting rules for table columns. Only used when chart_type is "table".',

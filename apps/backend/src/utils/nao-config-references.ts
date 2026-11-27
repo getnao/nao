@@ -4,6 +4,7 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 
 import { logger } from './logger';
+import { PathEscapeError } from './security-errors';
 
 const MAX_CONFIG_NODES = 100_000;
 const FILE_REFERENCE_KEY = 'from_file';
@@ -30,17 +31,31 @@ export function holdsFileReference(node: unknown): boolean {
 	return someNode(node, isFileReference);
 }
 
+/** The `from_file` paths of a parsed nao_config.yaml that try to leave the project, which no project ever needs. */
+export function listEscapingFileReferences(node: unknown): string[] {
+	const escaping: string[] = [];
+	someNode(node, (candidate) => {
+		if (isFileReference(candidate) && escapesProject(candidate[FILE_REFERENCE_KEY])) {
+			escaping.push(candidate[FILE_REFERENCE_KEY]);
+		}
+		return false;
+	});
+	return escaping;
+}
+
 /**
  * The real path of a file of the project named in nao_config.yaml, refused when it leads out of the project or to a
  * dotfile. Throws the reason, worded to follow the file name.
  */
 export function resolveProjectFile(file: string, projectFolder: string): string {
 	const relativeFile = file.trim();
-	const isRelative = relativeFile !== '' && !relativeFile.startsWith('/') && !relativeFile.includes('\\');
-	const segments = relativeFile.split('/');
-	if (!isRelative || segments.includes('..')) {
+	if (relativeFile === '' || relativeFile.includes('\\')) {
 		throw new Error("it must be a relative path with forward slashes and no '..'");
 	}
+	if (escapesProject(relativeFile)) {
+		throw new PathEscapeError("it must be a relative path with forward slashes and no '..'", relativeFile);
+	}
+	const segments = relativeFile.split('/');
 	if (hasHiddenSegment(segments)) {
 		throw new Error(HIDDEN_PATH_ERROR);
 	}
@@ -49,7 +64,7 @@ export function resolveProjectFile(file: string, projectFolder: string): string 
 	const filePath = fs.realpathSync(path.resolve(projectRoot, relativeFile));
 	const relativePath = path.relative(projectRoot, filePath);
 	if (relativePath === '' || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-		throw new Error('it points outside the project');
+		throw new PathEscapeError('it points outside the project', relativeFile);
 	}
 	if (hasHiddenSegment(relativePath.split(path.sep))) {
 		throw new Error(HIDDEN_PATH_ERROR);
@@ -116,6 +131,11 @@ function readReferencedFile(file: string, projectFolder: string): unknown {
 		logger.warn(`Ignoring ${FILE_REFERENCE_KEY} '${file}' of nao_config.yaml: ${reason}`, { source: 'system' });
 		return UNRESOLVED;
 	}
+}
+
+function escapesProject(file: string): boolean {
+	const trimmed = file.trim();
+	return trimmed.startsWith('/') || trimmed.split('/').includes('..');
 }
 
 /** Checked on the path as written and on the file it leads to, as a link could hide a dotfile behind another name. */

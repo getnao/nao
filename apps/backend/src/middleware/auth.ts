@@ -5,7 +5,6 @@ import { getSession } from '../auth';
 import { DBProject } from '../db/abstractSchema';
 import { isCloud } from '../env';
 import * as projectQueries from '../queries/project.queries';
-import { getUser } from '../queries/user.queries';
 import { isApiKey, validateApiKey } from '../services/api-key.service';
 import { isSelfHostedMultiProjectEnabled } from '../services/multi-project.service';
 import { convertHeaders } from '../utils/utils';
@@ -45,10 +44,10 @@ export async function sessionOrApiKeyAuthMiddleware(request: FastifyRequest, rep
 	}
 
 	const apiKey = await validateApiKey(token);
-	const user = apiKey ? await getUser({ id: apiKey.createdBy }) : null;
-	if (!apiKey || !user || user.deactivatedAt) {
+	if (!apiKey) {
 		return reply.status(401).send({ error: 'Invalid API key' });
 	}
+	const user = apiKey.creator;
 
 	const headers = convertHeaders(request.headers);
 	const orgId = apiKey.organization.id;

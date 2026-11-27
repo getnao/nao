@@ -351,17 +351,11 @@ function ManagedProjectUsersTable({
 
 			<TransferStoriesDialog
 				member={transferStoriesMember}
-				recipients={[...projectUsers, ...organizationUsers].filter(
-					(user) => user.id !== transferStoriesMember?.id && user.role !== 'viewer',
-				)}
 				onOpenChange={(open) => !open && setTransferStoriesMember(null)}
 			/>
 
 			<TransferAutomationsDialog
 				member={transferAutomationsMember}
-				recipients={[...projectUsers, ...organizationUsers].filter(
-					(user) => user.id !== transferAutomationsMember?.id && user.role !== 'viewer',
-				)}
 				onOpenChange={(open) => !open && setTransferAutomationsMember(null)}
 			/>
 

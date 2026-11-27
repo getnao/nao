@@ -10,14 +10,19 @@ import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
 import type { ChartEditorView } from '@/components/tool-calls/display-chart-edit-dialog';
-import { StoryChartQueryView } from '@/components/side-panel/story-chart-query';
+import {
+	StoryChartFilterFailure,
+	StoryChartQueryView,
+	StoryQueryFilterBadge,
+	StoryQueryFilterError,
+} from '@/components/side-panel/story-chart-query';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { ChartConfigEditDialog, resolveChartPaletteHexes } from '@/components/tool-calls/display-chart-edit-dialog';
 import { Button } from '@/components/ui/button';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useIsDarkMode } from '@/contexts/theme.provider';
-import { useStoryQuerySql } from '@/contexts/story-query-sql';
+import { useStoryFilterHover, useStoryQuerySql } from '@/contexts/story-query-sql';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { useStoryChartSourceQuery } from '@/hooks/use-story-chart-source-query';
 import { sortByDateKey } from '@/lib/charts.utils';
@@ -55,9 +60,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
-				Chart data unavailable (query: {chart.queryId})
-			</StoryEmbedFallback>
+			<StoryChartFilterFailure queryId={chart.queryId}>
+				<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
+					Chart data unavailable (query: {chart.queryId})
+				</StoryEmbedFallback>
+			</StoryChartFilterFailure>
 		);
 	}
 
@@ -100,6 +107,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				comparisonMode={chart.comparisonMode}
 				normalSize
 				hideTotal={chart.hideTotal}
+				breakdownKey={chart.breakdownKey}
+				breakdownLimit={chart.breakdownLimit}
 				kpiLeadingSlot={kpiLeadingHandle}
 				disableTooltip={isSelected || storyBlockDrag?.isDragging === true}
 				className={cn(isKpi && storyBlockDrag != null && 'select-none')}
@@ -147,6 +156,9 @@ export function StoryChartEmbedShell({
 	});
 	const canOpenQueryEditor = canEdit && (sourceQuery !== null || Boolean(edit?.story));
 	const canViewQuery = canOpenQueryEditor || Boolean(querySqlSource);
+	const filterStatus = querySqlSource?.queryFilterStatuses?.[chart.queryId];
+	const isFaded = useIsFadedByFilterHover(querySqlSource?.filterTargets?.[chart.queryId]);
+	const filterBadge = filterStatus ? <StoryQueryFilterBadge status={filterStatus} /> : null;
 
 	const config = useMemo(
 		() => ({
@@ -175,6 +187,8 @@ export function StoryChartEmbedShell({
 			show_legend: chart.showLegend,
 			comparison_mode: chart.comparisonMode,
 			hide_total: chart.hideTotal,
+			breakdown_key: chart.breakdownKey,
+			breakdown_limit: chart.breakdownLimit,
 		}),
 		[chart],
 	);
@@ -215,7 +229,10 @@ export function StoryChartEmbedShell({
 	) : null;
 
 	return (
-		<div ref={paletteScopeRef} className='my-2 flex flex-col gap-4'>
+		<div
+			ref={paletteScopeRef}
+			className={cn('my-2 flex flex-col gap-4 transition-opacity duration-500 ease-out', isFaded && 'opacity-30')}
+		>
 			{!isKpi && (canEdit || canViewQuery || dragHandle != null || chart.title) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					<div className='flex min-w-0 flex-1 items-center gap-1'>
@@ -231,12 +248,19 @@ export function StoryChartEmbedShell({
 					</div>
 					<div className='flex shrink-0 items-center gap-1'>
 						{dragHandlePlacement === 'leading' ? null : dragHandle}
+						{filterBadge}
 						{queryButton}
 						{editButton}
 					</div>
 				</div>
 			)}
-			<div className={cn('relative', !isKpi && !showQuery && STORY_CHART_HEIGHT_CLASS)}>
+			<div
+				className={cn(
+					'relative',
+					!isKpi && !showQuery && STORY_CHART_HEIGHT_CLASS,
+					isKpi && showQuery && 'pt-8',
+				)}
+			>
 				{showQuery && querySqlSource ? (
 					<StoryChartQueryView queryId={chart.queryId} source={querySqlSource} />
 				) : (
@@ -245,11 +269,18 @@ export function StoryChartEmbedShell({
 				{isKpi && ((dragHandlePlacement !== 'leading' && dragHandle != null) || canViewQuery || canEdit) && (
 					<div className='absolute top-0 right-0 z-10 flex items-center gap-1'>
 						{dragHandlePlacement === 'leading' ? null : dragHandle}
+						{filterBadge}
 						{queryButton}
 						{editButton}
 					</div>
 				)}
 			</div>
+			{filterStatus?.state === 'failed' && !showQuery && (
+				<StoryQueryFilterError
+					error={filterStatus.error}
+					onViewQuery={() => (canOpenQueryEditor ? openEditor('query') : setShowQuery(true))}
+				/>
+			)}
 			{canEdit && edit && chart.rawTag && (
 				<ChartConfigEditDialog
 					open={isEditOpen}
@@ -267,6 +298,12 @@ export function StoryChartEmbedShell({
 			)}
 		</div>
 	);
+}
+
+/** While the reader hovers a story filter, the charts it cannot change fade. */
+function useIsFadedByFilterHover(filterIds: string[] | undefined): boolean {
+	const hoveredFilterId = useStoryFilterHover()?.hoveredFilterId;
+	return hoveredFilterId ? !filterIds?.includes(hoveredFilterId) : false;
 }
 
 /** The visual editor rebuilds the tag from resolved values, which would drop `{{ params.<id> }}` placeholders. */

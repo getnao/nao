@@ -52,7 +52,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeatures }));
 vi.mock('@/hooks/use-custom-stories-enabled', () => ({ useCustomStoriesEnabled: mocks.useCustomStoriesEnabled }));
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: mocks.useQuery,
+	useQuery: (options?: { queryKey?: string[] }) =>
+		options?.queryKey?.[0] === 'transfer-recipients' ? { data: [] } : mocks.useQuery(options),
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, fetchQuery: mocks.fetchQuery }),
 	useMutation: mocks.useMutation,
 }));
@@ -107,10 +108,15 @@ vi.mock('@/main', () => ({
 			},
 			getLlmConfigs: { queryOptions: vi.fn(() => ({ queryKey: ['llm-configs'] })) },
 			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
+			listTransferRecipients: {
+				queryOptions: vi.fn(() => ({ queryKey: ['transfer-recipients'] })),
+				queryKey: vi.fn(() => ['transfer-recipients']),
+			},
 			removeProjectMember: { mutationOptions: vi.fn() },
 		},
 		story: {
 			countOwnedStories: { queryOptions: vi.fn(() => ({ queryKey: ['owned-stories'] })) },
+			listTransferRecipients: { queryKey: vi.fn(() => ['story-transfer-recipients']) },
 			transferAllFromUser: { mutationOptions: vi.fn() },
 		},
 		system: {
