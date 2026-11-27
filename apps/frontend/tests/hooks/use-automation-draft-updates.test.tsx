@@ -2,6 +2,7 @@
 
 import { cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from '@nao/shared/utils';
 import type { UIMessage } from '@nao/backend/chat';
 import type { AutomationDraftUpdate } from '@nao/shared/automation-draft';
 import { useAutomationDraftUpdates } from '@/hooks/use-automation-draft-updates';
@@ -98,7 +99,7 @@ describe('useAutomationDraftUpdates', () => {
 });
 
 function assistantMessage(parts: unknown[]): UIMessage {
-	return { id: crypto.randomUUID(), role: 'assistant', parts } as UIMessage;
+	return { id: randomUUID(), role: 'assistant', parts } as UIMessage;
 }
 
 function updatePart(toolCallId: string, update: AutomationDraftUpdate, state = 'output-available') {

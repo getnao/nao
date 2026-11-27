@@ -4,6 +4,7 @@ import {
 	MAX_ATTACHMENTS_PER_MESSAGE,
 	MAX_IMAGE_SIZE_MB,
 } from '@nao/shared/attachments';
+import { randomUUID } from '@nao/shared/utils';
 import { useCallback, useRef, useState } from 'react';
 import type { ImageMediaType, ImageUploadData } from '@nao/shared/attachments';
 
@@ -109,7 +110,7 @@ export function useAttachmentUpload({
 			setAttachments((previous) => [
 				...previous,
 				...documents.map((document) => ({
-					id: crypto.randomUUID(),
+					id: randomUUID(),
 					kind: 'document' as const,
 					name: document.filename,
 					mediaType: document.mediaType,
@@ -200,7 +201,7 @@ const isPending = (attachment: Attachment): boolean => {
 };
 
 const toPendingAttachment = (file: File): Attachment => ({
-	id: crypto.randomUUID(),
+	id: randomUUID(),
 	kind: isImageMediaType(file.type) ? 'image' : 'document',
 	name: file.name,
 	size: file.size,

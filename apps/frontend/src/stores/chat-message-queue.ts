@@ -1,3 +1,4 @@
+import { randomUUID } from '@nao/shared/utils';
 import { Store } from './abstract-store';
 import type { NewQueuedMessage, QueuedMessage } from '@/types/chat-message-queue';
 import { NEW_CHAT_ID } from '@/lib/ai';
@@ -15,7 +16,7 @@ class MessageQueueStore extends Store<Map<string, QueuedMessage[]>> {
 		}
 
 		const newMessage: QueuedMessage = {
-			id: crypto.randomUUID(),
+			id: randomUUID(),
 			...msg,
 		};
 

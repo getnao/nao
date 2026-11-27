@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { randomUUID } from '@nao/shared/utils';
 import type { CloudBillingInterval } from '@nao/shared/billing';
 
 import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
@@ -114,14 +115,14 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 				billingInterval: selectedBillingInterval,
 				currency: selectedBillingCurrency,
 			}),
-		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
-		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
+		openPortal: () => portal.mutate({ requestId: randomUUID() }),
+		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: randomUUID() }),
 		resubscribe: () =>
 			resubscribe.mutate({
 				billingInterval: selectedBillingInterval,
 				currency: selectedBillingCurrency,
 			}),
-		resume: () => resumeSubscription.mutate({ requestId: crypto.randomUUID() }),
+		resume: () => resumeSubscription.mutate({ requestId: randomUUID() }),
 		syncBilling: billingSync.syncBilling,
 		retryCheckoutConfirmation: billingSync.retryCheckoutConfirmation,
 	};

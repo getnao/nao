@@ -10,6 +10,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
+import { randomUUID } from '@nao/shared/utils';
 import {
 	fetchChartPluginSource,
 	fetchMapBoundary,
@@ -522,7 +523,7 @@ function useStoryFrameDocument(
 	useEffect(() => {
 		let cancelled = false;
 		setFrameDocument(null);
-		const channel = crypto.randomUUID();
+		const channel = randomUUID();
 		const bootTheme = readTheme();
 		loadState()
 			.then((state) =>
