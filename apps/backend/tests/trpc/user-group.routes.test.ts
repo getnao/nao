@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
+	assertShareableUserGroupIds: vi.fn(),
 	assertUserGroupManageable: vi.fn(),
 	createUserGroup: vi.fn(),
 	createUserGroupWithinLimit: vi.fn(),
@@ -30,6 +31,8 @@ const mocks = vi.hoisted(() => ({
 	invalidateProjectViewerCaches: vi.fn(),
 	listUserGroups: vi.fn(),
 	listActiveUserGroups: vi.fn(),
+	listFolderNamesOnlyOwnedByGroup: vi.fn(),
+	listGroupFolderIds: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
 	revokeUnauthorizedProjectWideShares: vi.fn(),
 	env: { BETTER_AUTH_URL: 'http://localhost:5005/' } as Record<string, string | undefined>,
@@ -37,6 +40,7 @@ const mocks = vi.hoisted(() => ({
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setGroupBudget: vi.fn(),
 	setGroupSharedBudget: vi.fn(),
+	setGroupTeamFolders: vi.fn(),
 	setUserGroupMembership: vi.fn(),
 	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
@@ -55,6 +59,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
+vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 vi.mock('../../src/env', () => ({ env: mocks.env }));
 vi.mock('../../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: mocks.getDatabaseContextCatalog,
@@ -86,6 +91,13 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 	updateProjectColumnSecurity: mocks.updateProjectColumnSecurity,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
 }));
+vi.mock('../../src/queries/story-folder.queries', () => ({
+	TeamFolderError: class TeamFolderError extends Error {},
+	listFolderNamesOnlyOwnedByGroup: mocks.listFolderNamesOnlyOwnedByGroup,
+	listGroupFolderIds: mocks.listGroupFolderIds,
+	setGroupTeamFolders: mocks.setGroupTeamFolders,
+	withProjectFolderLock: (_projectId: string, work: () => Promise<unknown>) => work(),
+}));
 vi.mock('../../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: {
@@ -98,6 +110,9 @@ vi.mock('../../src/services/license.service', () => ({
 vi.mock('../../src/services/member-budget.service', () => ({
 	setGroupBudget: mocks.setGroupBudget,
 	setGroupSharedBudget: mocks.setGroupSharedBudget,
+}));
+vi.mock('../../src/services/shareable-user-groups.service', () => ({
+	assertShareableUserGroupIds: mocks.assertShareableUserGroupIds,
 }));
 vi.mock('../../src/services/project-sharing.service', () => ({
 	getShareAudience: mocks.getShareAudience,
@@ -125,8 +140,10 @@ vi.mock('../../src/services/warehouse-sql.service', () => ({
 	validateWarehouseRowPredicate: mocks.validateWarehouseRowPredicate,
 }));
 
+import { TeamFolderError } from '../../src/queries/story-folder.queries';
 import { router } from '../../src/trpc/trpc';
 import { userGroupRoutes } from '../../src/trpc/user-group.routes';
+import { logger } from '../../src/utils/logger';
 
 const testRouter = router(userGroupRoutes);
 const caller = createTestCaller(testRouter);
@@ -142,6 +159,7 @@ beforeEach(() => {
 	mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.role = 'admin';
+	mocks.listFolderNamesOnlyOwnedByGroup.mockResolvedValue([]);
 	mocks.getUserRoleInProject.mockImplementation(async (_projectId, userId) =>
 		userId === 'target-user-id' ? 'viewer' : mocks.role,
 	);
@@ -546,6 +564,66 @@ describe('user group routes', () => {
 			'group-id',
 			expect.objectContaining({ skillsAccess: { mode: 'all' } }),
 		);
+	});
+
+	it('rejects unlicensed team folders but lets admins keep or remove them', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.listGroupFolderIds.mockResolvedValue(['board', 'finance']);
+		const update = (storyFolderIds: string[]) =>
+			caller.update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: DETAILED_DENSITY_POLICY,
+				storyFolderIds,
+			});
+
+		await expect(caller.create({ name: 'Analysts', storyFolderIds: ['board'] })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(update(['board', 'sales'])).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+
+		await update(['board']);
+		expect(mocks.setGroupTeamFolders).toHaveBeenCalledWith('project-id', 'group-id', ['board'], expect.any(String));
+	});
+
+	it.each([
+		{ case: 'removes it again', removalFails: false },
+		{ case: 'still reports why its folders failed when it cannot be removed', removalFails: true },
+	])('a new group whose team folders cannot be saved $case', async ({ removalFails }) => {
+		mocks.setGroupTeamFolders.mockRejectedValueOnce(
+			new TeamFolderError('Only active public folders can be team folders.'),
+		);
+		if (removalFails) {
+			mocks.deleteUserGroup.mockRejectedValueOnce(new Error('Database unavailable.'));
+		}
+
+		await expect(
+			caller.create({ name: 'Analysts', storyFolderIds: ['archived'], budgetLimitUsd: 50 }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Only active public folders can be team folders.' });
+		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
+		expect(logger.error).toHaveBeenCalledTimes(removalFails ? 1 : 0);
+	});
+
+	it('refuses team folders for a group stories cannot be shared with, like All users', async () => {
+		mocks.hasFeature.mockResolvedValue(true);
+		mocks.listGroupFolderIds.mockResolvedValue([]);
+		mocks.assertShareableUserGroupIds.mockRejectedValueOnce(
+			new Error('One or more user groups cannot be shared with.'),
+		);
+
+		await expect(
+			caller.update({
+				groupId: 'all-users-id',
+				featureGrants: [],
+				toolCallDensityPolicy: DETAILED_DENSITY_POLICY,
+				storyFolderIds: ['board'],
+			}),
+		).rejects.toThrow('cannot be shared with');
+		expect(mocks.assertShareableUserGroupIds).toHaveBeenCalledWith('project-id', ['all-users-id']);
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
 
 	it('allows group edits after a registry update prunes removed-table policies', async () => {
@@ -1344,6 +1422,16 @@ describe('user group routes', () => {
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
 		expect(mocks.setUserGroupMembership).toHaveBeenCalledWith('project-id', 'group-id', 'target-user-id', true);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('keeps a group that is the only one with access to a team folder', async () => {
+		mocks.listFolderNamesOnlyOwnedByGroup.mockResolvedValue(['Board']);
+
+		await expect(caller.delete({ groupId: 'group-id' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: expect.stringContaining('"Board"'),
+		});
+		expect(mocks.deleteUserGroup).not.toHaveBeenCalled();
 	});
 
 	it.each([

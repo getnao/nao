@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export const useCopyToClipboard = (timeout = 2000) => {
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const copy = useCallback(
 		async (text: string) => {

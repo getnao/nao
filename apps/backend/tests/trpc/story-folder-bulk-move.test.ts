@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryProjectId: vi.fn(),
 	moveItemsToFolder: vi.fn(),
 	proposedParentChainContains: vi.fn(),
+	writeMove: vi.fn(),
 }));
 
 const SystemFolderError = vi.hoisted(
@@ -32,12 +33,18 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryProjectId: mocks.getStoryProjectId,
 }));
 vi.mock('../../src/queries/story-folder.queries', () => ({
+	ArchivedFolderError: class extends Error {},
 	MoveFolderCycleError: class extends Error {
 		constructor() {
 			super('Moving this folder would create a cycle.');
 		}
 	},
 	SystemFolderError,
+	TeamFolderError: class extends Error {},
+	canSeeFolder: vi.fn(async () => true),
+	isSameAudience: vi.fn(() => true),
+	resolveAudienceAfterMove: vi.fn(async () => ({ kind: 'project' })),
+	resolveFolderAudience: vi.fn(async () => ({ kind: 'project' })),
 	getFolderById: mocks.getFolderById,
 	moveItemsToFolder: mocks.moveItemsToFolder,
 	proposedParentChainContains: mocks.proposedParentChainContains,
@@ -45,6 +52,11 @@ vi.mock('../../src/queries/story-folder.queries', () => ({
 vi.mock('../../src/services/agent', () => ({ agentService: { get: mocks.getAgent } }));
 vi.mock('../../src/services/project-sharing.service', () => ({
 	assertCanShareToProject: mocks.assertCanShareToProject,
+	assertCanShareWith: vi.fn(),
+}));
+vi.mock('../../src/services/shareable-user-groups.service', () => ({ assertShareableUserGroupIds: vi.fn() }));
+vi.mock('../../src/services/story-folder-viewer.service', () => ({
+	getFolderViewer: vi.fn(async () => ({ userId: 'user-id', isAdmin: false, isViewer: false, groupIds: new Set() })),
 }));
 
 import { storyFolderRoutes } from '../../src/trpc/story-folder.routes';
@@ -62,6 +74,12 @@ describe('storyFolder.bulkMove', () => {
 		mocks.getStoryById.mockImplementation(async (id: string) => ({ id, chatId: `chat-${id}` }));
 		mocks.getAgent.mockReturnValue(undefined);
 		mocks.proposedParentChainContains.mockResolvedValue(false);
+		mocks.moveItemsToFolder.mockImplementation(
+			async (_userId, _projectId, _items, _targetId, assertAllowed: () => Promise<void>) => {
+				await assertAllowed();
+				mocks.writeMove();
+			},
+		);
 	});
 
 	it('moves every selected folder and story into the target folder in one batch', async () => {
@@ -83,7 +101,9 @@ describe('storyFolder.bulkMove', () => {
 				],
 			},
 			'target',
+			expect.any(Function),
 		);
+		expect(mocks.writeMove).toHaveBeenCalledTimes(1);
 	});
 
 	it('moves nothing when the target sits inside a selected folder', async () => {
@@ -99,7 +119,7 @@ describe('storyFolder.bulkMove', () => {
 			}),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 
-		expect(mocks.moveItemsToFolder).not.toHaveBeenCalled();
+		expect(mocks.writeMove).not.toHaveBeenCalled();
 	});
 
 	it('moves nothing when the agent is editing a selected story', async () => {

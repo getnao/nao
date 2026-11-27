@@ -140,14 +140,17 @@ function buildStoryTree(
 	return buildLevel(null, [{ label: 'Stories', icon: storiesRootIcon }]);
 }
 
-/** A story whose folder the user cannot see sits at the root. */
+/** Like the stories page: a story shared with the user sits in "Shared with me" unless they see its folder, others at the root. */
 function locateStory(
 	story: ReferenceableStory,
 	folderIdByStoryId: Map<string, string>,
 	knownFolderIds: Set<string>,
 ): string | null {
-	const folderId = story.isSharedWithMe ? SHARED_WITH_ME_FOLDER_ID : folderIdByStoryId.get(story.storyId);
-	return folderId && knownFolderIds.has(folderId) ? folderId : null;
+	const folderId = folderIdByStoryId.get(story.storyId);
+	if (folderId && knownFolderIds.has(folderId)) {
+		return folderId;
+	}
+	return story.isSharedWithMe && knownFolderIds.has(SHARED_WITH_ME_FOLDER_ID) ? SHARED_WITH_ME_FOLDER_ID : null;
 }
 
 function compareSystemFoldersFirst(a: StoryFolder, b: StoryFolder): number {

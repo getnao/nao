@@ -589,6 +589,7 @@ export const sharedStoryRoutes = {
 				users: z.array(shareGrantInput).default([]),
 				groups: z.array(shareGrantInput).default([]),
 				notify: z.boolean().default(false),
+				folderId: z.string().nullable().optional(),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {

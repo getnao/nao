@@ -25,6 +25,7 @@ import type { PointerPosition } from '@/hooks/use-drag-pointer';
 import type { StoryReferences } from '@/lib/story-reference';
 import { FolderBreadcrumb } from '@/components/stories-folder-breadcrumb';
 import { StoriesSelectionBar } from '@/components/stories-selection-bar';
+import { FolderAccessDialog } from '@/components/stories-folder-access-popover';
 import { FolderCreateDialog } from '@/components/stories-folder-create-dialog';
 import { FolderDeleteDialog } from '@/components/stories-folder-delete-dialog';
 import { FolderPickerDialog } from '@/components/stories-folder-picker-dialog';
@@ -52,6 +53,8 @@ import {
 	getFolderSubtreeIds,
 	getStoredSetting,
 	isSystemFolder,
+	isTeamFolder,
+	ownsTeamGroups,
 	readStoredSort,
 	STORIES_DISPLAY_KEY,
 	writeStoredSort,
@@ -129,6 +132,7 @@ type DialogState =
 	| { kind: 'delete'; folder: FolderItem }
 	| { kind: 'picker-story'; item: StoryItem }
 	| { kind: 'picker-folder'; folder: FolderItem }
+	| { kind: 'access'; folder: FolderItem }
 	| { kind: 'picker-selection'; selection: StoryReferences }
 	| null;
 
@@ -327,7 +331,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
-		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : (view?.label ?? 'Root') };
+		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : (view?.label ?? 'Home') };
 		if (!currentFolderId) {
 			return [root];
 		}
@@ -343,6 +347,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 				id: folder.id,
 				name: folder.name,
 				isPrivate: folder.visibility === 'private' || folder.systemType === 'shared_with_me',
+				isTeam: isTeamFolder(folder),
 			});
 			id = 'parentId' in folder ? (folder.parentId ?? null) : null;
 		}
@@ -766,6 +771,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 							onDeleteFolder={(folder) => setDialog({ kind: 'delete', folder })}
 							onArchiveFolder={handleArchiveFolder}
 							onRestoreFolder={handleRestoreFolder}
+							onShowFolderAccess={(folder) => setDialog({ kind: 'access', folder })}
 							className='mb-6'
 							selectedStoryIds={selectedStoryIds}
 							selectedFolderIds={selectedFolderIds}
@@ -793,6 +799,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 						onDeleteFolder={(folder) => setDialog({ kind: 'delete', folder })}
 						onArchiveFolder={handleArchiveFolder}
 						onRestoreFolder={handleRestoreFolder}
+						onShowFolderAccess={(folder) => setDialog({ kind: 'access', folder })}
 						onNewFolder={() => setDialog({ kind: 'create' })}
 						selectedStoryIds={selectedStoryIds}
 						selectedFolderIds={selectedFolderIds}
@@ -855,12 +862,13 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 					parentName={
 						dialog.folder.parentId
 							? (folders.find((f) => f.id === dialog.folder.parentId)?.name ?? 'parent folder')
-							: 'Root'
+							: 'Home'
 					}
 					hasChildren={
 						folders.some((f) => f.parentId === dialog.folder.id) ||
 						(folderItems.data ?? []).some((i) => i.folderId === dialog.folder.id)
 					}
+					teamGroupNames={ownsTeamGroups(dialog.folder, folders) ? dialog.folder.teamGroupNames : []}
 				/>
 			)}
 
@@ -901,8 +909,19 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 							setDialog(null);
 						}
 					}}
-					target={{ type: 'folder', folderId: dialog.folder.id, currentVisibility: dialog.folder.visibility }}
+					target={{ type: 'folder', folderId: dialog.folder.id }}
 					isOwner={dialog.folder.ownerId === session?.user?.id}
+				/>
+			)}
+
+			{dialog?.kind === 'access' && (
+				<FolderAccessDialog
+					folder={dialog.folder}
+					onOpenChange={(open) => {
+						if (!open) {
+							setDialog(null);
+						}
+					}}
 				/>
 			)}
 		</div>

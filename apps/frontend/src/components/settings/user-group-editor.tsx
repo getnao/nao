@@ -53,6 +53,7 @@ import type { ShareTargetGroupOption } from '@/components/settings/user-group-pr
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupAdvancedSettings } from '@/components/settings/user-group-advanced-settings';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
+import { listGroupTeamFolderIds, UserGroupFolders } from '@/components/settings/user-group-folders';
 import { UserGroupDataAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { UserGroupLlmAccess } from '@/components/settings/user-group-llm-access';
@@ -70,6 +71,7 @@ import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -115,6 +117,7 @@ export type UserGroupEditorTab =
 	| 'context'
 	| 'mcp'
 	| 'skills'
+	| 'folders'
 	| 'budget'
 	| 'advanced'
 	| 'sso';
@@ -128,6 +131,7 @@ export function resolveUserGroupEditorTab(value: unknown): UserGroupEditorTab {
 		value === 'context' ||
 		value === 'mcp' ||
 		value === 'skills' ||
+		value === 'folders' ||
 		value === 'budget' ||
 		value === 'advanced' ||
 		value === 'sso'
@@ -150,6 +154,7 @@ const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'context', label: 'Data access' },
 	{ id: 'mcp', label: 'MCP' },
 	{ id: 'skills', label: 'Skills' },
+	{ id: 'folders', label: 'Folders' },
 	{ id: 'budget', label: 'Budget' },
 	{ id: 'advanced', label: 'Advanced settings' },
 ];
@@ -278,6 +283,15 @@ export function UserGroupEditor({
 		: null;
 	const [groupSharedBudgetUsd, setGroupSharedBudgetUsd] = useState<number | null>(savedGroupSharedBudgetUsd);
 	const hasGroupSharedBudgetChanges = hasMemberBudget && groupSharedBudgetUsd !== savedGroupSharedBudgetUsd;
+	const storyFolderTree = useQuery(trpc.storyFolder.listTree.queryOptions());
+	const savedStoryFolderIds = useMemo(
+		() => (existingGroup ? listGroupTeamFolderIds(storyFolderTree.data ?? [], existingGroup.id) : []),
+		[existingGroup, storyFolderTree.data],
+	);
+	const [editedStoryFolderIds, setEditedStoryFolderIds] = useState<string[] | null>(null);
+	const storyFolderIds = editedStoryFolderIds ?? savedStoryFolderIds;
+	const hasStoryFolderChanges =
+		editedStoryFolderIds !== null && !haveSameItems(editedStoryFolderIds, savedStoryFolderIds);
 	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
 	const allUsersGroup = defaultGroup && !defaultGroup.isLocked ? defaultGroup : null;
 	const columnSecurity = useQuery(trpc.userGroup.columnSecurity.queryOptions());
@@ -352,13 +366,14 @@ export function UserGroupEditor({
 		oidcConfigurationState === 'loading' ||
 		microsoftConfigurationState === 'loading';
 	const hasSsoTab = hasConfiguredSsoProvider;
-	const mcpTabUnavailable = !licenseFeatures.isLoading && !hasRowLevelSecurity;
+	const groupAccessTabsUnavailable = !licenseFeatures.isLoading && !hasRowLevelSecurity;
 	const lockedTabs = new Set<UserGroupEditorTab>([
 		...(memberBudgetTabUnavailable ? (['budget'] as const) : []),
-		...(mcpTabUnavailable ? (['mcp'] as const) : []),
+		...(groupAccessTabsUnavailable ? (['mcp', 'folders'] as const) : []),
 		...(!licenseFeatures.isLoading && !hasUserGroupsLicense ? (['llm-access'] as const) : []),
 	]);
-	const tabs = (hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs).map((tab) =>
+	const groupTabs = existingGroup?.isDefault ? defaultTabs.filter((tab) => tab.id !== 'folders') : defaultTabs;
+	const tabs = (hasSsoTab ? [...groupTabs, { id: 'sso' as const, label: 'SSO' }] : groupTabs).map((tab) =>
 		lockedTabs.has(tab.id) ? { ...tab, label: <LockedTabLabel label={tab.label} /> } : tab,
 	);
 	const hasProjectSharingChanges = existingGroup !== null && projectSharing !== existingGroup.projectSharing;
@@ -366,6 +381,7 @@ export function UserGroupEditor({
 		editorGroup === null ||
 		hasGroupBudgetChanges ||
 		hasGroupSharedBudgetChanges ||
+		hasStoryFolderChanges ||
 		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
@@ -499,6 +515,10 @@ export function UserGroupEditor({
 	);
 
 	useEffect(() => {
+		setEditedStoryFolderIds(null);
+	}, [existingGroup?.id]);
+
+	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
 			onTabChange('features');
 		}
@@ -616,6 +636,7 @@ export function UserGroupEditor({
 			...(hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {}),
 			...(hasGroupSharedBudgetChanges ? { sharedBudgetLimitUsd: groupSharedBudgetUsd } : {}),
 		};
+		const storyFolderInput = hasStoryFolderChanges ? { storyFolderIds } : {};
 		try {
 			if (existingGroup) {
 				await updateGroup.mutateAsync({
@@ -637,6 +658,7 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { columnPolicies } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
+					...storyFolderInput,
 				});
 				await invalidateUserGroupQueries(queryClient);
 			} else {
@@ -659,9 +681,15 @@ export function UserGroupEditor({
 					...(hasRowLevelSecurity ? { columnPolicies } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
+					...storyFolderInput,
 				});
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
+			}
+			if (hasStoryFolderChanges) {
+				await queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+				setEditedStoryFolderIds(null);
+				invalidateStoriesCaches(queryClient);
 			}
 			setShowRowPolicyValidationErrors(false);
 			return true;
@@ -705,6 +733,7 @@ export function UserGroupEditor({
 		resetForm();
 		setGroupBudgetUsd(savedGroupBudgetUsd);
 		setGroupSharedBudgetUsd(savedGroupSharedBudgetUsd);
+		setEditedStoryFolderIds(null);
 	};
 	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
 		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
@@ -828,6 +857,18 @@ export function UserGroupEditor({
 								allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
 								allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
 								onChange={handleSkillsChange}
+							/>
+						)}
+						{activeTab === 'folders' && !existingGroup?.isDefault && (
+							<UserGroupFolders
+								groupId={existingGroup?.id ?? null}
+								folderIds={storyFolderIds}
+								savedFolderIds={savedStoryFolderIds}
+								isLicensed={hasRowLevelSecurity}
+								onFolderIdsChange={setEditedStoryFolderIds}
+								onFolderCreated={(folderId) =>
+									setEditedStoryFolderIds((current) => current && [...current, folderId])
+								}
 							/>
 						)}
 						{activeTab === 'budget' && (
@@ -1317,6 +1358,7 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 		queryClient.invalidateQueries({ queryKey: trpc.project.listTransferRecipients.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.story.listTransferRecipients.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: [['memberBudget']] }),
+		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.access.queryKey() }),
 	]);
 }
 
