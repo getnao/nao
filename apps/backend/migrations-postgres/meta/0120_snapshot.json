@@ -1,5 +1,5 @@
 {
-  "id": "e23d73fc-081e-4ff5-8daf-92a7bb58760c",
+  "id": "08ee7c76-9139-49a7-9025-ae5b0783d590",
   "prevId": "4779d9d3-957e-4b7a-9ad8-a70f45d22b05",
   "version": "7",
   "dialect": "postgresql",
@@ -4162,19 +4162,6 @@
           "tableTo": "chat",
           "columnsFrom": [
             "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "llm_inference_story_id_story_id_fk": {
-          "name": "llm_inference_story_id_story_id_fk",
-          "tableFrom": "llm_inference",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
           ],
           "columnsTo": [
             "id"

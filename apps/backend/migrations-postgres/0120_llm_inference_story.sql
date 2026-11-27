@@ -1,2 +1,1 @@
-ALTER TABLE "llm_inference" ADD COLUMN "story_id" text;--> statement-breakpoint
-ALTER TABLE "llm_inference" ADD CONSTRAINT "llm_inference_story_id_story_id_fk" FOREIGN KEY ("story_id") REFERENCES "public"."story"("id") ON DELETE set null ON UPDATE no action;
+ALTER TABLE "llm_inference" ADD COLUMN "story_id" text;

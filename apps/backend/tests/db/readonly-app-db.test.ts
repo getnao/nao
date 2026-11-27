@@ -138,7 +138,7 @@ describe('runScopedAppDbQuery', () => {
 		]);
 	});
 
-	it('prices chat answers and background calls with the model costs passed in, null when unpriced', async () => {
+	it('prices chat answers and background calls, null when unpriced, and keeps calls of deleted stories', async () => {
 		const modelCosts: CostLookupTuple[] = [['anthropic', 'claude-priced', '', 3, 0.3, 3.75, 15]];
 		await db.insert(chatMessage).values({
 			id: 'ro-msg-answer',
@@ -169,7 +169,13 @@ describe('runScopedAppDbQuery', () => {
 				inputNoCacheTokens: 1_000_000,
 				outputTotalTokens: 100_000,
 			},
-			{ ...inference, id: 'ro-inf-unpriced', llmModelId: 'claude-unknown', inputNoCacheTokens: 1_000_000 },
+			{
+				...inference,
+				id: 'ro-inf-unpriced',
+				storyId: 'ro-story-deleted',
+				llmModelId: 'claude-unknown',
+				inputNoCacheTokens: 1_000_000,
+			},
 		]);
 
 		const inferences = await runScopedAppDbQuery(
@@ -185,7 +191,7 @@ describe('runScopedAppDbQuery', () => {
 
 		expect(inferences.rows).toEqual([
 			{ id: 'ro-inf-priced', user_name: 'RO', story_id: 'ro-story-live', cost_usd: 4.5 },
-			{ id: 'ro-inf-unpriced', user_name: 'RO', story_id: null, cost_usd: null },
+			{ id: 'ro-inf-unpriced', user_name: 'RO', story_id: 'ro-story-deleted', cost_usd: null },
 		]);
 		expect(answers.rows).toEqual([{ cost_usd: 6 }]);
 	});

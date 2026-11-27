@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "82ac86df-b5d6-486a-afac-a8edc93bef5a",
+  "id": "29df72fa-66c6-48d2-949b-3786a33b4c3b",
   "prevId": "f3275289-ee0c-40c8-9f6d-18d4372547ca",
   "tables": {
     "account": {
@@ -3775,19 +3775,6 @@
           "tableTo": "chat",
           "columnsFrom": [
             "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "llm_inference_story_id_story_id_fk": {
-          "name": "llm_inference_story_id_story_id_fk",
-          "tableFrom": "llm_inference",
-          "tableTo": "story",
-          "columnsFrom": [
-            "story_id"
           ],
           "columnsTo": [
             "id"
