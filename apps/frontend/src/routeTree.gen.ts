@@ -82,6 +82,7 @@ import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from '
 import { Route as SidebarLayoutSettingsUsageReplayChatIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId'
 import { Route as SidebarLayoutSettingsProjectUserGroupsGroupIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.$groupId'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport } from './routes/_sidebar-layout.settings.project.integrations.$integrationId'
+import { Route as SidebarLayoutAutomationsAutomationIdRunsRunIdRouteImport } from './routes/_sidebar-layout.automations.$automationId_.runs.$runId'
 import { Route as SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId_.subagent.$toolCallId'
 import { Route as SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.users.$userId'
 import { Route as SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId_.subagent.$toolCallId'
@@ -503,6 +504,12 @@ const SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute =
     path: '/$integrationId',
     getParentRoute: () => SidebarLayoutSettingsProjectIntegrationsRoute,
   } as any)
+const SidebarLayoutAutomationsAutomationIdRunsRunIdRoute =
+  SidebarLayoutAutomationsAutomationIdRunsRunIdRouteImport.update({
+    id: '/automations/$automationId_/runs/$runId',
+    path: '/automations/$automationId/runs/$runId',
+    getParentRoute: () => SidebarLayoutRoute,
+  } as any)
 const SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute =
   SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport.update({
     id: '/$chatId_/subagent/$toolCallId',
@@ -589,6 +596,7 @@ export interface FileRoutesByFullPath {
   '/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/$chatId/subagent/$toolCallId': typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
+  '/automations/$automationId/runs/$runId': typeof SidebarLayoutAutomationsAutomationIdRunsRunIdRoute
   '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/project/user-groups/$groupId': typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
@@ -659,6 +667,7 @@ export interface FileRoutesByTo {
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
   '/$chatId/subagent/$toolCallId': typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
+  '/automations/$automationId/runs/$runId': typeof SidebarLayoutAutomationsAutomationIdRunsRunIdRoute
   '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/project/user-groups/$groupId': typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
@@ -738,6 +747,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
   '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId': typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
+  '/_sidebar-layout/automations/$automationId_/runs/$runId': typeof SidebarLayoutAutomationsAutomationIdRunsRunIdRoute
   '/_sidebar-layout/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/_sidebar-layout/settings/project/user-groups/$groupId': typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   '/_sidebar-layout/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
@@ -816,6 +826,7 @@ export interface FileRouteTypes {
     | '/settings/organization/'
     | '/settings/project/'
     | '/$chatId/subagent/$toolCallId'
+    | '/automations/$automationId/runs/$runId'
     | '/settings/project/integrations/$integrationId'
     | '/settings/project/user-groups/$groupId'
     | '/settings/usage/replay/$chatId'
@@ -886,6 +897,7 @@ export interface FileRouteTypes {
     | '/settings/organization'
     | '/settings/project'
     | '/$chatId/subagent/$toolCallId'
+    | '/automations/$automationId/runs/$runId'
     | '/settings/project/integrations/$integrationId'
     | '/settings/project/user-groups/$groupId'
     | '/settings/usage/replay/$chatId'
@@ -964,6 +976,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/organization/'
     | '/_sidebar-layout/settings/project/'
     | '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId'
+    | '/_sidebar-layout/automations/$automationId_/runs/$runId'
     | '/_sidebar-layout/settings/project/integrations/$integrationId'
     | '/_sidebar-layout/settings/project/user-groups/$groupId'
     | '/_sidebar-layout/settings/usage/replay/$chatId'
@@ -1500,6 +1513,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectIntegrationsRoute
     }
+    '/_sidebar-layout/automations/$automationId_/runs/$runId': {
+      id: '/_sidebar-layout/automations/$automationId_/runs/$runId'
+      path: '/automations/$automationId/runs/$runId'
+      fullPath: '/automations/$automationId/runs/$runId'
+      preLoaderRoute: typeof SidebarLayoutAutomationsAutomationIdRunsRunIdRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
     '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId': {
       id: '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId'
       path: '/$chatId/subagent/$toolCallId'
@@ -1764,6 +1784,7 @@ interface SidebarLayoutRouteChildren {
   SidebarLayoutStoriesIndexRoute: typeof SidebarLayoutStoriesIndexRoute
   SidebarLayoutStoriesSharedShareIdRoute: typeof SidebarLayoutStoriesSharedShareIdRoute
   SidebarLayoutStoriesStandaloneStoryIdRoute: typeof SidebarLayoutStoriesStandaloneStoryIdRoute
+  SidebarLayoutAutomationsAutomationIdRunsRunIdRoute: typeof SidebarLayoutAutomationsAutomationIdRunsRunIdRoute
   SidebarLayoutStoriesPreviewChatIdStorySlugRoute: typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
 }
 
@@ -1785,6 +1806,8 @@ const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
     SidebarLayoutStoriesSharedShareIdRoute,
   SidebarLayoutStoriesStandaloneStoryIdRoute:
     SidebarLayoutStoriesStandaloneStoryIdRoute,
+  SidebarLayoutAutomationsAutomationIdRunsRunIdRoute:
+    SidebarLayoutAutomationsAutomationIdRunsRunIdRoute,
   SidebarLayoutStoriesPreviewChatIdStorySlugRoute:
     SidebarLayoutStoriesPreviewChatIdStorySlugRoute,
 }
