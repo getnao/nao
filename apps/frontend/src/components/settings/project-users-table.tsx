@@ -76,6 +76,7 @@ interface GroupAccess {
 	groups: AssignableUserGroup[];
 	membershipKeys: Set<string>;
 	ssoMembershipKeys: Set<string>;
+	groupsReadOnly?: boolean;
 }
 
 interface BulkMembershipChange {
@@ -94,7 +95,7 @@ interface UserSelection {
 interface UserAccessManagement {
 	groupAccess: GroupAccess;
 	memberActions: ProjectMemberActions;
-	selection: UserSelection;
+	selection?: UserSelection;
 	onOpenUser: (userId: string) => void;
 }
 
@@ -163,6 +164,7 @@ function ManagedProjectUsersTable({
 	groups,
 	membershipKeys,
 	ssoMembershipKeys,
+	groupsReadOnly = false,
 	onOpenUser,
 }: ManagedProjectUsersTableProps) {
 	const { data: session } = useSession();
@@ -267,7 +269,7 @@ function ManagedProjectUsersTable({
 	};
 
 	const management: UserAccessManagement = {
-		groupAccess: { groups, membershipKeys, ssoMembershipKeys },
+		groupAccess: { groups, membershipKeys, ssoMembershipKeys, groupsReadOnly },
 		memberActions: {
 			onEdit: setEditMember,
 			onTransferStories: setTransferStoriesMember,
@@ -275,7 +277,7 @@ function ManagedProjectUsersTable({
 			onRemove: setRemoveMember,
 			onResetPassword: isCloud ? undefined : setResetPasswordMember,
 		},
-		selection,
+		selection: groupsReadOnly ? undefined : selection,
 		onOpenUser,
 	};
 
@@ -326,7 +328,7 @@ function ManagedProjectUsersTable({
 				onOpenChange={setIsAddOpen}
 				title='Add Users to Project'
 				onSubmit={handleAdd}
-				groupOptions={groups}
+				groupOptions={groupsReadOnly ? undefined : groups}
 			/>
 
 			<EditMemberDialog
@@ -472,7 +474,7 @@ function UserAccessTableContent({
 	emptyMessage: string;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
-	const columnCount = management ? 5 : 2;
+	const columnCount = management ? (management.selection ? 5 : 4) : 2;
 
 	return (
 		<div className='overflow-x-auto'>
@@ -481,9 +483,11 @@ function UserAccessTableContent({
 					<TableRow className='hover:bg-transparent [&_th]:h-10 [&_th]:text-xs [&_th]:text-muted-foreground'>
 						{management ? (
 							<>
-								<TableHead className='w-10 [&>[role=checkbox]]:translate-y-0'>
-									<SelectAllUsersCheckbox selection={management.selection} />
-								</TableHead>
+								{management.selection && (
+									<TableHead className='w-10 [&>[role=checkbox]]:translate-y-0'>
+										<SelectAllUsersCheckbox selection={management.selection} />
+									</TableHead>
+								)}
 								<TableHead className='w-[32%]'>User</TableHead>
 								<TableHead className='w-1/5'>Role</TableHead>
 								<TableHead className='w-[38%]'>Groups</TableHead>
@@ -589,7 +593,7 @@ function ManagedUserAccessRow({
 	showMemberActions: boolean;
 }) {
 	const { groupAccess, memberActions, selection, onOpenUser } = management;
-	const isSelected = selection.selectedUserIds.has(user.id);
+	const isSelected = selection?.selectedUserIds.has(user.id) ?? false;
 
 	return (
 		<TableRow
@@ -597,13 +601,15 @@ function ManagedUserAccessRow({
 			data-state={isSelected ? 'selected' : undefined}
 			onClick={() => onOpenUser(user.id)}
 		>
-			<TableCell className='[&>[role=checkbox]]:translate-y-0' onClick={(event) => event.stopPropagation()}>
-				<Checkbox
-					checked={isSelected}
-					onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
-					aria-label={`Select ${user.name}`}
-				/>
-			</TableCell>
+			{selection && (
+				<TableCell className='[&>[role=checkbox]]:translate-y-0' onClick={(event) => event.stopPropagation()}>
+					<Checkbox
+						checked={isSelected}
+						onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
+						aria-label={`Select ${user.name}`}
+					/>
+				</TableCell>
+			)}
 			<TableCell className='min-w-0 overflow-hidden'>
 				<UserIdentity
 					user={user}
@@ -712,7 +718,7 @@ function MemberRowActions({ user, actions }: { user: ProjectUser; actions: Proje
 }
 
 function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess: GroupAccess }) {
-	const { groups, membershipKeys, ssoMembershipKeys } = groupAccess;
+	const { groups, membershipKeys, ssoMembershipKeys, groupsReadOnly = false } = groupAccess;
 	const queryClient = useQueryClient();
 	const setMembership = useMutation(
 		trpc.userGroup.setMembership.mutationOptions({
@@ -724,9 +730,11 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 	};
 	const tokens = groups
 		.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
-		.map((group) => toGroupToken(group, ssoMembershipKeys.has(`${group.id}:${user.id}`), setGroupMembership));
+		.map((group) =>
+			toGroupToken(group, ssoMembershipKeys.has(`${group.id}:${user.id}`), groupsReadOnly, setGroupMembership),
+		);
 	const selectedGroupLabel = tokens.length > 0 ? tokens.map((token) => token.name).join(', ') : 'No groups';
-	const hasGroupsToAdd = tokens.length < groups.length;
+	const hasGroupsToAdd = !groupsReadOnly && tokens.length < groups.length;
 
 	return (
 		<UserGroupTokenField
@@ -747,7 +755,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 						<DropdownMenuCheckboxItem
 							key={group.id}
 							checked={group.isDefault || membershipKeys.has(membershipKey)}
-							disabled={group.isDefault || isManagedBySso || setMembership.isPending}
+							disabled={group.isDefault || isManagedBySso || groupsReadOnly || setMembership.isPending}
 							aria-label={isManagedBySso ? `${group.name}, managed by SSO` : group.name}
 							onSelect={(event) => event.preventDefault()}
 							onCheckedChange={(checked) => setGroupMembership(group.id, checked === true)}
@@ -769,6 +777,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 function toGroupToken(
 	group: AssignableUserGroup,
 	isManagedBySso: boolean,
+	groupsReadOnly: boolean,
 	setGroupMembership: (groupId: string, isMember: boolean) => void,
 ): UserGroupToken {
 	if (group.isDefault) {
@@ -776,6 +785,9 @@ function toGroupToken(
 	}
 	if (isManagedBySso) {
 		return { key: group.id, name: group.name, title: 'Managed by SSO' };
+	}
+	if (groupsReadOnly) {
+		return { key: group.id, name: group.name, title: 'Managed by groups.yaml' };
 	}
 	return { key: group.id, name: group.name, onRemove: () => setGroupMembership(group.id, false) };
 }

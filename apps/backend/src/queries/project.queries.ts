@@ -368,14 +368,24 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 	return results;
 };
 
-/** The folders of the projects still in service: background jobs leave deactivated projects untouched. */
-export const listActiveProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+export const listProjectFolders = async ({ servedOnly = false } = {}): Promise<{ id: string; path: string }[]> => {
 	const projects = await db
 		.select({ id: s.project.id, path: s.project.path })
 		.from(s.project)
-		.where(and(isNotNull(s.project.path), notDeactivatedProjectsFilter()))
+		.where(
+			and(
+				isNotNull(s.project.path),
+				notDeactivatedProjectsFilter(),
+				servedOnly ? await selfHostedServedProjectsFilter() : undefined,
+			),
+		)
 		.execute();
 	return projects.flatMap(({ id, path }) => (path ? [{ id, path }] : []));
+};
+
+/** The folders of the projects still in service: background jobs leave deactivated projects untouched. */
+export const listActiveProjectFolders = async (): Promise<{ id: string; path: string }[]> => {
+	return listProjectFolders();
 };
 
 export const getDefaultProject = async (): Promise<DBProject | null> => {
@@ -638,30 +648,37 @@ const renameProjectIfNameAvailable = async (
 	return renamed.length > 0;
 };
 
-const createProjectWithDefaultGroup = (
+export const createProjectWithDefaultGroup = (
 	project: NewProject,
 	transaction: DBTransaction,
+	defaultGroupId?: string,
 ): DBProject | Promise<DBProject> =>
 	dbConfig.dialect === Dialect.Postgres
-		? createPostgresProjectWithDefaultGroup(project, transaction)
-		: createSqliteProjectWithDefaultGroup(project, transaction);
+		? createPostgresProjectWithDefaultGroup(project, transaction, defaultGroupId)
+		: createSqliteProjectWithDefaultGroup(project, transaction, defaultGroupId);
 
-function createSqliteProjectWithDefaultGroup(project: NewProject, transaction: DBTransaction): DBProject {
+function createSqliteProjectWithDefaultGroup(
+	project: NewProject,
+	transaction: DBTransaction,
+	defaultGroupId?: string,
+): DBProject {
 	const [created] = transaction.insert(s.project).values(project).returning().all();
-	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
+	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id, defaultGroupId)).run();
 	return created;
 }
 
 const createPostgresProjectWithDefaultGroup = async (
 	project: NewProject,
 	transaction: DBTransaction,
+	defaultGroupId?: string,
 ): Promise<DBProject> => {
 	const [created] = await transaction.insert(s.project).values(project).returning().execute();
-	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
+	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id, defaultGroupId)).execute();
 	return created;
 };
 
-const defaultUserGroupValues = (projectId: string) => ({
+const defaultUserGroupValues = (projectId: string, id?: string) => ({
+	...(id ? { id } : {}),
 	projectId,
 	name: DEFAULT_USER_GROUP_NAME,
 	isDefault: true,

@@ -6,11 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
+	applyProjectGroupsFile: vi.fn(),
 	createProject: vi.fn(),
+	createProjectWithGroupsConfig: vi.fn(),
 	getProjectByOrgAndName: vi.fn(),
+	isGroupsConfigManaged: vi.fn(),
 	post: vi.fn(),
+	reconcileProjectReadiness: vi.fn(),
 	recordProjectDeployment: vi.fn(),
 	reportSecuritySignal: vi.fn(),
+	validateNewProjectGroupsFile: vi.fn(),
+	validateProjectGroupsFile: vi.fn(),
 	validateApiKey: vi.fn(),
 }));
 
@@ -22,12 +28,24 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getProjectByOrgAndName: mocks.getProjectByOrgAndName,
 }));
 
+vi.mock('../../src/queries/groups-config.queries', () => ({
+	isGroupsConfigManaged: mocks.isGroupsConfigManaged,
+}));
+
+vi.mock('../../src/services/groups-config-apply.service', () => ({
+	applyProjectGroupsFile: mocks.applyProjectGroupsFile,
+	createProjectWithGroupsConfig: mocks.createProjectWithGroupsConfig,
+	validateNewProjectGroupsFile: mocks.validateNewProjectGroupsFile,
+	validateProjectGroupsFile: mocks.validateProjectGroupsFile,
+}));
+
 vi.mock('../../src/services/api-key.service', () => ({
 	validateApiKey: mocks.validateApiKey,
 }));
 
 vi.mock('../../src/services/project.service', () => ({
 	createProject: mocks.createProject,
+	reconcileProjectReadiness: mocks.reconcileProjectReadiness,
 	recordProjectDeployment: mocks.recordProjectDeployment,
 }));
 
@@ -41,6 +59,7 @@ vi.mock('../../src/services/cloud-billing-access.service', () => ({
 
 import { env } from '../../src/env';
 import { deployRoutes } from '../../src/routes/deploy';
+import { GroupsConfigError } from '../../src/services/groups-config.service';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const createTemporaryFolder = useTemporaryFolders();
@@ -206,6 +225,22 @@ describe('deploy route deployment record', () => {
 		});
 	});
 
+	it('creates a new project and its groups in one operation', async () => {
+		const groupsConfig = { hash: 'groups-hash' };
+		mocks.validateNewProjectGroupsFile.mockResolvedValueOnce(groupsConfig);
+		mocks.createProjectWithGroupsConfig.mockResolvedValueOnce({ id: 'created-project', name: 'analytics' });
+		const send = vi.fn();
+
+		await handler()(deployRequest('analytics'), { status: vi.fn(() => ({ send })), send });
+
+		expect(mocks.createProjectWithGroupsConfig).toHaveBeenCalledWith(
+			expect.objectContaining({ id: expect.any(String), name: 'analytics', orgId: 'organization-id' }),
+			groupsConfig,
+			'user-id',
+		);
+		expect(mocks.createProject).not.toHaveBeenCalled();
+	});
+
 	it('deploys a config whose from_file leaves the project, and reports it as a security signal', async () => {
 		const send = vi.fn();
 		const config = 'repos:\n  - name: r1\n    url: { from_file: ../../../../proc/self/environ }\n';
@@ -251,6 +286,33 @@ describe('deploy route deployment record', () => {
 			projectName: 'analytics',
 			status: 'updated',
 		});
+	});
+
+	it('does not create a project when groups.yaml validation fails', async () => {
+		mocks.validateNewProjectGroupsFile.mockRejectedValueOnce(new GroupsConfigError('invalid groups'));
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(deployRequest('analytics'), { status, send });
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(send).toHaveBeenCalledWith({ error: 'invalid groups' });
+		expect(mocks.createProject).not.toHaveBeenCalled();
+	});
+
+	it('keeps the current project files when groups.yaml validation fails', async () => {
+		const projectDir = createTemporaryFolder('nao-deploy-existing-');
+		fs.writeFileSync(path.join(projectDir, 'existing.txt'), 'keep');
+		mocks.getProjectByOrgAndName.mockResolvedValue({ id: 'existing-project', path: projectDir });
+		mocks.validateProjectGroupsFile.mockRejectedValueOnce(new GroupsConfigError('invalid groups'));
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(deployRequest('analytics'), { status, send });
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(fs.readFileSync(path.join(projectDir, 'existing.txt'), 'utf8')).toBe('keep');
+		expect(mocks.applyProjectGroupsFile).not.toHaveBeenCalled();
 	});
 });
 

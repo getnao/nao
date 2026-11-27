@@ -53,6 +53,7 @@ import { emailService } from './services/email';
 import { githubApiUrl, githubNoreplyEmail, githubOAuthConfig } from './services/github';
 import { augmentPluginsWithGithubEnterprise } from './services/github-enterprise-auth.service';
 import * as gitlabService from './services/gitlab';
+import { reconcileGroupsMembershipsForUser } from './services/groups-config-apply.service';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import { addOrganizationMemberIfMissing } from './services/membership.service';
 import {
@@ -453,6 +454,11 @@ async function createAuthInstance(baseURL: string) {
 						}
 					},
 				},
+				update: {
+					after: async (user) => {
+						await reconcileGroupsMembershipsForUser(user.id);
+					},
+				},
 				delete: {
 					before: async (user) => {
 						try {
@@ -483,6 +489,7 @@ async function createAuthInstance(baseURL: string) {
 					},
 					async after(session, ctx) {
 						await syncSsoLoginGroups(session.userId, resolveProviderId(ctx));
+						await reconcileGroupsMembershipsForUser(session.userId);
 						await activateUserJoinCandidates(session.userId);
 					},
 				},

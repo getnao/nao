@@ -52,6 +52,7 @@ import {
 } from '../services/context-file-header.service';
 import { getMostReadContextFiles } from '../services/context-file-reads.service';
 import { listRecentContextChanges } from '../services/context-recent-changes.service';
+import { applyProjectGroupsFile } from '../services/groups-config-apply.service';
 import {
 	discardAllNaoDraftFiles,
 	discardNaoDraftFile,
@@ -124,6 +125,7 @@ export const contextExplorerRoutes = {
 			const gitContext = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
 			token = gitContext.token;
 			const result = await pullLiveContext(gitContext);
+			await applyProjectGroupsFile(ctx.project.id, requireProjectPath(ctx.project.path), ctx.user.id);
 			try {
 				await activityQueries.completeActivity(activity.id, {
 					configuredBranch: result.configuredBranch,

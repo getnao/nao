@@ -363,6 +363,7 @@ export const project = pgTable(
 		columnSecurity: jsonb('column_security').$type<StoredProjectColumnSecurity>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
+		userGroupsConfigAppliedAt: timestamp('user_groups_config_applied_at'),
 		/** Set from the cloud backoffice: the project is hidden and every background run stops. */
 		deactivatedAt: timestamp('deactivated_at'),
 
@@ -691,6 +692,9 @@ export const userGroup = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		isDefault: boolean('is_default').default(false).notNull(),
+		configId: text('config_id'),
+		archivedAt: timestamp('archived_at'),
+		memberEmails: jsonb('member_emails').$type<string[]>(),
 		featureGrants: jsonb('feature_grants')
 			.$type<StoredUserGroupConfig>()
 			.notNull()
@@ -715,6 +719,7 @@ export const userGroup = pgTable(
 	(t) => [
 		index('user_group_projectId_idx').on(t.projectId),
 		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		unique('user_group_project_config_id_unique').on(t.projectId, t.configId),
 		uniqueIndex('user_group_project_default_unique')
 			.on(t.projectId)
 			.where(sql`${t.isDefault} = true`),
@@ -1755,6 +1760,8 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'user_group.config_applied',
+	'user_group.config_failed',
 	'user_group.impersonation_started',
 	'user_group.impersonation_stopped',
 ] as const;

@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	invalidateProjectViewerCaches: vi.fn(),
+	isGroupsConfigManaged: vi.fn(),
 	listUserGroups: vi.fn(),
 	listActiveUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
@@ -68,6 +69,9 @@ vi.mock('../../src/queries/project-llm-config.queries', () => ({
 }));
 vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
 	invalidateProjectViewerCaches: mocks.invalidateProjectViewerCaches,
+}));
+vi.mock('../../src/queries/groups-config.queries', () => ({
+	isGroupsConfigManaged: mocks.isGroupsConfigManaged,
 }));
 vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
@@ -146,6 +150,7 @@ beforeEach(() => {
 		userId === 'target-user-id' ? 'viewer' : mocks.role,
 	);
 	mocks.hasFeature.mockResolvedValue(true);
+	mocks.isGroupsConfigManaged.mockResolvedValue(false);
 	mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
 	mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 	mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
@@ -215,6 +220,34 @@ describe('user group routes', () => {
 				tables: [{ ...ORDERS_TABLE, constraintColumns: ['region'] }],
 			}),
 		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('rejects constraint column removals that would prune a SQL row policy managed by groups.yaml', async () => {
+		mocks.isGroupsConfigManaged.mockResolvedValue(true);
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ ...ORDERS_TABLE, constraintColumns: ['tenant_id', 'region'] }],
+		});
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...ORDERS_TABLE, columns: ['tenant_id', 'region'] }],
+		});
+		mocks.listUserGroups.mockResolvedValue([
+			{
+				rowPolicies: {
+					version: 1,
+					policies: [
+						{ ...ORDERS_POLICY_TABLE, access: 'predicate', mode: 'sql', predicate: "WHERE region = 'eu'" },
+					],
+				},
+			},
+		]);
+
+		await expect(caller.updateRowSecurity({ version: 1, tables: [ORDERS_TABLE] })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'This change would invalidate a row policy managed by groups.yaml.',
+		});
 		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
 	});
 
@@ -1549,6 +1582,17 @@ describe('user group budget', () => {
 
 		expect(mocks.setGroupBudget).toHaveBeenCalledWith('project-id', 'group-id', 300);
 		expect(mocks.setGroupSharedBudget).toHaveBeenCalledWith('project-id', 'group-id', 2000);
+	});
+
+	it('keeps budgets and LLM access editable when groups.yaml manages the project', async () => {
+		mocks.isGroupsConfigManaged.mockResolvedValue(true);
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'credential-a' }]);
+
+		await caller.updateBudget({ groupId: 'group-id', budgetLimitUsd: 300 });
+		await caller.updateLlmAccess({ groupId: 'group-id', llmConfigIds: ['credential-a'] });
+
+		expect(mocks.setGroupBudget).toHaveBeenCalledWith('project-id', 'group-id', 300);
+		expect(mocks.updateUserGroupLlmAccess).toHaveBeenCalledWith('project-id', 'group-id', ['credential-a'], {});
 	});
 
 	it('leaves the group budget untouched when no limit is sent', async () => {

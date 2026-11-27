@@ -2,6 +2,7 @@ from nao_core.commands.chat import chat
 from nao_core.commands.debug import debug
 from nao_core.commands.deploy import deploy
 from nao_core.commands.docs import docs
+from nao_core.commands.group import group, groups
 from nao_core.commands.init import init
 from nao_core.commands.login import login, logout
 from nao_core.commands.migrate import migrate
@@ -16,6 +17,8 @@ __all__ = [
     "debug",
     "deploy",
     "docs",
+    "group",
+    "groups",
     "init",
     "login",
     "logout",

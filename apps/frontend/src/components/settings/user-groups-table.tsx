@@ -1,7 +1,7 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Lock, Plus, Search } from 'lucide-react';
+import { Download, Lock, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
@@ -22,7 +22,8 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import { trpc } from '@/main';
+import { downloadTextFile } from '@/lib/export-chat';
+import { trpc, trpcClient } from '@/main';
 
 interface LockedUserGroup {
 	id: string;
@@ -72,6 +73,7 @@ function UserGroupsContent({
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const filesContextCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
+	const configStatus = useQuery(trpc.userGroup.configStatus.queryOptions());
 	const navigate = useNavigate();
 	const membershipKeys = useMemo(
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
@@ -117,44 +119,63 @@ function UserGroupsContent({
 	const databaseCatalogState = getCatalogState(contextCatalog);
 	const docsCatalogState = getCatalogState(docsContextCatalog);
 	const filesCatalogState = getCatalogState(filesContextCatalog);
+	const status =
+		configStatus.data?.mode === 'code' || configStatus.data?.mode === 'ui'
+			? {
+					...configStatus.data,
+					pendingEmails: configStatus.data.pendingEmails ?? [],
+				}
+			: {
+					mode: 'ui' as const,
+					appliedAt: null,
+					lastAttemptFailed: false,
+					errorMessage: null,
+					pendingEmails: [],
+				};
+	const codeManaged = status.mode === 'code';
 
 	return (
 		<>
 			{tabs}
 			<TabPanel idBase='user-groups-page' tabId={tab} className='pt-5'>
 				{tab === 'groups' && (
-					<GroupsTable
-						groups={groups}
-						memberships={overview.data.memberships}
-						contextObjects={contextObjects}
-						docsEntries={docsEntries}
-						filesEntries={filesEntries}
-						databaseCatalogState={databaseCatalogState}
-						docsCatalogState={docsCatalogState}
-						filesCatalogState={filesCatalogState}
-						onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
-						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
-						onRetryFilesCatalog={() => void filesContextCatalog.refetch()}
-						entitlement={entitlement}
-						onOpenGroup={(groupId) => {
-							void navigate({
-								to: '/settings/project/user-groups/$groupId',
-								params: { groupId },
-								search: { tab: 'features' },
-							});
-						}}
-						onCreateGroup={() => {
-							void navigate({
-								to: '/settings/project/user-groups/$groupId',
-								params: { groupId: 'new' },
-								search: { tab: 'features' },
-							});
-						}}
-					/>
+					<div className='flex flex-col gap-6'>
+						<UserGroupCodeManagement status={status} />
+						<GroupsTable
+							groups={groups}
+							memberships={overview.data.memberships}
+							contextObjects={contextObjects}
+							docsEntries={docsEntries}
+							filesEntries={filesEntries}
+							databaseCatalogState={databaseCatalogState}
+							docsCatalogState={docsCatalogState}
+							filesCatalogState={filesCatalogState}
+							onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
+							onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
+							onRetryFilesCatalog={() => void filesContextCatalog.refetch()}
+							entitlement={entitlement}
+							codeManaged={codeManaged}
+							onOpenGroup={(groupId) => {
+								void navigate({
+									to: '/settings/project/user-groups/$groupId',
+									params: { groupId },
+									search: { tab: 'features' },
+								});
+							}}
+							onCreateGroup={() => {
+								void navigate({
+									to: '/settings/project/user-groups/$groupId',
+									params: { groupId: 'new' },
+									search: { tab: 'features' },
+								});
+							}}
+						/>
+					</div>
 				)}
 				{tab === 'users' && (
 					<ProjectUsersTable
 						canManage
+						groupsReadOnly={codeManaged}
 						projectUsers={projectUsers}
 						organizationUsers={organizationUsers}
 						groups={activeGroups}
@@ -183,6 +204,58 @@ function UserGroupsContent({
 		</>
 	);
 }
+
+function UserGroupCodeManagement({
+	status,
+}: {
+	status: {
+		mode: 'ui' | 'code';
+		appliedAt: Date | null;
+		lastAttemptFailed: boolean;
+		errorMessage: string | null;
+		pendingEmails: Array<{ email: string }>;
+	};
+}) {
+	const [isDownloading, setIsDownloading] = useState(false);
+	const download = async () => {
+		setIsDownloading(true);
+		try {
+			const exported = await trpcClient.userGroup.exportConfig.query();
+			downloadTextFile(exported.filename, exported.content, 'application/yaml;charset=utf-8');
+		} finally {
+			setIsDownloading(false);
+		}
+	};
+	const description =
+		status.mode === 'code'
+			? `Managed by groups.yaml${status.appliedAt ? ` since ${status.appliedAt.toLocaleString()}` : ''}.`
+			: 'Download the current groups as a starting point before switching to groups.yaml.';
+	return (
+		<SettingsCard
+			title='Groups as code'
+			description={description}
+			action={
+				<Button variant='secondary' onClick={() => void download()} isLoading={isDownloading}>
+					<Download />
+					Download YAML
+				</Button>
+			}
+		>
+			{status.lastAttemptFailed && (
+				<p className='text-sm text-destructive'>
+					Last attempt failed{status.errorMessage ? `: ${status.errorMessage}` : '.'}
+				</p>
+			)}
+			{status.pendingEmails.length > 0 && (
+				<p className='text-sm text-muted-foreground'>
+					{status.pendingEmails.length} email {status.pendingEmails.length === 1 ? 'is' : 'are'} pending
+					project access.
+				</p>
+			)}
+		</SettingsCard>
+	);
+}
+
 function GroupsTable({
 	groups,
 	memberships,
@@ -196,6 +269,7 @@ function GroupsTable({
 	onRetryDocsCatalog,
 	onRetryFilesCatalog,
 	entitlement,
+	codeManaged,
 	onOpenGroup,
 	onCreateGroup,
 }: {
@@ -211,6 +285,7 @@ function GroupsTable({
 	onRetryDocsCatalog: () => void;
 	onRetryFilesCatalog: () => void;
 	entitlement: UserGroupsEntitlement;
+	codeManaged: boolean;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
@@ -230,7 +305,7 @@ function GroupsTable({
 			action={
 				<div className='flex items-center gap-2'>
 					<ImpersonateGroupsButton groups={impersonableGroups} />
-					{entitlement === 'loading' ? (
+					{codeManaged ? null : entitlement === 'loading' ? (
 						<Button disabled>Loading group access...</Button>
 					) : entitlement === 'error' ? (
 						<Button disabled>Create group unavailable</Button>

@@ -1,0 +1,150 @@
+groups:
+    # Optional. Overrides nao's hidden defaults for every other group, all_users included.
+    # It has no members and is never shown as a group in the UI.
+    - id: default
+      capabilities:
+          features: [] # story_creation | custom_story_creation | automation_creation | personal_skills
+          tool_call_density:
+              default_density: detailed # compact | detailed
+              can_change: true
+          show_all_settings: false
+          advanced_context_explorer: false # context admins use the advanced File Explorer
+          project_sharing: inherit # inherit | allowed | blocked
+          share_targets:
+              include_own_group: true
+              group_ids: []
+          mcp:
+              mode: restricted # all | restricted
+              grants: []
+          skills:
+              mode: restricted # all | restricted
+              allowed: []
+              preloaded: [] # always loaded into the agent, up to the preloaded-skill limit
+      access:
+          databases:
+              mode: restricted # all | restricted
+              strict: false # block SQL on tables outside the user's combined group access
+              grants: []
+              patterns: []
+          files:
+              mode: restricted # all | restricted
+              grants: []
+      policies:
+          rows: []
+          columns: []
+
+    # Required. Every project user is a member; list_of_emails and sso_groups are rejected.
+    - id: all_users
+      capabilities:
+          features: [story_creation]
+          show_all_settings: true
+          mcp:
+              mode: all
+          skills:
+              mode: all
+              preloaded: [company_glossary]
+      access:
+          databases:
+              mode: all
+              strict: false
+          files:
+              mode: all
+
+    - id: finance
+      name: Finance
+      list_of_emails:
+          - alice@example.com
+          - bob@example.com # pending until bob gets project access
+      sso_groups:
+          oidc: [okta-finance] # group names sent in the OIDC groups claim
+          microsoft: [6f1c2e4a-0b7d-4c1e-9a3f-2d5b8e7c1a90] # Entra ID group object IDs
+          default_project_role: user # admin | user | viewer | context_admin, for users provisioned through these groups
+      capabilities:
+          features: [story_creation, custom_story_creation, automation_creation]
+          tool_call_density:
+              default_density: compact
+              can_change: false
+          project_sharing: allowed
+          share_targets:
+              include_own_group: true
+              group_ids: [leadership] # must exist, cannot reference itself
+          mcp:
+              mode: restricted
+              grants:
+                  - kind: server # every tool of the server
+                    server: github
+                  - kind: tool # a single tool
+                    server: slack
+                    tool: post_message
+          skills:
+              mode: restricted
+              allowed: [revenue_analysis, forecasting]
+              preloaded: [revenue_analysis] # must also be allowed
+      access:
+          databases:
+              mode: restricted
+              strict: true
+              grants:
+                  - kind: schema
+                    database_type: postgres
+                    database: warehouse
+                    schema: finance
+                  - kind: table
+                    database_type: snowflake
+                    database: analytics
+                    schema: core
+                    table: customers
+              patterns:
+                  - finance_* # no dot: every table in matching schemas
+                  - core.revenue_* # schema.table glob
+          files:
+              mode: restricted
+              grants:
+                  - kind: folder
+                    path: docs/finance
+                  - kind: file
+                    path: semantics/revenue.yaml
+      policies:
+          rows:
+              - database_type: postgres # guided predicate
+                database: warehouse
+                schema: finance
+                table: invoices
+                access: predicate
+                mode: guided
+                combinator: and # and | or
+                conditions: # 1 to 100 conditions
+                    - column: region
+                      operator: is_one_of # equals | does_not_equal | greater_than | greater_than_or_equal
+                      values: [EMEA, APAC] # | less_than | less_than_or_equal | is_one_of | is_not_one_of
+                    - column: deleted_at # | is_null | is_not_null
+                      operator: is_null
+              - database_type: postgres # raw SQL predicate
+                database: warehouse
+                schema: finance
+                table: payments
+                access: predicate
+                mode: sql
+                predicate: WHERE amount < 10000 # must start with WHERE
+              - database_type: postgres # no row restriction
+                database: warehouse
+                schema: finance
+                table: budgets
+                access: full
+          columns:
+              - database_type: postgres # reveals columns hidden in Column security
+                database: warehouse
+                schema: finance
+                table: employees
+                granted_columns: [salary]
+
+    - id: leadership
+      name: Leadership
+      list_of_emails: [ceo@example.com]
+      capabilities:
+          show_all_settings: true
+          project_sharing: blocked
+      access:
+          databases:
+              mode: all
+              strict: true

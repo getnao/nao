@@ -4,6 +4,7 @@ import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
 	ContextProjectResolutionError: class ContextProjectResolutionError extends Error {},
+	applyProjectGroupsFile: vi.fn(),
 	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
 	createDraftFile: vi.fn(),
@@ -71,6 +72,10 @@ vi.mock('../../src/services/user-group-availability.service', () => ({
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+}));
+
+vi.mock('../../src/services/groups-config-apply.service', () => ({
+	applyProjectGroupsFile: mocks.applyProjectGroupsFile,
 }));
 
 vi.mock('../../src/services/sso-group-mapping.service', () => ({

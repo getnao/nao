@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationById: vi.fn(),
 	getProjectById: vi.fn(),
 	getUser: vi.fn(),
+	reconcileGroupsMembershipsForUser: vi.fn(),
 	recordOrganizationJoinCandidate: vi.fn(),
 	recordProjectJoinCandidate: vi.fn(),
 }));
@@ -28,6 +29,9 @@ vi.mock('../../src/services/context-explorer-git.service', () => ({
 vi.mock('../../src/services/credit-grant.service', () => ({
 	recordOrganizationJoinCandidate: mocks.recordOrganizationJoinCandidate,
 	recordProjectJoinCandidate: mocks.recordProjectJoinCandidate,
+}));
+vi.mock('../../src/services/groups-config-apply.service', () => ({
+	reconcileGroupsMembershipsForUser: mocks.reconcileGroupsMembershipsForUser,
 }));
 vi.mock('../../src/services/project-user-group-membership.service', () => ({
 	addProjectMemberWithUserGroups: mocks.addProjectMemberWithUserGroups,
@@ -55,6 +59,7 @@ describe('membership service', () => {
 		expect(mocks.addOrgMemberIfMissing.mock.invocationCallOrder[0]).toBeLessThan(
 			mocks.recordOrganizationJoinCandidate.mock.invocationCallOrder[0],
 		);
+		expect(mocks.reconcileGroupsMembershipsForUser).toHaveBeenCalledWith('user-1');
 	});
 
 	it.each([
@@ -79,5 +84,6 @@ describe('membership service', () => {
 		expect(persistMember.mock.invocationCallOrder[0]).toBeLessThan(
 			mocks.recordProjectJoinCandidate.mock.invocationCallOrder[0],
 		);
+		expect(mocks.reconcileGroupsMembershipsForUser).toHaveBeenCalledWith('user-1');
 	});
 });

@@ -93,6 +93,7 @@ import { validateCreditTopUpConfiguration } from './services/credit-top-up.servi
 import { discordService } from './services/discord';
 import { registerEnvLlmConfigsForAllProjects } from './services/env-llm-config.service';
 import { ensureSystemExampleProject } from './services/example-project';
+import { applyAllProjectGroupsFiles } from './services/groups-config-apply.service';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
 import { reportManagedGithubConfiguration } from './services/managed-github-repository';
@@ -558,6 +559,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		});
 	}
 	await logLicenseStatus();
+	await applyAllProjectGroupsFiles();
 	await reconcileOrganizationSetupGrants();
 
 	void runLogCleanup().catch((err) => {

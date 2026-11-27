@@ -50,12 +50,13 @@ import {
 	withSatisfiedFeatureDependencies,
 } from '@nao/shared';
 import type { LlmModelIdsByConfig } from '@nao/shared/types';
-import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 
 import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import * as groupsConfigQueries from './groups-config.queries';
 import {
 	listUsersWithProjectAccess,
 	listUsersWithProjectAccessDetails,
@@ -327,7 +328,7 @@ export const listUserGroups = async (projectId: string): Promise<UserGroup[]> =>
 	db
 		.select()
 		.from(s.userGroup)
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), isNull(s.userGroup.archivedAt)))
 		.orderBy(desc(s.userGroup.isDefault), asc(s.userGroup.name))
 		.execute()
 		.then((groups) => groups.map(normalizeUserGroup));
@@ -336,7 +337,9 @@ export const countCustomUserGroups = async (projectId: string): Promise<number> 
 	const [result] = await db
 		.select({ count: count() })
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.where(
+			and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false), isNull(s.userGroup.archivedAt)),
+		)
 		.execute();
 	return result?.count ?? 0;
 };
@@ -364,6 +367,7 @@ export const createUserGroup = async (
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
+	await assertProjectGroupsUiManaged(projectId);
 	const expectedRowPoliciesRegistry =
 		rowPolicies.policies.length === 0
 			? undefined
@@ -449,6 +453,7 @@ export const createUserGroupWithinLimit = async (
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
+	await assertProjectGroupsUiManaged(projectId);
 	const expectedRowPoliciesRegistry =
 		rowPolicies.policies.length === 0
 			? undefined
@@ -548,6 +553,7 @@ export const updateUserGroup = async (
 		llmModelIdsByConfig?: LlmModelIdsByConfig;
 	},
 ): Promise<UserGroup> => {
+	await assertProjectGroupsUiManaged(projectId);
 	const group = await getUserGroup(projectId, groupId);
 	const rowPoliciesRegistry =
 		data.rowPolicies !== undefined
@@ -756,13 +762,14 @@ export const updateUserGroupLlmAccess = async (
 };
 
 export const deleteUserGroup = async (projectId: string, groupId: string): Promise<void> => {
+	await assertProjectGroupsUiManaged(projectId);
 	const group = await getUserGroup(projectId, groupId);
 	if (group.isDefault) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be deleted.');
 	}
 	await db
 		.delete(s.userGroup)
-		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId), isNull(s.userGroup.archivedAt)))
 		.execute();
 };
 
@@ -843,6 +850,7 @@ export const setUserGroupMemberships = async (
 	userIds: string[],
 	isMember: boolean,
 ): Promise<void> => {
+	await assertProjectGroupsUiManaged(projectId);
 	const uniqueUserIds = [...new Set(userIds)];
 	const group = await getUserGroup(projectId, groupId);
 	if (group.isDefault) {
@@ -885,7 +893,7 @@ const getUserGroup = async (projectId: string, groupId: string, executor: DBExec
 	const [group] = await executor
 		.select()
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId), isNull(s.userGroup.archivedAt)))
 		.limit(1)
 		.execute();
 	if (!group) {
@@ -898,7 +906,7 @@ function getUserGroupSqlite(transaction: DBTransaction, projectId: string, group
 	const [group] = transaction
 		.select()
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId), isNull(s.userGroup.archivedAt)))
 		.limit(1)
 		.all();
 	if (!group) {
@@ -1079,7 +1087,7 @@ function assertColumnPoliciesRegistryCurrent(expected: ProjectColumnSecurity, cu
 	}
 }
 
-function getChangedSsoProviders(
+export function getChangedSsoProviders(
 	currentMappings: DBUserGroup['ssoMappings'],
 	nextMappings: ReturnType<typeof serializeUserGroupSsoMappings>,
 ): SsoGroupProvider[] {
@@ -1175,6 +1183,9 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		projectId: group.projectId,
 		name: group.name,
 		isDefault: group.isDefault,
+		configId: group.configId,
+		archivedAt: group.archivedAt,
+		memberEmails: group.memberEmails,
 		createdAt: group.createdAt,
 		updatedAt: group.updatedAt,
 		llmConfigIds: group.llmConfigIds,
@@ -1456,7 +1467,9 @@ export async function listCustomUserGroupSummaries(projectId: string): Promise<C
 	return db
 		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.where(
+			and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false), isNull(s.userGroup.archivedAt)),
+		)
 		.execute();
 }
 
@@ -1470,6 +1483,21 @@ export async function listCustomUserGroupSummariesAroundMember(userId: string): 
 	return db
 		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
 		.from(s.userGroup)
-		.where(and(inArray(s.userGroup.projectId, memberProjectIds), eq(s.userGroup.isDefault, false)))
+		.where(
+			and(
+				inArray(s.userGroup.projectId, memberProjectIds),
+				eq(s.userGroup.isDefault, false),
+				isNull(s.userGroup.archivedAt),
+			),
+		)
 		.execute();
+}
+
+async function assertProjectGroupsUiManaged(projectId: string): Promise<void> {
+	if (await groupsConfigQueries.isGroupsConfigManaged(projectId)) {
+		throw new UserGroupQueryError(
+			'FORBIDDEN',
+			'This project manages user groups in groups.yaml. Edit and deploy that file instead.',
+		);
+	}
 }
