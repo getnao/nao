@@ -1,0 +1,1 @@
+ALTER TABLE `llm_inference` ADD `story_id` text REFERENCES story(id) ON DELETE set null;

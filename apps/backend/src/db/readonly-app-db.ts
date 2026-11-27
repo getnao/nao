@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 
 import { env } from '../env';
+import type { CostLookupTuple } from '../queries/usage.queries';
 import { getScopedViews } from './app-db-views';
 import dbConfig, { Dialect } from './dbConfig';
 
@@ -10,6 +11,9 @@ export interface AppDbQueryResult {
 }
 
 const APP_DB_STATEMENT_TIMEOUT_MS = 30_000;
+const MODEL_COST_KEY_COLUMNS = ['provider', 'model_id', 'llm_config_id'];
+const MODEL_COST_PRICE_COLUMNS = ['input_no_cache', 'input_cache_read', 'input_cache_write', 'output'];
+const MODEL_COST_COLUMNS = [...MODEL_COST_KEY_COLUMNS, ...MODEL_COST_PRICE_COLUMNS];
 const DATE_OID = 1082;
 const TIMESTAMP_OID = 1114;
 
@@ -28,43 +32,43 @@ const NAIVE_DATE_TYPES = {
 	},
 };
 
-export async function runScopedAppDbQuery(projectId: string, sql: string): Promise<AppDbQueryResult> {
+/** Model prices go in a temp table so the views price tokens on the fly, never stored, with each project's own prices. */
+export async function runScopedAppDbQuery(
+	projectId: string,
+	sql: string,
+	modelCosts: readonly CostLookupTuple[] = [],
+): Promise<AppDbQueryResult> {
 	if (dbConfig.dialect === Dialect.Postgres) {
-		return runPostgres(projectId, sql);
+		return runPostgres(projectId, sql, modelCosts);
 	}
-	return runSqlite(projectId, sql);
+	return runSqlite(projectId, sql, modelCosts);
 }
 
-async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResult> {
-	// Production runs under Bun (bun:sqlite); tests run under Node (better-sqlite3).
-	// better-sqlite3's native binding does not load under Bun, so the driver is chosen by runtime.
-	if (typeof Bun !== 'undefined') {
-		const { Database } = await import('bun:sqlite');
-		const conn = new Database(dbConfig.dbUrl);
-		try {
-			conn.run('CREATE TEMP TABLE _scope (project_id TEXT NOT NULL)');
-			conn.query('INSERT INTO _scope (project_id) VALUES (?)').run(projectId);
-			for (const view of getScopedViews()) {
-				conn.run(`CREATE TEMP VIEW ${view.name} AS ${view.body}`);
-			}
-			conn.run('PRAGMA query_only = ON');
-			const rows = conn.query(sql).all() as Record<string, unknown>[];
-			return { columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows };
-		} finally {
-			conn.close();
-		}
-	}
+interface SqliteConnection {
+	exec(sql: string): unknown;
+	prepare(sql: string): { run(...params: unknown[]): unknown; all(): unknown[] };
+	close(): void;
+}
 
-	const { default: Database } = await import('better-sqlite3');
-	const conn = new Database(dbConfig.dbUrl);
+async function runSqlite(
+	projectId: string,
+	sql: string,
+	modelCosts: readonly CostLookupTuple[],
+): Promise<AppDbQueryResult> {
+	const conn = await openSqlite();
 	try {
 		conn.exec('CREATE TEMP TABLE _scope (project_id TEXT NOT NULL)');
 		conn.prepare('INSERT INTO _scope (project_id) VALUES (?)').run(projectId);
+		conn.exec(modelCostTableDdl('real'));
+		const insertModelCost = conn.prepare('INSERT INTO _model_cost VALUES (?, ?, ?, ?, ?, ?, ?)');
+		for (const modelCost of modelCosts) {
+			insertModelCost.run(...modelCost);
+		}
 		for (const view of getScopedViews()) {
 			conn.exec(`CREATE TEMP VIEW ${view.name} AS ${view.body}`);
 		}
 		// Belt-and-suspenders: block any write that slipped past the validator.
-		conn.pragma('query_only = ON');
+		conn.exec('PRAGMA query_only = ON');
 		const rows = conn.prepare(sql).all() as Record<string, unknown>[];
 		return { columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows };
 	} finally {
@@ -72,7 +76,24 @@ async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResu
 	}
 }
 
-async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryResult> {
+/**
+ * Production runs under Bun (bun:sqlite); tests run under Node (better-sqlite3).
+ * better-sqlite3's native binding does not load under Bun, so the driver is chosen by runtime.
+ */
+async function openSqlite(): Promise<SqliteConnection> {
+	if (typeof Bun !== 'undefined') {
+		const { Database } = await import('bun:sqlite');
+		return new Database(dbConfig.dbUrl) as unknown as SqliteConnection;
+	}
+	const { default: Database } = await import('better-sqlite3');
+	return new Database(dbConfig.dbUrl) as unknown as SqliteConnection;
+}
+
+async function runPostgres(
+	projectId: string,
+	sql: string,
+	modelCosts: readonly CostLookupTuple[],
+): Promise<AppDbQueryResult> {
 	const ssl = env.DB_SSL ? 'require' : undefined;
 	const client = postgres(dbConfig.dbUrl, { ssl, max: 1, types: NAIVE_DATE_TYPES });
 	try {
@@ -82,6 +103,10 @@ async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryRe
 		await client.begin(async (tx) => {
 			await tx`CREATE TEMP TABLE _scope (project_id text NOT NULL)`;
 			await tx`INSERT INTO _scope (project_id) VALUES (${projectId})`;
+			await tx.unsafe(modelCostTableDdl('double precision'));
+			if (modelCosts.length > 0) {
+				await tx`INSERT INTO _model_cost ${tx(modelCosts.map(toModelCostRow))}`;
+			}
 			for (const view of getScopedViews()) {
 				await tx.unsafe(`CREATE TEMP VIEW ${view.name} AS ${view.body}`);
 			}
@@ -101,4 +126,17 @@ async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryRe
 	} finally {
 		await client.end({ timeout: 5 });
 	}
+}
+
+/** One row per provider, model and credential, with its price per million tokens. */
+function modelCostTableDdl(priceType: 'real' | 'double precision'): string {
+	const columns = [
+		...MODEL_COST_KEY_COLUMNS.map((column) => `${column} text NOT NULL`),
+		...MODEL_COST_PRICE_COLUMNS.map((column) => `${column} ${priceType} NOT NULL`),
+	];
+	return `CREATE TEMP TABLE _model_cost (${columns.join(', ')})`;
+}
+
+function toModelCostRow(modelCost: CostLookupTuple): Record<string, string | number> {
+	return Object.fromEntries(MODEL_COST_COLUMNS.map((column, index) => [column, modelCost[index]]));
 }

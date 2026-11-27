@@ -79,6 +79,7 @@ interface StoryRefreshTarget {
 	projectId: string;
 	userId: string;
 	chatId: string | null;
+	storyId: string;
 }
 
 /** The user whose access a story's queries run with, in the story's project and chat, if any. */
@@ -221,7 +222,7 @@ async function refreshStory(
 	}
 	const cachedData = await withKeptQueryData(story, queryIds, freshData);
 	const queryData = pickQueryData(cachedData, queryIds);
-	const target = { projectId: scope.projectId, userId: scope.ownerId, chatId: story.chatId };
+	const target = { projectId: scope.projectId, userId: scope.ownerId, chatId: story.chatId, storyId: story.id };
 	const code = await refreshDynamicCode(story.id, target, version, queryData);
 	const generatedNarratives =
 		version.isLiveTextDynamic && version.format === 'custom'
@@ -575,7 +576,7 @@ export async function refreshStoryForViewer(
 			: {};
 	const queryData = Object.fromEntries([...queryIds].map((id) => [id, freshData[id] ?? ACCESS_DENIED_RESULT]));
 	const readableData = omitAccessDeniedQueries(queryData);
-	const target = { projectId: scope.projectId, userId: viewerUserId, chatId: story.chatId };
+	const target = { projectId: scope.projectId, userId: viewerUserId, chatId: story.chatId, storyId: story.id };
 	const [code, narratives] = await Promise.all([
 		buildViewerStoryCode(target, version, queryIds, readableData),
 		buildViewerNarratives(target, version, readableData),
@@ -1282,6 +1283,7 @@ async function generateLiveStoryOutput<T>(
 		projectId: target.projectId,
 		userId: target.userId,
 		chatId: target.chatId,
+		storyId: target.storyId,
 		llmProvider: provider,
 		llmModelId: model.model.modelId,
 		llmConfigId,

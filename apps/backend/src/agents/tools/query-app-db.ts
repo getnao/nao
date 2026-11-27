@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { QueryAppDbOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { runScopedAppDbQuery } from '../../db/readonly-app-db';
+import { getCostLookupTuples } from '../../queries/usage.queries';
 import { ALLOWED_APP_DB_VIEWS, validateAppDbQuery } from '../../utils/app-db-allowlist';
 import { explainAppDbError } from '../../utils/app-db-errors';
 import { createTool } from '../../utils/tools';
@@ -24,7 +25,8 @@ export async function queryAppDb(projectId: string, sql: string): Promise<QueryA
 		throw new Error(verdict.reason ?? 'Query rejected.');
 	}
 	try {
-		const { columns, rows } = await runScopedAppDbQuery(projectId, sql);
+		const modelCosts = await getCostLookupTuples(projectId);
+		const { columns, rows } = await runScopedAppDbQuery(projectId, sql, modelCosts);
 		return { _version: '1', columns, rows, rowCount: rows.length };
 	} catch (error) {
 		throw new Error(explainAppDbError(error), { cause: error });

@@ -13,15 +13,20 @@ export function renderAdminSystemPrompt(options?: { timezone?: string; dialect?:
 
 const VIEW_DESCRIPTIONS: Record<string, string> = {
 	v_messages:
-		'The full message history, one row per message part. Holds user prompts, assistant answers, tool calls (tool_name, tool_state, tool_input, tool_output, tool_error_text), feedback (vote, explanation), errors and the model used. Three columns describe each row differently: role is who authored the part (user, assistant or system); message_source is the channel that specific message came in through (e.g. slack, teams, web, mcp) and is only set on user messages, so it is null on assistant answers and tool calls; chat_source is the channel of the whole conversation, derived from its first user message, so it is the same on every row of a chat and is the column to use when grouping or filtering a conversation by where it originated. Token totals are overall counts, detail columns split input by cache use and output by text/reasoning, and total_tokens combines both; values repeat per part, so deduplicate by message_id before summing. This is the richest view for tool errors, votes and regenerations.',
+		'The full message history, one row per message part. Holds user prompts, assistant answers, tool calls (tool_name, tool_state, tool_input, tool_output, tool_error_text), feedback (vote, explanation), errors and the model used. Three columns describe each row differently: role is who authored the part (user, assistant or system); message_source is the channel that specific message came in through (e.g. slack, teams, web, mcp) and is only set on user messages, so it is null on assistant answers and tool calls; chat_source is the channel of the whole conversation, derived from its first user message, so it is the same on every row of a chat and is the column to use when grouping or filtering a conversation by where it originated. Token totals are overall counts, detail columns split input by cache use and output by text/reasoning, total_tokens combines both, and cost_usd prices them with the project model prices (null when the model has no known price); values repeat per part, so deduplicate by message_id before summing. This is the richest view for tool errors, votes and regenerations.',
 	v_memories: 'The memories the agent has stored per user.',
-	v_llm_inference: 'One row per LLM inference call, with its type and token usage.',
+	v_llm_inference:
+		'One row per LLM call made outside the chat answer itself, such as live story refreshes, sub-agents, compaction, titles, memory extraction or the decision model (type). user_id/user_name is who it ran for, chat_id the chat it belongs to and story_id the story a live_story_refresh call regenerated. It carries the same token split and cost_usd as v_messages, once per call.',
 	v_mcp_call_log: 'One row per MCP tool call, with its duration and whether it succeeded.',
 	v_project: 'The current project (id and name).',
 	v_analytics_event:
 		'One row per asset engagement event. type is one of page_view, download, fork, favorite, feedback, refresh, view_duration; asset_type is chat or story; actor_user_id is who triggered it; chat_id/story_id/shared_chat_id/shared_story_id point to the asset; metadata holds event-specific JSON (e.g. download format, view duration, feedback vote and explanation). Feedback events keep every vote a user cast over time. This is the view for adoption, engagement and sharing analytics.',
 	v_story_feedback:
 		"The current thumbs up/down feedback users left on stories, one row per user per story (a later vote replaces the earlier one; updated_at is when it last changed). vote is up or down and explanation is the optional message. story_owner_id/story_owner_name is the story's author, user_id/user_name is who left the feedback. This is the view for story quality and satisfaction; use v_analytics_event with type = 'feedback' for the history of vote changes.",
+	v_stories:
+		"One row per story. owner_id/owner_name is its author. is_live with is_live_text_dynamic means each refresh also regenerates its text with an LLM; cache_schedule (cron) and cache_schedule_description say how often it refreshes on its own. Join v_llm_inference on story_id for what its refreshes cost, and v_analytics_event (type = 'refresh') for when they ran.",
+	v_automation_runs:
+		"One row per automation run, with the automation's title, owner and schedule_description. trigger is what started it and chat_id the conversation it ran in, whose messages and cost_usd are in v_messages.",
 	v_test_runs:
 		"One row per run of the project's test suite (the tests defined in the File Explorer). trigger is manual (a full production suite run), draft (a selected or edited test run against production), changes (a run with the user's unpublished context changes) or comparison (a run against both production and the user's changes); status is queued, running, completed, failed or cancelled. models is the JSON list of models tried, attempts is how many times each test ran per model, and selection is the JSON list of test paths included in the run, including the full suite. total_attempts/completed_attempts/passed_attempts, total_tokens and total_cost sum the whole run. Filter on trigger = 'manual' and status = 'completed' to follow the suite's pass rate over time.",
 	v_test_results:
@@ -101,6 +106,23 @@ function AdminSystemPrompt({ timezone, dialect }: { timezone?: string; dialect: 
 				</ListItem>
 				<ListItem>
 					If a query errors, inspect the column list above and fix it rather than guessing column names.
+				</ListItem>
+			</List>
+
+			<Title level={2}>Spend questions</Title>
+			<List>
+				<ListItem>
+					Rank by <Code>cost_usd</Code>, never by tokens: cache-read tokens cost a fraction of the others, so
+					the biggest token counts are often not the biggest bills.
+				</ListItem>
+				<ListItem>
+					Add up both sources: chat answers in <Code>v_messages</Code> (automations and tests included) and
+					background calls in <Code>v_llm_inference</Code>. Attribute them through <Code>chat_id</Code>,{' '}
+					<Code>story_id</Code> and <Code>v_automation_runs</Code>.
+				</ListItem>
+				<ListItem>
+					<Code>cost_usd</Code> is estimated from list or configured prices, so it can differ from the
+					provider&apos;s invoice; say so when comparing to one.
 				</ListItem>
 			</List>
 
