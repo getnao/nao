@@ -305,7 +305,8 @@ export type StoryFrameMessage =
 	| ({ type: 'nao-story:set-state' } & StoryStateChange)
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
 	| ({ type: 'nao-story:ask' } & StoryElementAsk)
-	| ({ type: 'nao-story:keydown' } & KeydownSnapshot);
+	| ({ type: 'nao-story:keydown' } & KeydownSnapshot)
+	| { type: 'nao-story:open-url'; url: string };
 
 export interface StoryElementAsk {
 	block: StoryBlockReference;
@@ -381,8 +382,22 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:ask-block',
 			'nao-story:ask',
 			'nao-story:keydown',
+			'nao-story:open-url',
 		].includes(value.type)
 	);
+};
+
+/** The only links a story may have the host open in a new tab: web pages, never `javascript:`, `data:` or the like. */
+export const isStoryLinkUrl = (value: unknown): value is string => {
+	if (typeof value !== 'string') {
+		return false;
+	}
+	try {
+		const { protocol } = new URL(value);
+		return protocol === 'https:' || protocol === 'http:';
+	} catch {
+		return false;
+	}
 };
 
 export const isStoryHostMessage = (value: unknown): value is StoryHostMessage => {

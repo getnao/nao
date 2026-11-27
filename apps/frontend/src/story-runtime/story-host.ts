@@ -14,6 +14,7 @@ import { createRoot } from 'react-dom/client';
 import { resolveBlockColors } from './story-colors';
 import { highlightStoryElement } from './story-highlight';
 import { configureStoryInspector } from './story-inspector';
+import { routeLinkClicks } from './story-links';
 import { initStoryState, readStoryState, writeStoryState } from './story-state';
 import type { StoryModel, StoryModelRequest, StoryModelResult } from '@nao/shared/story-models';
 import type { ErrorInfo, ReactNode } from 'react';
@@ -88,6 +89,9 @@ export async function bootStory({
 	exportData = embeddedData ?? null;
 	bootStoryState(state);
 	installGlobalErrorReporting();
+	if (!exportData) {
+		routeLinkClicks((url) => send({ type: 'nao-story:open-url', url }));
+	}
 
 	try {
 		if (kind === 'html') {

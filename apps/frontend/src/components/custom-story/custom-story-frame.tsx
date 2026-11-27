@@ -3,6 +3,7 @@ import {
 	EMPTY_STORY_STATE_SNAPSHOT,
 	isFromStoryChannel,
 	isStoryFrameMessage,
+	isStoryLinkUrl,
 	STORY_CONNECT_MESSAGE,
 	STORY_FORWARDED_KEYS,
 	STORY_RUNTIME_PATH,
@@ -389,6 +390,11 @@ export function CustomStoryFrame({
 					break;
 				case 'nao-story:keydown':
 					replayKeydown(document, message);
+					break;
+				case 'nao-story:open-url':
+					if (isUserGesture() && isStoryLinkUrl(message.url)) {
+						window.open(message.url, '_blank', 'noopener,noreferrer');
+					}
 					break;
 			}
 		};
