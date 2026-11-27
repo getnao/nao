@@ -311,7 +311,11 @@ async function _buildContextBase(opts: {
 		projectId: opts.projectId,
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
-		semanticLayerMode: resolveSemanticLayerMode(projectFolder, agentSettings),
+		semanticLayerMode: resolveSemanticLayerMode(
+			projectFolder,
+			agentSettings,
+			contextAccess.semanticLayerModeOverride,
+		),
 		sqlQueryTag,
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,

@@ -34,6 +34,7 @@ import {
 	ROW_SECURITY_MAX_VALUE_LENGTH,
 	ROW_SECURITY_OPERATORS,
 	rowSecurityTableKey,
+	SEMANTIC_LAYER_MODES,
 	type SkillsAccess,
 	stripRowSecurityWhereClause,
 	TOOL_CALL_DENSITIES,
@@ -92,6 +93,7 @@ const toolCallDensityPolicySchema = z.object({
 	canChange: z.boolean(),
 });
 const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
+const semanticLayerModeSchema = z.enum(SEMANTIC_LAYER_MODES).nullable();
 const shareTargetsSchema = z
 	.object({
 		includeOwnGroup: z.boolean(),
@@ -492,6 +494,7 @@ export const userGroupRoutes = {
 				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
+				semanticLayerMode: semanticLayerModeSchema.default(null),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -553,6 +556,14 @@ export const userGroupRoutes = {
 					llmAccess.llmConfigIds,
 					llmAccess.llmModelIdsByConfig,
 				] as const;
+				if (input.semanticLayerMode !== null) {
+					return createUserGroup(
+						...values,
+						rowPoliciesRegistry,
+						columnPoliciesRegistry,
+						input.semanticLayerMode,
+					);
+				}
 				return rowPoliciesRegistry === undefined && columnPoliciesRegistry === undefined
 					? createUserGroup(...values)
 					: createUserGroup(...values, rowPoliciesRegistry, columnPoliciesRegistry);
@@ -585,6 +596,7 @@ export const userGroupRoutes = {
 				llmModelIdsByConfig: llmModelIdsByConfigSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
+				semanticLayerMode: semanticLayerModeSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -655,6 +667,7 @@ export const userGroupRoutes = {
 					showAllSettings: input.showAllSettings,
 					advancedContextExplorer: input.advancedContextExplorer,
 					preloadedSkills: input.preloadedSkills,
+					semanticLayerMode: input.semanticLayerMode,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),
 					...(filesAccess === undefined ? {} : { filesAccess }),
