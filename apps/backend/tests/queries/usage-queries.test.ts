@@ -376,7 +376,9 @@ describe('usage query results', () => {
 
 	it('filters primary and secondary usage by the exact credential without changing unfiltered totals', async () => {
 		const now = new Date();
+		const at = (offsetMs: number) => new Date(now.getTime() - 60_000 + offsetMs);
 		await db.insert(s.chatMessage).values([
+			{ id: 'question-a', chatId: CHAT_ID, role: 'user', createdAt: at(0) },
 			{
 				id: 'credential-a-message',
 				chatId: CHAT_ID,
@@ -385,8 +387,9 @@ describe('usage query results', () => {
 				llmModelId: 'gpt-4o',
 				llmConfigId: 'credential-a',
 				totalTokens: 100,
-				createdAt: now,
+				createdAt: at(1),
 			},
+			{ id: 'question-b', chatId: CHAT_ID, role: 'user', createdAt: at(2) },
 			{
 				id: 'credential-b-message',
 				chatId: CHAT_ID,
@@ -395,7 +398,7 @@ describe('usage query results', () => {
 				llmModelId: 'gpt-4o',
 				llmConfigId: 'credential-b',
 				totalTokens: 200,
-				createdAt: now,
+				createdAt: at(3),
 			},
 		]);
 		await db.insert(s.llmInference).values([
@@ -423,13 +426,17 @@ describe('usage query results', () => {
 		]);
 		const period = { value: 15, unit: 'day' as const };
 
-		const [filtered, unfiltered] = await Promise.all([
+		const [filtered, unfiltered, filteredTotal] = await Promise.all([
 			getMessagesUsage(PROJECT_ID, { period, llmConfigIds: ['credential-a'] }),
 			getMessagesUsage(PROJECT_ID, { period }),
+			getTotalUsage(PROJECT_ID, { period, llmConfigIds: ['credential-a'] }),
 		]);
 
 		expect(filtered.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(110);
+		expect(filtered.reduce((sum, record) => sum + record.messageCount, 0)).toBe(1);
+		expect(filteredTotal.totalMessages).toBe(1);
 		expect(unfiltered.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(315);
+		expect(unfiltered.reduce((sum, record) => sum + record.messageCount, 0)).toBe(2);
 	});
 
 	it('prices the same provider model by credential', async () => {
