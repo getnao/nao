@@ -132,6 +132,21 @@ describe('automation run integration results', () => {
 			},
 		]);
 	});
+
+	it.each([
+		['a plain error', 'Your credit balance is too low.'],
+		['a JSON error', JSON.stringify({ error: { message: 'Your credit balance is too low.' } })],
+	])('fails the run with the model error when the model streams %s', async (_label, errorText) => {
+		mocks.createAgent.mockResolvedValue({
+			stream: () => createErrorStream(errorText),
+			getModelSelection: () => ({ provider: 'anthropic', modelId: 'claude-opus-4-8' }),
+		});
+		mocks.getChatMessages.mockResolvedValue([]);
+
+		await expect(runAutomation('automation-1', { trigger: 'schedule' })).rejects.toThrow();
+
+		expect(mocks.failAutomationRun).toHaveBeenCalledWith('run-1', 'Model error: Your credit balance is too low.');
+	});
 });
 
 describe('interrupting automation runs on shutdown', () => {
@@ -205,6 +220,16 @@ function createStoppableAgent() {
 function createEmptyStream() {
 	return new ReadableStream({
 		start(controller) {
+			controller.close();
+		},
+	});
+}
+
+function createErrorStream(errorText: string) {
+	return new ReadableStream({
+		start(controller) {
+			controller.enqueue({ type: 'start', messageId: 'message-1' });
+			controller.enqueue({ type: 'error', errorText });
 			controller.close();
 		},
 	});
