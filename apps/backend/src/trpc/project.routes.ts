@@ -15,6 +15,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { listDatabricksChatEndpoints } from '../agents/databricks';
 import { getProviderAuth, isManagedProvider, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env, isCloud } from '../env';
@@ -83,6 +84,7 @@ import {
 	llmProviderSchema,
 	llmSelectedModelSchema,
 	modelSettingsMapSchema,
+	type ProviderSettings,
 } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
 import { isValidIsoDateString } from '../utils/date';
@@ -95,6 +97,8 @@ import {
 	getProjectConfigLlm,
 	getProjectModelNameResolver,
 	hasEnvApiKey,
+	projectEndpointSettings,
+	resolveProviderSettings,
 } from '../utils/llm';
 import {
 	extractConfiguredSemanticLayer,
@@ -194,6 +198,30 @@ async function assertPublicBaseUrl(baseUrl: string): Promise<void> {
 	} catch (error) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
 	}
+}
+
+async function resolveDatabricksListingSettings(
+	projectId: string,
+	input: { configId?: string; baseUrl?: string; apiKey?: string; credentials?: Record<string, string> },
+): Promise<ProviderSettings> {
+	const saved = await resolveProviderSettings(projectId, 'databricks', input.configId);
+	const baseUrl = input.baseUrl || saved?.baseURL;
+	if (!baseUrl) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter the workspace URL first.' });
+	}
+	if (isCloud && input.baseUrl) {
+		await assertPublicBaseUrl(input.baseUrl);
+	}
+	if (input.apiKey || input.credentials?.clientSecret) {
+		return { apiKey: input.apiKey ?? '', credentials: input.credentials, ...projectEndpointSettings(baseUrl) };
+	}
+	if (!saved || saved.baseURL !== baseUrl) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Enter a personal access token or service principal credentials for this workspace.',
+		});
+	}
+	return saved;
 }
 
 async function resolveDiscordFallbackUser(projectId: string, email: string) {
@@ -587,6 +615,26 @@ export const projectRoutes = {
 				modelSettings: config.modelSettings ?? {},
 				baseUrl: config.baseUrl ?? null,
 			};
+		}),
+
+	listDatabricksServingEndpoints: adminProtectedProcedure
+		.use(limitOutboundFetchesByUser)
+		.input(
+			z.object({
+				configId: z.string().optional(),
+				baseUrl: z.string().optional(),
+				apiKey: z.string().optional(),
+				credentials: z.record(z.string(), z.string()).optional(),
+			}),
+		)
+		.output(z.array(z.string()))
+		.mutation(async ({ ctx, input }) => {
+			const settings = await resolveDatabricksListingSettings(ctx.project.id, input);
+			try {
+				return await listDatabricksChatEndpoints(settings);
+			} catch (error) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: (error as Error).message });
+			}
 		}),
 
 	deleteLlmConfig: adminProtectedProcedure
