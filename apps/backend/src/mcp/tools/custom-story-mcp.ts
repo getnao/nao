@@ -36,7 +36,7 @@ import { buildCustomStoryToolResult } from '../embed/embed-tool-result';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyUrl } from '../urls';
 import { fetchLatestStoryVersion, resolveChartChatId } from './helpers';
-import { toFolderContext } from './story-folders';
+import { toFolderContext, withFolderChoice } from './story-folders';
 import { saveMcpLiveSettings, type StoryLiveInput, toStoryLiveOutput } from './story-live-settings';
 
 const CUSTOM_STORY_DATA_RULES =
@@ -125,16 +125,15 @@ export async function createCustomStoryForMcp(
 		title: input.title,
 		files: input.files ?? [],
 	});
-	if (input.folderId !== undefined) {
-		await fileNewStoryInFolder(story.id, input.folderId, toFolderContext(ctx));
-	}
+	const keptPrivate =
+		input.folderId !== undefined && !(await fileNewStoryInFolder(story.id, input.folderId, toFolderContext(ctx)));
 	if (!story.chatId) {
 		await saveStandaloneQueryData(story, input.queryData, ctx);
 	}
-	if (!input.files?.length) {
-		return draftResult(story, input.live);
-	}
-	return publishResult(story, ctx, input.live);
+	const result = input.files?.length
+		? await publishResult(story, ctx, input.live)
+		: await draftResult(story, input.live);
+	return keptPrivate ? withFolderChoice(result, ctx) : result;
 }
 
 export async function updateCustomStoryForMcp(

@@ -20,15 +20,26 @@ export async function moveStoryForUser(storyId: string, folderId: string | null,
 	});
 }
 
-export async function fileNewStoryInFolder(storyId: string, folderId: string | null, ctx: FolderContext) {
+/**
+ * A new story the chosen folder can no longer take stays where it was saved, in its owner's private folder.
+ * It is never deleted: a concurrent create_story with the same chat and title may have returned the same story.
+ */
+export async function fileNewStoryInFolder(
+	storyId: string,
+	folderId: string | null,
+	ctx: FolderContext,
+): Promise<boolean> {
 	try {
 		await storyFolderQueries.moveStoryToFolder(storyId, folderId, {
 			storyOwnerId: ctx.user.id,
 			projectId: ctx.project.id,
 			assertAllowed: () => assertCanFileStoryIn(folderId, ctx),
 		});
+		return true;
 	} catch (error) {
-		await storyQueries.deleteStory(storyId);
+		if (error instanceof TRPCError) {
+			return false;
+		}
 		throw error;
 	}
 }

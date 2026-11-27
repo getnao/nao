@@ -155,15 +155,17 @@ describe('MCP story folder tools', () => {
 		expect((await getSharedStoryInfo(storyId, PROJECT_ID))?.visibility).toBe('project');
 	});
 
-	it('deletes the new story when the folder becomes unavailable before it is filed', async () => {
+	it('keeps the new story in the private folder and offers the folders again when the picked one becomes unavailable', async () => {
 		vi.spyOn(storyFolderQueries, 'moveStoryToFolder').mockRejectedValueOnce(
 			new TRPCError({ code: 'NOT_FOUND', message: 'Folder not found.' }),
 		);
 
 		const result = await callAs(OWNER_ID, 'create_story', { title: 'Forecast', folder_id: salesFolderId });
 
-		expect(result.isError).toBe(true);
-		expect(await db.select().from(s.story).where(eq(s.story.title, 'Forecast'))).toEqual([]);
+		expect(result.isError).toBeUndefined();
+		const privateRootId = await storyFolderQueries.ensurePrivateRoot(OWNER_ID, PROJECT_ID);
+		expect(await getStoryFolderItem(result.structuredContent?.id as string)).toEqual({ folderId: privateRootId });
+		expect(result.content.at(-1)?.text).toContain(`- Sales (shared with Sales): folder_id "${salesFolderId}"`);
 	});
 });
 

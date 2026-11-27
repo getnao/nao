@@ -380,9 +380,8 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				if ('error' in story) {
 					return errorResult(story.error);
 				}
-				if (folder_id !== undefined) {
-					await fileNewStoryInFolder(story.id, folder_id, toFolderContext(ctx));
-				}
+				const offerFolders =
+					folder_id === undefined || !(await fileNewStoryInFolder(story.id, folder_id, toFolderContext(ctx)));
 
 				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);
 				await saveStandaloneStoryQuerySql(story, code, ctx);
@@ -402,7 +401,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					...savedLive,
 				};
 				const result = await buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
-				return folder_id === undefined ? withFolderChoice(result, ctx) : result;
+				return offerFolders ? withFolderChoice(result, ctx) : result;
 			},
 		});
 	}
