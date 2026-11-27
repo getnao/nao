@@ -1,9 +1,8 @@
-import { isSkillGranted } from '@nao/shared';
 import { loadSkill } from '@nao/shared/tools';
 
-import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
+import { isProjectSkillAllowed } from '../../services/project-skill-access.service';
 import { isSandboxAvailable } from '../../services/sandbox-runtime';
-import { type Skill, skillService } from '../../services/skill';
+import { skillService } from '../../services/skill';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 import type { SkillCapabilities } from '../skills';
@@ -60,14 +59,6 @@ const loadProjectSkill = (name: string, context: ToolContext | undefined): loadS
 
 	const body = skillService.getSkillBody(context.projectId, skill.name);
 	return body ? { _version: '1' as const, name: skill.name, body } : null;
-};
-
-/** The same checks the read tool applies to the skill file, on top of the skill grant itself. */
-const isProjectSkillAllowed = (skill: Skill, context: ToolContext): boolean => {
-	return (
-		isSkillGranted(context.skillsAccess, skill.name) &&
-		isProjectContextPathAllowed(context, skill.location, skill.location, 'file')
-	);
 };
 
 const availableSkillNames = (context: ToolContext | undefined): string[] => {
