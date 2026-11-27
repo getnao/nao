@@ -174,6 +174,7 @@ function LeaderboardBadge({ label, className, children }: { label: string; class
 	return (
 		<SimpleTooltip content={label}>
 			<span
+				tabIndex={0}
 				aria-label={label}
 				className={cn('shrink-0 cursor-default rounded-full px-1.5 text-[10.5px] font-medium', className)}
 			>

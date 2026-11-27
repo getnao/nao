@@ -141,11 +141,7 @@ describe('TestSuitePanel', () => {
 
 		const leaderboard = (await screen.findAllByRole('table'))[0];
 		const rows = within(leaderboard).getAllByRole('row') as HTMLTableRowElement[];
-		expect(rows.map((row) => row.cells[0].textContent)).toEqual([
-			'Model',
-			'claude-sonnet-5Most accurate',
-			'claude-haiku-5Best value',
-		]);
+		expect(rows.map((row) => row.cells[0].textContent)).toEqual(['Model', 'claude-sonnet-5MA', 'claude-haiku-5BV']);
 		expect(filterLabels()).toEqual(['All2', 'Passed1', 'Failed1', 'Models disagree1']);
 
 		fireEvent.click(screen.getByRole('radio', { name: /Models disagree/ }));
