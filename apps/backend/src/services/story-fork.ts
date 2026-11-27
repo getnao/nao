@@ -113,6 +113,7 @@ async function copyClassicStory(story: ForkableStory, chatId: string, owner: For
 	});
 	await pinStoryMessageToChat({
 		chatId,
+		storyId: version.storyId,
 		slug: story.slug,
 		title: story.title,
 		code: story.code,
@@ -141,6 +142,7 @@ async function copyCustomStory(
 	}
 	await pinStoryMessageToChat({
 		chatId,
+		storyId: copy.id,
 		slug: story.slug,
 		title: story.title,
 		code: '',

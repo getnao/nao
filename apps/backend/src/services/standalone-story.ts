@@ -49,6 +49,7 @@ export async function attachChatToStandaloneStory(
 	const latestVersion = await storyQueries.getLatestVersionByStoryId(story.id);
 	await pinStoryMessageToChat({
 		chatId: chat.id,
+		storyId: story.id,
 		slug: story.slug,
 		title: story.title,
 		code: story.format === 'custom' ? '' : story.code,

@@ -20,9 +20,9 @@ import { acquireStoryEditLock, StoryEditLockedError } from '../../services/story
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
 import { copyQueriesToStoryChat } from '../../services/story-question';
 import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
-import type { LinkedStory, ToolContext } from '../../types/tools';
+import type { ToolContext } from '../../types/tools';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
-import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
+import { generateStorySlug, isValidStorySlug, STORIES_MOUNT } from '../../utils/story-mount';
 import { extractCustomStoryQueryIds } from '../../utils/story-query-data';
 import { createTool } from '../../utils/tools';
 
@@ -53,7 +53,7 @@ export function buildStoryToolDescription({
 }: { mapsEnabled?: boolean; customStories?: boolean; canReplace?: boolean } = {}) {
 	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
-		'Use "create" to initialize a new story under a slug of your choice, "update" to search-and-replace within it (producing a new version),',
+		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
 		'or "replace" to overwrite the entire content (producing a new version). Every action but "create" takes the story id, which "create" returns.',
 		'For classic stories, change part of an existing story with "update" on just that part rather than "replace".',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
@@ -97,12 +97,12 @@ export default createTool<story.Input, story.Output>({
 
 	execute: async (input, context) => {
 		if (input.action === 'create') {
-			if (isLinkedStory(context.linkedStory, input.id)) {
-				return fail(input.id, `Story "${input.id}" already exists: it is the story this question is about.`);
-			}
-			return input.format === 'custom' ? createCustomStory(input, context) : createClassicStory(input, context);
+			return createStory(input, context);
 		}
 
+		if (!input.id) {
+			return fail('', `"id" is required for the "${input.action}" action.`);
+		}
 		const found = await findEditableStory(context, input.id);
 		if ('error' in found) {
 			return fail(input.id, found.error);
@@ -114,9 +114,17 @@ export default createTool<story.Input, story.Output>({
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
 
-/** The model may name the story a question is about by its id or by its slug. */
-function isLinkedStory(linkedStory: LinkedStory | undefined, id: string): boolean {
-	return linkedStory !== undefined && (linkedStory.storyId === id || linkedStory.slug === id);
+/** A new story is named after its title, so the agent only ever handles story ids. */
+function createStory(input: story.Input, context: ToolContext): Promise<story.Output> {
+	const slug = input.title ? generateStorySlug(input.title) : '';
+	if (slug && slug === context.linkedStory?.slug) {
+		return Promise.resolve(
+			fail(slug, `Story "${input.title}" already exists: it is the story this question is about.`),
+		);
+	}
+	return input.format === 'custom'
+		? createCustomStory(input, slug, context)
+		: createClassicStory(input, slug, context);
 }
 
 /** A failed edit leaves a standalone story without a chat. */
@@ -143,12 +151,15 @@ async function runStoryAction(input: story.Input, existingStory: DBStory, contex
 		return runCustomStoryAction(input, existingStory, context);
 	}
 	if (input.action === 'publish' || input.action === 'delete_files' || input.action === 'revert') {
-		return fail(slug, `"${input.action}" only applies to custom stories; "${slug}" is a classic story.`);
+		return fail(
+			slug,
+			`"${input.action}" only applies to custom stories; "${existingStory.title}" is a classic story.`,
+		);
 	}
 
 	const latest = await storyQueries.getLatestVersionByStoryId(existingStory.id);
 	if (!latest) {
-		return fail(slug, `Story "${slug}" does not exist. Use "create" first.`);
+		return fail(slug, `Story "${existingStory.title}" does not exist. Use "create" first.`);
 	}
 	return input.action === 'update'
 		? updateClassicStory(input, existingStory, latest, context)
@@ -179,30 +190,34 @@ function fail(id: string, error: string, existing?: ExistingStory): story.Output
 	};
 }
 
-async function createClassicStory(input: story.Input, context: ToolContext): Promise<story.Output> {
+async function createClassicStory(input: story.Input, slug: string, context: ToolContext): Promise<story.Output> {
 	const { chatId, userId, projectId } = context;
 	if (!context.userGroupFeatures.includes('storyCreation')) {
-		return fail(input.id, 'Story creation is unavailable for this user in this project.');
+		return fail(slug, 'Story creation is unavailable for this user in this project.');
 	}
 	if (!input.code || !input.title) {
-		return fail(input.id, '"code" and "title" are required for the "create" action.');
+		return fail(slug, '"code" and "title" are required for the "create" action.');
 	}
 	const { title } = input;
-	const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
+	const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, slug);
 	if (existingStory) {
-		return fail(input.id, `Story "${input.id}" already exists. Use "update" or "replace" instead.`);
+		return fail(slug, alreadyExistsError(existingStory));
 	}
 
 	const code = await carryOverTableFormatting(input.code, chatId);
 	const version = await db.transaction(async (tx) => {
 		const created = await storyQueries.createStoryVersion(
-			{ chatId, slug: input.id, title, code, action: 'create', source: 'assistant', ...agentProvenance(context) },
+			{ chatId, slug, title, code, action: 'create', source: 'assistant', ...agentProvenance(context) },
 			tx,
 		);
 		await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
 		return created;
 	});
-	return { ...(await classicResult(input.id, version, context)), story_id: version.storyId };
+	return { ...(await classicResult(slug, version, context)), story_id: version.storyId };
+}
+
+function alreadyExistsError(existingStory: DBStory): string {
+	return `A story titled "${existingStory.title}" already exists in this conversation (id "${existingStory.id}"). Use "update" or "replace" on it, or pick another title.`;
 }
 
 async function updateClassicStory(
@@ -217,7 +232,7 @@ async function updateClassicStory(
 	}
 	const searchIndex = latest.code.indexOf(input.search);
 	if (searchIndex === -1) {
-		return fail(slug, `Search string not found in story "${slug}".`, latest);
+		return fail(slug, `Search string not found in story "${existingStory.title}".`, latest);
 	}
 
 	const splicedCode = `${latest.code.slice(0, searchIndex)}${input.replace}${latest.code.slice(
@@ -270,7 +285,7 @@ async function saveClassicVersion(
 		if (error instanceof storyQueries.StoryVersionConflictError) {
 			return fail(
 				slug,
-				`Story "${slug}" was changed by someone else while you edited it. Read its latest version and make your change again.`,
+				`Story "${existingStory.title}" was changed by someone else while you edited it. Read its latest version and make your change again.`,
 				latest,
 			);
 		}
@@ -300,35 +315,35 @@ async function classicResult(
  * A custom story starts as a draft under /stories/<id>/; it has no version, and stays out of the
  * story library, until it is first published.
  */
-async function createCustomStory(input: story.Input, context: ToolContext): Promise<story.Output> {
+async function createCustomStory(input: story.Input, slug: string, context: ToolContext): Promise<story.Output> {
 	const { chatId } = context;
 	const authoringError = customStoryAuthoringError(context.userGroupFeatures);
 	if (authoringError) {
-		return fail(input.id, `${authoringError} Create a classic story instead.`);
-	}
-	if (!isValidStorySlug(input.id)) {
-		return fail(input.id, `"${input.id}" is not a valid story id: use ${STORY_SLUG_RULE}.`);
+		return fail(slug, `${authoringError} Create a classic story instead.`);
 	}
 	if (!input.title) {
-		return fail(input.id, '"title" is required for the "create" action.');
+		return fail(slug, '"title" is required for the "create" action.');
 	}
 	const { title } = input;
-	const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, input.id);
+	if (!isValidStorySlug(slug)) {
+		return fail(slug, `The title "${title}" is too long: pick a shorter one.`);
+	}
+	const existingStory = await storyQueries.getStoryByChatAndSlug(chatId, slug);
 	if (existingStory) {
-		return fail(input.id, `Story "${input.id}" already exists.`);
+		return fail(slug, alreadyExistsError(existingStory));
 	}
 
 	try {
 		const { story: created, files } = await createCustomStoryDraft({
 			chatId,
-			slug: input.id,
+			slug,
 			title,
 			files: input.files ?? [],
 		});
-		rememberStoryArtifact(context, input.id, title);
-		return { ...customResult(input.id, { title, version: 0 }, files), story_id: created.id };
+		rememberStoryArtifact(context, slug, title);
+		return { ...customResult(slug, { title, version: 0 }, files), story_id: created.id };
 	} catch (error) {
-		return fail(input.id, `Could not create story "${input.id}": ${(error as Error).message}`);
+		return fail(slug, `Could not create story "${title}": ${(error as Error).message}`);
 	}
 }
 
@@ -350,7 +365,7 @@ function runCustomStoryAction(input: story.Input, existingStory: DBStory, contex
 			return Promise.resolve(
 				fail(
 					slug,
-					`Story "${slug}" is a custom story: edit its files under /${STORIES_MOUNT}/${existingStory.id}/, then use "publish".`,
+					`Story "${existingStory.title}" is a custom story: edit its files under /${STORIES_MOUNT}/${existingStory.id}/, then use "publish".`,
 				),
 			);
 	}
@@ -400,8 +415,8 @@ async function revertCustomStoryDraft(
 		return fail(
 			slug,
 			versionNumber === undefined
-				? `Story "${slug}" has no published version to revert to.`
-				: `Story "${slug}" has no version ${versionNumber}.`,
+				? `Story "${existingStory.title}" has no published version to revert to.`
+				: `Story "${existingStory.title}" has no version ${versionNumber}.`,
 			published,
 		);
 	}
@@ -440,7 +455,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 		if (draft.length === 0) {
 			return fail(
 				existingStory.slug,
-				`Story "${existingStory.slug}" has no files yet. Write them under /${STORIES_MOUNT}/${existingStory.id}/ first.`,
+				`Story "${existingStory.title}" has no files yet. Write them under /${STORIES_MOUNT}/${existingStory.id}/ first.`,
 				published,
 			);
 		}
@@ -453,7 +468,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			return {
 				...fail(
 					existingStory.slug,
-					`Story "${existingStory.slug}" does not build. Fix the files below and publish again.`,
+					`Story "${existingStory.title}" does not build. Fix the files below and publish again.`,
 					published,
 				),
 				format: 'custom',
@@ -472,7 +487,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 	} catch (error) {
 		return fail(
 			existingStory.slug,
-			`Could not publish story "${existingStory.slug}": ${(error as Error).message}`,
+			`Could not publish story "${existingStory.title}": ${(error as Error).message}`,
 			published,
 		);
 	}

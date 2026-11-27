@@ -630,6 +630,7 @@ async function createChatLinkedStory(args: {
 
 	await pinStoryMessageToChat({
 		chatId: args.chatId,
+		storyId: created.id,
 		slug: args.slug,
 		title: args.title,
 		code: args.code,

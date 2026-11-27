@@ -5,13 +5,14 @@ import type { UIMessage, UIMessagePart } from '../types/chat';
 /** `files` marks a custom story, whose content lives in its files rather than in `code`. */
 export async function pinStoryMessageToChat(args: {
 	chatId: string;
+	storyId: string;
 	slug: string;
 	title: string;
 	code: string;
 	version: number;
 	files?: string[];
 }): Promise<void> {
-	const { chatId, slug, title, code, version, files } = args;
+	const { chatId, storyId, slug, title, code, version, files } = args;
 	const customFields = files ? { format: 'custom' as const, files } : {};
 
 	await chatQueries.upsertMessage({
@@ -23,8 +24,17 @@ export async function pinStoryMessageToChat(args: {
 				toolCallId: crypto.randomUUID(),
 				toolName: 'story',
 				state: 'output-available',
-				input: { action: 'create', id: slug, title, code, ...(files && { format: 'custom' as const }) },
-				output: { _version: '1', success: true, id: slug, version, code, title, ...customFields },
+				input: { action: 'create', title, code, ...(files && { format: 'custom' as const }) },
+				output: {
+					_version: '1',
+					success: true,
+					id: slug,
+					story_id: storyId,
+					version,
+					code,
+					title,
+					...customFields,
+				},
 				errorText: undefined,
 				providerExecuted: false,
 			} as UIMessagePart,

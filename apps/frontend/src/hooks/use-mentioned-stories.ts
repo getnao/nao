@@ -4,7 +4,9 @@ import { useCallback } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { MentionedStoryArtifact } from '@/lib/chat-artifacts';
+import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
+import { findStoryIdBySlug } from '@/lib/story.utils';
 import { trpc } from '@/main';
 
 export type ResolvedStory = inferRouterOutputs<TrpcRouter>['story']['resolve'];
@@ -27,6 +29,12 @@ export function useMentionedStories(chatId: string | undefined, references: Ment
 
 export function useResolvedStory(storyId: string) {
 	return useQuery({ ...trpc.story.resolve.queryOptions({ storyId }), retry: false });
+}
+
+/** A story an answer references, which older answers may name by the slug of a story of their conversation. */
+export function useReferencedStory(reference: string) {
+	const storyId = useAgentMessagesSelector((messages) => findStoryIdBySlug(messages, reference) ?? reference);
+	return useResolvedStory(storyId);
 }
 
 /** The owner opens the story beside the conversation; anyone else opens its page. */

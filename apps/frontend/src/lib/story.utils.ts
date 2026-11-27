@@ -1,4 +1,5 @@
 import { parseChartAttributes, resolveGridWidths, TAG_ATTRS } from '@nao/shared/story-segments';
+import { story as storyTool } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
 export type PendingStoryBlock =
@@ -31,7 +32,7 @@ export function getStoryToolPartSlug(part: UIToolPart<'story'>, viewedStory?: Vi
 		return part.output.id;
 	}
 	if (part.input?.action === 'create') {
-		return part.input.id;
+		return part.input.id ?? (part.input.title ? storyTool.toStorySlug(part.input.title) || undefined : undefined);
 	}
 	return viewedStory && part.input?.id === viewedStory.id ? viewedStory.slug : undefined;
 }
@@ -48,6 +49,18 @@ const isStoryIdPrefixMatch = (expectedId: string, candidateId: string) => {
  * Scans messages for story tool calls to find distinct stories.
  * Uses completed tool outputs only.
  */
+/** Answers written before the agent only handled story ids may name a story by its slug. */
+export function findStoryIdBySlug(messages: UIMessage[], slug: string): string | undefined {
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (part.type === 'tool-story' && part.output?.id === slug && part.output.story_id) {
+				return part.output.story_id;
+			}
+		}
+	}
+	return undefined;
+}
+
 export function findStories(messages: UIMessage[]): StorySummary[] {
 	const cachedStories = storiesByMessages.get(messages);
 	if (cachedStories) {
