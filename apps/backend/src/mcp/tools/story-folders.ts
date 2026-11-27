@@ -16,8 +16,10 @@ const LIST_STORY_FOLDERS_DESCRIPTION =
 const MOVE_STORY_DESCRIPTION =
 	'Move a story to one of the folders from `list_story_folders`, Home included, like moving it in nao.\n\n' +
 	'Moving a story changes who can see it: a `team` folder shares it with its teams, Home and `project` folders ' +
-	'with the whole project, and a `private` folder keeps it to its owner. Tell the user where the story is now and ' +
-	'who can see it, in the words of the nao UI (folder names, Home), never with ids or parameters.\n' +
+	'with the whole project, and a `private` folder removes the project and the previous folder teams. People and ' +
+	'groups the story was shared with directly keep their access outside Home and `project` folders, so never say ' +
+	'that a story is visible only to its owner. Tell the user where the story is now and who can see it, in the ' +
+	'words of the nao UI (folder names, Home), never with ids or parameters.\n' +
 	'Only the owner of the story or an admin can move it.';
 
 const STORY_FOLDER_SCHEMA = z.object({
@@ -29,7 +31,10 @@ const STORY_FOLDER_SCHEMA = z.object({
 		.describe('UUID of the parent folder, null for Home and the folders directly in it.'),
 	access: z
 		.enum(['private', 'team', 'project'])
-		.describe('Who sees the stories filed here: only their owner, the members of `teams`, or the whole project.'),
+		.describe(
+			'Who the folder shares its stories with: nobody beyond their owner, the members of `teams`, or the whole ' +
+				'project. People a story was shared with directly keep their access.',
+		),
 	teams: z.array(z.string()).describe('Names of the teams that see the folder, when `access` is `team`.'),
 });
 
