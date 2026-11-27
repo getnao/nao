@@ -86,6 +86,7 @@
         "fastify-raw-body": "^5.0.0",
         "fastify-type-provider-zod": "^6.1.0",
         "fflate": "^0.8.3",
+        "google-auth-library": "^10.5.0",
         "gray-matter": "^4.0.3",
         "jose": "^6.2.2",
         "js-yaml": "^4.1.1",

@@ -635,6 +635,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Story images',
+		description: 'Allow custom stories to show images from trusted https hosts and gs:// or s3:// buckets.',
+		keywords: ['image', 'images', 'picture', 'logo', 'gcs', 's3', 'bucket', 'allowlist', 'custom stories'],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
 		section: 'SQL',
 		search: { tab: 'sql' },
 		title: 'Semantic layer',

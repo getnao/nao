@@ -13,10 +13,12 @@ import * as storyFileQueries from '../queries/story-file.queries';
 import { formatStoryFile } from '../utils/story-file-format';
 import { isViewableStoryFile, normalizeStoryFilePath } from '../utils/story-file-path';
 import { appendKitBlock, applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
-import { CustomStoryNotFoundError } from './custom-story';
+import { extractCustomStoryQueryIds } from '../utils/story-query-data';
+import { CustomStoryNotFoundError, getStoredCustomStoryQueryDataByStoryId } from './custom-story';
 import { assertWriterAddsNoChatQueries } from './custom-story-query-access';
 import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
 import { buildStoryApp, resolveStoryEntry } from './story-app-build';
+import { describeBlockedStoryImagesToEditor, findBlockedStoryImageSources } from './story-image';
 
 interface StoryBlockEditInput {
 	chatId: string;
@@ -113,6 +115,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 	}
 	const files = draft.map((file) => ({ path: file.path, content: edits.get(file.path) ?? file.content }));
 	await assertWriterAddsNoChatQueries(story, input.authorId, files);
+	await assertStoryImagesAllowed(story.id, files);
 
 	const build = await buildStoryApp(files);
 	if (!build.ok) {
@@ -225,6 +228,22 @@ async function commitEdit(
 			throw new StoryBlockEditError(NEWER_VERSION_MESSAGE);
 		}
 		throw error;
+	}
+}
+
+async function assertStoryImagesAllowed(storyId: string, files: StoryFileInput[]): Promise<void> {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	if (!projectId) {
+		throw new CustomStoryNotFoundError();
+	}
+	const queryData = await getStoredCustomStoryQueryDataByStoryId(storyId, [...extractCustomStoryQueryIds(files)]);
+	const blockedImages = await findBlockedStoryImageSources(
+		projectId,
+		files.map((file) => file.content),
+		queryData,
+	);
+	if (blockedImages.length > 0) {
+		throw new StoryBlockEditError(describeBlockedStoryImagesToEditor(blockedImages));
 	}
 }
 

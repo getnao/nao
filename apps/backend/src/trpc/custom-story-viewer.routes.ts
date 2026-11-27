@@ -22,11 +22,13 @@ import {
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
+import { readStoryImages } from '../services/story-image';
 import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
 import { describeTransferredStory } from '../services/story-transfer.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
+	requestedStoryImages,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -176,6 +178,10 @@ export const customStoryViewerRoutes = {
 	getMapBoundary: viewerProcedure
 		.input(z.object({ key: mapBoundaryKey }))
 		.query(({ ctx, input }) => readCustomStoryMapBoundary(ctx.viewer.chatId, input.storySlug, input.key)),
+
+	getImages: viewerProcedure
+		.input(z.object({ sources: requestedStoryImages }))
+		.query(({ ctx, input }) => readStoryImages(ctx.viewer.projectId, input.sources)),
 
 	download: viewerProcedure
 		.input(z.object({ format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml, versionNumber }))

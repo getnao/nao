@@ -37,6 +37,12 @@ export interface SafeFetchResult {
 	url: string;
 }
 
+export interface SafeFetchBytesResult {
+	bytes: Buffer;
+	contentType: string | undefined;
+	url: string;
+}
+
 interface PinnedRequest {
 	method?: string;
 	headers?: Record<string, string>;
@@ -46,6 +52,7 @@ interface PinnedRequest {
 interface PinnedResponse {
 	status: number;
 	location: string | undefined;
+	contentType: string | undefined;
 	headers: http.IncomingHttpHeaders;
 	body: Readable;
 }
@@ -169,7 +176,17 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
 }
 
 export async function safeFetchWithUrl(url: string, options: SafeFetchOptions = {}): Promise<SafeFetchResult> {
-	return fetchFollowingRedirects(url, options, 0);
+	const { bytes, url: finalUrl } = await safeFetchBytes(url, options);
+	return { text: new TextDecoder().decode(bytes), url: finalUrl };
+}
+
+export async function safeFetchBytes(url: string, options: SafeFetchOptions = {}): Promise<SafeFetchBytesResult> {
+	const { response, url: finalUrl } = await fetchFollowingRedirects(url, options, 0);
+	return {
+		bytes: await readBodyBytes(response.body, options.maxBytes ?? MAX_BYTES),
+		contentType: response.contentType,
+		url: finalUrl,
+	};
 }
 
 /**
@@ -276,7 +293,7 @@ async function fetchFollowingRedirects(
 	url: string,
 	options: SafeFetchOptions,
 	redirectCount: number,
-): Promise<SafeFetchResult> {
+): Promise<{ response: PinnedResponse; url: string }> {
 	if (redirectCount > MAX_REDIRECTS) {
 		throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}).`);
 	}
@@ -325,7 +342,7 @@ async function fetchFollowingRedirects(
 		throw new Error(`HTTP ${response.status} from "${url}".`);
 	}
 
-	return { text: await readBodyText(response.body, options.maxBytes ?? MAX_BYTES), url: parsed.toString() };
+	return { response, url: parsed.toString() };
 }
 
 /**
@@ -355,6 +372,7 @@ function requestPinnedAddress(
 				resolve({
 					status: response.statusCode ?? 0,
 					location: response.headers.location,
+					contentType: response.headers['content-type'],
 					headers: response.headers,
 					body: decodedBody(response),
 				}),
@@ -383,9 +401,8 @@ function decoderFor(contentEncoding: string | undefined): zlib.Gunzip | zlib.Inf
 	}
 }
 
-async function readBodyText(body: Readable, maxBytes: number): Promise<string> {
-	const decoder = new TextDecoder();
-	let text = '';
+async function readBodyBytes(body: Readable, maxBytes: number): Promise<Buffer> {
+	const chunks: Buffer[] = [];
 	let totalBytes = 0;
 	for await (const chunk of body) {
 		totalBytes += (chunk as Buffer).byteLength;
@@ -393,9 +410,9 @@ async function readBodyText(body: Readable, maxBytes: number): Promise<string> {
 			body.destroy();
 			throw new Error(`Response exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB size limit.`);
 		}
-		text += decoder.decode(chunk as Buffer, { stream: true });
+		chunks.push(chunk as Buffer);
 	}
-	return text + decoder.decode();
+	return Buffer.concat(chunks);
 }
 
 export function parseAndValidateGeoJson(text: string): GeoJsonValidationResult {

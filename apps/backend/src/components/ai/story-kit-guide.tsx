@@ -201,6 +201,15 @@ export function storyKitGuideItems(): ReactElement[] {
 			story, use <Bold>{`await ${STORY_HTML_API_GLOBAL}.mapBoundary("key")`}</Bold> →{' '}
 			{'{ geojson, joinProperties }'}.
 		</ListItem>,
+		<ListItem key='images'>
+			Images: <Bold>{'<Image src="gs://bucket/path.png" alt="..." />'}</Bold> shows a picture from a{' '}
+			<Bold>gs://</Bold>, <Bold>s3://</Bold> or <Bold>https://</Bold> source, written literally or read from a
+			query column; size it with <Bold>className</Bold> or <Bold>style</Bold>. nao reads the file with its own
+			credentials, so pass the bucket link itself, never a signed URL. Only sources the project's admins allow
+			load, and publish refuses a story whose code or query rows name any other. A plain <Bold>{'<img>'}</Bold> or
+			CSS background pointing at a remote URL is blocked. In an HTML story, set an image's src to{' '}
+			<Bold>{`await ${STORY_HTML_API_GLOBAL}.image("gs://...")`}</Bold>.
+		</ListItem>,
 		<ListItem key='theme'>
 			<Bold>Never hardcode data, colours or fonts.</Bold> Read rows with <Bold>useQueryData</Bold>; style with{' '}
 			<Bold>var(--background)</Bold>, <Bold>var(--card)</Bold>, <Bold>var(--foreground)</Bold>,{' '}

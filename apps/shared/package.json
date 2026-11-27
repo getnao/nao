@@ -41,6 +41,7 @@
 		"./story-app": "./src/story-app.ts",
 		"./story-brand-mark": "./src/story-brand-mark.tsx",
 		"./story-document": "./src/story-document.ts",
+		"./story-image": "./src/story-image.ts",
 		"./story-kit-styles": "./src/story-kit-styles.ts",
 		"./story-map-tiles": "./src/story-map-tiles.ts",
 		"./story-theme": "./src/story-theme.ts",

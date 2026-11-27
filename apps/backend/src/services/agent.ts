@@ -136,6 +136,7 @@ import {
 	renewAgentStoryEditLocks,
 	STORY_EDIT_LOCK_RENEW_MS,
 } from './story-edit-lock.service';
+import { allowedStoryImageSources } from './story-image';
 import { customStoryAuthoringError } from './story-mount';
 import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
@@ -965,6 +966,7 @@ export class AgentManager {
 				personalSkills: this._toolContext.personalSkills,
 				customCharts,
 				mapBoundaries,
+				allowedStoryImageSources: allowedStoryImageSources(this._toolContext.agentSettings),
 				mcpServers,
 				sandboxSecrets,
 				trustedStories,

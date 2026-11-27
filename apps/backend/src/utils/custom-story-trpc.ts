@@ -1,4 +1,5 @@
 import { STORY_FILTER_ID_REGEX } from '@nao/shared/sql-template';
+import { MAX_STORY_IMAGE_SOURCE_LENGTH, MAX_STORY_IMAGES_PER_REQUEST } from '@nao/shared/story-image';
 import { STORY_LLM_MAX_OUTPUT_TOKENS, type StoryModelRequest } from '@nao/shared/story-models';
 import { STORY_QUERY_PARAM_VALUE_REGEX, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import { TRPCError } from '@trpc/server';
@@ -25,6 +26,11 @@ export const storySnapshotHtml = z
 	});
 
 export const STANDALONE_SQL_UNAVAILABLE = 'Only stories built in a chat can run their own SQL.';
+
+export const requestedStoryImages = z
+	.array(z.string().min(1).max(MAX_STORY_IMAGE_SOURCE_LENGTH))
+	.min(1)
+	.max(MAX_STORY_IMAGES_PER_REQUEST);
 
 export const storyStateChange = z.object({
 	key: z.string(),

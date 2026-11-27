@@ -6,6 +6,7 @@ import type { DBStory, DBStoryDataCache } from '../../db/abstractSchema';
 import * as storyQueries from '../../queries/story.queries';
 import type { StoryFileInput } from '../../queries/story-file.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
+import { getStoredCustomStoryQueryDataByStoryId } from '../../services/custom-story';
 import {
 	applyCustomStoryDraftChanges,
 	createCustomStoryDraft,
@@ -23,6 +24,7 @@ import {
 	releaseStoryEditLock,
 	StoryEditLockedError,
 } from '../../services/story-edit-lock.service';
+import { describeBlockedStoryImages, findBlockedStoryImageSources } from '../../services/story-image';
 import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import type { StoryQuerySources } from '../../types/story-cache';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
@@ -253,6 +255,16 @@ async function publishResult(
 	ctx: McpContext,
 	liveInput: StoryLiveInput | undefined,
 ): Promise<ToolResult> {
+	const draft = await storyFileQueries.listDraftFiles(story.id);
+	const queryData = await getStoredCustomStoryQueryDataByStoryId(story.id, [...extractCustomStoryQueryIds(draft)]);
+	const blockedImages = await findBlockedStoryImageSources(
+		ctx.projectId,
+		draft.map((file) => file.content),
+		queryData,
+	);
+	if (blockedImages.length > 0) {
+		return errorResult(`"${story.title}" was not published. ${describeBlockedStoryImages(blockedImages)}`);
+	}
 	const result = await publishCustomStoryDraft(story, ctx, {
 		source: 'user',
 		origin: 'mcp',

@@ -53,6 +53,8 @@ type SystemPromptProps = {
 	customCharts?: ChartPluginManifestEntry[];
 	/** GeoJSON boundary sets the project admin added; only their description is listed, never the geometry. */
 	mapBoundaries?: CustomBoundarySet[];
+	/** Sources the project admin allows custom stories to show images from. */
+	allowedStoryImageSources?: string[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
 	/** Secrets the user made available to sandboxes as environment variables — names and purposes only, never values. */
@@ -97,6 +99,7 @@ export function SystemPrompt({
 	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mapBoundaries = [],
+	allowedStoryImageSources = [],
 	mcpServers = [],
 	sandboxSecrets = [],
 	trustedStories = [],
@@ -234,7 +237,11 @@ export function SystemPrompt({
 				/>
 			)}
 			{canAuthorCustomStories && (
-				<CustomStoriesBlock canReplace={hasTool('str_replace')} canLoadSkill={hasTool('load_skill')} />
+				<CustomStoriesBlock
+					canReplace={hasTool('str_replace')}
+					imageSources={allowedStoryImageSources}
+					canLoadSkill={hasTool('load_skill')}
+				/>
 			)}
 			{hasStoryLibrary && <ExistingStoriesBlock trustedStories={trustedStories} canGrep={hasTool('grep')} />}
 			{hasTool('execute_sql') && (
@@ -624,7 +631,15 @@ function PermanentStorageBlock({
 }
 
 /** The story-kit guide is long, so it is loaded as a skill whenever the run can load one. */
-function CustomStoriesBlock({ canReplace, canLoadSkill }: { canReplace: boolean; canLoadSkill: boolean }) {
+function CustomStoriesBlock({
+	canReplace,
+	imageSources,
+	canLoadSkill,
+}: {
+	canReplace: boolean;
+	imageSources: string[];
+	canLoadSkill: boolean;
+}) {
 	return (
 		<Block>
 			<Title level={2}>Custom Stories</Title>
@@ -683,9 +698,41 @@ function CustomStoriesBlock({ canReplace, canLoadSkill }: { canReplace: boolean;
 								</ListItem>,
 							]
 						: storyKitGuideItems()),
+					<StoryImageSourcesItem key='image-sources' sources={imageSources} />,
 				]}
 			</List>
 		</Block>
+	);
+}
+
+/** Without the allowlist the agent guesses an image host, sees it blocked and drops the images instead of asking. */
+function StoryImageSourcesItem({ sources }: { sources: string[] }) {
+	if (sources.length === 0) {
+		return (
+			<ListItem>
+				No image source is allowed in this project, so <Bold>Image</Bold> cannot show anything yet. When the
+				user wants pictures, <BlockedImagesInstruction />
+			</ListItem>
+		);
+	}
+	return (
+		<ListItem>
+			<Bold>Image</Bold> only loads files under these allowed sources: {sources.join(', ')}. Use the direct link
+			to the file itself, never a page that shows it. When a picture the user wants is not under them,{' '}
+			<BlockedImagesInstruction />
+		</ListItem>
+	);
+}
+
+/** Left to itself, the agent publishes a placeholder for a blocked image and reports it afterwards. */
+function BlockedImagesInstruction() {
+	return (
+		<>
+			<Bold>stop before writing or publishing the story</Bold>: tell the user in the chat that an admin must allow
+			its source in Settings › Agent › Story images, and ask whether to go on without it. If they agree, leave
+			that picture out entirely, along with what only exists to show it (like its card): no placeholder, no "image
+			unavailable" text and no note about it in the story. Never swap pictures for drawings without asking.
+		</>
 	);
 }
 

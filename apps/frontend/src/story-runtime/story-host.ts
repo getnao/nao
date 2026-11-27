@@ -8,6 +8,7 @@ import {
 } from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
 import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
+import { isInlineStoryImage } from '@nao/shared/story-image';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -64,6 +65,7 @@ const pendingChartPlugins = new Map<string, PendingRequest<string>>();
 const pendingMapBoundaries = new Map<string, PendingRequest<StoryMapBoundary>>();
 const pendingModels = new Map<string, PendingRequest<StoryModel[]>>();
 const pendingModelCalls = new Map<string, PendingRequest<StoryModelResult>>();
+const pendingImages = new Map<string, PendingRequest<string>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
 const themeListeners = new Set<() => void>();
@@ -129,6 +131,7 @@ function exposeHtmlApi(): void {
 		querySql: requestQuerySql,
 		narratives: requestNarratives,
 		mapBoundary: requestMapBoundary,
+		image: requestImage,
 		theme: getStoryTheme,
 		onTheme: (listener) =>
 			subscribeToTheme(() => {
@@ -299,6 +302,17 @@ export function requestMapBoundary(key: string): Promise<StoryMapBoundary> {
 	return awaitReply(pendingMapBoundaries, (requestId) => ({ type: 'nao-story:map-boundary', requestId, key }));
 }
 
+/** The frame cannot reach any image host, so the host reads the image and answers with a `data:` URL. */
+export function requestImage(src: string): Promise<string> {
+	if (isInlineStoryImage(src)) {
+		return Promise.resolve(src);
+	}
+	if (exportData) {
+		return readExportedImage(exportData, src);
+	}
+	return awaitReply(pendingImages, (requestId) => ({ type: 'nao-story:image', requestId, src }));
+}
+
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	const isConnect =
 		event.source === window.parent &&
@@ -384,6 +398,14 @@ function handleHostMessage(message: unknown): void {
 	}
 	if (message.type === 'nao-story:map-boundary-result' || message.type === 'nao-story:map-boundary-error') {
 		settleMapBoundary(message);
+		return;
+	}
+	if (message.type === 'nao-story:image-result') {
+		resolvePending(pendingImages, message.requestId, message.dataUri);
+		return;
+	}
+	if (message.type === 'nao-story:image-error') {
+		rejectPending(pendingImages, message.requestId, message.message);
 		return;
 	}
 	const pending = pendingQueries.get(message.requestId);
@@ -544,6 +566,13 @@ function readExportedMapBoundary(data: StoryExportData, key: string): Promise<St
 		: Promise.reject(
 				new Error(`Map boundary "${key}" is not part of this download. It may be too large to include.`),
 			);
+}
+
+function readExportedImage(data: StoryExportData, src: string): Promise<string> {
+	const dataUri = data.images?.[src];
+	return dataUri !== undefined
+		? Promise.resolve(dataUri)
+		: Promise.reject(new Error('This image is not part of this export.'));
 }
 
 function toJsonSafe<T>(value: T): T {

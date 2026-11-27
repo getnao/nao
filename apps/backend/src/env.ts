@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
+import { normalizeStoryImageAllowedSource } from '@nao/shared/story-image';
 import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/types';
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
@@ -58,6 +59,19 @@ function parseCommaSeparatedList(value: string | undefined): string[] {
 		.split(',')
 		.map((entry) => entry.trim())
 		.filter(Boolean);
+}
+
+function parseStoryImageBuckets(value: string | undefined, ctx: z.RefinementCtx): string[] {
+	return parseCommaSeparatedList(value).map((entry) => {
+		const bucket = /^(gs|s3):\/\//i.test(entry) ? normalizeStoryImageAllowedSource(entry) : null;
+		if (!bucket) {
+			ctx.addIssue({
+				code: 'custom',
+				message: `NAO_STORY_IMAGE_BUCKETS entries must be gs://bucket or s3://bucket prefixes, got "${entry}"`,
+			});
+		}
+		return bucket ?? entry;
+	});
 }
 
 function blankToUndefined(value: unknown): unknown {
@@ -326,6 +340,11 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => parseCommaSeparatedList(val)),
+	/**
+	 * Comma-separated gs:// and s3:// prefixes custom stories may show images from, read with nao's own cloud
+	 * credentials. A project admin can only allow buckets inside them; https sources need no operator setting.
+	 */
+	NAO_STORY_IMAGE_BUCKETS: z.string().optional().transform(parseStoryImageBuckets),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	/** `shadow` reports excess calls as security signals without refusing them. Defaults to `shadow` on cloud, `off` elsewhere. */
 	NAO_RATE_LIMIT_MODE: z.enum(['off', 'shadow', 'enforce']).optional(),
