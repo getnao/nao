@@ -133,6 +133,12 @@ describe('dialect-aware system prompt', () => {
 		const toolCalls = markdown.slice(markdown.indexOf('## Tool Calls'), markdown.indexOf('## SQL Query Rules'));
 		expect(toolCalls).toContain('use `indexes.md` to see how the table is ordered and indexed');
 	});
+
+	it('injects the BigQuery parameter-limit recovery under Tool Calls', () => {
+		const markdown = renderWith([{ type: 'bigquery', database: 'analytics' }]);
+		const toolCalls = markdown.slice(markdown.indexOf('## Tool Calls'), markdown.indexOf('## SQL Query Rules'));
+		expect(toolCalls).toContain('use `execute_sql` with `database_id: duckdb_local`');
+	});
 });
 
 describe('dialect rules end-to-end from a synced project folder', () => {
