@@ -15,9 +15,17 @@ export interface ChartPluginConfig {
 	title?: string;
 }
 
+/** `edit` while a viewer who can change the story has it open; `print` in PDF exports and deliveries. */
+export type ChartPluginMode = 'view' | 'edit' | 'print';
+
 export interface ChartPluginRenderContext {
 	data: Record<string, unknown>[];
 	config: ChartPluginConfig;
+	/** The `settings` prop of the chart's block in the story, as the plugin last saved it. */
+	settings: unknown;
+	mode: ChartPluginMode;
+	/** Only in `edit` mode: writes `settings` into the block, which publishes a new story version. */
+	saveSettings?: (settings: unknown) => Promise<void>;
 	libs: {
 		React: unknown;
 		ReactDOM: unknown;

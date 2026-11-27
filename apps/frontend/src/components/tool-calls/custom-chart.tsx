@@ -81,6 +81,8 @@ export const CustomChart = React.memo(function CustomChart({
 				series: config.series,
 				title: config.title,
 			},
+			settings: undefined,
+			mode: 'view',
 			libs: { React, ReactDOM, Recharts },
 			theme: resolveTheme(theme),
 			colors: DEFAULT_COLORS,

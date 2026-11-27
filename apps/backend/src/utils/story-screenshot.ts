@@ -1,7 +1,13 @@
 import type { Page } from 'puppeteer-core';
 
 import { getBrowser } from './headless-browser';
-import { delay, isolateStoryPage, STORY_DOCUMENT_URL, waitForStoryReady } from './story-headless-page';
+import {
+	delay,
+	isolateStoryPage,
+	STORY_DOCUMENT_URL,
+	waitForChartsDrawn,
+	waitForStoryReady,
+} from './story-headless-page';
 
 const RENDER_SETTLE_MS = 1_800;
 const MAX_REPORTED_ERRORS = 5;
@@ -39,6 +45,7 @@ export async function renderStoryScreenshot(
 		await page.goto(STORY_DOCUMENT_URL, { waitUntil: 'load', timeout: 30_000 }).catch(() => {});
 		const ready = await waitForStoryReady(page);
 		await delay(RENDER_SETTLE_MS);
+		await waitForChartsDrawn(page);
 		const content = await page.evaluate(inspectContent, {
 			errorsGlobal: STORY_ERRORS_GLOBAL,
 			blockErrorSelector: BLOCK_ERROR_SELECTOR,

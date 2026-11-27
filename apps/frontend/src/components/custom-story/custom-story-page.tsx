@@ -15,6 +15,7 @@ import { STORY_ASK_BAR_INSET, StoryAskBar } from '@/components/story-ask-bar';
 import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
+	useSaveChartSettings,
 } from '@/components/custom-story/custom-story-block-edit';
 import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
@@ -102,6 +103,12 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 		},
 		[chatId, content, storySlug],
 	);
+	const versionNumber = content?.version.number;
+	const chartSettingsTarget = useMemo(
+		() => (versionNumber ? { chatId, storySlug, versionNumber } : null),
+		[chatId, storySlug, versionNumber],
+	);
+	const handleSaveChartSettings = useSaveChartSettings(chartSettingsTarget);
 	const handleAsk = useCallback(
 		({ text, block, intent }: StoryElementCitation) => {
 			requestAsk({ chatId: null, selection: { text, block, intent, storySlug } });
@@ -174,6 +181,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 							editable={canEditBlocks && viewMode === 'app'}
 							onEditBlock={handleEditBlock}
 							onEditTableFormat={handleEditTableFormat}
+							onSaveChartSettings={handleSaveChartSettings}
 							onAsk={showAskBar ? handleAsk : undefined}
 							isSelectingElements={isSelectingElements && viewMode === 'app'}
 						/>

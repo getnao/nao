@@ -30,6 +30,7 @@ import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
+	StoryChartSettingsSave,
 	StoryElementCitation,
 	StoryFrameMessage,
 	StoryHostMessage,
@@ -64,6 +65,8 @@ interface CustomStoryFrameProps {
 	editable?: boolean;
 	onEditBlock?: (request: StoryBlockEditPayload) => void;
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
+	/** Publishes a version with the new `settings` of a chart plugin's block. */
+	onSaveChartSettings?: (request: StoryChartSettingsSave) => Promise<void>;
 	onAsk?: (citation: StoryElementCitation) => void;
 	isSelectingElements?: boolean;
 	onReady?: () => void;
@@ -86,6 +89,8 @@ export interface StoryStateControls {
 const SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE =
 	'This story read data with your own access, so it cannot change the state other viewers see until it is reloaded.';
 
+const CHART_SETTINGS_READONLY_MESSAGE = 'This story cannot be changed from here.';
+
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
 
 export function CustomStoryFrame({
@@ -96,6 +101,7 @@ export function CustomStoryFrame({
 	editable = false,
 	onEditBlock,
 	onEditTableFormat,
+	onSaveChartSettings,
 	onAsk,
 	isSelectingElements = false,
 	onReady,
@@ -255,6 +261,22 @@ export function CustomStoryFrame({
 		[dataSource, queryClient, reply],
 	);
 
+	const answerChartSettingsSave = useCallback(
+		async (requestId: string, request: StoryChartSettingsSave) => {
+			if (!editable || !onSaveChartSettings) {
+				reply({ type: 'nao-story:chart-settings-error', requestId, message: CHART_SETTINGS_READONLY_MESSAGE });
+				return;
+			}
+			try {
+				await onSaveChartSettings(request);
+				reply({ type: 'nao-story:chart-settings-saved', requestId });
+			} catch (error) {
+				reply({ type: 'nao-story:chart-settings-error', requestId, message: describeError(error) });
+			}
+		},
+		[editable, onSaveChartSettings, reply],
+	);
+
 	const answerMapBoundary = useCallback(
 		async (requestId: string, key: string) => {
 			try {
@@ -357,6 +379,12 @@ export function CustomStoryFrame({
 						});
 					}
 					break;
+				case 'nao-story:save-chart-settings':
+					void answerChartSettingsSave(message.requestId, {
+						block: message.block,
+						settings: message.settings,
+					});
+					break;
 				case 'nao-story:ask-block': {
 					const ask = editable ? readBlockAsk(message.block) : null;
 					if (ask) {
@@ -399,6 +427,7 @@ export function CustomStoryFrame({
 		return () => window.removeEventListener('message', handleMessage);
 	}, [
 		answerChartPlugin,
+		answerChartSettingsSave,
 		answerMapBoundary,
 		answerModel,
 		answerModels,

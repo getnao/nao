@@ -1,7 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
-import type { StoryBlockChartConfig, StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
+import type {
+	StoryBlockChartConfig,
+	StoryBlockEditPayload,
+	StoryChartSettingsSave,
+	StoryTableFormatEditRequest,
+} from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
@@ -18,7 +24,7 @@ import { trpc } from '@/main';
 const BLOCK_EDIT_DESCRIPTION = 'Changes are saved to the story as a new version.';
 const TABLE_FORMAT_EDIT_DESCRIPTION = `Apply conditional formatting to columns. ${BLOCK_EDIT_DESCRIPTION}`;
 
-interface StoryEditTargetBase {
+export interface StoryEditTargetBase {
 	chatId: string;
 	storySlug: string;
 	versionNumber: number;
@@ -131,21 +137,50 @@ function useTableFormatEdit(target: StoryTableFormatEditTarget | null) {
 	};
 }
 
-function useSaveBlockEditMutation() {
+/** Writes a chart plugin's settings into the `settings` prop of its block, as a new version of the story. */
+export function useSaveChartSettings(target: StoryEditTargetBase | null) {
+	const { mutateAsync } = useSaveBlockEditMutation({ waitForRefresh: false });
+	return useCallback(
+		async ({ block, settings }: StoryChartSettingsSave) => {
+			if (!target) {
+				throw new Error('This story has no version to change yet.');
+			}
+			const change =
+				settings === null || settings === undefined
+					? { set: {}, unset: ['settings'] }
+					: { set: { settings }, unset: [] };
+			await mutateAsync({ ...target, block, change });
+		},
+		[mutateAsync, target],
+	);
+}
+
+/**
+ * The refresh shows the new version, which replaces the story frame: a frame waiting for the save
+ * confirmation must get it before, so it saves with `waitForRefresh: false`.
+ */
+function useSaveBlockEditMutation({ waitForRefresh = true }: { waitForRefresh?: boolean } = {}) {
 	const queryClient = useQueryClient();
 	return useMutation(
 		trpc.story.editCustomStoryBlock.mutationOptions({
 			onSuccess: async (_result, { chatId, storySlug }) => {
-				await Promise.all([
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() }),
-				]);
+				const refresh = refreshStoryQueries(queryClient, chatId, storySlug);
+				if (waitForRefresh) {
+					await refresh;
+				}
 			},
 		}),
 	);
+}
+
+function refreshStoryQueries(queryClient: QueryClient, chatId: string, storySlug: string) {
+	return Promise.all([
+		queryClient.invalidateQueries({
+			queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+		}),
+		queryClient.invalidateQueries({
+			queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }),
+		}),
+		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() }),
+	]);
 }

@@ -215,6 +215,9 @@ export const STORY_PRINT_FLAG = '__naoStoryPrint';
 /** Set on `<html>` while a printed story lays out a deck: the PDF renderer then prints one slide per page. */
 export const STORY_PRINT_SLIDES_ATTRIBUTE = 'data-nao-print-slides';
 
+/** Set on `<html>` to the number of chart plugins still drawing, which the PDF renderer waits for. */
+export const STORY_PENDING_CHARTS_ATTRIBUTE = 'data-nao-pending-charts';
+
 /** Set to the printed Canvas dimensions, as `{width}x{height}`. */
 export const STORY_PRINT_CANVAS_ATTRIBUTE = 'data-nao-print-canvas';
 
@@ -270,6 +273,12 @@ export interface StoryBlockEditPayload extends StoryBlockEditRequest {
 	colors: StoryBlockColors;
 }
 
+/** A chart plugin saving its settings into the `settings` prop of its block, as a new story version. */
+export interface StoryChartSettingsSave {
+	block: StoryKitBlockRef & { component: 'Chart' };
+	settings: unknown;
+}
+
 export interface StoryKitBlockChange {
 	component?: StoryKitEditableBlock;
 	set: Record<string, unknown>;
@@ -299,6 +308,7 @@ export type StoryFrameMessage =
 	  }
 	| ({ type: 'nao-story:edit-block' } & StoryBlockEditPayload)
 	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
+	| ({ type: 'nao-story:save-chart-settings'; requestId: string } & StoryChartSettingsSave)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
 	| { type: 'nao-story:chart-plugin'; requestId: string; chartType: string }
 	| { type: 'nao-story:map-boundary'; requestId: string; key: string }
@@ -331,6 +341,8 @@ export type StoryHostMessage =
 	| { type: 'nao-story:model-error'; requestId: string; message: string }
 	| { type: 'nao-story:chart-plugin-result'; requestId: string; source: string }
 	| { type: 'nao-story:chart-plugin-error'; requestId: string; message: string }
+	| { type: 'nao-story:chart-settings-saved'; requestId: string }
+	| { type: 'nao-story:chart-settings-error'; requestId: string; message: string }
 	| { type: 'nao-story:map-boundary-result'; requestId: string; boundary: StoryMapBoundary }
 	| { type: 'nao-story:map-boundary-error'; requestId: string; message: string }
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
@@ -374,6 +386,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:export-table',
 			'nao-story:edit-block',
 			'nao-story:edit-table-format',
+			'nao-story:save-chart-settings',
 			'nao-story:query-sql',
 			'nao-story:chart-plugin',
 			'nao-story:map-boundary',
@@ -399,6 +412,8 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:model-error',
 			'nao-story:chart-plugin-result',
 			'nao-story:chart-plugin-error',
+			'nao-story:chart-settings-saved',
+			'nao-story:chart-settings-error',
 			'nao-story:map-boundary-result',
 			'nao-story:map-boundary-error',
 			'nao-story:narratives-result',

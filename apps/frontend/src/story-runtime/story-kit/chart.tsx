@@ -7,13 +7,23 @@ import type { ChartType } from '@nao/shared/chart-types';
 
 export interface GenericChartProps extends ChartProps {
 	type: Exclude<ChartType, 'kpi_card'> | (string & {});
+	/** Read and saved by a chart plugin; built-in charts ignore it. */
+	settings?: unknown;
 }
 
 export function Chart(props: GenericChartProps) {
-	const { type, ...chart } = props;
+	const { type, settings, ...chart } = props;
 	const kind = `${type.replaceAll('_', '-')}-chart`;
 	if (!isBuiltinChartType(type)) {
-		return <PluginChartBlock kind={kind} chartType={type} {...chart} />;
+		return (
+			<PluginChartBlock
+				kind={kind}
+				chartType={type}
+				blockRef={blockRef('Chart', props)}
+				settings={settings}
+				{...chart}
+			/>
+		);
 	}
 	return <ChartBlock kind={kind} chartType={type} blockRef={blockRef('Chart', props)} {...chart} />;
 }

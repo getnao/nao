@@ -1,3 +1,4 @@
+import { STORY_PENDING_CHARTS_ATTRIBUTE } from '@nao/shared/story-app';
 import sharp from 'sharp';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -92,6 +93,23 @@ describe.skipIf(!isChromeAvailable)('rendering a story screenshot', () => {
 		);
 
 		expect(screenshot.blockErrors).toEqual([]);
+	});
+
+	it('waits for chart plugins that are still drawing', async () => {
+		const screenshot = await renderStoryScreenshot(
+			readyPage(
+				'',
+				`document.documentElement.setAttribute('${STORY_PENDING_CHARTS_ATTRIBUTE}', '1');
+				setTimeout(() => {
+					document.body.insertAdjacentHTML('beforeend', '<p>drawn late</p>');
+					document.documentElement.removeAttribute('${STORY_PENDING_CHARTS_ATTRIBUTE}');
+				}, 3000);`,
+			),
+			VIEWPORT,
+			[],
+		);
+
+		expect(screenshot.blank).toBe(false);
 	});
 
 	it('is broken when the app never finishes mounting', { timeout: 60_000 }, async () => {

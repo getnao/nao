@@ -3,6 +3,7 @@ import {
 	isStoryConnectMessage,
 	isStoryHostMessage,
 	STORY_HTML_API_GLOBAL,
+	STORY_PENDING_CHARTS_ATTRIBUTE,
 	STORY_PRINT_FLAG,
 	STORY_QUERY_ACCESS_DENIED_MESSAGE,
 } from '@nao/shared/story-app';
@@ -23,6 +24,7 @@ import type { StoryBlockReference } from '@nao/shared/types';
 import type {
 	StoryAppKind,
 	StoryBlockEditRequest,
+	StoryChartSettingsSave,
 	StoryElementAsk,
 	StoryTableFormatEditRequest,
 	StoryExportData,
@@ -61,6 +63,7 @@ const OFFLINE_QUERY_MESSAGE =
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
 const pendingChartPlugins = new Map<string, PendingRequest<string>>();
+const pendingChartSettingsSaves = new Map<string, PendingRequest<void>>();
 const pendingMapBoundaries = new Map<string, PendingRequest<StoryMapBoundary>>();
 const pendingModels = new Map<string, PendingRequest<StoryModel[]>>();
 const pendingModelCalls = new Map<string, PendingRequest<StoryModelResult>>();
@@ -74,6 +77,7 @@ let frameChannel: string | undefined;
 let hostPort: MessagePort | null = null;
 let hostShortcuts: Shortcut[] = [];
 let stopPendingHighlight: () => void = () => {};
+let drawingCharts = 0;
 
 export async function bootStory({
 	kind = 'react',
@@ -292,6 +296,27 @@ export function requestChartPlugin(chartType: string): Promise<string> {
 	return awaitReply(pendingChartPlugins, (requestId) => ({ type: 'nao-story:chart-plugin', requestId, chartType }));
 }
 
+export function requestChartSettingsSave({ block, settings }: StoryChartSettingsSave): Promise<void> {
+	return awaitReply(pendingChartSettingsSaves, (requestId) => ({
+		type: 'nao-story:save-chart-settings',
+		requestId,
+		block: toJsonSafe(block),
+		settings: toJsonSafe(settings),
+	}));
+}
+
+/** Counts a chart plugin as drawing until the returned function is called, so the PDF waits for it. */
+export function beginChartDrawing(): () => void {
+	let finished = false;
+	updateDrawingCharts(1);
+	return () => {
+		if (!finished) {
+			finished = true;
+			updateDrawingCharts(-1);
+		}
+	};
+}
+
 export function requestMapBoundary(key: string): Promise<StoryMapBoundary> {
 	if (exportData) {
 		return readExportedMapBoundary(exportData, key);
@@ -386,6 +411,14 @@ function handleHostMessage(message: unknown): void {
 		settleMapBoundary(message);
 		return;
 	}
+	if (message.type === 'nao-story:chart-settings-saved') {
+		resolvePending(pendingChartSettingsSaves, message.requestId, undefined);
+		return;
+	}
+	if (message.type === 'nao-story:chart-settings-error') {
+		rejectPending(pendingChartSettingsSaves, message.requestId, message.message);
+		return;
+	}
 	const pending = pendingQueries.get(message.requestId);
 	if (!pending) {
 		return;
@@ -454,6 +487,15 @@ function settleMapBoundary(
 		pending?.resolve(message.boundary);
 	} else {
 		pending?.reject(new Error(message.message));
+	}
+}
+
+function updateDrawingCharts(change: number): void {
+	drawingCharts += change;
+	if (drawingCharts > 0) {
+		document.documentElement.setAttribute(STORY_PENDING_CHARTS_ATTRIBUTE, String(drawingCharts));
+	} else {
+		document.documentElement.removeAttribute(STORY_PENDING_CHARTS_ATTRIBUTE);
 	}
 }
 

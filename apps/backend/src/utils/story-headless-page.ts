@@ -1,4 +1,4 @@
-import { STORY_PRINT_FLAG } from '@nao/shared/story-app';
+import { STORY_PENDING_CHARTS_ATTRIBUTE, STORY_PRINT_FLAG } from '@nao/shared/story-app';
 import { isStoryMapTileUrl, storyMapTileCspSources } from '@nao/shared/story-map-tiles';
 import { DEFAULT_STORY_THEME_PAIR, FONT_STYLESHEET_HOSTS, type StoryThemePair } from '@nao/shared/story-theme';
 import type { HTTPRequest, Page } from 'puppeteer-core';
@@ -6,6 +6,7 @@ import type { HTTPRequest, Page } from 'puppeteer-core';
 export const STORY_DOCUMENT_URL = 'https://story-export.nao.invalid/';
 
 const READY_TIMEOUT_MS = 20_000;
+export const CHARTS_TIMEOUT_MS = 15_000;
 const FONT_HOSTS = new Set<string>(FONT_STYLESHEET_HOSTS);
 const FONT_HOST_SOURCES = FONT_STYLESHEET_HOSTS.map((host) => `https://${host}`).join(' ');
 const TILE_HOST_SOURCES = storyMapTileCspSources().join(' ');
@@ -64,6 +65,20 @@ export async function waitForStoryReady(page: Page): Promise<boolean> {
 		.waitForFunction(() => document.documentElement.dataset.naoStoryReady === 'true', {
 			timeout: READY_TIMEOUT_MS,
 		})
+		.then(
+			() => true,
+			() => false,
+		);
+}
+
+/** A chart plugin still drawing after the timeout is captured as it stands. */
+export async function waitForChartsDrawn(page: Page): Promise<boolean> {
+	return page
+		.waitForFunction(
+			(attribute: string) => !document.documentElement.hasAttribute(attribute),
+			{ timeout: CHARTS_TIMEOUT_MS },
+			STORY_PENDING_CHARTS_ATTRIBUTE,
+		)
 		.then(
 			() => true,
 			() => false,
