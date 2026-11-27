@@ -44,8 +44,11 @@ import {
 } from '../utils/story-query-data';
 import {
 	buildViewerSafeStorySource,
+	extractProseBlocks,
+	extractStoryLayout,
 	extractStructureTokens,
 	markViewerRestricted,
+	type ProseBlock,
 	stripHardcodedFilterOptions,
 	stripViewerSensitiveTagCopy,
 } from '../utils/story-structure';
@@ -1388,8 +1391,29 @@ function preservesStoryStructure(
 		: extractHeadingTokens(candidateCode);
 	return (
 		JSON.stringify(originalStructure) === JSON.stringify(candidateStructure) &&
-		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings)
+		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings) &&
+		(allowDisplayCopyChanges || keepsOwnerProse(originalCode, candidateCode))
 	);
+}
+
+/**
+ * The owner's text was written or approved by a person: a refresh may update its figures, but not add paragraphs,
+ * move them, or put figures into a paragraph that had none. Any other rewrite keeps the current text.
+ */
+function keepsOwnerProse(originalCode: string, candidateCode: string): boolean {
+	if (JSON.stringify(extractStoryLayout(originalCode)) !== JSON.stringify(extractStoryLayout(candidateCode))) {
+		return false;
+	}
+	const candidateBlocks = extractProseBlocks(candidateCode);
+	return extractProseBlocks(originalCode).every((block, index) => !addsFigures(block, candidateBlocks[index]));
+}
+
+function addsFigures(original: ProseBlock, candidate: ProseBlock): boolean {
+	return !containsDigit(original.text) && containsDigit(candidate.text);
+}
+
+function containsDigit(text: string): boolean {
+	return /\d/.test(text);
 }
 
 function extractHeadingTokens(code: string): string[] {

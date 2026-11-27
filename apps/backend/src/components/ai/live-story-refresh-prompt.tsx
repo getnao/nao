@@ -39,6 +39,11 @@ export function LiveStoryRefreshPrompt({
 							You may rewrite human-readable titles and labels in story tags, but preserve their data
 							bindings and configuration.
 						</ListItem>
+						<ListItem>
+							Update only the story's prose, bullet points, and narrative text to accurately reflect the
+							most recent query results and any new date-related details. Do not change structural
+							elements.
+						</ListItem>
 					</>
 				) : (
 					<>
@@ -47,15 +52,20 @@ export function LiveStoryRefreshPrompt({
 							Preserve every {'<chart ... />'}, {'<table ... />'}, {'<grid ...>'}, {'</grid>'},{' '}
 							{'<tab ...>'}, and {'</tab>'} tag exactly as written and in the same order.
 						</ListItem>
+						<ListItem>
+							Keep every paragraph and list item, in the same order: never add, remove, merge or split
+							one, and never add a sentence or a clause.
+						</ListItem>
+						<ListItem>
+							Keep each paragraph's meaning, tone, language and length close to the original: only update
+							the numbers, trends, comparisons and date-related details it already states.
+						</ListItem>
+						<ListItem>Never add a number or a date to a paragraph or list item that has none.</ListItem>
 					</>
 				)}
 				<ListItem>
 					Do not add, remove, or reorder structural blocks. Try to keep the formatting as close as possible to
 					the original story (bold, italic, etc.).
-				</ListItem>
-				<ListItem>
-					Update only the story's prose, bullet points, and narrative text to accurately reflect the most
-					recent query results and any new date-related details. Do not change structural elements.
 				</ListItem>
 				<ListItem>Use specific numbers only when supported by the provided query summaries.</ListItem>
 				<ListItem>

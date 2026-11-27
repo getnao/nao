@@ -49,6 +49,23 @@ export function extractStructureTokens(code: string): string[] {
 	return code.match(storyStructureTokenRegex()) ?? [];
 }
 
+const LIST_ITEM_MARKER = /^(?:[-*+]|\d+[.)])\s+/;
+
+export interface ProseBlock {
+	kind: 'paragraph' | 'list-item';
+	text: string;
+}
+
+/** The tags, headings and kinds of prose blocks of a story, in the order they appear. */
+export function extractStoryLayout(code: string): string[] {
+	return walkStory(code).layout;
+}
+
+/** The paragraphs and list items of a story, including text written beside its tags. */
+export function extractProseBlocks(code: string): ProseBlock[] {
+	return walkStory(code).blocks;
+}
+
 export function stripViewerSensitiveTagCopy(tag: string): string {
 	const sensitiveAttributeRegex = new RegExp(
 		String.raw`\s+(?:title|label|x_axis_label|y_axis_label|y_axis_right_label)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
@@ -68,6 +85,57 @@ function storyStructureTokenRegex(): RegExp {
 		String.raw`<grid(?:\s+${TAG_ATTRS})?>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>|<map\s+${TAG_ATTRS}\/?>|<parameter\s+${TAG_ATTRS}\/?>|<tab\s+${TAG_ATTRS}>|<\/tab>`,
 		'g',
 	);
+}
+
+/** A tag ends the current block, as the page splits the story's text there. */
+function walkStory(code: string): { blocks: ProseBlock[]; layout: string[] } {
+	const blocks: ProseBlock[] = [];
+	const layout: string[] = [];
+	let currentBlock: ProseBlock | null = null;
+
+	const startBlock = (kind: ProseBlock['kind'], text: string) => {
+		currentBlock = { kind, text };
+		blocks.push(currentBlock);
+		layout.push(kind);
+	};
+
+	const readLine = (line: string) => {
+		const text = line.trim();
+		if (!text || isThematicBreak(text)) {
+			currentBlock = null;
+		} else if (isHeadingLine(text)) {
+			layout.push(text);
+			currentBlock = null;
+		} else if (isListItemLine(text)) {
+			startBlock('list-item', text.replace(LIST_ITEM_MARKER, ''));
+		} else if (currentBlock) {
+			currentBlock.text += ` ${text}`;
+		} else {
+			startBlock('paragraph', text);
+		}
+	};
+
+	let textStart = 0;
+	for (const tag of code.matchAll(storyStructureTokenRegex())) {
+		code.slice(textStart, tag.index).split('\n').forEach(readLine);
+		layout.push(tag[0]);
+		currentBlock = null;
+		textStart = tag.index + tag[0].length;
+	}
+	code.slice(textStart).split('\n').forEach(readLine);
+	return { blocks, layout };
+}
+
+function isHeadingLine(line: string): boolean {
+	return /^#{1,6}\s+\S/.test(line);
+}
+
+function isThematicBreak(line: string): boolean {
+	return /^(?:-{3,}|\*{3,}|_{3,})$/.test(line);
+}
+
+function isListItemLine(line: string): boolean {
+	return LIST_ITEM_MARKER.test(line);
 }
 
 function redactViewerStoryTag(tag: string): string {
