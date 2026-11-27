@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { stubScrollIntoView } from '../helpers/browser-stubs';
 import { AutomationsFeed } from '@/components/automations-feed';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 vi.mock('@/components/tool-calls/display-chart', () => ({
 	ChartDisplay: () => null,
@@ -55,37 +57,58 @@ describe('AutomationsFeed', () => {
 			'Alice shared this story with you, with edit rights.',
 		);
 	});
+
+	it.each([
+		{ readAt: null, read: true },
+		{ readAt: new Date('2026-11-05T11:00:00Z'), read: false },
+	])('toggles the read state of the active item to $read with the u shortcut', ({ readAt, read }) => {
+		const onSetRead = vi.fn();
+		stubScrollIntoView();
+		renderSharedNotification({ role: 'viewer' }, { readAt, onSetRead });
+
+		fireEvent.keyDown(window, { key: 'j' });
+		fireEvent.keyDown(window, { key: 'u' });
+
+		expect(onSetRead).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'notification-1' }), read);
+	});
 });
 
-function renderSharedNotification(access: { role: 'viewer' | 'editor'; isRoleChange?: boolean }) {
+function renderSharedNotification(
+	access: { role: 'viewer' | 'editor'; isRoleChange?: boolean },
+	options: { readAt?: Date | null; onSetRead?: (item: unknown, read: boolean) => void } = {},
+) {
 	render(
-		<AutomationsFeed
-			items={[
-				{
-					kind: 'notification',
-					id: 'notification-1',
-					startedAt: new Date('2026-11-05T10:00:00Z'),
-					notification: {
+		<TooltipProvider>
+			<AutomationsFeed
+				layout='rows'
+				items={[
+					{
+						kind: 'notification',
 						id: 'notification-1',
-						category: 'shared',
-						title: 'Alice shared a story with you',
-						body: '"Revenue"',
-						linkUrl: null,
-						payload: {
-							kind: 'shared',
-							sharerName: 'Alice',
-							itemLabel: 'story',
-							itemTitle: 'Revenue',
-							visibility: 'specific',
-							...access,
+						startedAt: new Date('2026-11-05T10:00:00Z'),
+						notification: {
+							id: 'notification-1',
+							category: 'shared',
+							title: 'Alice shared a story with you',
+							body: '"Revenue"',
+							linkUrl: null,
+							payload: {
+								kind: 'shared',
+								sharerName: 'Alice',
+								itemLabel: 'story',
+								itemTitle: 'Revenue',
+								visibility: 'specific',
+								...access,
+							},
+							readAt: options.readAt ?? null,
 						},
-						readAt: null,
 					},
-				},
-			]}
-			isLoading={false}
-			hasAutomations={false}
-			canCreateAutomation={false}
-		/>,
+				]}
+				onSetRead={options.onSetRead}
+				isLoading={false}
+				hasAutomations={false}
+				canCreateAutomation={false}
+			/>
+		</TooltipProvider>,
 	);
 }

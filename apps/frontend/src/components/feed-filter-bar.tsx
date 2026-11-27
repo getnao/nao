@@ -68,15 +68,7 @@ export function FeedFilterBar({
 		() => sortActors([...actorCounts.keys()], currentUserName),
 		[actorCounts, currentUserName],
 	);
-	// Count unread among items that pass the active type/actor filters, since selecting
-	// "Unread only" applies on top of those — otherwise the badge could disagree with the result.
-	const unreadCount = useMemo(
-		() =>
-			items.filter((item) => matchesTypeAndActorFilters(item, filters, currentUserName) && isFeedItemUnread(item))
-				.length,
-		[items, filters, currentUserName],
-	);
-	const hasActiveFilters = filters.types.length > 0 || filters.actors.length > 0 || filters.readStatus !== 'all';
+	const hasActiveFilters = filters.types.length > 0 || filters.actors.length > 0;
 
 	function toggleType(type: FeedTypeKey) {
 		const next = filters.types.includes(type)
@@ -93,7 +85,7 @@ export function FeedFilterBar({
 	}
 
 	function clearFilters() {
-		onChange({ ...filters, types: [], actors: [], readStatus: 'all' });
+		onChange({ ...filters, types: [], actors: [] });
 	}
 
 	return (
@@ -144,21 +136,6 @@ export function FeedFilterBar({
 							))}
 						</>
 					)}
-					<DropdownMenuSeparator />
-					<DropdownMenuLabel>Status</DropdownMenuLabel>
-					<ToolbarOption
-						selected={filters.readStatus === 'all'}
-						onSelect={() => onChange({ ...filters, readStatus: 'all' })}
-					>
-						All
-					</ToolbarOption>
-					<ToolbarOption
-						selected={filters.readStatus === 'unread'}
-						onSelect={() => onChange({ ...filters, readStatus: 'unread' })}
-						count={unreadCount}
-					>
-						Unread only
-					</ToolbarOption>
 					{hasActiveFilters && (
 						<>
 							<DropdownMenuSeparator />
@@ -220,7 +197,6 @@ export function applyFeedFilters(
 	});
 }
 
-/** Shared type/actor predicate so the "Unread only" badge count and the rendered list stay in sync. */
 function matchesTypeAndActorFilters(
 	item: AutomationFeedItem,
 	filters: FeedFilters,
@@ -242,7 +218,7 @@ function getFeedItemTypeKey(item: AutomationFeedItem): FeedTypeKey {
 	return item.kind === 'automation' ? 'automation' : item.notification.category;
 }
 
-function getFeedItemActor(item: AutomationFeedItem, currentUserName?: string | null): string | null {
+export function getFeedItemActor(item: AutomationFeedItem, currentUserName?: string | null): string | null {
 	if (item.kind === 'automation') {
 		return currentUserName ?? null;
 	}
@@ -265,7 +241,7 @@ function getFeedItemActor(item: AutomationFeedItem, currentUserName?: string | n
 	return null;
 }
 
-function isFeedItemUnread(item: AutomationFeedItem): boolean {
+export function isFeedItemUnread(item: AutomationFeedItem): boolean {
 	return item.kind === 'automation' ? !item.run.readAt : !item.notification.readAt;
 }
 

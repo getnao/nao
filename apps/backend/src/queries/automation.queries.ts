@@ -436,15 +436,24 @@ export const failAutomationRun = async (runId: string, errorMessage: string): Pr
 		.execute();
 };
 
-export const markAutomationRunRead = async (projectId: string, userId: string, runId: string): Promise<boolean> => {
+export const markAutomationRunRead = async (
+	projectId: string,
+	userId: string,
+	runId: string,
+	read = true,
+): Promise<boolean> => {
 	const run = await getAutomationRunForUser(projectId, userId, runId);
 	if (!run) {
 		return false;
 	}
-	if (run.readAt) {
+	if (Boolean(run.readAt) === read) {
 		return true;
 	}
-	await db.update(s.automationRun).set({ readAt: new Date() }).where(eq(s.automationRun.id, runId)).execute();
+	await db
+		.update(s.automationRun)
+		.set({ readAt: read ? new Date() : null })
+		.where(eq(s.automationRun.id, runId))
+		.execute();
 	return true;
 };
 
