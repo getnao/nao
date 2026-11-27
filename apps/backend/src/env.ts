@@ -67,6 +67,8 @@ function blankToUndefined(value: unknown): unknown {
 const stripeIdentifier = z.string().trim().min(1);
 
 const stripeConfigSchema = z.object({
+	secretKey: stripeIdentifier,
+	webhookSecret: stripeIdentifier,
 	products: z.object({
 		legacyUnlimited: stripeIdentifier,
 		trial: stripeIdentifier,
@@ -389,14 +391,6 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
-	STRIPE_SECRET_KEY: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_WEBHOOK_SECRET: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
 	STRIPE_CONFIG: z.preprocess(
 		blankToUndefined,
 		z
@@ -587,16 +581,12 @@ const baseRawEnvSchema = z.object({
 const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema);
 const envSchema = rawEnvSchema
 	.superRefine((data, ctx) => {
-		if (isCloudBillingEnabled(data)) {
-			for (const variable of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_CONFIG'] as const) {
-				if (!data[variable]) {
-					ctx.addIssue({
-						code: 'custom',
-						path: [variable],
-						message: `${variable} is required when cloud billing is enabled`,
-					});
-				}
-			}
+		if (isCloudBillingEnabled(data) && !data.STRIPE_CONFIG) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['STRIPE_CONFIG'],
+				message: 'STRIPE_CONFIG is required when cloud billing is enabled',
+			});
 		}
 
 		if (!data.SLACK_BOT_TOKEN) {

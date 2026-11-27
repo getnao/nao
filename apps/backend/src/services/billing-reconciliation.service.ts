@@ -22,6 +22,7 @@ import {
 	cloudSubscriptionProjection,
 	hasCloudDefaultPaymentMethod,
 	listCloudSubscriptions,
+	restoreInterruptedCloudTrialPlaceholder,
 	updateCloudPaidSubscriptionTrialEnd,
 } from './stripe.service';
 import {
@@ -74,6 +75,9 @@ async function reconcileUnderSeatLock(input: {
 	}
 
 	assertSubscriptionOwnership(selected.subscription, input.stripeCustomerId, billing.orgId);
+	if (await restoreInterruptedCloudTrialPlaceholder(selected.subscription, billing.orgId)) {
+		return reconcileUnderSeatLock(input);
+	}
 	selected = await carryForwardLatestTrialEnd(selected, classified, billing.orgId);
 	const projection = await cloudSubscriptionProjection(selected.subscription);
 	const applied = await billingQueries.updateSubscriptionProjection(billing.orgId, claim.token, {

@@ -20,7 +20,6 @@ import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useConfirmCloudBillingChange } from '@/hooks/use-organization-billing';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
-import { getBrowserBillingCurrency } from '@/lib/billing-currency';
 import { trpc } from '@/main';
 
 export function OrgMembers() {
@@ -88,9 +87,7 @@ export function OrgMembers() {
 		if (!isCloud || added.length !== 1) {
 			return;
 		}
-		const status = await queryClient
-			.fetchQuery(trpc.billing.getStatus.queryOptions({ currency: getBrowserBillingCurrency() }))
-			.catch(() => null);
+		const status = await queryClient.fetchQuery(trpc.billing.getStatus.queryOptions()).catch(() => null);
 		const email = added[0].email.toLowerCase();
 		const member = status?.members.find((candidate) => candidate.email.toLowerCase() === email);
 		const plan = getCloudPlanOffers(status?.currency ?? 'usd').find(({ key }) => key === status?.plan?.key);

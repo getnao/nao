@@ -64,9 +64,7 @@ describe('cloud billing environment', () => {
 		});
 
 		expect(result.status).toBe(1);
-		for (const variable of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_CONFIG']) {
-			expect(result.stderr).toContain(`${variable} is required when cloud billing is enabled`);
-		}
+		expect(result.stderr).toContain('STRIPE_CONFIG is required when cloud billing is enabled');
 	});
 
 	it.each([
@@ -77,6 +75,10 @@ describe('cloud billing environment', () => {
 				products: { ...TEST_STRIPE_CONFIG.products, team: undefined },
 			}),
 			error: 'STRIPE_CONFIG.products.team:',
+		},
+		{
+			config: JSON.stringify({ ...TEST_STRIPE_CONFIG, secretKey: undefined }),
+			error: 'STRIPE_CONFIG.secretKey:',
 		},
 	])('rejects an invalid STRIPE_CONFIG with "$error"', ({ config, error }) => {
 		const result = loadEnvWithOverrides({ NAO_MODE: 'cloud', STRIPE_CONFIG: config });

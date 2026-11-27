@@ -27,6 +27,7 @@ const PLAN_METADATA_KEY = 'nao_plan_key';
 const QUANTITY_METADATA_KEY = 'nao_quantity';
 const SUBSCRIPTION_KIND_METADATA_KEY = 'nao_subscription_kind';
 const TRIAL_PLACEHOLDER_KIND = 'trial-placeholder';
+const REPLACEMENT_CURRENCY_METADATA_KEY = 'nao_replacement_currency';
 const CHECKOUT_KIND_METADATA_KEY = 'nao_checkout_kind';
 const CREDIT_TOP_UP_CHECKOUT_KIND = 'credit_top_up';
 const TRIAL_END_METADATA_KEY = 'nao_trial_end';
@@ -144,6 +145,8 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 	organizationId: string;
 	stripeCustomerId: string;
 	trialEnd: Date;
+	currency?: string;
+	idempotencyScope?: string;
 }): Promise<Stripe.Subscription> {
 	if (input.trialEnd.getTime() <= Date.now()) {
 		throw new Error('The organization trial has expired');
@@ -152,6 +155,7 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 	return getStripeClient().subscriptions.create(
 		{
 			customer: input.stripeCustomerId,
+			...(input.currency ? { currency: input.currency } : {}),
 			items: [{ price: price.id, quantity: 1 }],
 			metadata: {
 				[ORGANIZATION_METADATA_KEY]: input.organizationId,
@@ -161,8 +165,76 @@ export async function createCloudTrialPlaceholderSubscription(input: {
 			trial_end: stripeTimestamp(input.trialEnd),
 			trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
 		},
-		{ idempotencyKey: `cloud-trial-placeholder-v1:${input.organizationId}` },
+		{
+			idempotencyKey: `cloud-trial-placeholder-v1:${input.organizationId}${input.idempotencyScope ? `:${input.idempotencyScope}` : ''}`,
+		},
 	);
+}
+
+/**
+ * Stripe rejects active subscriptions in two currencies on one customer, so the placeholder is recreated in the
+ * Checkout currency. The original currency is restored if that fails. The replacement currency is saved on the old
+ * placeholder before it is canceled, so reconciliation restores the trial if both recreations fail.
+ */
+export async function replaceCloudTrialPlaceholderSubscription(
+	placeholder: Stripe.Subscription,
+	organizationId: string,
+	currency: CloudBillingCurrency,
+): Promise<Stripe.Subscription> {
+	if (placeholder.trial_end === null) {
+		throw new Error(`Stripe Subscription "${placeholder.id}" has no trial end`);
+	}
+	const trialEnd = new Date(placeholder.trial_end * 1_000);
+	await getCloudTrialPrice();
+	assertCloudSubscriptionOrganization(placeholder, organizationId);
+	await getStripeClient().subscriptions.update(placeholder.id, {
+		metadata: { [REPLACEMENT_CURRENCY_METADATA_KEY]: currency },
+	});
+	await cancelCloudTrialPlaceholderSubscription(placeholder, organizationId);
+	const recreateIn = (placeholderCurrency: string) =>
+		createCloudTrialPlaceholderSubscription({
+			organizationId,
+			stripeCustomerId: stripeCustomerId(placeholder.customer),
+			trialEnd,
+			currency: placeholderCurrency,
+			idempotencyScope: `${placeholder.id}:${placeholderCurrency}`,
+		});
+	try {
+		return await recreateIn(currency);
+	} catch (error) {
+		await recreateIn(placeholder.currency);
+		throw error;
+	}
+}
+
+/**
+ * Recreates the placeholder of a currency switch that Stripe canceled without a confirmed replacement. Each attempt
+ * uses its own idempotency key because Stripe replays a cached failure for the same key; the seat lock held by
+ * reconciliation prevents duplicates.
+ */
+export async function restoreInterruptedCloudTrialPlaceholder(
+	subscription: Stripe.Subscription,
+	organizationId: string,
+): Promise<Stripe.Subscription | null> {
+	const currency = subscription.metadata[REPLACEMENT_CURRENCY_METADATA_KEY];
+	const trialEnd = stripeDate(subscription.trial_end);
+	if (
+		subscription.status !== 'canceled' ||
+		!currency ||
+		!trialEnd ||
+		trialEnd.getTime() <= Date.now() ||
+		cloudSubscriptionKind(subscription) !== 'trial-placeholder'
+	) {
+		return null;
+	}
+	assertCloudSubscriptionOrganization(subscription, organizationId);
+	return createCloudTrialPlaceholderSubscription({
+		organizationId,
+		stripeCustomerId: stripeCustomerId(subscription.customer),
+		trialEnd,
+		currency,
+		idempotencyScope: `${subscription.id}:${currency}:restore:${crypto.randomUUID()}`,
+	});
 }
 
 export async function createCloudCheckoutSession(input: {
@@ -494,7 +566,7 @@ export function stripeDashboardUrl(path: string): string {
 }
 
 export function isStripeLiveMode(): boolean {
-	return /^[rs]k_live_/.test(env.STRIPE_SECRET_KEY ?? '');
+	return /^[rs]k_live_/.test(env.STRIPE_CONFIG?.secretKey ?? '');
 }
 
 export async function resumeCloudSubscription(input: {
@@ -747,7 +819,8 @@ async function cloudTrialPlaceholderProjection(
 		stripeCustomerId: stripeCustomerId(subscription.customer),
 		stripeSubscriptionId: subscription.id,
 		stripePriceId: item.price.id,
-		...EMPTY_SEAT_PROJECTION,
+		seatQuantity: null,
+		...EMPTY_SCHEDULE_PROJECTION,
 		trialStartedAt: stripeDate(subscription.trial_start),
 		trialEndsAt,
 		currentPeriodStartsAt: stripeDate(item.current_period_start),
@@ -758,8 +831,7 @@ async function cloudTrialPlaceholderProjection(
 	};
 }
 
-const EMPTY_SEAT_PROJECTION = {
-	seatQuantity: null,
+const EMPTY_SCHEDULE_PROJECTION = {
 	stripeSubscriptionScheduleId: null,
 	pendingBillingPlan: null,
 	pendingSeatQuantity: null,
@@ -773,11 +845,11 @@ async function cloudScheduleProjection(
 	Pick<SubscriptionProjection, 'stripeSubscriptionScheduleId' | 'pendingBillingPlan' | 'pendingSeatQuantity'>
 > {
 	if (!subscription.schedule) {
-		return EMPTY_SEAT_PROJECTION;
+		return EMPTY_SCHEDULE_PROJECTION;
 	}
 	const schedule = await getCloudSubscriptionSchedule(stripeId(subscription.schedule));
 	if (schedule.status !== 'active' && schedule.status !== 'not_started') {
-		return EMPTY_SEAT_PROJECTION;
+		return EMPTY_SCHEDULE_PROJECTION;
 	}
 	const pendingItem = schedule.phases
 		.find((phase) => phase.start_date >= currentPeriodEnd)
@@ -874,7 +946,7 @@ async function fetchCloudTrialPrice(lookupKey: string, productId: string): Promi
 	const [price] = (
 		await getStripeClient().prices.list({
 			active: true,
-			expand: ['data.product'],
+			expand: ['data.currency_options', 'data.product'],
 			lookup_keys: [lookupKey],
 			limit: 1,
 		})
@@ -885,7 +957,7 @@ async function fetchCloudTrialPrice(lookupKey: string, productId: string): Promi
 	}
 	if (!isExpectedCloudTrialPrice(price) || price.product.id !== productId) {
 		throw new Error(
-			`Stripe Price "${price.id}" must belong to configured active trial Product "${productId}" and be a fixed $0 recurring licensed Price`,
+			`Stripe Price "${price.id}" must belong to configured active trial Product "${productId}" and be a fixed $0 USD and EUR recurring licensed Price`,
 		);
 	}
 	return price;
@@ -947,11 +1019,7 @@ export function getStripeClient(): Stripe {
 		throw new Error('Stripe is unavailable because cloud billing is disabled');
 	}
 
-	if (!env.STRIPE_SECRET_KEY) {
-		throw new Error('STRIPE_SECRET_KEY is required when cloud billing is enabled');
-	}
-
-	stripeClient ??= new Stripe(env.STRIPE_SECRET_KEY, {
+	stripeClient ??= new Stripe(getStripeConfig().secretKey, {
 		apiVersion: STRIPE_API_VERSION,
 		maxNetworkRetries: 2,
 		timeout: 20_000,
@@ -1228,9 +1296,13 @@ function isExpectedCloudTrialPrice(price: Stripe.Price): price is CloudTrialPric
 		!price.product.deleted &&
 		price.product.active &&
 		price.billing_scheme === 'per_unit' &&
-		price.unit_amount === 0 &&
 		price.type === 'recurring' &&
-		price.recurring?.usage_type === 'licensed'
+		price.recurring?.usage_type === 'licensed' &&
+		CLOUD_BILLING_CURRENCIES.every(
+			(currency) =>
+				(price.currency === currency ? price.unit_amount : price.currency_options?.[currency]?.unit_amount) ===
+				0,
+		)
 	);
 }
 

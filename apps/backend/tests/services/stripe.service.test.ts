@@ -100,6 +100,8 @@ import {
 	listCloudSubscriptions,
 	listCurrentCloudSubscriptions,
 	listStripeInvoicesCreatedSince,
+	replaceCloudTrialPlaceholderSubscription,
+	restoreInterruptedCloudTrialPlaceholder,
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../../src/services/stripe.service';
@@ -282,10 +284,15 @@ describe('validateCloudBillingConfiguration', () => {
 		);
 	});
 
-	it('rejects a non-zero placeholder Price', async () => {
-		mockCloudPrices({ trial: cloudTrialPrice({ unit_amount: 1 }) });
+	it.each([
+		['a non-zero amount', { unit_amount: 1 }],
+		['no EUR option', { currency_options: undefined }],
+	])('rejects a placeholder Price with %s', async (_, overrides) => {
+		mockCloudPrices({ trial: cloudTrialPrice(overrides) });
 
-		await expect(validateCloudBillingConfiguration()).rejects.toThrow('fixed $0 recurring licensed Price');
+		await expect(validateCloudBillingConfiguration()).rejects.toThrow(
+			'fixed $0 USD and EUR recurring licensed Price',
+		);
 	});
 });
 
@@ -320,6 +327,90 @@ describe('cloud trial placeholder', () => {
 				trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
 			},
 			{ idempotencyKey: 'cloud-trial-placeholder-v1:org-id' },
+		);
+	});
+
+	it('recreates the placeholder in the Checkout currency with the same trial end', async () => {
+		mockCloudPrices();
+		stripeMocks.createSubscription.mockResolvedValue(cloudTrialSubscription({ currency: 'eur' }));
+
+		await expect(
+			replaceCloudTrialPlaceholderSubscription(
+				cloudTrialSubscription({ currency: 'usd', trial_end: TRIAL_END_TIMESTAMP }),
+				'org-id',
+				'eur',
+			),
+		).resolves.toMatchObject({ currency: 'eur' });
+
+		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith('sub_cloud_trial', {
+			metadata: { nao_replacement_currency: 'eur' },
+		});
+		expect(stripeMocks.updateSubscription.mock.invocationCallOrder[0]).toBeLessThan(
+			stripeMocks.cancelSubscription.mock.invocationCallOrder[0],
+		);
+		expect(stripeMocks.cancelSubscription).toHaveBeenCalledWith('sub_cloud_trial', {}, expect.anything());
+		expect(stripeMocks.createSubscription).toHaveBeenCalledWith(
+			expect.objectContaining({ currency: 'eur', trial_end: TRIAL_END_TIMESTAMP }),
+			{ idempotencyKey: 'cloud-trial-placeholder-v1:org-id:sub_cloud_trial:eur' },
+		);
+	});
+
+	it('restores the original placeholder currency when the replacement fails', async () => {
+		mockCloudPrices();
+		stripeMocks.createSubscription
+			.mockRejectedValueOnce(new Error('stripe down'))
+			.mockResolvedValueOnce(cloudTrialSubscription());
+
+		await expect(
+			replaceCloudTrialPlaceholderSubscription(
+				cloudTrialSubscription({ currency: 'usd', trial_end: TRIAL_END_TIMESTAMP }),
+				'org-id',
+				'eur',
+			),
+		).rejects.toThrow('stripe down');
+
+		expect(stripeMocks.createSubscription).toHaveBeenLastCalledWith(
+			expect.objectContaining({ currency: 'usd', trial_end: TRIAL_END_TIMESTAMP }),
+			{ idempotencyKey: 'cloud-trial-placeholder-v1:org-id:sub_cloud_trial:usd' },
+		);
+	});
+
+	it.each([
+		['an interrupted currency switch', {}, true],
+		['a placeholder without a pending switch', { metadata: { nao_subscription_kind: 'trial-placeholder' } }, false],
+		['a trial that already ended', { trial_end: 1 }, false],
+		['a placeholder that is still live', { status: 'trialing' as const }, false],
+	])('restores the placeholder of %s: %s', async (_, overrides, restored) => {
+		mockCloudPrices();
+		stripeMocks.createSubscription.mockResolvedValue(cloudTrialSubscription({ currency: 'eur' }));
+
+		await restoreInterruptedCloudTrialPlaceholder(
+			cloudTrialSubscription({
+				status: 'canceled',
+				trial_end: TRIAL_END_TIMESTAMP,
+				metadata: {
+					nao_org_id: 'org-id',
+					nao_subscription_kind: 'trial-placeholder',
+					nao_replacement_currency: 'eur',
+				},
+				...overrides,
+			}),
+			'org-id',
+		);
+
+		expect(stripeMocks.createSubscription.mock.calls).toEqual(
+			restored
+				? [
+						[
+							expect.objectContaining({ currency: 'eur', trial_end: TRIAL_END_TIMESTAMP }),
+							{
+								idempotencyKey: expect.stringMatching(
+									/^cloud-trial-placeholder-v1:org-id:sub_cloud_trial:eur:restore:/,
+								),
+							},
+						],
+					]
+				: [],
 		);
 	});
 });
@@ -1057,6 +1148,18 @@ describe('cloud subscription projection', () => {
 		});
 	});
 
+	it('projects the Team seat quantity of a subscription without a schedule', async () => {
+		const subscription = cloudSubscription();
+		subscription.items.data[0].price = cloudTeamMonthlyPrice();
+		subscription.items.data[0].quantity = 4;
+
+		await expect(cloudSubscriptionProjection(subscription)).resolves.toMatchObject({
+			billingPlan: 'cloud_team_monthly_v1',
+			seatQuantity: 4,
+			stripeSubscriptionScheduleId: null,
+		});
+	});
+
 	it('rejects an unsupported recurring interval on the cloud Product', async () => {
 		const subscription = cloudSubscription();
 		subscription.items.data[0].price = cloudMonthlyPrice({ recurring: recurring({ interval: 'week' }) });
@@ -1568,7 +1671,6 @@ function cloudTeamMonthlyPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Pr
 
 function cloudTrialPrice(overrides: Partial<Stripe.Price> = {}): Stripe.Price {
 	return cloudMonthlyPrice({
-		currency_options: undefined,
 		id: 'price_cloud_trial',
 		lookup_key: 'nao_trial',
 		product: cloudProduct({ id: 'prod_cloud_trial' }),

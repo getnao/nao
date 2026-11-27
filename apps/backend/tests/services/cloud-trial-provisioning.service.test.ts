@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
 	getUserRole: vi.fn(),
 	listSubscriptions: vi.fn(),
 	reconcileCustomer: vi.fn(),
+	replacePlaceholder: vi.fn(),
+}));
+
+vi.mock('../../src/services/organization-seat.service', () => ({
+	withOrganizationSeatLock: (_: string, operation: () => Promise<unknown>) => operation(),
 }));
 
 vi.mock('../../src/queries/billing.queries', () => ({
@@ -34,9 +39,13 @@ vi.mock('../../src/services/stripe.service', () => ({
 	createCloudCustomer: mocks.createCustomer,
 	createCloudTrialPlaceholderSubscription: mocks.createPlaceholder,
 	listCloudSubscriptions: mocks.listSubscriptions,
+	replaceCloudTrialPlaceholderSubscription: mocks.replacePlaceholder,
 }));
 
-import { provisionCloudTrial } from '../../src/services/cloud-trial-provisioning.service';
+import {
+	matchCloudTrialPlaceholderCurrency,
+	provisionCloudTrial,
+} from '../../src/services/cloud-trial-provisioning.service';
 
 const trialEnd = new Date('2099-01-15T00:00:00.000Z');
 
@@ -126,6 +135,22 @@ describe('cloud trial provisioning', () => {
 		expect(mocks.createCustomer).not.toHaveBeenCalled();
 		expect(mocks.createPlaceholder).not.toHaveBeenCalled();
 		expect(mocks.reconcileCustomer).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['eur', true],
+		['usd', false],
+	] as const)('replaces a USD placeholder before a %s Checkout: %s', async (currency, replaced) => {
+		const placeholder = { id: 'sub_trial', status: 'trialing', currency: 'usd' };
+		mocks.listSubscriptions.mockResolvedValue([
+			{ kind: 'trial-placeholder', subscription: { id: 'sub_old', status: 'canceled', currency: 'eur' } },
+			{ kind: 'trial-placeholder', subscription: placeholder },
+		]);
+
+		await matchCloudTrialPlaceholderCurrency({ organizationId: 'org-id', stripeCustomerId: 'cus_cloud', currency });
+
+		expect(mocks.replacePlaceholder.mock.calls).toEqual(replaced ? [[placeholder, 'org-id', currency]] : []);
+		expect(mocks.reconcileCustomer).toHaveBeenCalledTimes(replaced ? 1 : 0);
 	});
 });
 

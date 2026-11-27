@@ -1,6 +1,8 @@
 import type { StripeConfig } from '../../src/env';
 
 export const TEST_STRIPE_CONFIG = {
+	secretKey: 'sk_test_example',
+	webhookSecret: 'whsec_example',
 	products: {
 		legacyUnlimited: 'prod_cloud',
 		trial: 'prod_cloud_trial',
@@ -20,6 +22,4 @@ export const TEST_STRIPE_CONFIG = {
 
 export const TEST_STRIPE_ENV = {
 	STRIPE_CONFIG: JSON.stringify(TEST_STRIPE_CONFIG),
-	STRIPE_SECRET_KEY: 'sk_test_example',
-	STRIPE_WEBHOOK_SECRET: 'whsec_example',
 };

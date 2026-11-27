@@ -10,7 +10,8 @@ export const stripeWebhookRoutes = async (app: App) => {
 	app.post('/', { config: { rawBody: true } }, async (request, reply) => {
 		const signatureHeader = request.headers['stripe-signature'];
 		const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
-		if (!signature || !request.rawBody || !env.STRIPE_WEBHOOK_SECRET) {
+		const stripeConfig = env.STRIPE_CONFIG;
+		if (!signature || !request.rawBody || !stripeConfig) {
 			return reply.status(400).send({ error: 'Invalid Stripe webhook request' });
 		}
 
@@ -19,7 +20,7 @@ export const stripeWebhookRoutes = async (app: App) => {
 			event = await getStripeClient().webhooks.constructEventAsync(
 				request.rawBody as string,
 				signature,
-				env.STRIPE_WEBHOOK_SECRET,
+				stripeConfig.webhookSecret,
 			);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -27,7 +28,7 @@ export const stripeWebhookRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'Invalid Stripe webhook signature' });
 		}
 
-		if (event.livemode !== /^[rs]k_live_/.test(env.STRIPE_SECRET_KEY ?? '')) {
+		if (event.livemode !== /^[rs]k_live_/.test(stripeConfig.secretKey)) {
 			return reply.status(400).send({ error: 'Stripe event mode does not match the configured Stripe key' });
 		}
 

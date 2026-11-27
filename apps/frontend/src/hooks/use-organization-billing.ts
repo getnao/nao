@@ -2,11 +2,10 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { CloudBillingInterval, CloudBillingPlanKey } from '@nao/shared/billing';
+import type { CloudBillingCurrency, CloudBillingInterval, CloudBillingPlanKey } from '@nao/shared/billing';
 
 import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
 import { useOrganizationBillingSync } from '@/hooks/use-organization-billing-sync';
-import { getBrowserBillingCurrency } from '@/lib/billing-currency';
 import { trpc } from '@/main';
 
 export type { OrganizationBillingSearch, OrganizationBillingTab } from '@/hooks/use-organization-billing-sync';
@@ -16,9 +15,11 @@ export type CloudBillingChangePreview = inferRouterOutputs<TrpcRouter>['billing'
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const [selectedBillingInterval, setSelectedBillingInterval] = useState<CloudBillingInterval>('monthly');
-	const selectedBillingCurrency = getBrowserBillingCurrency();
-	const billingSync = useOrganizationBillingSync(search, selectedBillingCurrency);
+	const [selectedBillingCurrency, setSelectedBillingCurrency] = useState<CloudBillingCurrency>('usd');
+	const billingSync = useOrganizationBillingSync(search);
 	const { billing, invoices } = billingSync;
+	const lockedBillingCurrency = billing.data?.currency ?? null;
+	const billingCurrency = lockedBillingCurrency ?? selectedBillingCurrency;
 	const paidPlanSelected = billing.data?.paidPlanSelected === true;
 	const canLoadUpcomingInvoice =
 		paidPlanSelected &&
@@ -68,6 +69,9 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isHistoricalSubscription: billingSync.isHistoricalSubscription,
 		selectedBillingInterval,
 		setSelectedBillingInterval,
+		billingCurrency,
+		isBillingCurrencyLocked: lockedBillingCurrency !== null,
+		setSelectedBillingCurrency,
 		isCheckoutPolling: billingSync.isCheckoutPolling,
 		isCheckoutConfirmationDelayed: billingSync.isCheckoutConfirmationDelayed,
 		checkoutFeedback: billingSync.checkoutFeedback,
@@ -93,7 +97,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			keepPlan.isPending ||
 			cancelPendingChange.isPending,
 		startCheckout: (planKey: CloudBillingPlanKey, seats?: number) => {
-			const input = { planKey, seats, currency: selectedBillingCurrency };
+			const input = { planKey, seats, currency: billingCurrency };
 			return startsWithTrialCheckout ? trialCheckout.mutateAsync(input) : resubscribe.mutateAsync(input);
 		},
 		previewChange: (targetPlanKey: CloudBillingPlanKey, seats?: number, promotionCode?: string) =>

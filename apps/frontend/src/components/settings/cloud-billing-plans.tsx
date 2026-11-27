@@ -1,12 +1,18 @@
 import { ArrowRightIcon, Check } from 'lucide-react';
 import {
+	CLOUD_BILLING_CURRENCIES,
 	CLOUD_BILLING_PLANS,
 	FREE_TIER_SEAT_LIMIT,
 	TEAM_MAX_SEATS,
 	TEAM_MIN_SEATS,
 	findCloudBillingPlan,
 } from '@nao/shared/billing';
-import type { CloudBillingInterval, CloudBillingPlanDefinition, CloudBillingTier } from '@nao/shared/billing';
+import type {
+	CloudBillingCurrency,
+	CloudBillingInterval,
+	CloudBillingPlanDefinition,
+	CloudBillingTier,
+} from '@nao/shared/billing';
 
 import type { ReactNode } from 'react';
 import type { CloudBillingStatus, OrganizationBillingState } from '@/hooks/use-organization-billing';
@@ -63,8 +69,12 @@ export function CloudBillingPlans({
 			<PlanComparison
 				data={data}
 				interval={billingState.selectedBillingInterval}
+				currency={billingState.billingCurrency}
 				disabled={disabled}
 				onIntervalChange={billingState.setSelectedBillingInterval}
+				onCurrencyChange={
+					billingState.isBillingCurrencyLocked ? undefined : billingState.setSelectedBillingCurrency
+				}
 				onChoose={data.trialAvailable || data.plan?.legacy ? undefined : onChoosePlan}
 				onChooseFree={data.trialAvailable || !data.plan || data.plan.legacy ? undefined : onSwitchToFree}
 				onKeepPlan={billingState.keepPlan}
@@ -221,21 +231,25 @@ function PlanOverviewColumn({
 function PlanComparison({
 	data,
 	interval,
+	currency,
 	disabled,
 	onIntervalChange,
+	onCurrencyChange,
 	onChoose,
 	onChooseFree,
 	onKeepPlan,
 }: {
 	data: CloudBillingStatus;
 	interval: CloudBillingInterval;
+	currency: CloudBillingCurrency;
 	disabled: boolean;
 	onIntervalChange: (interval: CloudBillingInterval) => void;
+	onCurrencyChange?: (currency: CloudBillingCurrency) => void;
 	onChoose?: (plan: CloudPlanOffer) => void;
 	onChooseFree?: () => void;
 	onKeepPlan: () => void;
 }) {
-	const offers = getCloudPlanOffers(data.currency);
+	const offers = getCloudPlanOffers(currency);
 	const offer = (tier: CloudPlanOffer['tier'], planInterval = interval) =>
 		offers.find((plan) => plan.tier === tier && plan.interval === planInterval)!;
 	const team = offer('team');
@@ -289,30 +303,33 @@ function PlanComparison({
 			title='Compare plans'
 			description='All plans include every nao feature. Choose how much full-access capacity you need.'
 			action={
-				<div
-					className='inline-flex shrink-0 rounded-lg bg-muted p-1'
-					role='group'
-					aria-label='Billing interval'
-				>
-					{(['monthly', 'yearly'] as const).map((value) => (
-						<Button
-							key={value}
-							variant={interval === value ? 'default' : 'ghost'}
-							size='sm'
-							aria-pressed={interval === value}
-							onClick={() => onIntervalChange(value)}
+				<div className='flex flex-wrap gap-2'>
+					{onCurrencyChange && (
+						<BillingToggle
+							label='Billing currency'
+							options={CLOUD_BILLING_CURRENCIES.map((value) => ({ value, label: value.toUpperCase() }))}
+							value={currency}
 							disabled={disabled}
-						>
-							{value === 'monthly' ? 'Monthly' : 'Yearly'}
-						</Button>
-					))}
+							onChange={onCurrencyChange}
+						/>
+					)}
+					<BillingToggle
+						label='Billing interval'
+						options={[
+							{ value: 'monthly', label: 'Monthly' },
+							{ value: 'yearly', label: 'Yearly' },
+						]}
+						value={interval}
+						disabled={disabled}
+						onChange={onIntervalChange}
+					/>
 				</div>
 			}
 		>
 			<div className='grid gap-4 lg:grid-cols-3'>
 				<PlanCard
 					name='Free'
-					price={formatBillingPrice(0, data.currency)}
+					price={formatBillingPrice(0, currency)}
 					priceSuffix='forever'
 					supportingText='No card required'
 					status={freeStatus}
@@ -378,6 +395,37 @@ function PlanComparison({
 				/>
 			</div>
 		</SettingsCard>
+	);
+}
+
+function BillingToggle<Value extends string>({
+	label,
+	options,
+	value,
+	disabled,
+	onChange,
+}: {
+	label: string;
+	options: { value: Value; label: string }[];
+	value: Value;
+	disabled: boolean;
+	onChange: (value: Value) => void;
+}) {
+	return (
+		<div className='inline-flex shrink-0 rounded-lg bg-muted p-1' role='group' aria-label={label}>
+			{options.map((option) => (
+				<Button
+					key={option.value}
+					variant={value === option.value ? 'default' : 'ghost'}
+					size='sm'
+					aria-pressed={value === option.value}
+					onClick={() => onChange(option.value)}
+					disabled={disabled}
+				>
+					{option.label}
+				</Button>
+			))}
+		</div>
 	);
 }
 
