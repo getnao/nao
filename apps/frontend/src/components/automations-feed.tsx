@@ -264,7 +264,13 @@ function RowsInbox({ items, actions }: { items: AutomationFeedItem[]; actions: F
 							onToggleRead={() => toggleRead(item)}
 						/>
 						{item.id === expandedId && (
-							<div className='border-b bg-muted/20 px-4 py-6 md:pr-6 md:pl-[4.75rem]'>
+							<div className='relative border-b bg-muted/20 py-6 pr-14 pl-4 md:pl-[4.75rem]'>
+								<div className='absolute top-5 right-3 md:right-5'>
+									<ReadToggleButton
+										isUnread={isFeedItemUnread(item)}
+										onToggle={() => toggleRead(item)}
+									/>
+								</div>
 								<div className='max-w-4xl'>
 									<ItemDetail item={item} actions={actions} hideHeader />
 								</div>
@@ -297,7 +303,10 @@ function useFeedKeyboard({
 	useEffect(() => {
 		function handleKeyDown(event: KeyboardEvent) {
 			const shortcut = FEED_SHORTCUTS[event.key];
-			if (!shortcut || event.metaKey || event.ctrlKey || event.altKey || isInteractiveTarget(event.target)) {
+			if (!shortcut || event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) {
+				return;
+			}
+			if (event.key === 'Enter' && isClickableTarget(event.target)) {
 				return;
 			}
 			event.preventDefault();
@@ -306,7 +315,7 @@ function useFeedKeyboard({
 				const nextIndex = shortcut === 'next' ? index + 1 : Math.max(index - 1, 0);
 				const nextItem = items[Math.min(nextIndex, items.length - 1)];
 				handlers.current.onActivate(nextItem);
-				document.querySelector(`[data-feed-item="${nextItem.id}"]`)?.scrollIntoView({ block: 'nearest' });
+				document.querySelector<HTMLElement>(`[data-feed-item="${nextItem.id}"] button`)?.focus();
 				return;
 			}
 			const activeItem = items[index];
@@ -319,11 +328,16 @@ function useFeedKeyboard({
 	}, [items, activeId]);
 }
 
-function isInteractiveTarget(target: EventTarget | null): boolean {
+function isTypingTarget(target: EventTarget | null): boolean {
 	return (
 		target instanceof HTMLElement &&
 		(target.isContentEditable || Boolean(target.closest('input, textarea, select, [role="dialog"], [role="menu"]')))
 	);
+}
+
+/** Enter on a focused button or link triggers that control, so the feed leaves it alone. */
+function isClickableTarget(target: EventTarget | null): boolean {
+	return target instanceof HTMLElement && Boolean(target.closest('button, a'));
 }
 
 function DayGroups({
@@ -362,7 +376,7 @@ function ItemSummary({
 	const timeAgo = useTimeAgo(startedAt.getTime());
 	const time = (
 		<time
-			className='shrink-0 text-xs text-muted-foreground tabular-nums group-hover:invisible'
+			className='shrink-0 text-xs text-muted-foreground tabular-nums group-hover:invisible group-has-focus-visible:invisible'
 			title={startedAt.toLocaleString()}
 		>
 			{timeAgo.humanReadable}
@@ -382,7 +396,7 @@ function ItemSummary({
 				onClick={onSelect}
 				aria-current={isSelected}
 				className={cn(
-					'flex w-full cursor-pointer items-center gap-3 px-4 text-left md:px-6',
+					'flex w-full cursor-pointer items-center gap-3 px-4 text-left outline-none md:px-6',
 					variant === 'stacked' ? 'py-3' : 'py-2.5',
 				)}
 			>
@@ -415,7 +429,7 @@ function ItemSummary({
 			</button>
 			<div
 				className={cn(
-					'absolute right-3 hidden group-hover:flex md:right-5',
+					'absolute right-3 hidden group-hover:flex group-has-focus-visible:flex md:right-5',
 					variant === 'stacked' ? 'top-2' : 'top-1/2 -translate-y-1/2',
 				)}
 			>
@@ -537,13 +551,24 @@ function ItemDetail({
 	actions: FeedActions;
 	hideHeader?: boolean;
 }) {
+	const isUnread = isFeedItemUnread(item);
+	const readToggle = <ReadToggleButton isUnread={isUnread} onToggle={() => actions.onSetRead?.(item, isUnread)} />;
+
 	if (item.kind === 'notification') {
-		return <NotificationDetail item={item} onOpen={actions.onOpenNotification} hideHeader={hideHeader} />;
+		return (
+			<NotificationDetail
+				item={item}
+				onOpen={actions.onOpenNotification}
+				hideHeader={hideHeader}
+				readToggle={readToggle}
+			/>
+		);
 	}
 	return (
 		<AutomationRunDetail
 			item={item}
 			hideHeader={hideHeader}
+			readToggle={readToggle}
 			isCancelling={actions.cancellingRunId === item.run.id}
 			onCancel={actions.onCancelRun ? () => actions.onCancelRun?.(item.run.id) : undefined}
 		/>
@@ -554,10 +579,12 @@ function NotificationDetail({
 	item,
 	onOpen,
 	hideHeader,
+	readToggle,
 }: {
 	item: NotificationFeedItem;
 	onOpen?: (notificationId: string, linkUrl: string | null) => void;
 	hideHeader: boolean;
+	readToggle: ReactNode;
 }) {
 	const { notification } = item;
 	const open = () => onOpen?.(notification.id, notification.linkUrl);
@@ -570,6 +597,7 @@ function NotificationDetail({
 					icon={<FeedIcon Icon={Icon} tone={tone} label={getCategoryLabel(notification.category)} />}
 					title={title}
 					startedAt={new Date(item.startedAt)}
+					trailing={readToggle}
 				/>
 			)}
 			<div className='text-sm text-muted-foreground'>{description}</div>
@@ -587,11 +615,13 @@ function NotificationDetail({
 function AutomationRunDetail({
 	item,
 	hideHeader,
+	readToggle,
 	isCancelling,
 	onCancel,
 }: {
 	item: AutomationFeedAutomationItem;
 	hideHeader: boolean;
+	readToggle: ReactNode;
 	isCancelling: boolean;
 	onCancel?: () => void;
 }) {
@@ -614,6 +644,7 @@ function AutomationRunDetail({
 						</Link>
 					}
 					startedAt={new Date(run.startedAt)}
+					trailing={readToggle}
 				/>
 			)}
 			<RunMeta item={item} isCancelling={isCancelling} onCancel={onCancel} />
@@ -622,16 +653,27 @@ function AutomationRunDetail({
 	);
 }
 
-function DetailHeader({ icon, title, startedAt }: { icon: ReactNode; title: ReactNode; startedAt: Date }) {
+function DetailHeader({
+	icon,
+	title,
+	startedAt,
+	trailing,
+}: {
+	icon: ReactNode;
+	title: ReactNode;
+	startedAt: Date;
+	trailing: ReactNode;
+}) {
 	return (
 		<header className='flex items-start gap-3'>
 			{icon}
-			<div className='flex min-w-0 flex-col'>
+			<div className='flex min-w-0 flex-1 flex-col'>
 				<h2 className='text-lg leading-7 font-semibold tracking-tight'>{title}</h2>
 				<time className='text-xs text-muted-foreground'>
 					{startedAt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
 				</time>
 			</div>
+			{trailing}
 		</header>
 	);
 }

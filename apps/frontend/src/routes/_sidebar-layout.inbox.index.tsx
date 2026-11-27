@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { CheckCheck, Columns2, Rows3 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { AutomationFeedItem, InboxLayout, NotificationFeedItem } from '@/components/automations-feed';
-import type { FeedReadStatus } from '@/components/feed-filter-bar';
 import { AutomationsFeed, inboxLayoutStorage } from '@/components/automations-feed';
+import type { FeedReadStatus } from '@/components/feed-filter-bar';
 import { applyFeedFilters, FeedFilterBar, useFeedFilters } from '@/components/feed-filter-bar';
 import { MobileHeader } from '@/components/mobile-header';
 import { Button } from '@/components/ui/button';
@@ -90,19 +90,35 @@ function InboxPage() {
 
 	function handleSetRead(item: AutomationFeedItem, read: boolean) {
 		const readAt = read ? new Date() : null;
+		if (read) {
+			setReadThisVisitIds((ids) => new Set(ids).add(item.id));
+		}
 		if (item.kind === 'automation') {
-			queryClient.setQueryData(trpc.automation.feed.queryKey({}), (runs) =>
+			const queryKey = trpc.automation.feed.queryKey({});
+			queryClient.setQueryData(queryKey, (runs) =>
 				runs?.map((run) => (run.run.id === item.run.id ? { ...run, run: { ...run.run, readAt } } : run)),
 			);
-			markRunRead.mutate({ runId: item.run.id, read });
+			markRunRead.mutate(
+				{ runId: item.run.id, read },
+				{ onError: () => queryClient.invalidateQueries({ queryKey }) },
+			);
 		} else {
-			queryClient.setQueryData(trpc.notification.list.queryKey({ limit: NOTIFICATION_LIST_LIMIT }), (list) =>
+			const queryKey = trpc.notification.list.queryKey({ limit: NOTIFICATION_LIST_LIMIT });
+			queryClient.setQueryData(queryKey, (list) =>
 				list?.map((notification) =>
 					notification.id === item.notification.id ? { ...notification, readAt } : notification,
 				),
 			);
-			markRead.mutate({ notificationId: item.notification.id, read });
+			markRead.mutate(
+				{ notificationId: item.notification.id, read },
+				{ onError: () => queryClient.invalidateQueries({ queryKey }) },
+			);
 		}
+	}
+
+	function handleReadStatusChange(readStatus: FeedReadStatus) {
+		setReadThisVisitIds(new Set());
+		setFilters({ ...filters, readStatus });
 	}
 
 	function handleMarkAllRead() {
@@ -122,10 +138,11 @@ function InboxPage() {
 	const unreadRunCount = useUnreadAutomationRunCount(automationsEnabled, project.data?.id).data ?? 0;
 	const hasUnread = unreadNotificationCount > 0 || unreadRunCount > 0;
 	const [filters, setFilters] = useFeedFilters();
+	const [readThisVisitIds, setReadThisVisitIds] = useState<ReadonlySet<string>>(() => new Set());
 	const [layout, setLayout] = useLocalStorage(inboxLayoutStorage);
 	const displayedItems = useMemo(
-		() => applyFeedFilters(feedItems, filters, currentUserName),
-		[feedItems, filters, currentUserName],
+		() => applyFeedFilters(feedItems, filters, currentUserName, readThisVisitIds),
+		[feedItems, filters, currentUserName, readThisVisitIds],
 	);
 	const isLoading = notifications.isLoading || (automationsEnabled && feed.isLoading);
 
@@ -145,7 +162,7 @@ function InboxPage() {
 						label='Show'
 						options={READ_STATUS_OPTIONS}
 						value={filters.readStatus}
-						onChange={(readStatus) => setFilters({ ...filters, readStatus })}
+						onChange={handleReadStatusChange}
 						className='mr-1'
 					/>
 					{!isLoading && feedItems.length > 0 && (

@@ -3,7 +3,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { stubScrollIntoView } from '../helpers/browser-stubs';
 import { AutomationsFeed } from '@/components/automations-feed';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -63,7 +62,6 @@ describe('AutomationsFeed', () => {
 		{ readAt: new Date('2026-11-05T11:00:00Z'), read: false },
 	])('toggles the read state of the active item to $read with the u shortcut', ({ readAt, read }) => {
 		const onSetRead = vi.fn();
-		stubScrollIntoView();
 		renderSharedNotification({ role: 'viewer' }, { readAt, onSetRead });
 
 		fireEvent.keyDown(window, { key: 'j' });

@@ -177,16 +177,18 @@ export function useFeedFilters(): [FeedFilters, (filters: FeedFilters) => void] 
 	return [filters, updateFilters];
 }
 
+/** `keptItemIds` stay under "Unread" once read, so an item does not vanish while it is open. */
 export function applyFeedFilters(
 	items: AutomationFeedItem[],
 	filters: FeedFilters,
 	currentUserName?: string | null,
+	keptItemIds: ReadonlySet<string> = new Set(),
 ): AutomationFeedItem[] {
 	const filtered = items.filter((item) => {
 		if (!matchesTypeAndActorFilters(item, filters, currentUserName)) {
 			return false;
 		}
-		if (filters.readStatus === 'unread' && !isFeedItemUnread(item)) {
+		if (filters.readStatus === 'unread' && !isFeedItemUnread(item) && !keptItemIds.has(item.id)) {
 			return false;
 		}
 		return true;
