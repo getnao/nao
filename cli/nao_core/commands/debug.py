@@ -10,7 +10,9 @@ from nao_core.config.llm import (
     OPENAI_COMPATIBLE_PROVIDERS,
     PROVIDER_AUTH,
     PROVIDERS_WITHOUT_MODEL_LIST,
+    LLMProvider,
     ProviderConfig,
+    databricks,
 )
 from nao_core.tracking import track_command
 
@@ -125,6 +127,10 @@ def _check_available_models(llm_config: ProviderConfig) -> Tuple[bool, str]:
     api_key = llm_config.api_key
 
     base_url = llm_config.base_url
+
+    if llm_config.provider is LLMProvider.DATABRICKS:
+        endpoints = databricks.list_chat_endpoints(llm_config)
+        return True, _connection_message(len(endpoints), _missing_configured_models(llm_config, set(endpoints)))
 
     if llm_config.provider in OPENAI_COMPATIBLE_PROVIDERS:
         return _check_openai_compatible(llm_config)

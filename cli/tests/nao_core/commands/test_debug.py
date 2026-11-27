@@ -197,6 +197,39 @@ class TestLLMConnection:
                 in message
             )
 
+    def test_databricks_signs_in_the_service_principal_and_lists_chat_endpoints(self):
+        config = ProviderConfig(
+            provider=LLMProvider.DATABRICKS,
+            base_url="https://dbc-123.cloud.databricks.com/?o=42",
+            client_id="sp-id",
+            client_secret="sp-secret",
+            models=[ModelConfig(id="team-gpt"), ModelConfig(id="gte-large")],
+        )
+        endpoints = {
+            "endpoints": [
+                {"name": "team-gpt", "task": "llm/v1/chat"},
+                {"name": "gte-large", "task": "llm/v1/embeddings"},
+            ]
+        }
+
+        with (
+            patch("nao_core.config.llm.databricks.httpx.post") as mock_post,
+            patch("nao_core.config.llm.databricks.httpx.get") as mock_get,
+        ):
+            mock_post.return_value.json.return_value = {"access_token": "m2m-token"}
+            mock_get.return_value.json.return_value = endpoints
+
+            success, message = check_llm_connection(config)
+
+        assert success is True
+        assert message == (
+            "Connected successfully (1 models available). Warning: configured model(s) not in provider list: gte-large"
+        )
+        assert mock_post.call_args.args[0] == "https://dbc-123.cloud.databricks.com/oidc/v1/token"
+        assert mock_post.call_args.kwargs["auth"] == ("sp-id", "sp-secret")
+        assert mock_get.call_args.args[0] == "https://dbc-123.cloud.databricks.com/api/2.0/serving-endpoints"
+        assert mock_get.call_args.kwargs["headers"] == {"Authorization": "Bearer m2m-token"}
+
     def test_minimax_falls_back_to_a_probe_completion_without_a_model_list(self):
         """MiniMax answers GET /v1/models with a 404, so credentials are checked with a completion."""
         config = ProviderConfig(

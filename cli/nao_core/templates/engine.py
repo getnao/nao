@@ -13,6 +13,7 @@ from nao_core.config.llm import (
     LLMConfig,
     LLMProvider,
     ProviderConfig,
+    databricks,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,8 @@ class TemplateEngine:
             raise RuntimeError("No annotation model configured. Set `llm.annotation_model` in nao_config.yaml.")
 
         try:
+            if self.llm_config.provider == LLMProvider.DATABRICKS:
+                return self._complete_openai_chat(databricks.openai_client(self.llm_config), model, prompt_text)
             if self.llm_config.provider in OPENAI_COMPATIBLE_PROVIDERS:
                 return self._generate_openai_compatible(model, prompt_text)
             if self.llm_config.provider == LLMProvider.ANTHROPIC:
@@ -178,7 +181,10 @@ class TemplateEngine:
             if base_url:
                 kwargs["base_url"] = base_url
 
-        client = OpenAI(**kwargs)
+        return self._complete_openai_chat(OpenAI(**kwargs), model, prompt_text)
+
+    def _complete_openai_chat(self, client: Any, model: str, prompt_text: str) -> str:
+        """Generate text with a client of the OpenAI chat completion API."""
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt_text}],
