@@ -157,14 +157,14 @@ describe('StoryHeader actions', () => {
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 	});
 
-	it('lists download, favorite, analytics, expand, duplicate and archive in the actions menu', () => {
+	it('lists download, favorite, monitoring, expand, duplicate and archive in the actions menu', () => {
 		renderHeader({ storyId: 'story-1' });
 
 		openDropdownMenu('More actions');
 
 		expect(screen.getByRole('menuitem', { name: 'Download' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Favorite' })).toBeDefined();
-		expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeDefined();
+		expect(screen.getByRole('menuitem', { name: /^Monitoring/ })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Expand' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Archive' })).toBeDefined();

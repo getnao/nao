@@ -3,6 +3,8 @@ import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { Link } from '@tanstack/react-router';
 import {
 	ArrowRightLeft,
+	CircleDollarSign,
+	Send,
 	ArrowUpRight,
 	Bell,
 	BellPlus,
@@ -926,6 +928,7 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	shared: Share2,
 	subscription: BellPlus,
 	test_run: FlaskConical,
+	story_health: CircleDollarSign,
 };
 
 function getNotificationPresentation(
@@ -933,6 +936,16 @@ function getNotificationPresentation(
 	onOpen?: () => void,
 ): NotificationPresentation {
 	const Icon = NOTIFICATION_CATEGORY_ICONS[notification.category] ?? Bell;
+
+	if (notification.category === 'story_health') {
+		const isCost = (notification.payload as { kind?: string } | null)?.kind === 'cost';
+		return {
+			Icon: isCost ? CircleDollarSign : Send,
+			tone: isCost ? undefined : 'destructive',
+			title: notification.title,
+			description: <p>{notification.body}</p>,
+		};
+	}
 
 	if (notification.category === 'feedback') {
 		const payload = notification.payload as FeedbackNotificationPayload | null;

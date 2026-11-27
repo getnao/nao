@@ -1479,6 +1479,25 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 
 	// ── Monitoring ─────────────────────────────────────────────
 	{
+		page: '/settings/monitoring/stories',
+		pageLabel: 'Monitoring',
+		section: 'Stories',
+		title: 'Stories usage and cost',
+		description:
+			'Every story of the project with its readers, refresh failures and LLM cost per day, grouped by owner, status or schedule.',
+		keywords: [
+			'monitoring',
+			'stories',
+			'story cost',
+			'refresh',
+			'readers',
+			'leaderboard',
+			'unread',
+			'live stories',
+		],
+		adminOnly: true,
+	},
+	{
 		page: '/settings/monitoring/automations',
 		pageLabel: 'Monitoring',
 		section: 'Automations',

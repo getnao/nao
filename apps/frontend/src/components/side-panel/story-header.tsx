@@ -5,6 +5,7 @@ import {
 	Ellipsis,
 	Eye,
 	Info,
+	Gauge,
 	Loader2,
 	Maximize2,
 	Pencil,
@@ -361,8 +362,9 @@ export const StoryHeader = memo(function StoryHeader({
 				{!isReadonlyMode && (
 					<>
 						<DropdownMenuItem onSelect={onOpenAnalytics}>
-							<Info strokeWidth={2.25} />
-							<span>Analytics</span>
+							<Gauge strokeWidth={2.25} />
+							<span>Monitoring</span>
+							<span aria-label='New failures' className='ml-auto size-1.5 rounded-full bg-destructive' />
 						</DropdownMenuItem>
 						<DropdownMenuItem onSelect={onEnlarge} disabled={!storyId}>
 							<Maximize2 strokeWidth={2.25} />
