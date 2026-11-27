@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { parse } from '@babel/parser';
 import type { Expression, ImportDeclaration, JSXAttribute, JSXElement, Node, Program, Statement } from '@babel/types';
 import { traverseFast } from '@babel/types';
+import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
 import type { StoryKitBlockChange, StoryKitBlockRef, StoryKitEditableBlock } from '@nao/shared/story-app';
 import { isStoryKitEditableBlock } from '@nao/shared/story-app';
 
@@ -130,6 +131,21 @@ export function applyKitBlockChange(
 	}
 
 	return applyEdits(source, edits);
+}
+
+/** Gives every DataTable without formats of its own the conditional formats the chat shows for its query. */
+export function injectDataTableFormats(
+	path: string,
+	source: string,
+	formatsByQueryId: Record<string, ColumnConditionalFormats>,
+): string {
+	const kitSource = parseKitSource(path, source);
+	const target = kitSource?.elements.find((element) => inheritedFormats(element, formatsByQueryId));
+	if (!kitSource || !target) {
+		return source;
+	}
+	const change = { set: { conditionalFormats: inheritedFormats(target, formatsByQueryId) }, unset: [] };
+	return injectDataTableFormats(path, applyKitBlockChange(source, kitSource, target, change), formatsByQueryId);
 }
 
 /**
@@ -323,6 +339,18 @@ function literalObject(properties: Node[]): unknown {
 		entries.push([name, value]);
 	}
 	return Object.fromEntries(entries);
+}
+
+function inheritedFormats(
+	element: KitElement,
+	formatsByQueryId: Record<string, ColumnConditionalFormats>,
+): ColumnConditionalFormats | undefined {
+	if (element.component !== 'DataTable' || element.hasSpread) {
+		return undefined;
+	}
+	const attribute = (name: string) => element.attributes.find((candidate) => candidate.name === name);
+	const queryId = attribute('queryId')?.value;
+	return typeof queryId === 'string' && !attribute('conditionalFormats') ? formatsByQueryId[queryId] : undefined;
 }
 
 function findEditableAttribute(element: KitElement, name: string): KitAttribute | undefined {

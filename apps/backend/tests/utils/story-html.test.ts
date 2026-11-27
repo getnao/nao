@@ -94,6 +94,16 @@ describe('generateStoryHtml theme', () => {
 	});
 });
 
+describe('generateStoryHtml table formatting', () => {
+	it('colors the cells a table formatting rule matches', async () => {
+		const code = `<table query_id="q2" formatting='{"orders":{"type":"threshold","operator":">=","value":3,"color":"#123456"}}' />`;
+
+		const html = await generateStoryHtml({ title: 'Story', code }, QUERY_DATA);
+
+		expect(html).toContain('background:#123456');
+	});
+});
+
 describe('generateStoryHtml tabs', () => {
 	it('renders each tab as a titled section with its content', async () => {
 		const html = await generateStoryHtml(

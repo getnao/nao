@@ -38,6 +38,7 @@ import {
 } from '@nao/shared';
 import { applyBreakdown } from '@nao/shared/chart-series';
 import type { ChartType } from '@nao/shared/chart-types';
+import { createCellBackgroundResolver } from '@nao/shared/conditional-formatting';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
@@ -830,6 +831,7 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 	const truncated = allRows.length > MAX_TABLE_ROWS;
 	const rows = truncated ? allRows.slice(0, MAX_TABLE_ROWS) : allRows;
 	const numericCols = new Set(columns.filter((c) => isNumericColumn(allRows, c)));
+	const cellBackground = createCellBackgroundResolver(allRows, table.conditionalFormats);
 
 	const thStyle = (col: string): React.CSSProperties => ({
 		padding: '8px 12px',
@@ -879,7 +881,10 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 						{rows.map((row, i) => (
 							<tr key={i} style={{ borderBottom: `1px solid ${palette.tableDivider}` }}>
 								{columns.map((col) => (
-									<td key={col} style={tdStyle(col)}>
+									<td
+										key={col}
+										style={{ ...tdStyle(col), background: cellBackground?.(col, row[col]) }}
+									>
 										<CellValue value={row[col]} />
 									</td>
 								))}

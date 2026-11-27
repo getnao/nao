@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	appendKitBlock,
 	applyKitBlockChange,
+	injectDataTableFormats,
 	parseKitSource,
 	StoryKitJsxEditError,
 } from '../../src/utils/story-kit-jsx';
@@ -185,5 +186,36 @@ export default function App() {
 		const source = "import { memo } from 'react';\n\nexport default memo(() => <main />);\n";
 
 		expect(() => appendKitBlock('app.jsx', source, PLUGIN_CHART)).toThrow(StoryKitJsxEditError);
+	});
+});
+
+describe('injectDataTableFormats', () => {
+	const FORMATS = { q1: { revenue: { type: 'color-scale' as const, color: '#ff0000' } } };
+	const appWith = (tables: string) =>
+		`import { DataTable } from '@nao/story-kit';\n\nexport default function App() {\n\treturn <main>${tables}</main>;\n}\n`;
+
+	it('gives every table of a formatted query its chat formatting', () => {
+		const injected = injectDataTableFormats(
+			'app.jsx',
+			appWith('<DataTable queryId="q1" title="A" /><DataTable queryId="q1" title="B" />'),
+			FORMATS,
+		);
+
+		const tables = parseKitSource('app.jsx', injected)!.elements;
+		expect(tables.map((table) => table.attributes.find((a) => a.name === 'conditionalFormats')?.value)).toEqual([
+			FORMATS.q1,
+			FORMATS.q1,
+		]);
+	});
+
+	it.each([
+		{ case: 'formats of its own', table: '<DataTable queryId="q1" conditionalFormats={{}} />' },
+		{ case: 'a query without formatting', table: '<DataTable queryId="q2" />' },
+		{ case: 'a computed query id', table: '<DataTable queryId={id} />' },
+		{ case: 'spread props', table: '<DataTable queryId="q1" {...props} />' },
+	])('leaves a table with $case untouched', ({ table }) => {
+		const source = appWith(table);
+
+		expect(injectDataTableFormats('app.jsx', source, FORMATS)).toBe(source);
 	});
 });
