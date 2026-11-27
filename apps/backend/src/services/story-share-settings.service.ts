@@ -5,6 +5,7 @@ import type { DBStory } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { logActivity } from './activity';
@@ -79,7 +80,8 @@ export async function saveStoryShareSettings(
 		await assertCanShareToProject(actor.projectId, actor.id);
 	}
 	const existingShare = await sharedStoryQueries.getSharedStoryInfo(story.id, actor.projectId);
-	const newRecipients = await listNewRecipients(existingShare?.id ?? null, recipients);
+	const previousRecipients = await listShareRecipients(existingShare?.id ?? null);
+	const newRecipients = listNewRecipients(recipients, previousRecipients);
 	await assertShareableUserGroupIds(actor.projectId, newRecipients.groupIds);
 	await assertCanShareWith(actor.projectId, actor.id, newRecipients);
 
@@ -96,6 +98,14 @@ export async function saveStoryShareSettings(
 	});
 	if (!existingShare || existingShare.visibility !== change.visibility) {
 		await placeStoryInFolder(story, actor, ownerId, change.visibility);
+	}
+	if (change.visibility === 'specific') {
+		await dropDeliveryRecipientsLosingAccess(
+			story.id,
+			ownerId,
+			wasProjectWide ? null : previousRecipients,
+			recipients,
+		);
 	}
 
 	const currentRoles = await effectiveRoles(story.id, affectedUserIds);
@@ -169,22 +179,53 @@ async function unshareIfShared(story: DBStory, actor: ShareActor): Promise<void>
 	}
 }
 
-/** Only the people and groups a save adds are checked: those already on the share keep their access. */
-async function listNewRecipients(
-	shareId: string | null,
-	recipients: sharedStoryQueries.ShareRecipients,
-): Promise<sharedStoryQueries.ShareRecipients> {
+async function listShareRecipients(shareId: string | null): Promise<sharedStoryQueries.ShareRecipients> {
 	if (!shareId) {
-		return recipients;
+		return { userIds: [], groupIds: [] };
 	}
-	const [currentUserIds, currentGroupIds] = await Promise.all([
+	const [userIds, groupIds] = await Promise.all([
 		sharedStoryQueries.getSharedStoryAllowedUserIds(shareId),
 		sharedStoryQueries.getSharedStoryAllowedGroupIds(shareId),
 	]);
+	return { userIds, groupIds };
+}
+
+/** Only the people and groups a save adds are checked: those already on the share keep their access. */
+function listNewRecipients(
+	recipients: sharedStoryQueries.ShareRecipients,
+	previousRecipients: sharedStoryQueries.ShareRecipients,
+): sharedStoryQueries.ShareRecipients {
 	return {
-		userIds: recipients.userIds.filter((id) => !currentUserIds.includes(id)),
-		groupIds: recipients.groupIds.filter((id) => !currentGroupIds.includes(id)),
+		userIds: recipients.userIds.filter((id) => !previousRecipients.userIds.includes(id)),
+		groupIds: recipients.groupIds.filter((id) => !previousRecipients.groupIds.includes(id)),
 	};
+}
+
+/**
+ * A delivery shares the story with its recipients before each run, so whoever a save takes off the share must leave
+ * the delivery too, or its next run would hand them the story back. Narrowing a project-wide share, which named
+ * nobody, keeps only the recipients it now names. Any other save drops those it removes and no one else, as a
+ * delivery may name people it shared the story with itself.
+ */
+async function dropDeliveryRecipientsLosingAccess(
+	storyId: string,
+	ownerId: string | undefined,
+	previousRecipients: sharedStoryQueries.ShareRecipients | null,
+	recipients: sharedStoryQueries.ShareRecipients,
+): Promise<void> {
+	await storyDeliveryQueries.keepSpecificRecipients(storyId, (recipient) => {
+		if (recipient.id === ownerId || isNamed(recipients, recipient)) {
+			return true;
+		}
+		return previousRecipients !== null && !isNamed(previousRecipients, recipient);
+	});
+}
+
+function isNamed(
+	recipients: sharedStoryQueries.ShareRecipients,
+	recipient: storyDeliveryQueries.DeliveryRecipient,
+): boolean {
+	return (recipient.kind === 'user' ? recipients.userIds : recipients.groupIds).includes(recipient.id);
 }
 
 async function placeStoryInFolder(

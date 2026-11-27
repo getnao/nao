@@ -52,6 +52,7 @@ vi.mock('../../src/env', () => ({
 }));
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/db/db', () => ({ db: {} }));
+vi.mock('../../src/queries/story-delivery.queries', () => ({ keepSpecificRecipients: vi.fn() }));
 vi.mock('../../src/handlers/automation.handler', () => ({
 	AUTOMATION_JOB_NAME: 'automation',
 	startAutomationRun: vi.fn(),
