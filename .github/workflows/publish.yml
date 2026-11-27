@@ -117,6 +117,28 @@ jobs:
               working-directory: cli/nao_core/bin
               run: ./nao-chat-server${{ matrix.platform == 'win' && '.exe' || '' }} --help
 
+            - name: Prepare Chromium for the PDF export on Linux
+              if: matrix.platform == 'linux'
+              run: |
+                  # Ubuntu 24.04 blocks the unprivileged user namespaces Chrome's sandbox needs
+                  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+                  if ! command -v google-chrome > /dev/null; then
+                    npx -y playwright@1.52.0 install --with-deps chromium
+                    echo "PUPPETEER_EXECUTABLE_PATH=$(find ~/.cache/ms-playwright -path '*chrome-linux*' -name chrome -type f | head -1)" >> "$GITHUB_ENV"
+                  fi
+
+            - name: Export a story as PDF with the built wheel
+              env:
+                  MCP_ENDPOINT_ENABLED: 'true'
+                  BROWSER: 'none'
+                  PYTHONUTF8: '1'
+              run: |
+                  uv pip install --system cli/dist/*.whl
+                  mkdir smoke-project && cd smoke-project
+                  echo 'project_name: pdf-smoke' > nao_config.yaml
+                  nao chat > ../chat.log 2>&1 &
+                  python -I ../scripts/story-pdf-smoke.py ../story.pdf || { tail -100 ../chat.log; exit 1; }
+
             - name: Rename wheel with platform tag
               working-directory: cli/dist
               run: |
