@@ -130,7 +130,7 @@ function InboxPage() {
 
 	const automationItems = automations.data ?? [];
 	const notificationItems = useMemo(
-		() => (notifications.data ?? []).map(toNotificationFeedItem),
+		() => [...MOCK_STORY_HEALTH, ...(notifications.data ?? [])].map(toNotificationFeedItem),
 		[notifications.data],
 	);
 	const feedItems = useMemo(() => mergeFeedItems(feed.data ?? [], notificationItems), [feed.data, notificationItems]);
@@ -261,3 +261,26 @@ function isFeedItemRunning(item: AutomationFeedItem): boolean {
 	}
 	return false;
 }
+
+const MOCK_STORY_HEALTH: NotificationListItem[] = [
+	{
+		id: 'mock-cost',
+		category: 'story_health',
+		title: 'Jaffle Shop orders: volume, fulfillment and value cost $4.12 yesterday',
+		body: 'Above your $2.00 daily limit. It refreshed 96 times since its schedule moved to every 15 minutes, and each refresh rewrites the live text with claude-sonnet-5-5.',
+		linkUrl: '/stories/ed973d1f-a524-4955-b515-c4c3c5d37ea5',
+		payload: { kind: 'cost' },
+		readAt: null,
+		createdAt: new Date(Date.now() - 2 * 3_600_000),
+	},
+	{
+		id: 'mock-delivery',
+		category: 'story_health',
+		title: 'Jaffle Shop orders: volume, fulfillment and value was partly delivered',
+		body: 'Email reached 12 of 12 recipients. Slack failed: nao was removed from #sales-weekly.',
+		linkUrl: '/stories/ed973d1f-a524-4955-b515-c4c3c5d37ea5',
+		payload: { kind: 'delivery' },
+		readAt: null,
+		createdAt: new Date(Date.now() - 3 * 3_600_000),
+	},
+];

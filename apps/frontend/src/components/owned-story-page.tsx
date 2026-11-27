@@ -12,7 +12,7 @@ import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryElementPicker } from '@/components/story-element-picker';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
-import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { StoryMonitoringDialog } from '@/components/story-monitoring-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
@@ -290,13 +290,7 @@ export function OwnedStoryPage({
 						target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
 					/>
 
-					<AssetAnalyticsDialog
-						open={isAnalyticsOpen}
-						onOpenChange={setIsAnalyticsOpen}
-						assetType='story'
-						storyId={storyId ?? undefined}
-						chatId={chatId}
-					/>
+					<StoryMonitoringDialog open={isAnalyticsOpen} onOpenChange={setIsAnalyticsOpen} />
 				</>
 			)}
 		</div>

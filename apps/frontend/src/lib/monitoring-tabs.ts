@@ -1,8 +1,8 @@
 import type { UserRole } from '@nao/shared/types';
 
-export type MonitoringTabId = 'automations';
+export type MonitoringTabId = 'automations' | 'stories';
 
-export type MonitoringTabPath = '/settings/monitoring/automations';
+export type MonitoringTabPath = '/settings/monitoring/automations' | '/settings/monitoring/stories';
 
 export interface MonitoringTab {
 	id: MonitoringTabId;
@@ -17,6 +17,12 @@ export interface MonitoringAccessContext {
 }
 
 export const MONITORING_TABS: MonitoringTab[] = [
+	{
+		id: 'stories',
+		label: 'Stories',
+		to: '/settings/monitoring/stories',
+		isVisible: ({ role }) => role === 'admin',
+	},
 	{
 		id: 'automations',
 		label: 'Automations',

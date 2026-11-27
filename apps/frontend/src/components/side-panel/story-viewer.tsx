@@ -28,7 +28,7 @@ import type { CustomStoryViewerAccess, StoryElementAsk } from '@nao/shared/story
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import type { CodeSelection } from '@/stores/ask-bar';
-import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { StoryMonitoringDialog } from '@/components/story-monitoring-dialog';
 import { StoryAccessError, StoryMovedNotice } from '@/components/story-access-error';
 import { ActionErrorBanner } from '@/components/custom-story/custom-story-body';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
@@ -659,14 +659,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onStoryTransferred={closeSidePanel}
 			/>
 
-			<AssetAnalyticsDialog
-				open={isAnalyticsOpen}
-				onOpenChange={setIsAnalyticsOpen}
-				assetType='story'
-				chatId={chatId}
-				storyId={storyId ?? undefined}
-				storySlug={resolvedStorySlug}
-			/>
+			<StoryMonitoringDialog open={isAnalyticsOpen} onOpenChange={setIsAnalyticsOpen} />
 
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}

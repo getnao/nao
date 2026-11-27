@@ -36,6 +36,7 @@ export const NOTIFICATION_CATEGORIES = [
 	'shared',
 	'subscription',
 	'test_run',
+	'story_health',
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
@@ -46,6 +47,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> 
 	shared: 'Shared with you',
 	subscription: 'Subscriptions',
 	test_run: 'Scheduled tests',
+	story_health: 'Story monitoring',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
@@ -55,6 +57,7 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	shared: 'When someone shares a story or chat with you.',
 	subscription: "When you're added to a story's scheduled delivery.",
 	test_run: 'When a scheduled run of the tests you scheduled fails.',
+	story_health: 'When a story you edit goes over its daily cost limit or fails to deliver.',
 };
 
 export const FEEDBACK_VOTES = ['up', 'down'] as const;

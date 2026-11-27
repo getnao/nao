@@ -75,6 +75,7 @@ import { Route as SidebarLayoutSettingsProjectAutomationsRouteImport } from './r
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutSettingsOrganizationMembersRouteImport } from './routes/_sidebar-layout.settings.organization.members'
 import { Route as SidebarLayoutSettingsOrganizationBillingRouteImport } from './routes/_sidebar-layout.settings.organization.billing'
+import { Route as SidebarLayoutSettingsMonitoringStoriesRouteImport } from './routes/_sidebar-layout.settings.monitoring.stories'
 import { Route as SidebarLayoutSettingsMonitoringAutomationsRouteImport } from './routes/_sidebar-layout.settings.monitoring.automations'
 import { Route as SidebarLayoutSettingsProjectUserGroupsIndexRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.index'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIndexRouteImport } from './routes/_sidebar-layout.settings.project.integrations.index'
@@ -461,6 +462,12 @@ const SidebarLayoutSettingsOrganizationBillingRoute =
     path: '/billing',
     getParentRoute: () => SidebarLayoutSettingsOrganizationRoute,
   } as any)
+const SidebarLayoutSettingsMonitoringStoriesRoute =
+  SidebarLayoutSettingsMonitoringStoriesRouteImport.update({
+    id: '/stories',
+    path: '/stories',
+    getParentRoute: () => SidebarLayoutSettingsMonitoringRoute,
+  } as any)
 const SidebarLayoutSettingsMonitoringAutomationsRoute =
   SidebarLayoutSettingsMonitoringAutomationsRouteImport.update({
     id: '/automations',
@@ -565,6 +572,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/settings/monitoring/automations': typeof SidebarLayoutSettingsMonitoringAutomationsRoute
+  '/settings/monitoring/stories': typeof SidebarLayoutSettingsMonitoringStoriesRoute
   '/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -637,6 +645,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/monitoring/automations': typeof SidebarLayoutSettingsMonitoringAutomationsRoute
+  '/settings/monitoring/stories': typeof SidebarLayoutSettingsMonitoringStoriesRoute
   '/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -714,6 +723,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/': typeof SidebarLayoutSettingsIndexRoute
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/_sidebar-layout/settings/monitoring/automations': typeof SidebarLayoutSettingsMonitoringAutomationsRoute
+  '/_sidebar-layout/settings/monitoring/stories': typeof SidebarLayoutSettingsMonitoringStoriesRoute
   '/_sidebar-layout/settings/organization/billing': typeof SidebarLayoutSettingsOrganizationBillingRoute
   '/_sidebar-layout/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
@@ -792,6 +802,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/stories/'
     | '/settings/monitoring/automations'
+    | '/settings/monitoring/stories'
     | '/settings/organization/billing'
     | '/settings/organization/members'
     | '/settings/project/agent'
@@ -864,6 +875,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stories'
     | '/settings/monitoring/automations'
+    | '/settings/monitoring/stories'
     | '/settings/organization/billing'
     | '/settings/organization/members'
     | '/settings/project/agent'
@@ -940,6 +952,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/'
     | '/_sidebar-layout/stories/'
     | '/_sidebar-layout/settings/monitoring/automations'
+    | '/_sidebar-layout/settings/monitoring/stories'
     | '/_sidebar-layout/settings/organization/billing'
     | '/_sidebar-layout/settings/organization/members'
     | '/_sidebar-layout/settings/project/agent'
@@ -1451,6 +1464,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsOrganizationBillingRouteImport
       parentRoute: typeof SidebarLayoutSettingsOrganizationRoute
     }
+    '/_sidebar-layout/settings/monitoring/stories': {
+      id: '/_sidebar-layout/settings/monitoring/stories'
+      path: '/stories'
+      fullPath: '/settings/monitoring/stories'
+      preLoaderRoute: typeof SidebarLayoutSettingsMonitoringStoriesRouteImport
+      parentRoute: typeof SidebarLayoutSettingsMonitoringRoute
+    }
     '/_sidebar-layout/settings/monitoring/automations': {
       id: '/_sidebar-layout/settings/monitoring/automations'
       path: '/automations'
@@ -1545,6 +1565,7 @@ const SidebarLayoutChatLayoutRouteWithChildren =
 
 interface SidebarLayoutSettingsMonitoringRouteChildren {
   SidebarLayoutSettingsMonitoringAutomationsRoute: typeof SidebarLayoutSettingsMonitoringAutomationsRoute
+  SidebarLayoutSettingsMonitoringStoriesRoute: typeof SidebarLayoutSettingsMonitoringStoriesRoute
   SidebarLayoutSettingsMonitoringIndexRoute: typeof SidebarLayoutSettingsMonitoringIndexRoute
 }
 
@@ -1552,6 +1573,8 @@ const SidebarLayoutSettingsMonitoringRouteChildren: SidebarLayoutSettingsMonitor
   {
     SidebarLayoutSettingsMonitoringAutomationsRoute:
       SidebarLayoutSettingsMonitoringAutomationsRoute,
+    SidebarLayoutSettingsMonitoringStoriesRoute:
+      SidebarLayoutSettingsMonitoringStoriesRoute,
     SidebarLayoutSettingsMonitoringIndexRoute:
       SidebarLayoutSettingsMonitoringIndexRoute,
   }

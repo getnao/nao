@@ -4,7 +4,7 @@ import {
 	Code,
 	Ellipsis,
 	Eye,
-	Info,
+	Gauge,
 	Loader2,
 	Mail,
 	Pencil,
@@ -204,8 +204,12 @@ export function StoryPageHeader({
 								)}
 								{onOpenAnalytics && (
 									<DropdownMenuItem onSelect={onOpenAnalytics}>
-										<Info strokeWidth={2.25} />
-										<span>Analytics</span>
+										<Gauge strokeWidth={2.25} />
+										<span>Monitoring</span>
+										<span
+											aria-label='New failures'
+											className='ml-auto size-1.5 rounded-full bg-destructive'
+										/>
 									</DropdownMenuItem>
 								)}
 								{liveMenu && <LiveStoryMenuItems live={liveMenu} />}
