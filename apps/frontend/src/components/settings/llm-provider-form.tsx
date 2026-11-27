@@ -227,7 +227,7 @@ export function LlmProviderForm({
 					className={providerMeta.requiresBaseUrl ? 'grid gap-2' : 'grid gap-2 pl-4 border-l-2 border-border'}
 				>
 					<label htmlFor='base-url' className='text-sm font-medium text-foreground'>
-						Base URL{' '}
+						{providerMeta.baseUrlField?.label ?? 'Base URL'}{' '}
 						<span className='text-muted-foreground font-normal'>
 							{providerMeta.requiresBaseUrl ? '(required)' : '(optional)'}
 						</span>
@@ -239,12 +239,13 @@ export function LlmProviderForm({
 						onChange={(e) => field.handleChange(e.target.value)}
 						onBlur={field.handleBlur}
 						required={providerMeta.requiresBaseUrl}
-						placeholder={`e.g., ${providerMeta.defaultBaseUrl ?? 'http://localhost:8000/v1'}`}
+						placeholder={`e.g., ${providerMeta.baseUrlField?.placeholder ?? providerMeta.defaultBaseUrl ?? 'http://localhost:8000/v1'}`}
 					/>
 					<p className='text-xs text-muted-foreground'>
-						{providerMeta.requiresBaseUrl
-							? 'The OpenAI-compatible endpoint to call, up to and including its version segment.'
-							: 'Use a custom endpoint instead of the default provider URL.'}
+						{providerMeta.baseUrlField?.description ??
+							(providerMeta.requiresBaseUrl
+								? 'The OpenAI-compatible endpoint to call, up to and including its version segment.'
+								: 'Use a custom endpoint instead of the default provider URL.')}
 					</p>
 				</div>
 			)}

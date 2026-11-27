@@ -16,6 +16,7 @@ import MinimaxIcon from '@/components/icons/minimax.svg';
 import MoonshotIcon from '@/components/icons/moonshot.svg';
 import NaoIcon from '@/components/icons/nao-logo-greyscale.svg';
 import MetaIcon from '@/components/icons/meta.svg';
+import DatabricksIcon from '@/components/icons/databricks.svg';
 
 import { Favicon } from '@/components/ui/favicon';
 import { cn } from '@/lib/utils';
@@ -52,6 +53,8 @@ export function LlmProviderIcon({ provider, baseUrl, className: customClassName 
 			return <GoogleVertexIcon className={className} />;
 		case 'azure':
 			return <AzureIcon className={className} />;
+		case 'databricks':
+			return <DatabricksIcon className={className} />;
 		case 'qwen':
 			return <QwenIcon className={className} />;
 		case 'minimax':
