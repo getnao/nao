@@ -67,8 +67,10 @@ export const DIALECT_GUIDANCE: DialectGuidance[] = [
 				tell the user briefly and retry locally. Re-run the warehouse query without the file-derived{' '}
 				<Code>IN</Code> filter, retaining selective predicates and returning the join key and required columns.
 				Then use <Code>execute_sql</Code> with <Code>database_id: duckdb_local</Code> to join the result to the
-				uploaded file and finish filtering or aggregation. Do not use <Code>LIMIT</Code> to make the result fit.
-				If it would be too large, explain that the file must be narrowed or staged in BigQuery.
+				uploaded file and finish filtering or aggregation. Preserve the original <Code>IN</Code> semantics: use{' '}
+				<Code>EXISTS</Code>/<Code>SEMI JOIN</Code>, or join against distinct file keys, so repeated values do
+				not multiply warehouse rows. Do not use <Code>LIMIT</Code> to make the result fit. If it would be too
+				large, explain that the file must be narrowed or staged in BigQuery.
 			</>,
 		],
 		sqlRules: [
