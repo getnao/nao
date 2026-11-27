@@ -108,11 +108,13 @@ describe('getModelCapabilities', () => {
 			thinking: 'adaptive',
 			effortOptions: ['off', 'minimal', 'low', 'medium', 'high'],
 		});
-		expect(getModelCapabilities('openaiCompatible', 'my-model')).toMatchObject({
-			thinking: 'adaptive',
-			sampling: true,
-			topK: false,
-		});
+		for (const provider of ['openaiCompatible', 'databricks'] as const) {
+			expect(getModelCapabilities(provider, 'my-model')).toMatchObject({
+				thinking: 'adaptive',
+				sampling: true,
+				topK: false,
+			});
+		}
 	});
 
 	it('falls back per model family for custom Bedrock models', () => {

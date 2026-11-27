@@ -5,6 +5,7 @@ import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'luci
 import { useEffect, useRef, useState } from 'react';
 
 import { CustomModelDialog } from './custom-model-dialog';
+import { DatabricksServingEndpoints } from './databricks-serving-endpoints';
 import { ModelParametersDialog } from './model-parameters-dialog';
 import { applySavedModelSettings } from './model-settings-overrides';
 import type { LlmProvider } from '@nao/shared/types';
@@ -24,6 +25,7 @@ const INHERITED_KEY_LABELS: Record<InheritedKeySource, string> = {
 
 export interface LlmProviderFormProps {
 	provider: LlmProvider;
+	configId?: string;
 	isEditing: boolean;
 	inheritedKeySource: InheritedKeySource | null;
 	initialName?: string;
@@ -56,6 +58,7 @@ export interface LlmProviderFormProps {
 
 export function LlmProviderForm({
 	provider,
+	configId,
 	isEditing,
 	inheritedKeySource,
 	initialName,
@@ -227,7 +230,7 @@ export function LlmProviderForm({
 					className={providerMeta.requiresBaseUrl ? 'grid gap-2' : 'grid gap-2 pl-4 border-l-2 border-border'}
 				>
 					<label htmlFor='base-url' className='text-sm font-medium text-foreground'>
-						Base URL{' '}
+						{providerMeta.baseUrlField?.label ?? 'Base URL'}{' '}
 						<span className='text-muted-foreground font-normal'>
 							{providerMeta.requiresBaseUrl ? '(required)' : '(optional)'}
 						</span>
@@ -239,12 +242,13 @@ export function LlmProviderForm({
 						onChange={(e) => field.handleChange(e.target.value)}
 						onBlur={field.handleBlur}
 						required={providerMeta.requiresBaseUrl}
-						placeholder={`e.g., ${providerMeta.defaultBaseUrl ?? 'http://localhost:8000/v1'}`}
+						placeholder={`e.g., ${providerMeta.baseUrlField?.placeholder ?? providerMeta.defaultBaseUrl ?? 'http://localhost:8000/v1'}`}
 					/>
 					<p className='text-xs text-muted-foreground'>
-						{providerMeta.requiresBaseUrl
-							? 'The OpenAI-compatible endpoint to call, up to and including its version segment.'
-							: 'Use a custom endpoint instead of the default provider URL.'}
+						{providerMeta.baseUrlField?.description ??
+							(providerMeta.requiresBaseUrl
+								? 'The OpenAI-compatible endpoint to call, up to and including its version segment.'
+								: 'Use a custom endpoint instead of the default provider URL.')}
 					</p>
 				</div>
 			)}
@@ -459,6 +463,18 @@ export function LlmProviderForm({
 									<Plus className='size-4' />
 								</Button>
 							</div>
+							{kind === 'databricks' && (
+								<DatabricksServingEndpoints
+									configId={configId}
+									getConnection={() => ({
+										baseUrl: form.getFieldValue('baseUrl'),
+										apiKey: form.getFieldValue('apiKey'),
+										credentials: form.getFieldValue('credentials'),
+									})}
+									enabledModels={enabledModels}
+									onAdd={(endpoint) => field.handleChange([...enabledModels, endpoint])}
+								/>
+							)}
 						</div>
 					);
 				}}

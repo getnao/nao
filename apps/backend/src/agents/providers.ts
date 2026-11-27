@@ -32,6 +32,7 @@ import type {
 	ThinkingDisplay,
 } from '../types/llm';
 import { withProgressUpdates } from './anthropic-progress-updates';
+import { toDatabricksServingSettings } from './databricks';
 import {
 	DEFAULT_TEMPERATURE_MAX,
 	EFFORT_OPTIONS,
@@ -170,6 +171,11 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			})(modelId);
 		},
 		defaultOptions: { store: false, reasoningSummary: 'auto' },
+	},
+	databricks: {
+		...PROVIDER_META.databricks,
+		create: (settings, modelId) =>
+			createCompatibleModel('databricks', toDatabricksServingSettings(settings), modelId),
 	},
 	qwen: {
 		...PROVIDER_META.qwen,
@@ -503,6 +509,7 @@ function resolveThinking(
 			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: e }));
 		case 'qwen':
 			return resolveQwenThinking(capabilities, settings);
+		case 'databricks':
 		case 'requesty':
 		case 'openaiCompatible':
 			// The SDK turns this into the `reasoning_effort` field of the OpenAI chat API.

@@ -65,6 +65,11 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "ducklake": "duckdb",
 }
 
+# LLM providers named like a database backend, whose extra differs from that backend's.
+_LLM_PROVIDER_EXTRAS: dict[str, str] = {
+    "databricks": "openai",
+}
+
 
 # ---------------------------------------------------------------------------
 # Public helpers
@@ -124,7 +129,8 @@ def get_required_extras(config: NaoConfig) -> list[str]:
 
     if config.llm:
         for provider_config in config.llm.providers:
-            extra = _resolve_extra(provider_config.provider.value)
+            provider = provider_config.provider.value
+            extra = _LLM_PROVIDER_EXTRAS.get(provider) or _resolve_extra(provider)
             if extra and extra not in seen:
                 extras.append(extra)
                 seen.add(extra)

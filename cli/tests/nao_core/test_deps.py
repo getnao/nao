@@ -4,6 +4,8 @@ import pytest
 from packaging.requirements import Requirement
 
 from nao_core.config import NaoConfig
+from nao_core.config.databases import DatabricksConfig
+from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.config.semantic_layer import SemanticLayerConfig
 from nao_core.deps import MissingDependencyError, get_required_extras, require_database_backend, require_dependency
 
@@ -55,3 +57,21 @@ def test_semantic_layer_config_requires_semantic_layer_extra():
 
     assert "semantic-layer" in get_required_extras(config)
     assert "semantic-layer" not in get_required_extras(NaoConfig(project_name="p"))
+
+
+def test_databricks_llm_provider_requires_the_openai_extra_not_the_warehouse_one():
+    """The Databricks LLM provider calls serving endpoints with the OpenAI client, unlike the Databricks warehouse."""
+    llm_only = NaoConfig(
+        project_name="p",
+        llm=LLMConfig(providers=[ProviderConfig(provider=LLMProvider.DATABRICKS, base_url="https://dbc.example.com")]),
+    )
+    with_warehouse = llm_only.model_copy(
+        update={
+            "databases": [
+                DatabricksConfig(name="dbx", server_hostname="dbc.example.com", http_path="/sql", access_token="t")
+            ]
+        }
+    )
+
+    assert get_required_extras(llm_only) == ["openai"]
+    assert get_required_extras(with_warehouse) == ["databricks", "openai"]

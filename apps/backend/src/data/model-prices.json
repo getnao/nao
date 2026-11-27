@@ -1235,6 +1235,7 @@
 		"text-embedding-3-small": {"inputNoCache":0.02,"output":0},
 		"text-embedding-ada-002": {"inputNoCache":0.1,"output":0}
 	},
+	"databricks": {},
 	"qwen": {
 		"deepseek-v4-flash-0731": {"inputNoCache":0.44,"inputCacheRead":0.088,"output":1.32},
 		"glm-5.2": {"inputNoCache":1.4,"inputCacheRead":0.28,"inputCacheWrite":0,"output":4.4},

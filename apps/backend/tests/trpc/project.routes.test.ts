@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
@@ -258,6 +258,67 @@ describe('project LLM config overrides', () => {
 			code: 'CONFLICT',
 			message: "A credential named 'OpenAI' already exists.",
 		});
+	});
+});
+
+describe('project.listDatabricksServingEndpoints', () => {
+	const savedWorkspace = 'https://dbc-123.cloud.databricks.com';
+	let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		mocks.isCloud = false;
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			provider: 'databricks',
+			credentialSource: 'database',
+			apiKey: 'dapi-saved',
+			baseUrl: savedWorkspace,
+			credentials: null,
+			modelSettings: {},
+		});
+		fetchSpy = vi
+			.spyOn(globalThis, 'fetch')
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ endpoints: [{ name: 'team-gpt', task: 'llm/v1/chat' }] })),
+			);
+	});
+
+	afterEach(() => {
+		fetchSpy.mockRestore();
+	});
+
+	it('lists the endpoints of the saved workspace with its saved token', async () => {
+		await expect(caller.listDatabricksServingEndpoints({ baseUrl: savedWorkspace })).resolves.toEqual(['team-gpt']);
+
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe(`${savedWorkspace}/api/2.0/serving-endpoints`);
+		expect(new Headers(init.headers).get('Authorization')).toBe('Bearer dapi-saved');
+	});
+
+	it('signs in with the saved client ID when only a new secret is typed for the saved workspace', async () => {
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			provider: 'databricks',
+			credentialSource: 'database',
+			apiKey: '',
+			baseUrl: savedWorkspace,
+			credentials: { clientId: 'sp-saved', clientSecret: 'sp-old-secret' },
+			modelSettings: {},
+		});
+
+		await caller.listDatabricksServingEndpoints({
+			baseUrl: savedWorkspace,
+			credentials: { clientSecret: 'sp-new-secret' },
+		});
+
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe(`${savedWorkspace}/oidc/v1/token`);
+		expect(new Headers(init.headers).get('Authorization')).toBe(`Basic ${btoa('sp-saved:sp-new-secret')}`);
+	});
+
+	it('never sends the saved token to a workspace URL typed in the form', async () => {
+		await expect(
+			caller.listDatabricksServingEndpoints({ baseUrl: 'https://elsewhere.example.com' }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 });
 

@@ -13,6 +13,7 @@ from nao_core.config.llm import (
     LLMConfig,
     LLMProvider,
     ProviderConfig,
+    databricks,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,6 +136,8 @@ class TemplateEngine:
             raise RuntimeError("No annotation model configured. Set `llm.annotation_model` in nao_config.yaml.")
 
         try:
+            if self.llm_config.provider == LLMProvider.DATABRICKS:
+                return self._complete_openai_chat(databricks.openai_client(self.llm_config), model, prompt_text)
             if self.llm_config.provider in OPENAI_COMPATIBLE_PROVIDERS:
                 return self._generate_openai_compatible(model, prompt_text)
             if self.llm_config.provider == LLMProvider.ANTHROPIC:
@@ -178,17 +181,20 @@ class TemplateEngine:
             if base_url:
                 kwargs["base_url"] = base_url
 
-        client = OpenAI(**kwargs)
+        return self._complete_openai_chat(OpenAI(**kwargs), model, prompt_text)
+
+    def _complete_openai_chat(self, client: Any, model: str, prompt_text: str) -> str:
+        """Generate text with a client of the OpenAI chat completion API."""
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt_text}],
         )
         if response.choices and response.choices[0].finish_reason == "length":
             _warn_truncated_output(model)
-        content = response.choices[0].message.content if response.choices else None
+        content = _message_text(response.choices[0].message.content) if response.choices else None
         if not content:
             raise RuntimeError("Empty response from model.")
-        return str(content).strip()
+        return content.strip()
 
     def _generate_anthropic(self, model: str, prompt_text: str) -> str:
         """Generate text via Anthropic Messages API."""
@@ -500,6 +506,13 @@ _engine_signature: tuple[str | None, ...] | None = None
 
 def _warn_truncated_output(model: str) -> None:
     logger.warning("Output from model '%s' was truncated at its max output token limit; the text is incomplete.", model)
+
+
+def _message_text(content: Any) -> str | None:
+    """The answer of a chat message, keeping only the text blocks when a reasoning model answers with a list."""
+    if not isinstance(content, list):
+        return str(content) if content else None
+    return "".join(block.get("text", "") for block in content if block.get("type") == "text")
 
 
 def _resolve_annotation(
