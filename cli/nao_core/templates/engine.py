@@ -191,10 +191,10 @@ class TemplateEngine:
         )
         if response.choices and response.choices[0].finish_reason == "length":
             _warn_truncated_output(model)
-        content = response.choices[0].message.content if response.choices else None
+        content = _message_text(response.choices[0].message.content) if response.choices else None
         if not content:
             raise RuntimeError("Empty response from model.")
-        return str(content).strip()
+        return content.strip()
 
     def _generate_anthropic(self, model: str, prompt_text: str) -> str:
         """Generate text via Anthropic Messages API."""
@@ -506,6 +506,13 @@ _engine_signature: tuple[str | None, ...] | None = None
 
 def _warn_truncated_output(model: str) -> None:
     logger.warning("Output from model '%s' was truncated at its max output token limit; the text is incomplete.", model)
+
+
+def _message_text(content: Any) -> str | None:
+    """The answer of a chat message, keeping only the text blocks when a reasoning model answers with a list."""
+    if not isinstance(content, list):
+        return str(content) if content else None
+    return "".join(block.get("text", "") for block in content if block.get("type") == "text")
 
 
 def _resolve_annotation(

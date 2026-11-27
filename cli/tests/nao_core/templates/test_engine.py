@@ -480,6 +480,28 @@ class TestTemplateEngine:
         assert result == "Partial"
         assert "truncated" in caplog.text
 
+    def test_databricks_summary_keeps_only_the_text_blocks_of_a_reasoning_model(self, tmp_path: Path):
+        llm_config = LLMConfig(
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.DATABRICKS, base_url="https://dbc-123.cloud.databricks.com", api_key="k"
+                )
+            ],
+            annotation_model="qwen-endpoint",
+        )
+        engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
+        blocks = [
+            {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Adding 2 and 3."}]},
+            {"type": "text", "text": "5"},
+        ]
+        choice = MagicMock(finish_reason="stop", message=MagicMock(content=blocks))
+
+        with patch("nao_core.config.llm.databricks.openai_client") as fake_client:
+            fake_client.return_value.chat.completions.create.return_value = MagicMock(choices=[choice])
+            result = engine._prompt("summarize this")
+
+        assert result == "5"
+
     def test_generate_mistral_warns_on_length_finish_reason(self, tmp_path: Path, caplog):
         llm_config = LLMConfig(
             providers=[ProviderConfig(provider=LLMProvider.MISTRAL, api_key="k")],
