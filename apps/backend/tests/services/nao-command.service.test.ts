@@ -1,3 +1,4 @@
+import dns from 'node:dns/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +12,7 @@ const testEnv = vi.hoisted(() => ({
 	NAO_SYNC_MAX_RUNTIME_HOURS: 24,
 	NAO_SYNC_MAX_FILE_SIZE_MB: 500,
 	NAO_SYNC_MAX_OUTPUT_SIZE_GB: 8,
-	NAO_SYNC_MAX_OUTPUT_FILES: 500_000,
+	NAO_SYNC_MAX_OUTPUT_FILES: 20_000,
 	NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS: {} as Record<string, string[]>,
 }));
 
@@ -36,7 +37,7 @@ beforeEach(() => {
 	testEnv.NAO_SYNC_MAX_RUNTIME_HOURS = 24;
 	testEnv.NAO_SYNC_MAX_FILE_SIZE_MB = 500;
 	testEnv.NAO_SYNC_MAX_OUTPUT_SIZE_GB = 8;
-	testEnv.NAO_SYNC_MAX_OUTPUT_FILES = 500_000;
+	testEnv.NAO_SYNC_MAX_OUTPUT_FILES = 20_000;
 	testEnv.NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS = {};
 	root = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-command-test-'));
 	project = path.join(root, 'project');
@@ -127,6 +128,66 @@ describe('runNaoCommandInSandbox', () => {
 		expect(output).toContain('Starting nao sync...');
 		expect(output).toContain('Syncing\nDone\n');
 		await vi.waitFor(() => expect(fs.existsSync(box.mountPath())).toBe(false));
+	});
+
+	it('pins validated hostnames to IP-only egress rules before running nao', async () => {
+		const lookup = vi.spyOn(dns, 'lookup').mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as never);
+		fs.writeFileSync(
+			path.join(project, 'nao_config.yaml'),
+			[
+				'project_name: sales',
+				'databases:',
+				'  - name: warehouse',
+				'    type: postgres',
+				'    host: warehouse.example.com',
+				'',
+			].join('\n'),
+		);
+		const box = useFakeBox({});
+
+		try {
+			await runNaoCommandInSandbox(['sync'], project, {});
+		} finally {
+			lookup.mockRestore();
+		}
+
+		expect(boxlite.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				network: {
+					outbound: { mode: 'enabled', allowNet: ['93.184.216.34'] },
+					inbound: { mode: 'disabled' },
+				},
+			}),
+		);
+		expect(box.exec.mock.calls[0]?.[0]).toBe('sh');
+		expect(box.exec.mock.calls[0]?.[1]?.[1]).toContain('93.184.216.34\twarehouse.example.com');
+		expect(box.exec.mock.calls[1]?.[0]).toBe('nao');
+	});
+
+	it('bounds concurrent project file operations', async () => {
+		const copyFile = fs.promises.copyFile.bind(fs.promises);
+		let activeCopies = 0;
+		let maxActiveCopies = 0;
+		const copyFileSpy = vi.spyOn(fs.promises, 'copyFile').mockImplementation(async (source, destination, mode) => {
+			activeCopies++;
+			maxActiveCopies = Math.max(maxActiveCopies, activeCopies);
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			try {
+				await copyFile(source, destination, mode);
+			} finally {
+				activeCopies--;
+			}
+		});
+		useFakeBox({});
+
+		try {
+			await runNaoCommandInSandbox(['sync'], project, {});
+		} finally {
+			copyFileSpy.mockRestore();
+		}
+
+		expect(maxActiveCopies).toBeGreaterThan(1);
+		expect(maxActiveCopies).toBeLessThanOrEqual(16);
 	});
 
 	it('stops a cloud sync at the emergency runtime ceiling and brings nothing back', async () => {
@@ -276,6 +337,8 @@ describe('runNaoCommandInSandbox', () => {
 	});
 
 	it('rejects excessive output file counts before copying anything back', async () => {
+		fs.rmSync(project, { recursive: true });
+		writeFiles(project, { 'nao_config.yaml': 'project_name: sales\n' });
 		testEnv.NAO_SYNC_MAX_OUTPUT_FILES = 1;
 		useFakeBox({
 			run: (staged) => {
@@ -289,7 +352,17 @@ describe('runNaoCommandInSandbox', () => {
 		await expect(result).rejects.toThrow(NaoCommandOutputLimitError);
 		await expect(result).rejects.toThrow('output files');
 		expect(fs.existsSync(path.join(project, 'databases', 'first.md'))).toBe(false);
-		expect(read('databases/stale/columns.md')).toBe('removed by sync\n');
+		expect(fs.existsSync(path.join(project, 'repos', 'second.md'))).toBe(false);
+	});
+
+	it('rejects excessive project file counts before creating a box', async () => {
+		testEnv.NAO_SYNC_MAX_OUTPUT_FILES = 1;
+
+		const result = runNaoCommandInSandbox(['sync'], project, {});
+
+		await expect(result).rejects.toThrow(NaoCommandOutputLimitError);
+		await expect(result).rejects.toThrow('Project contains more than 1 files');
+		expect(boxlite.create).not.toHaveBeenCalled();
 	});
 
 	it('keeps what synced and fails with the CLI output when nao exits with an error', async () => {
@@ -323,6 +396,42 @@ describe('runNaoCommandInSandbox', () => {
 		expect(box.stop).toHaveBeenCalled();
 		expect(fs.existsSync(path.join(project, 'databases', 'orders'))).toBe(false);
 		await vi.waitFor(() => expect(fs.existsSync(box.mountPath())).toBe(false));
+	});
+
+	it('stops before copying a result when cancellation arrives during copy-back', async () => {
+		useFakeBox({
+			run: (staged) => writeFiles(staged, { 'databases/stale/new.md': 'synced\n' }),
+		});
+		const controller = new AbortController();
+		const stat = fs.promises.stat.bind(fs.promises);
+		let matchingStatCalls = 0;
+		let reachCopyBack = () => {};
+		const copyBackReached = new Promise<void>((resolve) => {
+			reachCopyBack = resolve;
+		});
+		let resumeCopyBack = () => {};
+		const copyBackResumed = new Promise<void>((resolve) => {
+			resumeCopyBack = resolve;
+		});
+		const statSpy = vi.spyOn(fs.promises, 'stat').mockImplementation(async (filePath) => {
+			if (String(filePath).endsWith(path.join('databases', 'stale', 'new.md')) && ++matchingStatCalls === 2) {
+				reachCopyBack();
+				await copyBackResumed;
+			}
+			return stat(filePath);
+		});
+
+		try {
+			const result = runNaoCommandInSandbox(['sync'], project, {}, undefined, controller.signal);
+			await copyBackReached;
+			controller.abort();
+			resumeCopyBack();
+
+			await expect(result).rejects.toThrow('nao sync was cancelled.');
+		} finally {
+			statSpy.mockRestore();
+		}
+		expect(fs.existsSync(path.join(project, 'databases', 'stale', 'new.md'))).toBe(false);
 	});
 
 	it('never starts nao when the sync is cancelled while the image downloads', async () => {
@@ -385,6 +494,9 @@ function useFakeBox({
 		wait: async () => ({ exitCode: runsUntilKilled ? 137 : exitCode }),
 		kill: vi.fn(async () => markKilled()),
 	};
+	const hostMappingExecution = {
+		wait: async () => ({ exitCode: 0 }),
+	};
 	const box = {
 		execution,
 		mountPath: () => mountPath,
@@ -395,12 +507,15 @@ function useFakeBox({
 		copyOut: vi.fn(async (_guestPath: string, hostPath: string, options?: { includeParent?: boolean }) =>
 			copyDirectory(mountPath, hostPath, options?.includeParent),
 		),
-		exec: vi.fn(async () => {
+		exec: vi.fn(async (command: string, _args: string[] = []) => {
 			if (box.start.mock.calls.length === 0) {
 				throw new Error('Cannot exec box: it is configured but not started.');
 			}
-			run(mountPath);
-			return execution;
+			if (command === 'nao') {
+				run(mountPath);
+				return execution;
+			}
+			return hostMappingExecution;
 		}),
 		stop: vi.fn(async () => fs.rmSync(mountPath, { recursive: true, force: true })),
 	};

@@ -176,6 +176,18 @@ describe('project sync', () => {
 		expect((await getProjectSyncState(project, gitContext('user-2'))).run).toBeNull();
 	});
 
+	it('records sync environment failures through the controlled error path', async () => {
+		const message = 'Cannot determine sync credentials because nao_config.yaml could not be parsed.';
+		vi.mocked(getProjectSyncEnvVars).mockRejectedValue(new Error(message));
+
+		const run = await startProjectSync(project, gitContext('user-1'));
+		await waitForStatus('user-1', 'failed');
+
+		expect((await getProjectSyncState(project, gitContext('user-1'))).run?.error).toBe(message);
+		expect(failActivity).toHaveBeenCalledWith(run.id, message, { logs: '' });
+		expect(runNaoCommandInSandbox).not.toHaveBeenCalled();
+	});
+
 	it("blocks the user's Git actions only while their sync is running", async () => {
 		let finishSync: () => void = () => undefined;
 		vi.mocked(runNaoCommandInSandbox).mockImplementation(
@@ -336,6 +348,34 @@ describe('project sync', () => {
 			});
 			expect(failActivity).not.toHaveBeenCalled();
 		}
+		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
+	});
+
+	it('does not publish when cancellation arrives as the sandbox sync finishes', async () => {
+		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
+			status: 'unavailable',
+			reason: 'no-repo',
+			message: 'Connect a repository first.',
+			repo: null,
+		});
+		vi.mocked(readManagedGithubRepositoryFullName).mockResolvedValue('nao-projects/sales');
+		let finishSync = () => {};
+		vi.mocked(runNaoCommandInSandbox).mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSync = resolve;
+				}),
+		);
+		const managedContext = gitContext('user-1', worktreeRoot);
+
+		await startProjectSync(project, managedContext);
+		await vi.waitFor(() => expect(runNaoCommandInSandbox).toHaveBeenCalled());
+		await cancelProjectSync(project.id, 'user-1');
+		finishSync();
+
+		await vi.waitFor(async () => {
+			expect((await getProjectSyncState(project, managedContext)).run?.status).toBe('cancelled');
+		});
 		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
 	});
 

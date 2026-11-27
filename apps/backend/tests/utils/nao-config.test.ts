@@ -103,6 +103,38 @@ describe('extractRequiredSyncEnvVars', () => {
 		expect(extractRequiredSyncEnvVars(dir)).toEqual(['DB_HOST', 'DB_PASSWORD', 'REPO_URL', 'TEMPLATE_VALUE']);
 	});
 
+	it('does not read nao_config.yaml through a symlink outside the project', () => {
+		const outside = createTemporaryFolder('outside-nao-config-');
+		const secret = 'host-file-secret';
+		const outsideConfig = path.join(outside, 'nao_config.yaml');
+		fs.writeFileSync(outsideConfig, `project_name: ${secret}\n`);
+		const dir = createProject({});
+		fs.symlinkSync(outsideConfig, path.join(dir, 'nao_config.yaml'));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow("'nao_config.yaml' resolves outside the project folder");
+		try {
+			extractRequiredSyncEnvVars(dir);
+		} catch (error) {
+			expect(error instanceof Error ? error.message : String(error)).not.toContain(secret);
+		}
+	});
+
+	it('does not expose malformed YAML in its error', () => {
+		const secret = 'host-file-secret';
+		const dir = createProject({
+			naoConfig: [`project_name: ${secret}`, 'databases: ['],
+		});
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow(
+			'Cannot determine sync credentials because nao_config.yaml could not be parsed.',
+		);
+		try {
+			extractRequiredSyncEnvVars(dir);
+		} catch (error) {
+			expect(error instanceof Error ? error.message : String(error)).not.toContain(secret);
+		}
+	});
+
 	it('includes ambient provider credentials only when the active sync needs them', () => {
 		const dir = createProject({
 			naoConfig: [

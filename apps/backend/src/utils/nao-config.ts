@@ -29,6 +29,7 @@ import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
 import { resolveFileReferences, resolveProjectFile } from './nao-config-references';
+import { readProjectFile } from './project-file';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -113,15 +114,19 @@ export function extractRequiredEnvVars(projectFolder: string): string[] {
 }
 
 export function extractRequiredSyncEnvVars(projectFolder: string): string[] {
-	const configPath = path.join(projectFolder, 'nao_config.yaml');
-	const source = fs.readFileSync(configPath, 'utf8');
+	const source = readProjectFile(projectFolder, 'nao_config.yaml');
 	const references = new Map<string, { protocol: string; name: string }>();
 	const substituted = source.replace(SECRET_REFERENCE_PATTERN, (_match, protocol: string, name: string) => {
 		const token = `__NAO_SYNC_SECRET_${references.size}__`;
 		references.set(token, { protocol, name });
 		return token;
 	});
-	const config = yaml.load(substituted);
+	let config: unknown;
+	try {
+		config = yaml.load(substituted);
+	} catch {
+		throw new Error('Cannot determine sync credentials because nao_config.yaml could not be parsed.');
+	}
 	if (!isRecord(config)) {
 		throw new Error('Cannot determine sync credentials because nao_config.yaml is not an object.');
 	}
