@@ -1,5 +1,8 @@
+import { Effect, Schedule } from 'effect';
+
 import dbConfig, { Dialect } from '../db/dbConfig';
 import * as keyedLockQueries from '../queries/keyed-lock.queries';
+import { fromPromise, runEffect, withHeartbeat } from './effect-runtime';
 import { logger, serializeError } from './logger';
 
 const LOCK_LEASE_MS = 2 * 60_000;
@@ -10,6 +13,10 @@ const EXPIRED_LOCKS_CLEANUP_INTERVAL_MS = 60 * 60_000;
 
 const inMemoryLocks = new Map<string, Promise<unknown>>();
 let lastExpiredLocksCleanupAt = 0;
+
+export function contextWorktreeLockKey(projectId: string, userId: string): string {
+	return `context-worktree-write:${projectId}:${userId}`;
+}
 
 export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	if (dbConfig.dialect !== Dialect.Postgres) {
@@ -57,16 +64,22 @@ function withInMemoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	});
 }
 
-async function withDatabaseLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+function withDatabaseLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	const owner = crypto.randomUUID();
-	await acquireLock(key, owner);
-	const stopRenewingLease = startLeaseRenewal(key, owner);
-	try {
-		return await fn();
-	} finally {
-		stopRenewingLease();
-		await releaseLockSafely(key, owner);
-	}
+	return runEffect(
+		Effect.acquireUseRelease(
+			acquireLock(key, owner),
+			() =>
+				fromPromise(() => fn()).pipe(
+					withHeartbeat({
+						name: `Lease renewal of lock "${key}"`,
+						beat: () => renewLease(key, owner),
+						every: LOCK_RENEW_INTERVAL_MS,
+					}),
+				),
+			() => fromPromise(() => releaseLockSafely(key, owner)).pipe(Effect.ignore),
+		),
+	);
 }
 
 async function releaseLockSafely(key: string, owner: string): Promise<void> {
@@ -80,24 +93,19 @@ async function releaseLockSafely(key: string, owner: string): Promise<void> {
 	}
 }
 
-async function acquireLock(key: string, owner: string): Promise<void> {
-	const deadline = Date.now() + MAX_WAIT_MS;
-	for (;;) {
-		if (await keyedLockQueries.tryAcquireLock(key, owner, LOCK_LEASE_MS)) {
-			return;
-		}
-		if (Date.now() >= deadline) {
-			throw new Error(`Timed out waiting for lock "${key}" held by another process.`);
-		}
-		await sleep(POLL_INTERVAL_MS);
-	}
-}
-
-function startLeaseRenewal(key: string, owner: string): () => void {
-	const timer = setInterval(() => {
-		void renewLease(key, owner);
-	}, LOCK_RENEW_INTERVAL_MS);
-	return () => clearInterval(timer);
+/** Tries again every half second for up to two minutes, and never gives up on an attempt still in flight. */
+function acquireLock(key: string, owner: string): Effect.Effect<void, unknown> {
+	return fromPromise(() => keyedLockQueries.tryAcquireLock(key, owner, LOCK_LEASE_MS)).pipe(
+		Effect.repeat({
+			schedule: Schedule.spaced(POLL_INTERVAL_MS).pipe(Schedule.upTo({ duration: MAX_WAIT_MS })),
+			until: (acquired) => acquired,
+		}),
+		Effect.filterOrFail(
+			(acquired) => acquired,
+			() => new Error(`Timed out waiting for lock "${key}" held by another process.`),
+		),
+		Effect.asVoid,
+	);
 }
 
 async function renewLease(key: string, owner: string): Promise<void> {
@@ -111,8 +119,4 @@ async function renewLease(key: string, owner: string): Promise<void> {
 	} catch (error) {
 		logger.warn(`Failed to renew lease on lock "${key}".`, { source: 'system', context: serializeError(error) });
 	}
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }

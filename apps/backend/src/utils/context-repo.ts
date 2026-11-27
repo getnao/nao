@@ -249,7 +249,9 @@ export function getWorktreeProjectRoot(repo: ResolvedContextRepo): string {
 	return repo.projectPrefix ? path.join(repo.worktreeRoot, ...repo.projectPrefix.split('/')) : repo.worktreeRoot;
 }
 
-export function getCommittedProjectPaths(repo: ResolvedContextRepo): Set<string> {
+export function getCommittedProjectPaths(
+	repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'projectPrefix'>,
+): Set<string> {
 	const output = runGit(repo.worktreeRoot, [
 		'ls-tree',
 		'-r',

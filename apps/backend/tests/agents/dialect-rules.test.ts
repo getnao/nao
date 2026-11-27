@@ -78,11 +78,54 @@ describe('dialect-aware system prompt', () => {
 		expect(section).toContain("`DATE_TRUNC(col, MONTH)` instead of `DATE_TRUNC('month', col)`");
 	});
 
+	it('omits dialect rules when warehouse SQL is disabled by an exclusive semantic layer', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				connections: [
+					{ type: 'bigquery', database: 'analytics' },
+					{ type: 'clickhouse', database: 'events' },
+				],
+				semanticLayerMode: 'exclusive',
+			}),
+		);
+		expect(markdown).not.toContain('dialect:');
+		expect(markdown).not.toContain('indexes.md');
+	});
+
 	it('does not leak BigQuery rules into other dialects', () => {
 		const tsql = sqlQueryRulesSection(renderWith([{ type: 'mssql', database: 'db' }]));
 		expect(tsql).toContain('Do not use `GROUP BY ALL`');
 		expect(tsql).not.toContain('`GROUP BY ALL` is supported');
 		expect(tsql).not.toContain('`ILIKE`');
+	});
+
+	it('injects Snowflake rules for the functions and grouping it rejects', () => {
+		const section = sqlQueryRulesSection(renderWith([{ type: 'snowflake', database: 'db' }]));
+
+		expect(section).toContain('**Snowflake dialect:** Use `DATEDIFF(day, start, end)`');
+		expect(section).toContain('`BOOLOR_AGG(col)`');
+		expect(section).toContain('Prefer `GROUP BY ALL`');
+		expect(section).toContain('`QUALIFY` only filters on a window function');
+		expect(section).not.toContain('**BigQuery dialect:**');
+	});
+
+	it('does not send an exclusive semantic layer project to the warehouse', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({ connections: [{ type: 'bigquery', database: 'db' }], semanticLayerMode: 'exclusive' }),
+		);
+		const localDatabase = markdown.slice(markdown.indexOf('## The local database'));
+
+		expect(localDatabase).toContain('Warehouse data only reaches this database as an earlier result');
+		expect(localDatabase).not.toContain('database_id, then');
+	});
+
+	it('gives the local DuckDB its own rules, whatever the warehouse', () => {
+		const markdown = renderWith([{ type: 'bigquery', database: 'db' }]);
+		const localDatabase = markdown.slice(markdown.indexOf('## The local database'));
+
+		expect(localDatabase).toContain('instead of `SAFE_DIVIDE`');
+		expect(localDatabase).toContain('`regexp_matches(col, pattern)` instead of `REGEXP_CONTAINS`');
+		expect(localDatabase).toContain('Those `query_…` tables exist only here, never in the warehouse');
 	});
 
 	it('injects the ClickHouse tool-call rule under Tool Calls', () => {

@@ -11,6 +11,7 @@ import { ContextGitPanel } from '@/components/settings/context-git-panel';
 const mocks = vi.hoisted(() => ({
 	getChangedFiles: vi.fn(),
 	getRepositoryStatus: vi.fn(),
+	getSyncStatus: vi.fn(),
 	mutation: vi.fn(),
 	commitChanges: vi.fn(),
 	pushBranch: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 	updateWorktree: vi.fn(),
 	listBranches: vi.fn(),
 	switchBranch: vi.fn(),
+	pullBranch: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -28,6 +30,14 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/main', () => ({
 	trpc: {
+		projectSync: {
+			getStatus: {
+				queryOptions: () => ({
+					queryKey: ['project-sync-status'],
+					queryFn: mocks.getSyncStatus,
+				}),
+			},
+		},
 		contextExplorer: {
 			getRepositoryStatus: {
 				queryOptions: () => ({
@@ -61,6 +71,7 @@ vi.mock('@/main', () => ({
 			getFileSummaries: { queryKey: () => ['file-summaries'] },
 			getRecentChanges: { queryKey: () => ['recent-changes'] },
 			switchBranch: { mutationOptions: mutationOptions(mocks.switchBranch) },
+			pullBranch: { mutationOptions: mutationOptions(mocks.pullBranch) },
 			updateWorktree: { mutationOptions: mutationOptions(mocks.updateWorktree) },
 			createBranch: { mutationOptions: mutationOptions(mocks.mutation) },
 			commitChanges: { mutationOptions: mutationOptions(mocks.commitChanges) },
@@ -89,6 +100,7 @@ describe('ContextGitPanel', () => {
 		localStorage.clear();
 		mocks.getChangedFiles.mockResolvedValue([]);
 		mocks.getRepositoryStatus.mockResolvedValue(createRepositoryStatus(true));
+		mocks.getSyncStatus.mockResolvedValue({ available: true, unavailableReason: null, run: null });
 		mocks.suggestBranchName.mockResolvedValue('nao/context-edits');
 		mocks.updateWorktree.mockResolvedValue({ branch: 'main', commit: 'a'.repeat(40) });
 		mocks.commitChanges.mockResolvedValue({ commit: 'b'.repeat(40) });
@@ -109,13 +121,26 @@ describe('ContextGitPanel', () => {
 
 	afterEach(cleanup);
 
-	it('does not show the update action when File Explorer is current', async () => {
+	it('pauses Git actions while the project sync is running', async () => {
+		mocks.getSyncStatus.mockResolvedValue({ available: true, unavailableReason: null, run: { status: 'running' } });
+		renderPanel();
+
+		const updateButton = await screen.findByRole('button', { name: 'Update File Explorer' });
+
+		await waitFor(() => expect(updateButton.hasAttribute('disabled')).toBe(true));
+		expect(updateButton.getAttribute('title')).toBe('Git actions are paused until the project sync finishes.');
+	});
+
+	it('offers to pull the branch instead of the update action when File Explorer is current', async () => {
 		mocks.getRepositoryStatus.mockResolvedValue(createRepositoryStatus(false));
+		mocks.pullBranch.mockResolvedValue(undefined);
 		renderPanel();
 
 		await screen.findByText('Nothing to commit');
+		fireEvent.click(screen.getByRole('button', { name: 'Pull the latest commit' }));
 
 		expect(screen.queryByRole('button', { name: 'Update File Explorer' })).toBeNull();
+		await waitFor(() => expect(mocks.pullBranch).toHaveBeenCalled());
 	});
 
 	it('opens the update dialog from the banner without updating first', async () => {
@@ -282,7 +307,7 @@ describe('ContextGitPanel', () => {
 		await waitFor(() => expect(mocks.pushBranch).toHaveBeenCalledOnce());
 		expect(mocks.generateCommitMessage.mock.calls[0]?.[0]).toEqual({ paths: ['/context.md'] });
 		expect(mocks.commitChanges.mock.calls[0]?.[0]).toEqual({
-			paths: ['/context.md'],
+			paths: 'all',
 			message: 'Document net revenue on orders',
 		});
 		expect(onCommitted).toHaveBeenCalledWith(['/context.md']);

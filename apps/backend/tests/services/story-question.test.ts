@@ -505,6 +505,7 @@ async function insertSemanticQuery(chatId: string, queryId: string) {
 		type: 'tool-execute_semantic_query',
 		toolName: 'execute_semantic_query',
 		toolCallId: `${messageId}-call`,
+		queryId,
 		toolState: 'output-available',
 		toolInput: { metrics: ['revenue'], group_by: ['metric_time__month'], name: 'Revenue by month' },
 		toolOutput: {
@@ -527,6 +528,7 @@ async function insertQuery(chatId: string, queryId: string, sqlQuery: string) {
 		type: 'tool-execute_sql',
 		toolName: 'execute_sql',
 		toolCallId: `${messageId}-call`,
+		queryId,
 		toolState: 'output-available',
 		toolInput: { sql_query: sqlQuery },
 		toolOutput: { id: queryId, columns: ['label', 'value'], data: [{ label: 'a', value: 1 }], row_count: 1 },

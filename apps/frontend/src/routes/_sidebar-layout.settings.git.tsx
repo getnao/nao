@@ -18,6 +18,7 @@ import {
 } from '@/components/settings/github-shared-token-settings';
 import { GitlabRepoList } from '@/components/settings/gitlab-repo-list';
 import { LiveContextUpdateSettings } from '@/components/settings/live-context-update-settings';
+import { ManagedRepositorySettings } from '@/components/settings/managed-repository-settings';
 import { ConnectedProviderAccount, ProviderConnectionCard } from '@/components/settings/provider-connection-card';
 import {
 	AlertDialog,
@@ -328,7 +329,9 @@ function GitSettingsPage() {
 				</div>
 				<div className='flex flex-col gap-12'>
 					<SettingsCard unstyled className='gap-10'>
-						{isLoading ? (
+						{status?.isManagedRepository ? (
+							<ManagedRepositorySettings />
+						) : isLoading ? (
 							<div className='flex items-center justify-center py-10'>
 								<Spinner />
 							</div>
@@ -635,7 +638,7 @@ function GitSettingsPage() {
 							</>
 						)}
 					</SettingsCard>
-					{status?.liveContextUpdate.enabled && (
+					{status?.liveContextUpdate.enabled && !status.isManagedRepository && (
 						<LiveContextUpdateSettings
 							status={status.liveContextUpdate}
 							repository={status.liveContextRepository}
@@ -979,6 +982,7 @@ async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<vo
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getRepo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.gitlab.getProjectGitInfo.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.projectSync.getStatus.queryKey() }),
 	]);
 }
 

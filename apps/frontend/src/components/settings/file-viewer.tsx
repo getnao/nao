@@ -10,7 +10,7 @@ import {
 	renderConditionalGroupBlocks,
 	renderConditionalGroupBlocksWithSourceLines,
 } from '@nao/shared/rules-template';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, File, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
@@ -86,6 +86,7 @@ interface FileViewerProps {
 	isLoading: boolean;
 	isError: boolean;
 	isEditable: boolean;
+	isManagedRepository: boolean;
 	editabilityGuidance: FileEditabilityGuidance | null;
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
@@ -121,6 +122,7 @@ export function FileViewer({
 	isLoading,
 	isError,
 	isEditable,
+	isManagedRepository,
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
@@ -163,6 +165,7 @@ export function FileViewer({
 			content={content}
 			hash={hash}
 			isEditable={isEditable}
+			isManagedRepository={isManagedRepository}
 			editabilityGuidance={editabilityGuidance}
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
@@ -181,6 +184,7 @@ function EditableFileViewer({
 	content,
 	hash,
 	isEditable,
+	isManagedRepository,
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
@@ -196,6 +200,7 @@ function EditableFileViewer({
 	| 'content'
 	| 'hash'
 	| 'isEditable'
+	| 'isManagedRepository'
 	| 'editabilityGuidance'
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
@@ -211,6 +216,7 @@ function EditableFileViewer({
 	hash: string;
 }) {
 	const queryClient = useQueryClient();
+	const openReferencedFile = useCallback((path: string) => onOpenGuidancePath(path, 'file'), [onOpenGuidancePath]);
 	const [markdownViewPreference, setMarkdownViewPreference] = useLocalStorage(markdownViewStorage);
 	const [isSourceAutoOpened, setIsSourceAutoOpened] = useState(sourceAutoOpenRequestId !== null);
 	const [draft, setDraft] = useState(content);
@@ -227,6 +233,12 @@ function EditableFileViewer({
 	activePathRef.current = filePath;
 
 	const saveMutation = useMutation(trpc.contextExplorer.writeFile.mutationOptions());
+	const syncState = useQuery({ ...trpc.projectSync.getStatus.queryOptions(), enabled: isEditable });
+	const syncRunStatus = syncState.data?.run?.status;
+	const isSyncWritingFiles =
+		syncRunStatus === 'queued' ||
+		syncRunStatus === 'running' ||
+		(isManagedRepository && Boolean(syncState.data?.syncingBy));
 	const isMarkdown = isMarkdownPath(filePath);
 	const isRootRules = isRootRulesPath(filePath);
 	const tableFolder = useMemo(() => findContextTableFolder(filePath), [filePath]);
@@ -295,7 +307,7 @@ function EditableFileViewer({
 	}, [isDirty, onDirtyChange]);
 
 	const handleSave = useCallback(() => {
-		if (!isEditable || !isDirty || saveMutation.isPending || saveInProgressRef.current) {
+		if (!isEditable || !isDirty || isSyncWritingFiles || saveMutation.isPending || saveInProgressRef.current) {
 			return;
 		}
 
@@ -343,7 +355,7 @@ function EditableFileViewer({
 				},
 			},
 		);
-	}, [draft, expectedHash, filePath, isDirty, isEditable, queryClient, saveMutation]);
+	}, [draft, expectedHash, filePath, isDirty, isEditable, isSyncWritingFiles, queryClient, saveMutation]);
 
 	useSaveShortcut(handleSave);
 
@@ -445,6 +457,7 @@ function EditableFileViewer({
 					readOnly={!isEditable}
 					onChange={setDraft}
 					onSave={isEditable ? handleSave : undefined}
+					onOpenFile={openReferencedFile}
 				/>
 			</div>
 		</div>
@@ -473,6 +486,7 @@ function EditableFileViewer({
 					<FileSaveStatus
 						isDirty={isDirty}
 						isSaving={saveMutation.isPending}
+						disabledReason={isSyncWritingFiles ? 'Saving is paused until the project sync finishes.' : null}
 						savedAt={savedAt}
 						onSave={handleSave}
 					/>
@@ -548,6 +562,7 @@ function EditableFileViewer({
 						readOnly={!isEditable}
 						onChange={setDraft}
 						onSave={isEditable ? handleSave : undefined}
+						onOpenFile={openReferencedFile}
 					/>
 				)}
 			</div>

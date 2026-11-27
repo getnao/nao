@@ -1,6 +1,7 @@
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import { trpc } from '@/main';
 
 interface ArchivedBannerProps {
@@ -12,18 +13,7 @@ export function ArchivedBanner({ chatId, storySlug }: ArchivedBannerProps) {
 	const queryClient = useQueryClient();
 
 	const unarchiveMutation = useMutation(
-		trpc.story.unarchive.mutationOptions({
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-				void queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-			},
-		}),
+		trpc.story.unarchive.mutationOptions({ onSuccess: () => invalidateStoryArchiveCaches(queryClient) }),
 	);
 
 	return (

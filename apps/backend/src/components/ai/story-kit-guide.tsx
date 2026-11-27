@@ -20,7 +20,7 @@ export function storyKitGuideItems(): ReactElement[] {
 			Imports are limited to {STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths.
 		</ListItem>,
 		<ListItem key='layout'>
-			Keep <Bold>app.tsx</Bold> small: it composes the story from imported pieces. Put each new component in its
+			Keep <Bold>app.jsx</Bold> small: it composes the story from imported pieces. Put each new component in its
 			own file, and group related files in folders (e.g. <Bold>components/</Bold>, <Bold>slides/</Bold>,{' '}
 			<Bold>sections/</Bold>) via relative imports, so the app stays readable and maintainable as it grows.
 		</ListItem>,
@@ -35,11 +35,12 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>decimals</Bold>. Charts: <Bold>xKey</Bold>, <Bold>series</Bold> (names or{' '}
 			{'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>,{' '}
 			<Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line), <Bold>showDataLabels</Bold>,{' '}
-			<Bold>showLegend</Bold> (defaults to shown for pies and multi-series charts). KpiCard: <Bold>valueKey</Bold>
-			, <Bold>comparison</Bold> against the previous row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>{' '}
-			(caps the rows shown; tables already paginate, starting at 10 rows per page and showing more when their grid
-			row leaves room, with a rows-per-page picker), <Bold>conditionalFormats</Bold> (column → the same rule
-			display_chart's conditional_formats takes) to colour cells.
+			<Bold>showLegend</Bold> (defaults to shown for pies and multi-series charts), <Bold>breakdownKey</Bold> and{' '}
+			<Bold>breakdownLimit</Bold> (display_chart's breakdown_key and breakdown_limit). KpiCard:{' '}
+			<Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous row. DataTable: <Bold>columns</Bold>,{' '}
+			<Bold>maxRows</Bold> (caps the rows shown; tables already paginate, starting at 10 rows per page and showing
+			more when their grid row leaves room, with a rows-per-page picker), <Bold>conditionalFormats</Bold> (column
+			→ the same rule display_chart's conditional_formats takes) to colour cells.
 		</ListItem>,
 		<ListItem key='title'>
 			Title a story with your own <Bold>{'<h1>'}</Bold> and, if useful, a short lead <Bold>{'<p>'}</Bold>: they

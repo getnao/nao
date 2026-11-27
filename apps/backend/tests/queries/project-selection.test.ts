@@ -32,7 +32,7 @@ vi.mock('../../src/db/db', async () => {
 
 import { db } from '../../src/db/db';
 import { organization, orgMember, project, user } from '../../src/db/sqlite-schema';
-import { getProjectByUserId, listUserProjects } from '../../src/queries/project.queries';
+import { getProjectByUserId, getProjectEnvVarsByIdentity, listUserProjects } from '../../src/queries/project.queries';
 
 const ORGANIZATION_A_ID = 'project-selection-org-a';
 const ORGANIZATION_B_ID = 'project-selection-org-b';
@@ -68,6 +68,7 @@ describe('project selection', () => {
 				name: 'Project A',
 				type: 'local',
 				path: '/tmp/project-a',
+				envVars: { PROJECT_SECRET: 'secret-a' },
 			},
 			{
 				id: PROJECT_B_ID,
@@ -108,10 +109,23 @@ describe('project selection', () => {
 		expect(result?.id).toBe(PROJECT_B_ID);
 	});
 
+	it('answers no project for an inaccessible selection when the caller refuses the fallback', async () => {
+		const result = await getProjectByUserId(USER_B_ID, PROJECT_A_ID, { fallbackWhenInaccessible: false });
+
+		expect(result).toBeNull();
+	});
+
 	it('returns null in cloud mode when the user has no accessible projects', async () => {
 		const result = await getProjectByUserId('project-selection-unknown-user', PROJECT_A_ID);
 
 		expect(result).toBeNull();
+	});
+
+	it('returns environment variables only when the project and organization identity match', async () => {
+		await expect(getProjectEnvVarsByIdentity(PROJECT_A_ID, ORGANIZATION_A_ID)).resolves.toEqual({
+			PROJECT_SECRET: 'secret-a',
+		});
+		await expect(getProjectEnvVarsByIdentity(PROJECT_A_ID, ORGANIZATION_B_ID)).resolves.toBeNull();
 	});
 
 	it('uses the configured project and verifies access in self-hosted mode', async () => {

@@ -2,8 +2,8 @@ apiVersion: v2
 name: nao
 description: Helm chart for nao — an open-source agent to do analytics on your data with AI.
 type: application
-version: 0.1.1
-appVersion: '0.3.5'
+version: 0.2.0
+appVersion: '0.4.6'
 icon: https://raw.githubusercontent.com/getnao/nao/main/apps/frontend/public/appicon.png
 
 keywords:

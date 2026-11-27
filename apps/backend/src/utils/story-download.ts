@@ -1,8 +1,9 @@
 import type { DateFormatSettings } from '@nao/shared/date';
 import type { StoryThemePair } from '@nao/shared/story-theme';
-import type { DownloadFormat } from '@nao/shared/types';
+import type { StoryDownloadFormat } from '@nao/shared/types';
 
 import { generateStoryHtml } from './story-html';
+import { generateStoryMarkdown } from './story-markdown';
 import { generateStoryPdf } from './story-pdf';
 
 export type QueryDataMap = Record<string, { data: unknown[]; columns: string[] }>;
@@ -12,13 +13,20 @@ export interface StoryInput {
 	code: string;
 }
 
-const MIME_TYPES: Record<DownloadFormat, string> = {
+const MIME_TYPES: Record<StoryDownloadFormat, string> = {
 	pdf: 'application/pdf',
 	html: 'text/html',
+	markdown: 'text/markdown',
+};
+
+const FILE_EXTENSIONS: Record<StoryDownloadFormat, string> = {
+	pdf: 'pdf',
+	html: 'html',
+	markdown: 'md',
 };
 
 export async function buildStoryDownloadFile(
-	format: DownloadFormat,
+	format: StoryDownloadFormat,
 	title: string,
 	code: string,
 	queryData: QueryDataMap | null,
@@ -35,7 +43,7 @@ export async function buildStoryDownloadFile(
 }
 
 export async function buildDownloadResponse(
-	format: DownloadFormat,
+	format: StoryDownloadFormat,
 	title: string,
 	code: string,
 	queryData: QueryDataMap | null,
@@ -58,7 +66,7 @@ export async function buildDownloadResponse(
 }
 
 async function generateStoryBuffer(
-	format: DownloadFormat,
+	format: StoryDownloadFormat,
 	story: StoryInput,
 	queryData: QueryDataMap | null,
 	dateFormat: DateFormatSettings | null | undefined,
@@ -69,15 +77,17 @@ async function generateStoryBuffer(
 			return generateStoryPdf(story, queryData, dateFormat, theme);
 		case 'html':
 			return Buffer.from(await generateStoryHtml(story, queryData, dateFormat, undefined, { theme }));
+		case 'markdown':
+			return Buffer.from(await generateStoryMarkdown(story, queryData, dateFormat, theme));
 	}
 }
 
-export function formatDownloadFilename(title: string, format: DownloadFormat): string {
+export function formatDownloadFilename(title: string, format: StoryDownloadFormat): string {
 	const slug = title
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/^-|-$/g, '')
 		.slice(0, 80);
 	const date = new Date().toISOString().slice(0, 10);
-	return `${slug}-${date}.${format}`;
+	return `${slug}-${date}.${FILE_EXTENSIONS[format]}`;
 }

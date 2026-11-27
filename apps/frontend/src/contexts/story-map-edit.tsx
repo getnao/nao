@@ -53,6 +53,7 @@ interface StoryMapEditProviderProps {
 	storyTitle: string;
 	storyCode: string;
 	storyVersion?: number;
+	enabled?: boolean;
 	children: React.ReactNode;
 }
 
@@ -62,6 +63,7 @@ export function StoryMapEditProvider({
 	storyTitle,
 	storyCode,
 	storyVersion,
+	enabled = true,
 	children,
 }: StoryMapEditProviderProps) {
 	const { replaceBlock, isSaving } = useStoryBlockEdit({
@@ -77,9 +79,9 @@ export function StoryMapEditProvider({
 		[replaceBlock],
 	);
 
-	const value = useMemo<StoryMapEditHandlers>(
-		() => ({ saveMap, isSaving, saveDescription: VERSION_SAVE_DESCRIPTION }),
-		[saveMap, isSaving],
+	const value = useMemo<StoryMapEditHandlers | null>(
+		() => (enabled ? { saveMap, isSaving, saveDescription: VERSION_SAVE_DESCRIPTION } : null),
+		[enabled, saveMap, isSaving],
 	);
 
 	return <StoryMapEditContext.Provider value={value}>{children}</StoryMapEditContext.Provider>;

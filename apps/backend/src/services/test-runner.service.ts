@@ -1,4 +1,5 @@
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import { Effect } from 'effect';
 
 import { getModelCapabilities, getModelReasoningEfforts } from '../agents/provider-meta';
 import { clampEffort } from '../agents/providers';
@@ -24,10 +25,11 @@ import {
 	type TestSourceQuery,
 	type TestSuite,
 } from '../types/test-run';
-import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
+import { fromPromise, runEffect, withHeartbeat } from '../utils/effect-runtime';
+import { resolveModelInferenceSettings } from '../utils/llm';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { listAddedTestPaths } from '../utils/test-comparison';
+import { listOneSidedTests, type OneSidedTests } from '../utils/test-comparison';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import type { AgentRunResult } from './agent';
 import {
@@ -37,11 +39,17 @@ import {
 	removeContextSnapshotsOlderThan,
 } from './draft-context.service';
 import { mcpService } from './mcp';
+import { notifyScheduledTestsFailed } from './notification.service';
 import { skillService } from './skill';
 import { testAgentService } from './test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluation.service';
 import { discoverTests, filterTests } from './test-suite.service';
 import { createUpstreamContextSnapshot, type UpstreamBranchRef } from './upstream-context.service';
+import {
+	getAvailableModelsForUser,
+	getDefaultChatModelForUser,
+	resolveUserModelSelection,
+} from './user-group-llm-access.service';
 
 const TEST_RUN_HEARTBEAT_MS = 30_000;
 /** Several missed heartbeats, so that a slow database write does not fail a run that is still executing. */
@@ -73,6 +81,8 @@ export interface StartTestRunInput {
 	threads?: number;
 	/** Tests to run instead of the ones of the production context, such as a draft being edited. */
 	tests?: TestDefinition[];
+	/** Started by the project's test schedule rather than by the user. */
+	isScheduled?: boolean;
 }
 
 /**
@@ -106,8 +116,8 @@ interface TestSuitePlan {
 interface TestRunPlan extends TestSuitePlan {
 	variants: TestContextVariant[];
 	draftFolder: string | null;
-	/** Tests the changes add, which only run against the draft, as production does not have them. */
-	addedTestPaths: ReadonlySet<string>;
+	/** Tests the changes add or delete, which only run on the side that has them. */
+	oneSidedTests: OneSidedTests;
 }
 
 type TestRunContext = Pick<NewTestRun, 'trigger' | 'contextRef' | 'contextCommit' | 'contextChanges'>;
@@ -128,9 +138,16 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	const plan = await planTestRun(input, projectFolder, suite);
 	return createAndExecuteRun(
 		input,
-		{ ...plan, variants: ['production'], draftFolder: null, addedTestPaths: new Set() },
-		{ trigger: input.tests ? 'draft' : 'manual' },
+		{ ...plan, variants: ['production'], draftFolder: null, oneSidedTests: new Map() },
+		{ trigger: getProductionRunTrigger(input) },
 	);
+}
+
+function getProductionRunTrigger(input: StartTestRunInput): 'draft' | 'scheduled' | 'manual' {
+	if (input.tests) {
+		return 'draft';
+	}
+	return input.isScheduled ? 'scheduled' : 'manual';
 }
 
 /**
@@ -164,11 +181,14 @@ async function startDraftContextRun(
 					: NO_CONTEXT_CHANGES_MESSAGE,
 			);
 		}
-		const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(snapshot.folder);
+		const oneSidedTests = listOneSidedTests(snapshot.changes);
+		const suite = input.tests
+			? { tests: input.tests, invalidFiles: [] }
+			: discoverChangedTests({ projectFolder, draftFolder: snapshot.folder, variants, oneSidedTests });
 		const plan = await planTestRun(input, projectFolder, suite);
 		run = await createAndExecuteRun(
 			input,
-			{ ...plan, variants, draftFolder: snapshot.folder, addedTestPaths: listAddedTestPaths(snapshot.changes) },
+			{ ...plan, variants, draftFolder: snapshot.folder, oneSidedTests },
 			{
 				trigger,
 				contextRef: snapshot.ref,
@@ -182,6 +202,23 @@ async function startDraftContextRun(
 	}
 	removeLeftoverContextSnapshots(projectFolder, input.projectId);
 	return run;
+}
+
+/** The tests of the changes, and those they delete when the run also runs against production, which still has them. */
+function discoverChangedTests(input: {
+	projectFolder: string;
+	draftFolder: string;
+	variants: TestContextVariant[];
+	oneSidedTests: OneSidedTests;
+}): TestSuite {
+	const suite = discoverTests(input.draftFolder);
+	if (!input.variants.includes('production')) {
+		return suite;
+	}
+	const deletedTests = discoverTests(input.projectFolder).tests.filter(
+		(test) => input.oneSidedTests.get(test.path) === 'production',
+	);
+	return { ...suite, tests: [...suite.tests, ...deletedTests] };
 }
 
 async function createRunContextSnapshot(
@@ -279,12 +316,22 @@ async function planTestRun(
 	if (settings.errors.length > 0) {
 		throw new TestRunInputError(`Fix the test settings in nao_config.yaml first: ${settings.errors.join(' ')}`);
 	}
-	const selections = input.models?.length ? input.models : (settings.models ?? (await resolveFallbackModels(input)));
+	const requestedSelections = input.models?.length
+		? input.models
+		: (settings.models ?? (await resolveFallbackModels(input)));
+	const selections = await Promise.all(
+		requestedSelections.map(async (selection) => {
+			const reasoningEfforts = (selection as TestModelSelection).reasoningEfforts;
+			const resolved = await resolveUserModelSelection(input.projectId, input.userId, selection);
+			return reasoningEfforts ? { ...resolved, reasoningEfforts } : resolved;
+		}),
+	);
 	const models = expandReasoningEfforts(selections);
 	return {
 		tests,
 		models,
-		verificationModel: models.length > 1 ? await resolveVerificationModel(input.projectId, models) : null,
+		verificationModel:
+			models.length > 1 ? await resolveVerificationModel(input.projectId, input.userId, models) : null,
 		attempts: Math.min(input.attempts ?? settings.attempts, MAX_TEST_RUN_ATTEMPTS),
 		threads: Math.min(
 			input.threads ?? settings.threads ?? getDefaultTestRunThreads(models.length),
@@ -295,16 +342,20 @@ async function planTestRun(
 }
 
 /** The effort each available model that has reasoning efforts runs at when a run keeps its settings. */
-export async function listDefaultReasoningEfforts(projectId: string): Promise<TestModelDefaultEffort[]> {
-	const models = (await getProjectAvailableModels(projectId)).filter(
+export async function listDefaultReasoningEfforts(
+	projectId: string,
+	userId: string,
+): Promise<TestModelDefaultEffort[]> {
+	const models = (await getAvailableModelsForUser(projectId, userId)).filter(
 		(model) => getModelReasoningEfforts(model.provider, model.modelId).length > 0,
 	);
 	return Promise.all(
-		models.map(async ({ provider, modelId }) => {
-			const settings = await resolveModelInferenceSettings(projectId, provider, modelId);
+		models.map(async ({ provider, modelId, llmConfigId }) => {
+			const settings = await resolveModelInferenceSettings(projectId, provider, modelId, llmConfigId);
 			return {
 				provider,
 				modelId,
+				...(llmConfigId && { llmConfigId }),
 				reasoningEffort: toEffectiveEffort(provider, modelId, settings.reasoningEffort),
 			};
 		}),
@@ -333,12 +384,20 @@ function toEffectiveEffort(
 	return clampEffort(effort, getModelCapabilities(provider, modelId)?.effortOptions);
 }
 
-async function resolveVerificationModel(projectId: string, models: TestModel[]): Promise<LlmSelectedModel> {
-	return (await resolveDefaultChatModel(projectId)) ?? toSelectedModel(models[0]);
+async function resolveVerificationModel(
+	projectId: string,
+	userId: string,
+	models: TestModel[],
+): Promise<LlmSelectedModel> {
+	return (await getDefaultChatModelForUser(projectId, userId)) ?? toSelectedModel(models[0]);
 }
 
 function toSelectedModel(model: TestModel): LlmSelectedModel {
-	return { provider: model.provider, modelId: model.modelId };
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(model.llmConfigId && { llmConfigId: model.llmConfigId }),
+	};
 }
 
 /** Invalid files block the run when they are selected, or when the whole suite runs, as with `nao test`. */
@@ -350,8 +409,10 @@ function selectInvalidFiles(invalidFiles: InvalidTestFile[], paths: string[] | u
 	return invalidFiles.filter((file) => selectedPaths.has(file.path));
 }
 
-async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>): Promise<LlmSelectedModel[]> {
-	const defaultModel = await resolveDefaultChatModel(input.projectId);
+async function resolveFallbackModels(
+	input: Pick<StartTestRunInput, 'projectId' | 'userId'>,
+): Promise<LlmSelectedModel[]> {
+	const defaultModel = await getDefaultChatModelForUser(input.projectId, input.userId);
 	if (!defaultModel) {
 		throw new TestRunInputError('No LLM model is configured for this project.');
 	}
@@ -361,24 +422,58 @@ async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>
 async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan): Promise<void> {
 	const jobs = buildAttemptJobs(plan);
 	if (!(await markRunRunningOrFail(run, jobs.length))) {
+		await notifyScheduledRunOutcome(run);
 		return;
 	}
 
 	const abortController = new AbortController();
 	liveRuns.set(run.id, abortController);
-	const heartbeat = setInterval(() => void recordHeartbeat(run, abortController), TEST_RUN_HEARTBEAT_MS);
+	const attempts = runAttempts(jobs, plan.threads, (job) =>
+		runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
+	);
+	const heartbeat = {
+		name: `Test run ${run.id} heartbeat`,
+		beat: () => recordHeartbeat(run, abortController),
+		every: TEST_RUN_HEARTBEAT_MS,
+	};
 	try {
-		await mcpService.initializeMcpState(run.projectId);
-		await skillService.initializeSkills(run.projectId);
-		await runWithConcurrency(jobs, plan.threads, (job) =>
-			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
+		await runEffect(
+			fromPromise(() => initializeAgentTools(run.projectId)).pipe(
+				Effect.andThen(attempts),
+				withHeartbeat(heartbeat),
+				Effect.withSpan('test-runner.run', {
+					attributes: { 'test_run.id': run.id, 'test_run.jobs': jobs.length },
+				}),
+			),
 		);
 		await testRunQueries.completeRun(run.id);
 	} catch (error) {
 		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
 	} finally {
-		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
+	}
+	await notifyScheduledRunOutcome(run);
+}
+
+async function initializeAgentTools(projectId: string): Promise<void> {
+	await mcpService.initializeMcpState(projectId);
+	await skillService.initializeSkills(projectId);
+}
+
+async function notifyScheduledRunOutcome(run: DBTestRun): Promise<void> {
+	if (run.trigger !== 'scheduled') {
+		return;
+	}
+	try {
+		const endedRun = await testRunQueries.getRun(run.projectId, run.id);
+		if (endedRun) {
+			await notifyScheduledTestsFailed(endedRun, await testRunQueries.listResultOutcomes(run.id));
+		}
+	} catch (error) {
+		logger.error(`Could not notify the outcome of scheduled test run ${run.id}: ${String(error)}`, {
+			source: 'agent',
+			projectId: run.projectId,
+		});
 	}
 }
 
@@ -424,7 +519,8 @@ function buildAttemptJobs(plan: TestRunPlan): TestAttemptJob[] {
 }
 
 function listTestVariants(test: TestDefinition, plan: TestRunPlan): TestContextVariant[] {
-	return plan.addedTestPaths.has(test.path) ? plan.variants.filter((variant) => variant === 'draft') : plan.variants;
+	const side = plan.oneSidedTests.get(test.path);
+	return side ? plan.variants.filter((variant) => variant === side) : plan.variants;
 }
 
 async function runAttemptUnlessCancelled(
@@ -457,6 +553,7 @@ async function runAttempt(
 		tags: test.tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId ?? null,
 		reasoningEffort: model.reasoningEffort ?? null,
 		contextVariant: variant,
 		attempt,
@@ -546,24 +643,14 @@ function listAgentQueries(queryResults: AgentRunResult['queryResults']): TestSou
 }
 
 /**
- * Once a job fails no other job starts, and the failure is thrown only after the jobs in flight settle, so that none
- * of them outlives the run and the context snapshot it reads.
+ * Once a job fails no other job starts, and the failure is thrown only after the jobs in flight settle: they are
+ * uninterruptible, so none of them outlives the run and the context snapshot it reads.
  */
-async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
-	let nextIndex = 0;
-	const errors: unknown[] = [];
-	const runNext = async (): Promise<void> => {
-		while (errors.length === 0 && nextIndex < items.length) {
-			const item = items[nextIndex++];
-			await worker(item).catch((error: unknown) => {
-				errors.push(error);
-			});
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, runNext));
-	if (errors.length > 0) {
-		throw errors[0];
-	}
+function runAttempts<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
+	return Effect.forEach(items, (item) => fromPromise(() => worker(item)).pipe(Effect.uninterruptible), {
+		concurrency,
+		discard: true,
+	});
 }
 
 async function getProjectFolder(projectId: string): Promise<string> {

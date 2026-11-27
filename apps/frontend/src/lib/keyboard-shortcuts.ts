@@ -1,6 +1,6 @@
 import { ADD_SELECTION_TO_CHAT_SHORTCUT } from '@nao/shared/keyboard-shortcut';
 import type { Shortcut } from '@/lib/platform';
-import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
+import { formatShortcut, formatShortcutLabel, isMac } from '@/lib/platform';
 
 export type ShortcutId =
 	| 'toggle-sidebar'
@@ -12,7 +12,9 @@ export type ShortcutId =
 	| 'keyboard-help'
 	| 'stop-generation'
 	| 'cycle-model'
+	| 'swap-steer-queue'
 	| 'go-to-file'
+	| 'close-file-tab'
 	| 'toggle-test-drawer'
 	| 'run-tests'
 	| 'add-selection-to-chat'
@@ -87,12 +89,26 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'Chat',
 		shortcut: { shift: true, key: 'Tab' },
 	},
+	// Handled by the chat input alone: while the agent runs, it does what Enter does not (steer or queue).
+	{
+		id: 'swap-steer-queue',
+		label: 'Steer the running agent instead of queuing',
+		group: 'Chat',
+		shortcut: { mod: true, key: 'Enter' },
+	},
 	{
 		id: 'go-to-file',
 		label: 'Go to file',
 		group: 'File Explorer',
 		shortcut: { mod: true, key: 'p' },
 		isSettingsOnly: true,
+	},
+	// Browsers keep Cmd+W, and Ctrl+W outside macOS, to close their own tab.
+	{
+		id: 'close-file-tab',
+		label: 'Close the file tab',
+		group: 'File Explorer',
+		shortcut: isMac ? { ctrl: true, key: 'w' } : { alt: true, key: 'w' },
 	},
 	{
 		id: 'toggle-test-drawer',

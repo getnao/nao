@@ -24,8 +24,18 @@ interface CompletionInputProps extends Omit<ComponentProps<'input'>, 'value' | '
 	getCompletions?: (value: string, cursor: number) => CompletionOptions;
 }
 
-/** A text input suggesting completions for the text at the cursor, accepted with Enter, Tab or a click. */
-export function CompletionInput({ value, onValueChange, getCompletions, ...props }: CompletionInputProps) {
+/**
+ * A text input suggesting completions for the text at the cursor, accepted with Enter, Tab or a click.
+ * `onKeyDown` only receives the keys the suggestions did not handle.
+ */
+export function CompletionInput({
+	value,
+	onValueChange,
+	getCompletions,
+	onKeyDown,
+	onBlur,
+	...props
+}: CompletionInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listId = useId();
 	const [cursor, setCursor] = useState(value.length);
@@ -66,6 +76,7 @@ export function CompletionInput({ value, onValueChange, getCompletions, ...props
 			if (event.key === 'ArrowDown') {
 				setIsOpen(true);
 			}
+			onKeyDown?.(event);
 			return;
 		}
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -78,7 +89,9 @@ export function CompletionInput({ value, onValueChange, getCompletions, ...props
 		if ((event.key === 'Enter' || event.key === 'Tab') && !withModifier) {
 			event.preventDefault();
 			accept(items[active]);
+			return;
 		}
+		onKeyDown?.(event);
 	};
 
 	return (
@@ -106,7 +119,10 @@ export function CompletionInput({ value, onValueChange, getCompletions, ...props
 					onKeyDown={handleKeyDown}
 					onSelect={(event) => setCursor(event.currentTarget.selectionStart ?? value.length)}
 					onFocus={() => setIsOpen(true)}
-					onBlur={() => setIsOpen(false)}
+					onBlur={(event) => {
+						setIsOpen(false);
+						onBlur?.(event);
+					}}
 				/>
 			</PopoverAnchor>
 			<PopoverContent

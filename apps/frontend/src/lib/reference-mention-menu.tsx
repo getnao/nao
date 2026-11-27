@@ -1,4 +1,4 @@
-import { Database, Folder, Home, Table } from 'lucide-react';
+import { Database, Home } from 'lucide-react';
 import {
 	isSchemaMentionId,
 	isStoryFolderMentionId,
@@ -12,8 +12,10 @@ import type { MentionOption } from 'prompt-mentions';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { MentionOrigin, MentionOriginNode } from '@/components/mention-origin-preview';
+import Folder from '@/components/icons/folder.svg';
+import SquarePlay from '@/components/icons/square-play.svg';
+import Table from '@/components/icons/table.svg';
 import { DatabaseIcon } from '@/components/ui/database-icon';
-import StoryIcon from '@/components/ui/story-icon';
 
 type RouterOutputs = inferRouterOutputs<TrpcRouter>;
 export type ReferenceableStory = RouterOutputs['story']['listReferenceable'][number];
@@ -44,7 +46,8 @@ export const TABLES_ROOT_ID = '__tables__';
 export const QUICK_PICK_COUNT = 3;
 const DIVIDER: MentionOption = { id: '__divider__', label: '', type: 'divider' };
 
-const storyIcon = <StoryIcon className='size-4' />;
+/** Plain SVGs for what becomes a pill: prompt-mentions draws pills outside of React renders, where lucide icons come out empty. */
+const storyIcon = <SquarePlay className='size-4' />;
 const tableIcon = <Table className='size-4' />;
 const folderIcon = <Folder className='size-4' />;
 const tablesRootIcon = <Database className='size-4' />;
@@ -137,14 +140,17 @@ function buildStoryTree(
 	return buildLevel(null, [{ label: 'Stories', icon: storiesRootIcon }]);
 }
 
-/** A story whose folder the user cannot see sits at the root. */
+/** Like the stories page: a story shared with the user sits in "Shared with me" unless they see its folder, others at the root. */
 function locateStory(
 	story: ReferenceableStory,
 	folderIdByStoryId: Map<string, string>,
 	knownFolderIds: Set<string>,
 ): string | null {
-	const folderId = story.isSharedWithMe ? SHARED_WITH_ME_FOLDER_ID : folderIdByStoryId.get(story.storyId);
-	return folderId && knownFolderIds.has(folderId) ? folderId : null;
+	const folderId = folderIdByStoryId.get(story.storyId);
+	if (folderId && knownFolderIds.has(folderId)) {
+		return folderId;
+	}
+	return story.isSharedWithMe && knownFolderIds.has(SHARED_WITH_ME_FOLDER_ID) ? SHARED_WITH_ME_FOLDER_ID : null;
 }
 
 function compareSystemFoldersFirst(a: StoryFolder, b: StoryFolder): number {

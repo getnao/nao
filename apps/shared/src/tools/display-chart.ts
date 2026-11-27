@@ -17,9 +17,7 @@ export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 export const ValueFormatSchema = z.object({
 	d3_format: z
 		.string()
-		.describe(
-			'd3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s". Do not use d3\'s "%" type: for a percentage already stored as 42.5, use { d3_format: ".1f", suffix: "%" } so the value is not multiplied by 100.',
-		)
+		.describe('d3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s".')
 		.optional(),
 	compact: z
 		.enum(['financial', 'si'])
@@ -27,18 +25,8 @@ export const ValueFormatSchema = z.object({
 			'How d3 SI-prefix "s" output is displayed. Defaults to "financial", which maps k to K and G to B while leaving M and T unchanged. Use "si" for scientific units such as bytes so d3 letters remain unchanged.',
 		)
 		.optional(),
-	prefix: z
-		.string()
-		.describe(
-			'Free text placed before the number. Use for any currency symbol, such as "$", "€", "¥", or "£". Example USD money: { d3_format: ",.2f", prefix: "$", compact: "financial" }.',
-		)
-		.optional(),
-	suffix: z
-		.string()
-		.describe(
-			'Free text placed after the number. Use for percentages and any unit. Examples: { d3_format: ".1f", suffix: "%" } for 42.5 as 42.5%; { d3_format: ",.0f", suffix: " V" } for volts; { d3_format: ".2s", suffix: "B", compact: "si" } for bytes.',
-		)
-		.optional(),
+	prefix: z.string().describe('Free text placed before the number, such as a currency symbol.').optional(),
+	suffix: z.string().describe('Free text placed after the number, such as "%" or a unit.').optional(),
 });
 
 export const ComparisonModeEnum = z.enum(['percentage', 'variation', 'absolute', 'none']);
@@ -129,7 +117,9 @@ export const ColumnConditionalFormatsSchema = z
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
 export const ChartInputObjectSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
 	x_axis_type: XAxisTypeEnum.nullable().describe(
@@ -188,6 +178,20 @@ export const ChartInputObjectSchema = z.object({
 			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
 		)
 		.optional(),
+	breakdown_key: z
+		.string()
+		.describe(
+			'Column whose values each become their own series, e.g. "country" to draw one line per country from rows shaped (month, country, revenue) with series [{ data_key: "revenue" }]. Prefer it over pivoting in SQL: values that appear in a later refresh (a new country, a new version) show up without editing the chart. A series color becomes shades of that color across the values (suits ordered values such as versions); omit it to color the values with the theme palette. Not for pie or donut charts, whose slices already come from x_axis_key, nor scatter charts.',
+		)
+		.optional(),
+	breakdown_limit: z
+		.number()
+		.int()
+		.positive()
+		.describe(
+			'With breakdown_key: keep this many values and sum the rest into "Other" (the largest in the latest period on a date axis, the largest totals otherwise). Set it when the column can hold more than ~8 values.',
+		)
+		.optional(),
 	title: z
 		.string()
 		.describe(
@@ -223,7 +227,9 @@ const KpiCardInputSchema = ChartInputObjectSchema.extend({
 	.refine(rightYAxisBoundsValid, RIGHT_Y_AXIS_BOUNDS_MESSAGE);
 
 export const TableInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: z.literal('table').describe('Display the SQL result as a table.'),
 	title: z.string().describe('A concise, descriptive title of what the table shows.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.optional(),
@@ -237,7 +243,9 @@ export type Input = ChartInput | KpiCardInput | TableInput;
 const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
 const BaseInputSchema = z.object({
-	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+	query_id: z
+		.string()
+		.describe('The id of a previous query result (`execute_sql` or a semantic query) to get data from.'),
 	chart_type: DisplayTypeSchema.describe(
 		'Type of visualization to display. Use "table" for tabular results or an available custom chart type.',
 	),
@@ -268,6 +276,8 @@ const BaseInputSchema = z.object({
 			'Set to true when the chart\'s series must NOT be added together into a single grand total — e.g. they are unrelated metrics, in different units, or different currencies, so a combined total would be meaningless. When true, the hover tooltip omits the "Total" row. Leave unset when the series are additive parts of the same measure (a total then makes sense). This is a chart-wide setting; for a single series that is itself an aggregated total of the others, use the per-series is_total flag instead.',
 		)
 		.optional(),
+	breakdown_key: ChartInputObjectSchema.shape.breakdown_key,
+	breakdown_limit: ChartInputObjectSchema.shape.breakdown_limit,
 	title: z.string().describe('A concise, descriptive title for the visualization. Required for charts.').optional(),
 	conditional_formats: ColumnConditionalFormatsSchema.describe(
 		'Conditional formatting rules for table columns. Only used when chart_type is "table".',

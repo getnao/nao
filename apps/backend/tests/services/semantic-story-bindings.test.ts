@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { bindSemanticQuery, semanticBindingsFromCode } from '../../src/services/semantic-story-bindings';
+import {
+	bindSemanticQuery,
+	listBindableFilterIds,
+	semanticBindingsFromCode,
+} from '../../src/services/semantic-story-bindings';
 
 const CATALOG = {
 	metrics: [
@@ -41,6 +45,17 @@ describe('bindSemanticQuery', () => {
 		expect(bound.query.params).toEqual({ metric: 'unique_sales', grain: 'month' });
 		expect(bound.skippedFilterIds).toEqual([]);
 		expect(loadCatalog).not.toHaveBeenCalled();
+	});
+
+	it('compares boolean dimension filters with an unquoted boolean', async () => {
+		const code = `<filter id="open" type="select" dimension="pr__is_open" options='["true","false"]' value_type="boolean" />`;
+		const bound = await bindSemanticQuery(
+			{ metrics: ['prs_created'] },
+			semanticBindingsFromCode(code, { open: 'false' }),
+			async () => null,
+		);
+
+		expect(bound.query.where).toEqual(["{{ Dimension('pr__is_open') }} = false"]);
 	});
 
 	it('turns active dimension filters into where constraints and metric_time bounds', async () => {
@@ -108,5 +123,20 @@ describe('bindSemanticQuery', () => {
 			query: QUERY,
 			skippedFilterIds: [],
 		});
+	});
+});
+
+describe('listBindableFilterIds', () => {
+	it('lists the dimension filters the selected metric supports, with or without a selection', async () => {
+		const loadCatalog = async () => CATALOG;
+
+		await expect(listBindableFilterIds(QUERY, semanticBindingsFromCode(CODE), loadCatalog)).resolves.toEqual([
+			'region',
+			'channel',
+			'period',
+		]);
+		await expect(
+			listBindableFilterIds(QUERY, semanticBindingsFromCode(CODE, { metric: 'unique_sales' }), loadCatalog),
+		).resolves.toEqual(['region', 'period']);
 	});
 });

@@ -22,21 +22,30 @@ describe('FeedbackDialog', () => {
 		expect(screen.getByPlaceholderText(placeholder)).toBeDefined();
 	});
 
-	it('submits trimmed text or undefined when empty', () => {
+	it.each([
+		['  Clear and useful  ', 'Clear and useful'],
+		['   ', undefined],
+	])('submits %j as %j', (input, expected) => {
 		const onSubmit = vi.fn();
 		renderFeedbackDialog('up', onSubmit);
 
-		fireEvent.change(screen.getByPlaceholderText('Tell us what worked well (optional)'), {
-			target: { value: '  Clear and useful  ' },
-		});
-		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+		fireEvent.change(screen.getByRole('textbox'), { target: { value: input } });
 		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
-		expect(onSubmit).toHaveBeenNthCalledWith(1, 'Clear and useful');
-		expect(onSubmit).toHaveBeenNthCalledWith(2, undefined);
+		expect(onSubmit).toHaveBeenCalledWith(expected, 'up');
+	});
+
+	it('submits the vote picked in the dialog over the preselected one', () => {
+		const onSubmit = vi.fn();
+		renderFeedbackDialog('up', onSubmit);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Bad response' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+		expect(onSubmit).toHaveBeenCalledWith(undefined, 'down');
 	});
 });
 
 function renderFeedbackDialog(vote: 'up' | 'down', onSubmit = vi.fn()) {
-	render(<FeedbackDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} isPending={false} vote={vote} />);
+	render(<FeedbackDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} isPending={false} defaultVote={vote} />);
 }

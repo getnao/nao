@@ -1,12 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Check, CircleAlert, Link as LinkIcon, Loader2, SearchIcon, Users, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, ChevronDown, CircleAlert, Folder, Link as LinkIcon, Loader2, SearchIcon, Users, X } from 'lucide-react';
+import type { ShareRole } from '@nao/shared/types';
 
 import type { ShareModel, ShareTarget, ShareTargetState } from '@/hooks/use-share-target';
+import type { ShareCandidate, ShareOwner } from '@/lib/share-access';
 import type { ShareDraft, ShareSavedState } from '@/lib/share-draft';
+import type { TransferCandidate } from '@/components/transfer-ownership-dialog';
+import type { FolderItem, FolderShareAudience } from '@/lib/stories-page';
 import { ShareAccessPanel } from '@/components/share-access-panel';
+import { FolderTreeSelect } from '@/components/stories-folder-tree-select';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
 	Dialog,
 	DialogContent,
@@ -16,6 +22,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
 	useCopyWithFeedback,
 	useShareActionRunner,
@@ -25,7 +32,15 @@ import {
 import { useShareTarget } from '@/hooks/use-share-target';
 import { useSession } from '@/lib/auth-client';
 import { shareSubjectKey } from '@/lib/share-access';
-import { createShareDraft, isShareDraftChanged, isShareDraftEmpty, STOP_SHARING_DRAFT } from '@/lib/share-draft';
+import {
+	createShareDraft,
+	fitDraftToFolder,
+	isShareDraftChanged,
+	isShareDraftEmpty,
+	STOP_SHARING_DRAFT,
+} from '@/lib/share-draft';
+import { invalidateStoryOwnershipCaches } from '@/lib/stories-cache';
+import { folderFitsShare, listFittingFolders, pickDefaultFolderId } from '@/lib/stories-page';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -33,16 +48,31 @@ export type { ShareTarget } from '@/hooks/use-share-target';
 
 type ShareAttempt = 'save' | 'stopSharing';
 
+const UNSAVED_SHARING_ERROR = 'Save or cancel your sharing changes first, so the new owner gets the sharing you see.';
+
+const SHARE_DIALOG_TITLES: Record<ShareTarget['kind'], string> = {
+	chat: 'Share chat',
+	story: 'Share story',
+	'standalone-story': 'Share story',
+	automation: 'Share automation',
+};
+
+const AUTOMATION_ROLE_DESCRIPTIONS: Record<ShareRole, string> = {
+	viewer: 'See it and the status of its runs',
+	editor: 'Change it, run it and pause it',
+};
+
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	target: ShareTarget;
+	onStoryTransferred?: () => void;
 }
 
-export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
+export function ShareDialog({ open, onOpenChange, target, onStoryTransferred }: ShareDialogProps) {
 	const share = useShareTarget(target, open);
 	const audience = useShareAudience();
-	const title = target.kind === 'chat' ? 'Share chat' : 'Share story';
+	const title = SHARE_DIALOG_TITLES[target.kind];
 
 	if (share.isLoading || audience.isLoading) {
 		return <ShareLoadingDialog open={open} onOpenChange={onOpenChange} title={title} className='sm:max-w-lg' />;
@@ -60,6 +90,7 @@ export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
 					model={share.model}
 					commands={share.commands}
 					onClose={() => onOpenChange(false)}
+					onStoryTransferred={onStoryTransferred}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -73,6 +104,7 @@ function ShareDialogBody({
 	model,
 	commands,
 	onClose,
+	onStoryTransferred,
 }: {
 	target: ShareTarget;
 	title: string;
@@ -80,6 +112,7 @@ function ShareDialogBody({
 	model: ShareModel;
 	commands: ShareTargetState['commands'];
 	onClose: () => void;
+	onStoryTransferred?: () => void;
 }) {
 	const { data: session } = useSession();
 	const audience = useShareAudience();
@@ -90,9 +123,23 @@ function ShareDialogBody({
 	const [editedDraft, setEditedDraft] = useState<ShareDraft | null>(null);
 	const draft = editedDraft ?? createShareDraft(saved, audience.canShareToProject);
 	const [notify, setNotify] = useState(false);
-	const canNotify = smtpQuery.data === true;
-	const hasChanges = model.canManage && isShareDraftChanged(draft, saved);
+	const canNotify = smtpQuery.data === true && model.itemLabel !== 'automation';
 	const sharesWithNobody = isShareDraftEmpty(draft);
+	const ownerCandidates = useOwnerCandidates(model);
+	const storyId = model.storyId;
+	const [newOwner, setNewOwner] = useState<ShareOwner | null>(null);
+	const transfer = useStoryTransfer(() => {
+		setNewOwner(null);
+		setEditedDraft(null);
+		onStoryTransferred?.();
+	});
+	const chooseNewOwner = (owner: ShareOwner | null) => {
+		if (transfer.isPending) {
+			return;
+		}
+		transfer.reset();
+		setNewOwner(owner);
+	};
 
 	const excludedKeys = useMemo(() => new Set([shareSubjectKey('user', model.owner?.id ?? '')]), [model.owner?.id]);
 	const { candidates, isLoading } = useShareCandidates({
@@ -101,11 +148,20 @@ function ShareDialogBody({
 		excludedKeys,
 		enabled: model.canManage,
 	});
+	const folder = useShareFolder(model, draft, {
+		currentUserId: session?.user?.id,
+		candidates,
+		canShareToProject: audience.canShareToProject,
+		onDraftChange: setEditedDraft,
+	});
+	const hasChanges = model.canManage && (isShareDraftChanged(draft, saved) || folder.hasChanged);
+	const hasEditedSharing = editedDraft !== null && hasChanges;
 
 	const attempt = async (next: ShareAttempt) => {
 		lastAttemptRef.current = next;
 		const savedDraft = next === 'stopSharing' ? STOP_SHARING_DRAFT : draft;
-		const saving = commands.save(savedDraft, { notify: canNotify && notify });
+		const folderId = next === 'save' ? folder.savedId : undefined;
+		const saving = commands.save(savedDraft, { notify: canNotify && notify, folderId });
 		if (!model.isShared && !isShareDraftEmpty(savedDraft)) {
 			copyShareLinkOnceSaved(saving);
 		}
@@ -126,7 +182,6 @@ function ShareDialogBody({
 				<DialogDescription>{description}</DialogDescription>
 			</DialogHeader>
 			<ShareAccessPanel
-				itemLabel={model.itemLabel}
 				owner={model.owner}
 				currentUserId={session?.user?.id}
 				draft={draft}
@@ -140,7 +195,31 @@ function ShareDialogBody({
 				canNotify={canNotify}
 				notify={notify}
 				onNotifyChange={setNotify}
-			/>
+				ownerCandidates={ownerCandidates}
+				onChangeOwner={chooseNewOwner}
+				roleDescriptions={model.itemLabel === 'automation' ? AUTOMATION_ROLE_DESCRIPTIONS : undefined}
+			>
+				{folder.selectedId !== undefined && (
+					<ShareFolderSelect
+						tree={folder.tree}
+						value={folder.selectedId}
+						currentId={folder.currentId}
+						label={folder.selectedLabel}
+						canSelect={folder.canSelect}
+						onChange={folder.select}
+					/>
+				)}
+			</ShareAccessPanel>
+			{storyId && (
+				<TransferOwnerConfirmation
+					newOwner={newOwner}
+					isPending={transfer.isPending}
+					isBlocked={hasEditedSharing}
+					error={hasEditedSharing ? UNSAVED_SHARING_ERROR : transfer.error?.message}
+					onCancel={() => chooseNewOwner(null)}
+					onConfirm={() => newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })}
+				/>
+			)}
 			{actions.error && (
 				<ShareActionError message={actions.error} onRetry={retry} onDismiss={actions.dismissError} />
 			)}
@@ -167,7 +246,10 @@ function ShareDialogBody({
 					<Button
 						className='gap-1.5 rounded-full'
 						variant={hasChanges && model.isShared && sharesWithNobody ? 'destructive' : 'default'}
-						disabled={actions.isPending || (hasChanges && !model.isShared && sharesWithNobody)}
+						disabled={
+							actions.isPending ||
+							(hasChanges && (folder.isLoading || (!model.isShared && sharesWithNobody)))
+						}
 						onClick={hasChanges ? () => attempt('save') : onClose}
 					>
 						{actions.isPending && <Loader2 className='size-3.5 animate-spin' />}
@@ -179,8 +261,149 @@ function ShareDialogBody({
 	);
 }
 
+/**
+ * The folder a story is filed in when shared. It defaults to a folder whose audience matches the share,
+ * and picking another one adapts the share to that folder's audience.
+ */
+function useShareFolder(
+	model: ShareModel,
+	draft: ShareDraft,
+	access: {
+		currentUserId: string | undefined;
+		candidates: ShareCandidate[];
+		canShareToProject: boolean;
+		onDraftChange: (draft: ShareDraft) => void;
+	},
+) {
+	const [editedId, setEditedId] = useState<string | null | undefined>(undefined);
+	const isEnabled =
+		model.placement !== null &&
+		model.canManage &&
+		model.owner?.id === access.currentUserId &&
+		(!isShareDraftEmpty(draft) || editedId !== undefined);
+	const tree = useQuery({ ...trpc.storyFolder.listTree.queryOptions(), enabled: isEnabled });
+	const folders = tree.data ?? [];
+	const options = isEnabled && tree.data ? listFittingFolders(tree.data, toFolderShareAudience(draft)) : [];
+	const selectedId =
+		isEnabled && tree.data
+			? pickDefaultFolderId(options, tree.data, [
+					editedId,
+					model.placement?.folderId,
+					model.placement?.lastUsedFolderId,
+				])
+			: undefined;
+	const findFolder = (folderId: string | null) => folders.find((folder) => folder.id === folderId) ?? null;
+	const currentId = model.placement?.folderId;
+	const keepsHiddenFolder = editedId === undefined && !!currentId && !!tree.data && !findFolder(currentId);
+	const savedId = keepsHiddenFolder ? undefined : selectedId;
+	const canSelect = (folder: FolderItem | null) => {
+		const fitted = fitDraftToFolder(draft, folder, access.candidates, findFolder(selectedId ?? null));
+		return (
+			(fitted.visibility === 'specific' || access.canShareToProject) &&
+			folderFitsShare(folder, toFolderShareAudience(fitted))
+		);
+	};
+	const select = (folderId: string | null) => {
+		setEditedId(folderId);
+		access.onDraftChange(
+			fitDraftToFolder(draft, findFolder(folderId), access.candidates, findFolder(selectedId ?? null)),
+		);
+	};
+	return {
+		tree: folders,
+		isLoading: isEnabled && tree.isLoading,
+		selectedId,
+		savedId,
+		currentId,
+		selectedLabel: keepsHiddenFolder ? 'Current folder' : options.find((option) => option.id === selectedId)?.label,
+		hasChanged: savedId !== undefined && model.isShared && savedId !== currentId,
+		canSelect,
+		select,
+	};
+}
+
+function toFolderShareAudience(draft: ShareDraft): FolderShareAudience {
+	const groupIds = draft.grants.filter((grant) => grant.kind === 'group').map((grant) => grant.id);
+	return { visibility: draft.visibility, groupIds };
+}
+
+function ShareFolderSelect({
+	tree,
+	value,
+	currentId,
+	label,
+	canSelect,
+	onChange,
+}: {
+	tree: FolderItem[];
+	value: string | null;
+	currentId: string | null | undefined;
+	label: string | undefined;
+	canSelect: (folder: FolderItem | null) => boolean;
+	onChange: (folderId: string | null) => void;
+}) {
+	const [isOpen, setIsOpen] = useState(false);
+
+	const select = (folderId: string | null) => {
+		onChange(folderId);
+		setIsOpen(false);
+	};
+
+	return (
+		<div className='flex items-center justify-between gap-3'>
+			<label htmlFor='share-folder' className='text-sm font-medium'>
+				Save in
+			</label>
+			<Popover open={isOpen} onOpenChange={setIsOpen}>
+				<PopoverTrigger asChild>
+					<button
+						id='share-folder'
+						type='button'
+						className='flex h-8 w-60 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none dark:bg-input/30 dark:hover:bg-input/50'
+					>
+						<Folder className='size-3.5 shrink-0 text-muted-foreground' />
+						<span className='flex-1 truncate text-left'>{label}</span>
+						<ChevronDown className='size-4 shrink-0 opacity-50 transition-transform duration-200 [[data-state=open]_&]:rotate-180' />
+					</button>
+				</PopoverTrigger>
+				<PopoverContent align='end' className='w-72 border-0 p-0'>
+					<FolderTreeSelect
+						tree={tree}
+						selectedId={value}
+						currentId={currentId}
+						onSelect={select}
+						isDisabled={(folder) => !canSelect(folder)}
+						isRootDisabled={!canSelect(null)}
+					/>
+				</PopoverContent>
+			</Popover>
+		</div>
+	);
+}
+
 function toSavedState(model: ShareModel): ShareSavedState {
 	return { isShared: model.isShared, ...model.generalAccess, grants: model.grants };
+}
+
+/** Project members the story can be handed to: everyone but viewers and its current owner. */
+function useOwnerCandidates(model: ShareModel): TransferCandidate[] {
+	const recipients = useQuery({
+		...trpc.story.listTransferRecipients.queryOptions({ storyId: model.storyId ?? '' }),
+		enabled: model.storyId !== null && model.canManage,
+	});
+	return recipients.data ?? [];
+}
+
+function useStoryTransfer(onTransferred: () => void) {
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.story.transferOwnership.mutationOptions({
+			onSuccess: () => {
+				invalidateStoryOwnershipCaches(queryClient);
+				onTransferred();
+			},
+		}),
+	);
 }
 
 function describeConfirm(
@@ -206,6 +429,9 @@ function copyShareLinkOnceSaved(saving: Promise<string | null>): void {
 function describeAudience(model: ShareModel): string {
 	if (model.itemLabel === 'chat') {
 		return 'People you share it with can read this conversation.';
+	}
+	if (model.itemLabel === 'automation') {
+		return 'It keeps running as its owner. Editors can change its prompt, triggers and tools.';
 	}
 	return 'People you share it with always see the latest version. Editors can change it from their own chats.';
 }
@@ -300,6 +526,38 @@ function ShareActionError({
 				<X className='size-3' />
 			</Button>
 		</div>
+	);
+}
+
+function TransferOwnerConfirmation({
+	newOwner,
+	isPending,
+	isBlocked,
+	error,
+	onCancel,
+	onConfirm,
+}: {
+	newOwner: ShareOwner | null;
+	isPending: boolean;
+	isBlocked: boolean;
+	error?: string;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	return (
+		<ConfirmationDialog
+			open={newOwner !== null}
+			onOpenChange={(open) => !open && onCancel()}
+			title={`Transfer ownership to ${newOwner?.name ?? ''}?`}
+			description="They get the story with its link, sharing, versions and live settings. You'll keep access only if it stays shared with you, through the project or one of your groups."
+			confirmLabel='Transfer'
+			confirmVariant='default'
+			onConfirm={onConfirm}
+			isPending={isPending}
+			isConfirmDisabled={isBlocked}
+			error={error}
+			preventCloseWhilePending
+		/>
 	);
 }
 
@@ -415,7 +673,7 @@ export function MemberRow({
 	);
 }
 
-function GroupRow({
+export function GroupRow({
 	name,
 	memberCount,
 	selected,

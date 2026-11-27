@@ -26,9 +26,11 @@ export function useUnreadAutomationRunCount(enabled: boolean, projectId: string 
 	});
 }
 
+export const NOTIFICATION_LIST_LIMIT = 30;
+
 export function useNotifications(enabled: boolean) {
 	return useQuery({
-		...trpc.notification.list.queryOptions({ limit: 30 }),
+		...trpc.notification.list.queryOptions({ limit: NOTIFICATION_LIST_LIMIT }),
 		enabled,
 		staleTime: 10 * 1000,
 		refetchInterval: UNREAD_POLL_INTERVAL_MS,

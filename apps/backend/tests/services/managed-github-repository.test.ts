@@ -1,7 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	env: {} as Record<string, string | undefined>,
+	env: {} as Record<string, string | boolean | undefined>,
 	execFile: vi.fn(),
 	execFileSync: vi.fn(),
 	createPrivateKey: vi.fn(),
@@ -42,10 +46,14 @@ vi.mock('jose', () => ({
 }));
 
 import {
+	assertRepositoryEditable,
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
 	ManagedGithubConfigurationError,
+	ManagedGithubPublishUncertainError,
 	provisionManagedGithubRepository,
+	publishManagedGithubRepositoryUpdate,
+	readManagedGithubRepositoryFullName,
 	reportManagedGithubConfiguration,
 } from '../../src/services/managed-github-repository';
 
@@ -55,6 +63,14 @@ const project = {
 	projectId: '12345678-abcd-efgh-ijkl-123456789012',
 	projectName: 'Lumen Bike Share',
 	projectDir: '/projects/12345678',
+};
+
+const managedUpdate = {
+	projectDir: '/projects/12345678',
+	repoFullName: 'nao-org/nao-project',
+	paths: ['context.md'],
+	message: 'Update context.md',
+	author: { name: 'Ada', email: 'ada@example.com' },
 };
 
 beforeEach(() => {
@@ -90,12 +106,194 @@ describe('managed GitHub repository provisioning', () => {
 		expect(getManagedGithubRepositoryFullName(project)).toBe('nao-org/nao-lumen-bike-share-12345678-abcd-ef');
 	});
 
+	it('recognizes only live projects whose origin is in the managed organization', async () => {
+		const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-managed-origin-'));
+		fs.mkdirSync(path.join(projectDir, '.git'));
+		const respondWithOrigin = (origin: string) => {
+			mocks.execFile.mockImplementationOnce(
+				(_command: string, _args: string[], _options: unknown, callback: GitExecCallback) => {
+					callback(null, `${origin}\n`, '');
+				},
+			);
+		};
+		try {
+			respondWithOrigin('https://github.com/Nao-Org/nao-lumen-bike-share-12345678.git');
+			await expect(readManagedGithubRepositoryFullName(projectDir)).resolves.toBe(
+				'Nao-Org/nao-lumen-bike-share-12345678',
+			);
+			respondWithOrigin('https://github.com/someone-else/analytics.git');
+			await expect(readManagedGithubRepositoryFullName(projectDir)).resolves.toBeNull();
+			await expect(readManagedGithubRepositoryFullName(path.join(projectDir, 'missing'))).resolves.toBeNull();
+
+			respondWithOrigin('https://github.com/nao-org/nao-lumen-bike-share-12345678.git');
+			await expect(assertRepositoryEditable(projectDir)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+			await expect(assertRepositoryEditable(null)).resolves.toBeUndefined();
+		} finally {
+			fs.rmSync(projectDir, { recursive: true, force: true });
+		}
+	});
+
+	it('commits the requested paths as the editor and pushes them to main', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				callback(null, args[0] === 'rev-parse' ? 'old-commit\n' : args[0] === 'diff' ? 'context.md\n' : '', '');
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).resolves.toBe(true);
+
+		expect(mocks.execFile).toHaveBeenCalledWith(
+			'git',
+			['commit', '-m', 'Update context.md', '--', 'context.md'],
+			expect.objectContaining({
+				env: expect.objectContaining({ GIT_AUTHOR_NAME: 'Ada', GIT_COMMITTER_NAME: 'nao' }),
+			}),
+			expect.any(Function),
+		);
+		expect(mocks.execFile).toHaveBeenCalledWith(
+			'git',
+			['push', 'https://github.com/nao-org/nao-project.git', 'HEAD:refs/heads/main'],
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('retries a pending local commit when the requested files have no new changes', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		const pendingCommit = 'b'.repeat(40);
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				callback(null, args[0] === 'rev-parse' ? `${pendingCommit}\n` : '', '');
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).resolves.toBe(true);
+
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['commit']),
+			expect.any(Object),
+			expect.any(Function),
+		);
+		expect(mocks.execFile).toHaveBeenCalledWith(
+			'git',
+			['push', 'https://github.com/nao-org/nao-project.git', 'HEAD:refs/heads/main'],
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('rolls back the local commit when the managed push fails', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'push') {
+					callback(new Error('remote rejected'), '', '');
+					return;
+				}
+				callback(null, args[0] === 'rev-parse' ? 'old-commit\n' : args[0] === 'diff' ? 'context.md\n' : '', '');
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).rejects.toThrow('remote rejected');
+
+		expect(mocks.execFile).toHaveBeenCalledWith(
+			'git',
+			['reset', '--soft', 'old-commit'],
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('keeps the local commit when GitHub accepted a push whose response was lost', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		const previousCommit = 'a'.repeat(40);
+		const committedCommit = 'b'.repeat(40);
+		let revParseCalls = 0;
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'rev-parse') {
+					callback(null, `${revParseCalls++ === 0 ? previousCommit : committedCommit}\n`, '');
+					return;
+				}
+				if (args[0] === 'diff') {
+					callback(null, 'context.md\n', '');
+					return;
+				}
+				if (args[0] === 'push') {
+					callback(new Error('connection closed before response'), '', '');
+					return;
+				}
+				if (args[0] === 'ls-remote') {
+					callback(null, `${committedCommit}\trefs/heads/main\n`, '');
+					return;
+				}
+				callback(null, '', '');
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).resolves.toBe(true);
+
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['reset']),
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('preserves the local commit when the remote push result cannot be verified', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'push' || args[0] === 'ls-remote') {
+					callback(new Error('network unavailable'), '', '');
+					return;
+				}
+				callback(
+					null,
+					args[0] === 'rev-parse' ? `${'a'.repeat(40)}\n` : args[0] === 'diff' ? 'context.md\n' : '',
+					'',
+				);
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).rejects.toThrow(
+			ManagedGithubPublishUncertainError,
+		);
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['reset']),
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
 	it('treats an already deleted managed repository as cleaned up', async () => {
 		vi.mocked(fetch)
 			.mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }))
 			.mockResolvedValueOnce(jsonResponse(404, { message: 'Not Found' }));
 
 		await expect(deleteManagedGithubRepository('nao-org/missing')).resolves.toBeUndefined();
+	});
+
+	it('keeps repository cleanup enabled when publishing is skipped', async () => {
+		mocks.env.CLOUD_GITHUB_PROJECT_SKIP_PUBLISHING = true;
+
+		await expect(provisionManagedGithubRepository(project)).resolves.toBeNull();
+		expect(fetch).not.toHaveBeenCalled();
+
+		vi.mocked(fetch)
+			.mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }))
+			.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+		await expect(deleteManagedGithubRepository('nao-org/stale-project')).resolves.toBeUndefined();
+		expect(fetch).toHaveBeenNthCalledWith(
+			2,
+			'https://api.github.com/repos/nao-org/stale-project',
+			expect.objectContaining({ method: 'DELETE' }),
+		);
 	});
 
 	it('does nothing when managed GitHub is not configured', async () => {

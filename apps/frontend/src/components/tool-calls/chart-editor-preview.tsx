@@ -146,6 +146,8 @@ function LiveChart({ draft, data, hasSeries }: LiveChartProps) {
 				showLegend={draft.show_legend}
 				comparisonMode={draft.comparison_mode}
 				hideTotal={draft.hide_total}
+				breakdownKey={draft.breakdown_key}
+				breakdownLimit={draft.breakdown_limit}
 				normalSize
 			/>
 		</div>

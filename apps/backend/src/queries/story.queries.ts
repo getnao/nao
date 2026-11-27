@@ -1,6 +1,20 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo, type StoryVersionOrigin } from '@nao/shared/types';
-import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import {
+	aliasedTable,
+	and,
+	asc,
+	countDistinct,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	max,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -36,6 +50,7 @@ export type UserStoryRow = Pick<
 };
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
+const latestStoryVersion = aliasedTable(s.storyVersion, 'latest_story_version');
 
 export async function getStoryByChatAndSlug(
 	chatId: string,
@@ -102,8 +117,8 @@ export async function getStoryProjectId(storyId: string): Promise<string | null>
 	return row.chatProjectId ?? row.storyProjectId ?? null;
 }
 
-export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
-	const [row] = await db
+export async function getStoryOwnerId(storyId: string, executor: DBExecutor = db): Promise<string | undefined> {
+	const [row] = await executor
 		.select({
 			storyUserId: s.story.userId,
 			chatUserId: s.chat.userId,
@@ -492,6 +507,75 @@ export async function claimStandaloneStoryChat(storyId: string, chatId: string):
 	return claimed.length > 0;
 }
 
+/**
+ * Hands a story to its new owner outside any chat, unless it left the chat it was in meanwhile. The chat it leaves
+ * and its slug there are kept, so that chat can still tell where the story went; a story that left the same chat
+ * under the same slug before no longer claims it.
+ */
+export async function detachStoryToOwner(
+	story: Pick<DBStory, 'id' | 'chatId' | 'slug'>,
+	owner: { userId: string; projectId: string; slug: string },
+	executor: DBExecutor = db,
+): Promise<boolean> {
+	const transferredFrom = story.chatId
+		? { transferredFromChatId: story.chatId, transferredFromSlug: story.slug }
+		: {};
+	const detached = await executor
+		.update(s.story)
+		.set({ ...owner, ...transferredFrom, chatId: null })
+		.where(and(eq(s.story.id, story.id), story.chatId ? eq(s.story.chatId, story.chatId) : isNull(s.story.chatId)))
+		.returning({ id: s.story.id })
+		.execute();
+	if (detached.length === 0) {
+		return false;
+	}
+	if (story.chatId) {
+		await executor
+			.update(s.story)
+			.set({ transferredFromChatId: null, transferredFromSlug: null })
+			.where(
+				and(
+					eq(s.story.transferredFromChatId, story.chatId),
+					eq(s.story.transferredFromSlug, story.slug),
+					ne(s.story.id, story.id),
+				),
+			)
+			.execute();
+	}
+	return true;
+}
+
+export interface TransferredStory {
+	id: string;
+	ownerName: string;
+}
+
+export async function findStoryTransferredOutOfChat(chatId: string, slug: string): Promise<TransferredStory | null> {
+	const [row] = await db
+		.select({ id: s.story.id, ownerName: s.user.name })
+		.from(s.story)
+		.innerJoin(s.user, eq(s.user.id, s.story.userId))
+		.where(and(eq(s.story.transferredFromChatId, chatId), eq(s.story.transferredFromSlug, slug)))
+		.limit(1)
+		.execute();
+	return row ?? null;
+}
+
+export async function listOwnedStoryIdsInProject(userId: string, projectId: string): Promise<string[]> {
+	const rows = await db
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			or(
+				and(eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
+				and(isNull(s.story.chatId), eq(s.story.userId, userId), eq(s.story.projectId, projectId)),
+			),
+		)
+		.execute();
+	return rows.map((row) => row.id);
+}
+
 export async function archiveStory(chatId: string, slug: string): Promise<void> {
 	const matcher = and(eq(s.story.chatId, chatId), eq(s.story.slug, slug));
 	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
@@ -616,8 +700,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 }
 
 export async function updateStoryLiveSettings(
-	chatId: string,
-	slug: string,
+	storyId: string,
 	settings: {
 		isLive: boolean;
 		isLiveTextDynamic: boolean;
@@ -625,11 +708,7 @@ export async function updateStoryLiveSettings(
 		cacheScheduleDescription: string | null;
 	},
 ): Promise<void> {
-	await db
-		.update(s.story)
-		.set(settings)
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.execute();
+	await db.update(s.story).set(settings).where(eq(s.story.id, storyId)).execute();
 }
 
 type StoryVersionWithStory = DBStoryVersion &
@@ -676,6 +755,10 @@ export function getVersionByNumber(
 	return getStoryVersion(
 		and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyVersion.version, versionNumber))!,
 	);
+}
+
+export function getVersionById(storyId: string, storyVersionId: string): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(and(eq(s.story.id, storyId), eq(s.storyVersion.id, storyVersionId))!);
 }
 
 export function getVersionByStoryIdAndNumber(
@@ -788,17 +871,19 @@ export async function listStandaloneSlugsStartingWith(
 	return rows.map((row) => row.slug);
 }
 
-export async function updateLatestVersionCode(chatId: string, slug: string, code: string): Promise<void> {
-	const latest = await getLatestVersionByChatAndSlug(chatId, slug);
-	if (!latest) {
-		return;
-	}
-
-	await db
+/** Leaves the code alone once a newer version exists, so a rewrite of an older version never replaces it. */
+export async function updateVersionCodeIfLatest(storyId: string, versionId: string, code: string): Promise<boolean> {
+	const latestVersionNumber = db
+		.select({ version: max(latestStoryVersion.version) })
+		.from(latestStoryVersion)
+		.where(eq(latestStoryVersion.storyId, storyId));
+	const updated = await db
 		.update(s.storyVersion)
 		.set({ code })
-		.where(and(eq(s.storyVersion.storyId, latest.storyId), eq(s.storyVersion.version, latest.version)))
+		.where(and(eq(s.storyVersion.id, versionId), eq(s.storyVersion.version, latestVersionNumber)))
+		.returning({ id: s.storyVersion.id })
 		.execute();
+	return updated.length > 0;
 }
 
 export function getStoryDataCacheByChatAndSlug(chatId: string, slug: string): Promise<DBStoryDataCache | null> {
@@ -832,54 +917,20 @@ export async function getStoryQueryDataByStoryIds(
 	return new Map(rows.map((row) => [row.storyId, row.queryData]));
 }
 
-export async function upsertStoryDataCache(
-	chatId: string,
-	slug: string,
-	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-	querySources: StoryQuerySources,
-	analysisResults?: Record<string, string> | null,
-): Promise<DBStoryDataCache> {
-	const story = await getStoryByChatAndSlug(chatId, slug);
-	if (!story) {
-		throw new Error(`Story not found: ${chatId}/${slug}`);
-	}
-
-	const [row] = await db
-		.insert(s.storyDataCache)
-		.values({
-			storyId: story.id,
-			queryData,
-			querySources,
-			analysisResults: analysisResults ?? null,
-			cachedAt: new Date(),
-		})
-		.onConflictDoUpdate({
-			target: s.storyDataCache.storyId,
-			set: {
-				queryData,
-				querySources,
-				analysisResults: analysisResults ?? null,
-				cachedAt: new Date(),
-			},
-		})
-		.returning()
-		.execute();
-
-	return row;
-}
-
 export async function upsertStoryDataCacheByStoryId(
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	analysisResults?: Record<string, string> | null,
+	querySources: StoryQuerySources | null = null,
+	executor: DBExecutor = db,
 ): Promise<void> {
 	const narratives = analysisResults === undefined ? {} : { analysisResults };
-	await db
+	await executor
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, querySources: null, cachedAt: new Date(), ...narratives })
+		.values({ storyId, queryData, querySources, cachedAt: new Date(), ...narratives })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, querySources: null, cachedAt: new Date(), ...narratives },
+			set: { queryData, querySources, cachedAt: new Date(), ...narratives },
 		})
 		.execute();
 }

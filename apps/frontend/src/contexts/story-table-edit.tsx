@@ -23,6 +23,7 @@ interface StoryTableEditProviderProps {
 	storyTitle: string;
 	storyCode: string;
 	storyVersion?: number;
+	enabled?: boolean;
 	children: React.ReactNode;
 }
 
@@ -36,6 +37,7 @@ export function StoryTableEditProvider({
 	storyTitle,
 	storyCode,
 	storyVersion,
+	enabled = true,
 	children,
 }: StoryTableEditProviderProps) {
 	const { replaceBlock, isSaving } = useStoryBlockEdit({
@@ -51,7 +53,10 @@ export function StoryTableEditProvider({
 		[replaceBlock],
 	);
 
-	const value = useMemo<StoryTableEditHandlers>(() => ({ saveTable, isSaving }), [saveTable, isSaving]);
+	const value = useMemo<StoryTableEditHandlers | null>(
+		() => (enabled ? { saveTable, isSaving } : null),
+		[enabled, saveTable, isSaving],
+	);
 
 	return <StoryTableEditContext.Provider value={value}>{children}</StoryTableEditContext.Provider>;
 }

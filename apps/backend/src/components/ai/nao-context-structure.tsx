@@ -1,3 +1,5 @@
+import { DEFAULT_RULES_FILE } from '@nao/shared/rules-template';
+
 import { Block, Bold, Br, Code, List, ListItem, Span, Title } from '../../lib/markdown';
 import type { ContextPresence } from '../../utils/nao-config';
 
@@ -20,7 +22,7 @@ export function NaoContextStructure({
 			: TEMPLATE_DESCRIPTIONS;
 	const visibleTemplateNames = new Set(visibleTemplates.map(({ name }) => name));
 	const repoPaths = repoNames.map((name) => `repos/${name}/`).join(', ');
-	const isPresent = (context: keyof ContextPresence) => contextPresence?.[context] !== false;
+	const isPresent = (context: Exclude<keyof ContextPresence, 'rulesFile'>) => contextPresence?.[context] !== false;
 
 	return (
 		<Block>
@@ -28,7 +30,10 @@ export function NaoContextStructure({
 			<List>
 				{[
 					<ListItem key='rules'>
-						<RulesDescription rulesInPrompt={rulesInPrompt} />
+						<RulesDescription
+							rulesInPrompt={rulesInPrompt}
+							rulesFile={contextPresence?.rulesFile ?? DEFAULT_RULES_FILE}
+						/>
 					</ListItem>,
 					isPresent('semantics') && (
 						<ListItem key='semantics'>
@@ -91,20 +96,28 @@ export function NaoContextStructure({
 }
 
 /** Embeds RULES.md and tells the agent it already holds the file, so it does not read it again. */
-export function UserRulesSection({ rules, isExcerpt = false }: { rules: string; isExcerpt?: boolean }) {
+export function UserRulesSection({
+	rules,
+	isExcerpt = false,
+	rulesFile = DEFAULT_RULES_FILE,
+}: {
+	rules: string;
+	isExcerpt?: boolean;
+	rulesFile?: string;
+}) {
 	return (
 		<Block>
 			<Title level={2}>{USER_RULES_TITLE}</Title>
 			<Span>
 				{isExcerpt ? (
 					<>
-						An excerpt of <Code>RULES.md</Code> with its middle cut out. Read the file only when you need
+						An excerpt of <Code>{rulesFile}</Code> with its middle cut out. Read the file only when you need
 						the missing part.
 					</>
 				) : (
 					<>
-						The full content of <Code>RULES.md</Code>, already loaded for you. Follow it from here and never
-						read <Code>RULES.md</Code> with a tool: it would return exactly this text.
+						The full content of <Code>{rulesFile}</Code>, already loaded for you. Follow it from here and
+						never read <Code>{rulesFile}</Code> with a tool: it would return exactly this text.
 					</>
 				)}
 			</Span>
@@ -113,17 +126,17 @@ export function UserRulesSection({ rules, isExcerpt = false }: { rules: string; 
 	);
 }
 
-function RulesDescription({ rulesInPrompt }: { rulesInPrompt: boolean }) {
+function RulesDescription({ rulesInPrompt, rulesFile }: { rulesInPrompt: boolean; rulesFile: string }) {
 	if (!rulesInPrompt) {
 		return (
 			<>
-				<Code>RULES.md</Code> — project-wide rules; read it for project conventions.
+				<Code>{rulesFile}</Code> — project-wide rules; read it for project conventions.
 			</>
 		);
 	}
 	return (
 		<>
-			<Code>RULES.md</Code> — project-wide rules. Its full content is already in the{' '}
+			<Code>{rulesFile}</Code> — project-wide rules. Its full content is already in the{' '}
 			<Bold>{USER_RULES_TITLE}</Bold> section of this prompt, so do not read the file.
 		</>
 	);

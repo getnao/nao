@@ -1,7 +1,15 @@
-import { useMemo } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
-import { useAgentMessages, useOptionalAgentContext } from '@/contexts/agent.provider';
-import { findStories, findStoryDraft, getStoryToolPartSlug } from '@/lib/story.utils';
+import type { StoryDraft, StorySummary } from '@/lib/story.utils';
+import { useAgentMessagesSelector, useOptionalAgentContext } from '@/contexts/agent.provider';
+import { areStoriesEqual, findStories, findStoryDraft, getStoryToolPartSlug } from '@/lib/story.utils';
+
+interface StoryViewerMessagesState {
+	allStories: StorySummary[];
+	draftStory: StoryDraft | null;
+	latestStoryOutputVersion: number | null;
+	isStoryStreaming: boolean;
+	isStoryInterrupted: boolean;
+}
 
 export const useStoryViewerAgentState = (
 	storySlug: string,
@@ -10,30 +18,21 @@ export const useStoryViewerAgentState = (
 	storyId: string | null = null,
 ) => {
 	const agent = useOptionalAgentContext();
-	const agentMessages = useAgentMessages();
-
-	const effectiveMessages = useMemo(
-		() => (messages !== undefined ? (messages ?? []) : agentMessages),
-		[messages, agentMessages],
-	);
 	const isAgentRunningFromContext =
 		messages === undefined && (agent?.status === 'streaming' || agent?.status === 'submitted');
 	const isRunning = messages === undefined ? isAgentRunningFromContext : isChatAgentRunning;
 
-	const allStories = useMemo(() => findStories(effectiveMessages), [effectiveMessages]);
-	const draftStory = useMemo(
-		() => findStoryDraft(effectiveMessages, storySlug, storyId),
-		[effectiveMessages, storySlug, storyId],
-	);
-	const latestStoryOutputVersion = useMemo(
-		() => findLatestStoryOutputVersion(effectiveMessages, storySlug),
-		[effectiveMessages, storySlug],
-	);
-
-	const { isStoryStreaming, isStoryInterrupted } = useMemo(
-		() => getLatestRelevantStoryAgentState(effectiveMessages, storySlug, isRunning, storyId),
-		[effectiveMessages, storySlug, isRunning, storyId],
-	);
+	const { allStories, draftStory, latestStoryOutputVersion, isStoryStreaming, isStoryInterrupted } =
+		useAgentMessagesSelector(
+			(agentMessages) =>
+				readStoryViewerMessagesState(
+					messages !== undefined ? (messages ?? []) : agentMessages,
+					storySlug,
+					isRunning,
+					storyId,
+				),
+			areStoryViewerMessagesStatesEqual,
+		);
 
 	const isStoryUpdating = isStoryStreaming && isRunning;
 	const isAgentRunning = isAgentRunningFromContext || isStoryUpdating;
@@ -47,6 +46,42 @@ export const useStoryViewerAgentState = (
 		isStoryInterrupted,
 	};
 };
+
+function readStoryViewerMessagesState(
+	messages: UIMessage[],
+	storySlug: string,
+	isRunning: boolean,
+	storyId: string | null,
+): StoryViewerMessagesState {
+	return {
+		allStories: findStories(messages),
+		draftStory: findStoryDraft(messages, storySlug, storyId),
+		latestStoryOutputVersion: findLatestStoryOutputVersion(messages, storySlug),
+		...getLatestRelevantStoryAgentState(messages, storySlug, isRunning, storyId),
+	};
+}
+
+function areStoryViewerMessagesStatesEqual(left: StoryViewerMessagesState, right: StoryViewerMessagesState): boolean {
+	return (
+		areStoriesEqual(left.allStories, right.allStories) &&
+		areStoryDraftsEqual(left.draftStory, right.draftStory) &&
+		left.latestStoryOutputVersion === right.latestStoryOutputVersion &&
+		left.isStoryStreaming === right.isStoryStreaming &&
+		left.isStoryInterrupted === right.isStoryInterrupted
+	);
+}
+
+function areStoryDraftsEqual(left: StoryDraft | null, right: StoryDraft | null): boolean {
+	return (
+		left === right ||
+		(!!left &&
+			!!right &&
+			left.id === right.id &&
+			left.title === right.title &&
+			left.code === right.code &&
+			left.isStreaming === right.isStreaming)
+	);
+}
 
 export function getLatestRelevantStoryAgentState(
 	messages: UIMessage[],

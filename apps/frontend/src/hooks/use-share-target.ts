@@ -8,17 +8,20 @@ import type { GeneralAccess, ShareGrant, ShareOwner } from '@/lib/share-access';
 import type { ShareDraft } from '@/lib/share-draft';
 import { formatMemberCount, shareSubjectKey, toShareSelection } from '@/lib/share-access';
 import { isShareDraftEmpty, toSavedGrants } from '@/lib/share-draft';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { trpc } from '@/main';
 
 export type ShareTarget =
 	| { kind: 'chat'; chatId: string }
 	| { kind: 'story'; chatId: string; storySlug: string }
-	| { kind: 'standalone-story'; storyId: string };
+	| { kind: 'standalone-story'; storyId: string }
+	| { kind: 'automation'; automationId: string };
 
 type StoryShareLookup = { chatId: string; storySlug: string } | { storyId: string };
 
 export interface ShareModel {
-	itemLabel: 'chat' | 'story';
+	itemLabel: 'chat' | 'story' | 'automation';
+	storyId: string | null;
 	owner: ShareOwner | null;
 	grants: ShareGrant[];
 	generalAccess: GeneralAccess;
@@ -27,10 +30,21 @@ export interface ShareModel {
 	withRoles: boolean;
 	withGroups: boolean;
 	shareUrl: string | null;
+	placement: SharePlacement | null;
+}
+
+interface SharePlacement {
+	folderId: string | null;
+	lastUsedFolderId: string | null;
+}
+
+interface ShareSaveOptions {
+	notify: boolean;
+	folderId?: string | null;
 }
 
 export interface ShareCommands {
-	save: (draft: ShareDraft, options: { notify: boolean }) => Promise<string | null>;
+	save: (draft: ShareDraft, options: ShareSaveOptions) => Promise<string | null>;
 	invalidate: () => Promise<unknown>;
 }
 
@@ -41,15 +55,20 @@ export interface ShareTargetState {
 	commands: ShareCommands;
 }
 
-/** Chats and stories expose the same sharing model so one dialog can manage both. */
+/** Chats, stories and automations expose the same sharing model so one dialog can manage them all. */
 export function useShareTarget(target: ShareTarget, enabled: boolean): ShareTargetState {
 	const chat = useChatShareTarget(target.kind === 'chat' ? target : null, enabled);
-	const story = useStoryShareTarget(target.kind === 'chat' ? null : target, enabled);
-	return target.kind === 'chat' ? chat : story;
+	const automation = useAutomationShareTarget(target.kind === 'automation' ? target : null, enabled);
+	const story = useStoryShareTarget(target.kind === 'chat' || target.kind === 'automation' ? null : target, enabled);
+	if (target.kind === 'chat') {
+		return chat;
+	}
+	return target.kind === 'automation' ? automation : story;
 }
 
 type ChatShareSettings = inferRouterOutputs<TrpcRouter>['sharedChat']['getShareSettings'];
 type StoryShareSettings = inferRouterOutputs<TrpcRouter>['storyShare']['getShareSettings'];
+type AutomationShareSettings = inferRouterOutputs<TrpcRouter>['automation']['getShareSettings'];
 
 function useChatShareTarget(target: { chatId: string } | null, enabled: boolean): ShareTargetState {
 	const chatId = target?.chatId ?? '';
@@ -104,6 +123,7 @@ function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean):
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.getShareSettings.queryKey(lookup) }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.getSharedStoryInfo.queryKey(lookup) }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() }),
+				invalidateStoriesCaches(queryClient),
 			]),
 		[queryClient, lookup],
 	);
@@ -113,7 +133,7 @@ function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean):
 		model: query.data && toStoryModel(query.data),
 		refetch: () => void query.refetch(),
 		commands: {
-			save: async (draft, { notify }) => {
+			save: async (draft, { notify, folderId }) => {
 				const grants = toSavedGrants(draft);
 				await saveSettings.mutateAsync({
 					storyId,
@@ -121,9 +141,49 @@ function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean):
 					projectRole: draft.projectRole,
 					users: toRoleGrants(grants, 'user'),
 					groups: toRoleGrants(grants, 'group'),
+					folderId,
 					notify,
 				});
 				return isShareDraftEmpty(draft) ? null : buildStoryUrl(storyId);
+			},
+			invalidate,
+		},
+	};
+}
+
+function useAutomationShareTarget(target: { automationId: string } | null, enabled: boolean): ShareTargetState {
+	const id = target?.automationId ?? '';
+	const queryClient = useQueryClient();
+	const query = useQuery({
+		...trpc.automation.getShareSettings.queryOptions({ id }),
+		enabled: enabled && target !== null,
+	});
+	const saveSettings = useMutation(trpc.automation.saveShareSettings.mutationOptions());
+
+	const invalidate = useCallback(
+		() =>
+			Promise.all([
+				queryClient.invalidateQueries({ queryKey: trpc.automation.getShareSettings.queryKey({ id }) }),
+				queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() }),
+			]),
+		[queryClient, id],
+	);
+
+	return {
+		isLoading: query.isLoading,
+		model: query.data && toAutomationModel(query.data),
+		refetch: () => void query.refetch(),
+		commands: {
+			save: async (draft) => {
+				const grants = toSavedGrants(draft);
+				await saveSettings.mutateAsync({
+					id,
+					visibility: draft.visibility,
+					projectRole: draft.projectRole,
+					users: toRoleGrants(grants, 'user'),
+					groups: toRoleGrants(grants, 'group'),
+				});
+				return isShareDraftEmpty(draft) ? null : buildAutomationUrl(id);
 			},
 			invalidate,
 		},
@@ -140,6 +200,7 @@ function useStoryShareLookup(target: StoryShareLookup | null): StoryShareLookup 
 function toChatModel(settings: ChatShareSettings): ShareModel {
 	return {
 		itemLabel: 'chat',
+		storyId: null,
 		owner: settings.owner,
 		grants: [
 			...settings.groups.map((group) => ({
@@ -165,10 +226,46 @@ function toChatModel(settings: ChatShareSettings): ShareModel {
 		withRoles: false,
 		withGroups: true,
 		shareUrl: settings.shareId && buildSharedChatUrl(settings.shareId),
+		placement: null,
 	};
 }
 
 function toStoryModel(settings: StoryShareSettings): ShareModel {
+	return {
+		itemLabel: 'story',
+		storyId: settings.storyId,
+		owner: settings.owner,
+		grants: toRoleShareGrants(settings),
+		generalAccess: { visibility: settings.visibility, projectRole: settings.projectRole },
+		isShared: settings.isShared,
+		canManage: settings.canManage,
+		withRoles: true,
+		withGroups: true,
+		shareUrl: buildStoryUrl(settings.storyId),
+		placement: { folderId: settings.folderId, lastUsedFolderId: settings.lastUsedFolderId },
+	};
+}
+
+function toAutomationModel(settings: AutomationShareSettings): ShareModel {
+	return {
+		itemLabel: 'automation',
+		storyId: null,
+		owner: settings.owner,
+		grants: toRoleShareGrants(settings),
+		generalAccess: { visibility: settings.visibility, projectRole: settings.projectRole },
+		isShared: settings.isShared,
+		canManage: settings.canManage,
+		withRoles: true,
+		withGroups: true,
+		shareUrl: buildAutomationUrl(settings.automationId),
+		placement: null,
+	};
+}
+
+function toRoleShareGrants(settings: {
+	users: { id: string; name: string; email: string; role: ShareRole }[];
+	groups: { id: string; name: string; memberCount: number; role: ShareRole }[];
+}): ShareGrant[] {
 	const groups: ShareGrant[] = settings.groups.map((group) => ({
 		key: shareSubjectKey('group', group.id),
 		kind: 'group',
@@ -185,17 +282,7 @@ function toStoryModel(settings: StoryShareSettings): ShareModel {
 		detail: user.email,
 		role: user.role,
 	}));
-	return {
-		itemLabel: 'story',
-		owner: settings.owner,
-		grants: [...groups, ...people],
-		generalAccess: { visibility: settings.visibility, projectRole: settings.projectRole },
-		isShared: settings.isShared,
-		canManage: settings.canManage,
-		withRoles: true,
-		withGroups: true,
-		shareUrl: buildStoryUrl(settings.storyId),
-	};
+	return [...groups, ...people];
 }
 
 function toRoleGrants(grants: ShareGrant[], kind: ShareGrant['kind']): { id: string; role: ShareRole }[] {
@@ -208,4 +295,8 @@ function buildSharedChatUrl(shareId: string): string {
 
 function buildStoryUrl(storyId: string): string {
 	return `${window.location.origin}/stories/${storyId}`;
+}
+
+function buildAutomationUrl(automationId: string): string {
+	return `${window.location.origin}/automations/${automationId}`;
 }

@@ -4,6 +4,9 @@ import type { StoryEditPresence } from '@/hooks/use-story-edit-session';
 
 /** Tells who is editing the story right now, or who just saved the version on screen. */
 export function StoryEditPresenceBanner({ presence }: { presence: StoryEditPresence }) {
+	if (presence.ownEdit === 'thisChat') {
+		return null;
+	}
 	if (presence.isLockedByOthers) {
 		return (
 			<PresenceLine icon={<Pencil className='size-3 shrink-0' strokeWidth={2.25} />}>
@@ -25,7 +28,7 @@ function describeLockHolder(presence: StoryEditPresence): string {
 	if (presence.otherEditorName) {
 		return `${presence.otherEditorName} is editing this story. You can edit it once they are done.`;
 	}
-	if (presence.ownEditElsewhere === 'tab') {
+	if (presence.ownEdit === 'otherTab') {
 		return 'You are editing this story in another tab. You can edit it here once that is done.';
 	}
 	return 'You are editing this story in another chat. You can edit it here once that is done.';

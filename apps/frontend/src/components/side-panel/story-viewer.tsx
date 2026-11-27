@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
+import { parseStoryTabs, parseStreamingStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareDialog } from '../share-dialog';
 import { StoryUnsavedChangesDialog } from '../story-unsaved-changes-dialog';
 import { StoryEditor } from './story-editor';
@@ -24,16 +24,17 @@ import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-a
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { ShareSource, StoryFormat } from '@nao/shared/types';
-import type { CustomStoryViewerAccess } from '@nao/shared/story-app';
+import type { CustomStoryViewerAccess, StoryElementAsk } from '@nao/shared/story-app';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import type { CodeSelection } from '@/stores/ask-bar';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { StoryAccessError, StoryMovedNotice } from '@/components/story-access-error';
 import { ActionErrorBanner } from '@/components/custom-story/custom-story-body';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { MentionedStoriesProvider } from '@/contexts/mentioned-stories';
-import { useSidePanel } from '@/contexts/side-panel';
+import { useSidePanel, useSidePanelActions } from '@/contexts/side-panel';
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useActiveStoryTab } from '@/hooks/use-active-story-tab';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
@@ -47,6 +48,8 @@ import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
 import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
 import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
+import { StoryElementPicker } from '@/components/story-element-picker';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
@@ -81,7 +84,12 @@ export function StoryViewer(props: StoryViewerProps) {
 		() => (isReadonlyMode ? readonlyViewerAccess(props.chatId, shareSource, isReplay) : null),
 		[isReadonlyMode, isReplay, props.chatId, shareSource],
 	);
-	const format = useStoryFormat(props.chatId, props.storySlug, isReadonlyMode, viewerAccess);
+	const { format, movedStory, error, retry } = useStoryFormat(
+		props.chatId,
+		props.storySlug,
+		isReadonlyMode,
+		viewerAccess,
+	);
 	const openStoryInSidePanel = useCallback(
 		(story: { chatId: string; slug: string }) => {
 			open(<StoryViewer chatId={story.chatId} storySlug={story.slug} />, story.slug);
@@ -89,6 +97,20 @@ export function StoryViewer(props: StoryViewerProps) {
 		[open],
 	);
 
+	if (error) {
+		return (
+			<ClosableSidePanelNotice>
+				<StoryAccessError error={error} onRetry={retry} />
+			</ClosableSidePanelNotice>
+		);
+	}
+	if (movedStory) {
+		return (
+			<ClosableSidePanelNotice>
+				<StoryMovedNotice ownerName={movedStory.ownerName} storyId={movedStory.storyId} />
+			</ClosableSidePanelNotice>
+		);
+	}
 	if (format === null) {
 		return <StoryContentLoading />;
 	}
@@ -114,7 +136,7 @@ function useStoryFormat(
 	storySlug: string,
 	isReadonlyMode: boolean,
 	viewerAccess: CustomStoryViewerAccess | null,
-): StoryFormat | null {
+): { format: StoryFormat | null; movedStory?: MovedStory | null; error: unknown; retry: () => void } {
 	const ownerQuery = useQuery({
 		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
 		enabled: !isReadonlyMode,
@@ -127,12 +149,42 @@ function useStoryFormat(
 		enabled: viewerAccess !== null,
 	});
 	if (!isReadonlyMode) {
-		return ownerQuery.isPending ? null : (ownerQuery.data?.format ?? 'classic');
+		return {
+			format: ownerQuery.isPending ? null : (ownerQuery.data?.format ?? 'classic'),
+			movedStory: ownerQuery.data?.movedStory,
+			error: ownerQuery.data ? null : ownerQuery.error,
+			retry: () => void ownerQuery.refetch(),
+		};
 	}
 	if (viewerAccess) {
-		return viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic');
+		return {
+			format: viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic'),
+			movedStory: viewerQuery.data?.movedStory,
+			error: null,
+			retry: () => void viewerQuery.refetch(),
+		};
 	}
-	return 'classic';
+	return { format: 'classic', error: null, retry: () => undefined };
+}
+
+type MovedStory = { ownerName: string; storyId: string | null };
+
+function ClosableSidePanelNotice({ children, className }: { children: React.ReactNode; className?: string }) {
+	const { close } = useSidePanelActions();
+	return (
+		<div className={cn('relative flex h-full', className)}>
+			<Button
+				variant='ghost'
+				size='icon-sm'
+				className='absolute top-2 left-4 z-10 hover:rounded-full'
+				onClick={close}
+				aria-label='Close'
+			>
+				<X className='size-3.5' strokeWidth={2.25} />
+			</Button>
+			{children}
+		</div>
+	);
 }
 
 function readonlyViewerAccess(
@@ -186,7 +238,6 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
 		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning, viewedStory?.id ?? null);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
-	const isStoryStreaming = Boolean(draftStory?.isStreaming);
 	const prevSlugRef = useRef(resolvedStorySlug);
 	const {
 		versions,
@@ -210,12 +261,14 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const {
 		storyTitle,
 		storyCode,
+		isStreaming: isStoryStreaming,
 		queryData,
 		cachedAt,
 		lastRefreshFailure,
 		needsRefresh,
 		theme,
 		isLoading: isContentLoading,
+		isSaved: isStorySaved,
 	} = useStoryViewerContent({
 		storySlug,
 		resolvedStorySlug,
@@ -236,12 +289,16 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isViewingLatest,
 		latestQueryData: queryData ?? null,
 	});
-	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
+	const tabs = useMemo(
+		() => (isStoryStreaming ? parseStreamingStoryTabs(storyCode ?? '') : parseStoryTabs(storyCode ?? '')),
+		[storyCode, isStoryStreaming],
+	);
 	const isTabbedStory = Boolean(tabs?.length);
 	const [activeTab, setActiveTabIndex] = useActiveStoryTab({
 		tabs,
 		storySlug: resolvedStorySlug,
 		initialIndex: initialTabIndex,
+		followNewTabs: isStoryStreaming,
 	});
 	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
 	const isCodeDirty = storyBuffer.isDirty;
@@ -273,6 +330,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const presence = useStoryEditSession({
 		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug: resolvedStorySlug } : null,
 		isEditing: viewMode !== 'preview' || isCodeDirty,
+		conversationChatId: citingChatId,
 	});
 	useCloseWhenUneditable(presence.canEdit || isDirty, () => {
 		if (viewMode !== 'preview') {
@@ -308,6 +366,18 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			);
 		},
 		[citingChatId, resolvedStorySlug, chatId],
+	);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const canSelectElements = !isReadonlyMode && viewMode === 'preview';
+	const handleAskAboutElement = useCallback(
+		(ask: StoryElementAsk) => {
+			chatPendingCitationStore.addStoryElement(
+				citingChatId,
+				{ chatId, slug: resolvedStorySlug },
+				{ ...ask, intent: 'ask' },
+			);
+		},
+		[citingChatId, chatId, resolvedStorySlug],
 	);
 	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
 	const handleBeforeAgentSend = useCallback(async () => {
@@ -394,7 +464,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
-		isAppendingContent: Boolean(draftStory?.isStreaming),
+		isAppendingContent: isStoryStreaming,
 		code: storyCode,
 		viewMode,
 	});
@@ -409,18 +479,9 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			);
 		}
 		return (
-			<div className='relative flex h-full items-center justify-center text-muted-foreground text-sm'>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='absolute top-2 left-4 hover:rounded-full'
-					onClick={closeSidePanel}
-					aria-label='Close'
-				>
-					<X className='size-3.5' strokeWidth={2.25} />
-				</Button>
+			<ClosableSidePanelNotice className='items-center justify-center text-muted-foreground text-sm'>
 				{isAgentRunning ? 'Waiting for story stream...' : 'No Story content available.'}
-			</div>
+			</ClosableSidePanelNotice>
 		);
 	}
 
@@ -450,6 +511,15 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onSwitchStory={switchStory}
 				viewMode={viewMode}
 				onViewModeChange={transitions.requestViewMode}
+				elementSelection={
+					isReadonlyMode
+						? undefined
+						: {
+								isSelecting: canSelectElements && isSelectingElements,
+								onSelectingChange: setIsSelectingElements,
+								disabled: !canSelectElements,
+							}
+				}
 				currentVersion={currentVersionNumber}
 				versions={versions}
 				versionNumber={currentVersion?.version}
@@ -513,22 +583,31 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						isContentLoading ? (
 							<StoryContentLoading />
 						) : (
-							<StoryPreview
-								code={
-									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
-								}
-								fullCode={storyCode}
-								cacheSchedule={cacheSchedule}
-								queryData={versionQueryData}
-								chatId={chatId}
+							<StoryElementPicker
+								isPicking={canSelectElements && isSelectingElements}
 								storySlug={resolvedStorySlug}
-								versionKey={isViewingLatest ? undefined : currentVersionNumber}
-								filtersEnabled={isViewingLatest && !isAgentRunning}
-								isStreaming={isStoryStreaming}
-								isDataPending={isVersionQueryDataPending}
-								isViewingLatest={isViewingLatest}
-								theme={storyTheme}
-							/>
+								onPick={handleAskAboutElement}
+							>
+								<StoryPreview
+									code={
+										isTabbedStory && tabs
+											? tabs[activeTab].innerCode
+											: stripStoryTabsMarkup(storyCode)
+									}
+									fullCode={storyCode}
+									cacheSchedule={cacheSchedule}
+									queryData={versionQueryData}
+									chatId={chatId}
+									storyId={storyId}
+									storySlug={resolvedStorySlug}
+									versionKey={isViewingLatest ? undefined : currentVersionNumber}
+									filtersEnabled={isViewingLatest && isStorySaved && !isStoryUpdating}
+									isStreaming={isStoryStreaming}
+									isDataPending={isVersionQueryDataPending}
+									isViewingLatest={isViewingLatest}
+									theme={storyTheme}
+								/>
+							</StoryElementPicker>
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={versionQueryData}>
@@ -577,6 +656,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				open={isShareDialogOpen}
 				onOpenChange={setIsShareDialogOpen}
 				target={{ kind: 'story', chatId: chatId, storySlug: resolvedStorySlug }}
+				onStoryTransferred={closeSidePanel}
 			/>
 
 			<AssetAnalyticsDialog
@@ -591,8 +671,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={resolvedStorySlug}
+				story={{ chatId, storySlug: resolvedStorySlug }}
 				isLive={isLive}
 				isLiveTextDynamic={isLiveTextDynamic}
 				cacheSchedule={cacheSchedule}
@@ -616,9 +695,6 @@ function renderWithEditProvider(
 	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string; storyVersion?: number },
 	children: React.ReactNode,
 ) {
-	if (!enabled) {
-		return children;
-	}
 	return (
 		<StoryChartEditProvider
 			chatId={params.chatId}
@@ -626,6 +702,7 @@ function renderWithEditProvider(
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
 			storyVersion={params.storyVersion}
+			enabled={enabled}
 		>
 			<StoryTableEditProvider
 				chatId={params.chatId}
@@ -633,6 +710,7 @@ function renderWithEditProvider(
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
 				storyVersion={params.storyVersion}
+				enabled={enabled}
 			>
 				<StoryMapEditProvider
 					chatId={params.chatId}
@@ -640,6 +718,7 @@ function renderWithEditProvider(
 					storyTitle={params.storyTitle}
 					storyCode={params.storyCode}
 					storyVersion={params.storyVersion}
+					enabled={enabled}
 				>
 					{children}
 				</StoryMapEditProvider>

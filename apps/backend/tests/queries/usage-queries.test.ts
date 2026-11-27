@@ -2,6 +2,7 @@ import '../../src/env';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getBuiltInModelPrices } from '../../src/agents/model-prices';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import {
@@ -19,17 +20,30 @@ import type { SavedUsagePeriod, StoredUserPreferences, UsagePeriodRange } from '
 import { usagePeriodRangeSchema } from '../../src/types/usage';
 import { formatDate } from '../../src/utils/date';
 
+const mocks = vi.hoisted(() => ({
+	getAllProjectLlmConfigs: vi.fn(async () => []),
+	getProjectDeclaredModels: vi.fn(async () => []),
+	getProjectLlmConfigs: vi.fn(async () => []),
+}));
+
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
 	return { db: createInMemoryDb() };
 });
 
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
-	getProjectLlmConfigs: async () => [],
+	getAllProjectLlmConfigs: mocks.getAllProjectLlmConfigs,
+	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
+}));
+
+vi.mock('../../src/utils/llm', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/utils/llm')>()),
+	getProjectDeclaredModels: mocks.getProjectDeclaredModels,
 }));
 
 const PROJECT_ID = 'usage-project';
 const OTHER_PROJECT_ID = 'usage-project-other';
+const DISABLED_MODEL_PROJECT_ID = 'usage-project-disabled-model';
 const USER_ID = 'usage-user';
 const OTHER_USER_ID = 'usage-user-other';
 const CHAT_ID = 'usage-chat';
@@ -54,6 +68,9 @@ describe('usage query results', () => {
 	});
 
 	beforeEach(async () => {
+		mocks.getAllProjectLlmConfigs.mockResolvedValue([]);
+		mocks.getProjectDeclaredModels.mockResolvedValue([]);
+		mocks.getProjectLlmConfigs.mockResolvedValue([]);
 		await db.delete(s.userPreference);
 		await db.delete(s.llmInference);
 		await db.delete(s.chatMessage);
@@ -357,6 +374,252 @@ describe('usage query results', () => {
 		});
 	});
 
+	it('filters primary and secondary usage by the exact credential without changing unfiltered totals', async () => {
+		const now = new Date();
+		const at = (offsetMs: number) => new Date(now.getTime() - 60_000 + offsetMs);
+		await db.insert(s.chatMessage).values([
+			{ id: 'question-a', chatId: CHAT_ID, role: 'user', createdAt: at(0) },
+			{
+				id: 'credential-a-message',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				llmConfigId: 'credential-a',
+				totalTokens: 100,
+				createdAt: at(1),
+			},
+			{ id: 'question-b', chatId: CHAT_ID, role: 'user', createdAt: at(2) },
+			{
+				id: 'credential-b-message',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				llmConfigId: 'credential-b',
+				totalTokens: 200,
+				createdAt: at(3),
+			},
+		]);
+		await db.insert(s.llmInference).values([
+			{
+				id: 'credential-a-inference',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'compaction',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				llmConfigId: 'credential-a',
+				totalTokens: 10,
+				createdAt: now,
+			},
+			{
+				id: 'legacy-inference',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'compaction',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				totalTokens: 5,
+				createdAt: now,
+			},
+		]);
+		const period = { value: 15, unit: 'day' as const };
+
+		const [filtered, unfiltered, filteredTotal] = await Promise.all([
+			getMessagesUsage(PROJECT_ID, { period, llmConfigIds: ['credential-a'] }),
+			getMessagesUsage(PROJECT_ID, { period }),
+			getTotalUsage(PROJECT_ID, { period, llmConfigIds: ['credential-a'] }),
+		]);
+
+		expect(filtered.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(110);
+		expect(filtered.reduce((sum, record) => sum + record.messageCount, 0)).toBe(1);
+		expect(filteredTotal.totalMessages).toBe(1);
+		expect(unfiltered.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(315);
+		expect(unfiltered.reduce((sum, record) => sum + record.messageCount, 0)).toBe(2);
+	});
+
+	it('prices the same provider model by credential', async () => {
+		const configs = [
+			{
+				id: 'credential-a',
+				name: 'Client A',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['custom-priced-model'],
+				customModels: [{ id: 'custom-priced-model', costPerM: { inputNoCache: 1 } }],
+				baseUrl: null,
+			},
+			{
+				id: 'credential-b',
+				name: 'Client B',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['custom-priced-model'],
+				customModels: [{ id: 'custom-priced-model', costPerM: { inputNoCache: 2 } }],
+				baseUrl: null,
+			},
+		];
+		mocks.getAllProjectLlmConfigs.mockResolvedValue(configs);
+		mocks.getProjectLlmConfigs.mockResolvedValue(configs);
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'priced-by-a',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'credential-a',
+				inputNoCacheTokens: 1_000_000,
+			},
+			{
+				id: 'priced-by-b',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'credential-b',
+				inputNoCacheTokens: 1_000_000,
+			},
+		]);
+		const period = { value: 15, unit: 'day' as const };
+
+		const [clientA, all] = await Promise.all([
+			getMessagesUsage(PROJECT_ID, { period, llmConfigIds: ['credential-a'] }),
+			getMessagesUsage(PROJECT_ID, { period }),
+		]);
+
+		expect(clientA.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(1);
+		expect(all.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(3);
+	});
+
+	it('keeps legacy and disabled credential prices in historical usage', async () => {
+		mocks.getAllProjectLlmConfigs.mockResolvedValue([
+			{
+				id: 'disabled-credential',
+				name: 'Disabled',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['gpt-4o', 'custom-priced-model'],
+				customModels: [
+					{ id: 'gpt-4o', costPerM: { inputNoCache: 7 } },
+					{ id: 'custom-priced-model', costPerM: { inputNoCache: 2 } },
+				],
+				baseUrl: null,
+				disabledAt: new Date(),
+			},
+		]);
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'legacy-built-in-price',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				inputNoCacheTokens: 1_000_000,
+			},
+			{
+				id: 'disabled-credential-price',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'disabled-credential',
+				inputNoCacheTokens: 1_000_000,
+			},
+		]);
+		await db.insert(s.llmInference).values({
+			id: 'legacy-custom-price',
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+			type: 'compaction',
+			llmProvider: 'openai',
+			llmModelId: 'custom-priced-model',
+			inputNoCacheTokens: 1_000_000,
+		});
+
+		const usage = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+
+		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(11);
+	});
+
+	it('keeps active YAML prices alongside retained credential prices', async () => {
+		mocks.getAllProjectLlmConfigs.mockResolvedValue([
+			{
+				id: 'disabled-credential',
+				name: 'Disabled',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['custom-priced-model'],
+				customModels: [{ id: 'custom-priced-model', costPerM: { inputNoCache: 2 } }],
+				baseUrl: null,
+				disabledAt: new Date(),
+			},
+		]);
+		mocks.getProjectDeclaredModels.mockResolvedValue([
+			{
+				provider: 'openai',
+				models: [{ id: 'yaml-priced-model', costPerM: { inputNoCache: 3 } }],
+			},
+		]);
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'active-yaml-price',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'yaml-priced-model',
+				inputNoCacheTokens: 1_000_000,
+			},
+			{
+				id: 'retained-credential-price',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'disabled-credential',
+				inputNoCacheTokens: 1_000_000,
+			},
+		]);
+
+		const usage = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+
+		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(5);
+	});
+
+	it('prices a built-in model run on a credential outside its picker, across many credentials', async () => {
+		const period = { value: 15, unit: 'day' as const };
+		await getMessagesUsage(PROJECT_ID, { period });
+		mocks.getAllProjectLlmConfigs.mockResolvedValue(
+			Array.from({ length: 50 }, (_, index) => ({
+				id: `retained-credential-${index}`,
+				name: `Retained ${index}`,
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: [],
+				customModels: [],
+				baseUrl: null,
+				disabledAt: new Date(),
+			})),
+		);
+		await db.insert(s.chatMessage).values({
+			id: 'many-retained-credentials',
+			chatId: CHAT_ID,
+			role: 'assistant',
+			llmProvider: 'openai',
+			llmModelId: 'gpt-4o',
+			llmConfigId: 'retained-credential-49',
+			inputNoCacheTokens: 1_000_000,
+		});
+		const builtInPrice = getBuiltInModelPrices('openai', 'gpt-4o')?.inputNoCache;
+
+		const usage = await getMessagesUsage(PROJECT_ID, { period });
+
+		expect(usage).toHaveLength(15);
+		expect(builtInPrice).toBeGreaterThan(0);
+		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(builtInPrice ?? 0);
+	});
+
 	it('breaks down messages, tokens and cost per user for every date', async () => {
 		const now = new Date();
 		const previousDay = new Date(now);
@@ -408,6 +671,86 @@ describe('usage query results', () => {
 		expect(records.find((record) => record.date === formatDate(previousDay, 'day'))?.users).toEqual([
 			{ userName: 'Other Usage User', messageCount: 1, totalTokens: 0, totalCost: 0 },
 		]);
+	});
+
+	it('prices an unlisted Bedrock geo id the project enables from its twin', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				provider: 'bedrock',
+				enabledModels: ['apac.anthropic.claude-sonnet-5-5'],
+				customModels: [],
+				baseUrl: null,
+			},
+		]);
+		await db.insert(s.chatMessage).values({
+			id: 'geo-twin-assistant',
+			chatId: CHAT_ID,
+			role: 'assistant',
+			llmProvider: 'bedrock',
+			llmModelId: 'apac.anthropic.claude-sonnet-5-5',
+			inputNoCacheTokens: 1_000_000,
+			totalTokens: 1_000_000,
+		});
+		const twinPrice = getBuiltInModelPrices('bedrock', 'us.anthropic.claude-sonnet-5-5')?.inputNoCache;
+
+		const records = await getMessagesUsageByUser(PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(twinPrice).toBeGreaterThan(0);
+		expect(records.at(-1)?.users[0]?.totalCost).toBeCloseTo(twinPrice ?? 0);
+	});
+
+	it('keeps the cost of a model the project used before disabling it', async () => {
+		await db.insert(s.project).values({
+			id: DISABLED_MODEL_PROJECT_ID,
+			name: 'Disabled Model Project',
+			type: 'local',
+			path: '/tmp/usage-project-disabled-model',
+		});
+		await db
+			.insert(s.chat)
+			.values({ id: 'disabled-model-chat', projectId: DISABLED_MODEL_PROJECT_ID, userId: USER_ID });
+		await db.insert(s.chatMessage).values({
+			id: 'disabled-model-assistant',
+			chatId: 'disabled-model-chat',
+			role: 'assistant',
+			llmProvider: 'bedrock',
+			llmModelId: 'apac.anthropic.claude-sonnet-5-5',
+			inputNoCacheTokens: 1_000_000,
+			totalTokens: 1_000_000,
+		});
+		const twinPrice = getBuiltInModelPrices('bedrock', 'us.anthropic.claude-sonnet-5-5')?.inputNoCache;
+
+		const records = await getMessagesUsageByUser(DISABLED_MODEL_PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(twinPrice).toBeGreaterThan(0);
+		expect(records.at(-1)?.users[0]?.totalCost).toBeCloseTo(twinPrice ?? 0);
+	});
+
+	it('prices a decision call and leaves a decision-only vendor out of the provider filter', async () => {
+		await db.insert(s.llmInference).values({
+			id: 'decision-inference',
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+			type: 'decision',
+			llmProvider: 'typesafe',
+			llmModelId: 'jev-latest',
+			inputNoCacheTokens: 1_000_000,
+			outputTotalTokens: 1_000_000,
+			totalTokens: 2_000_000,
+		});
+
+		const records = await getMessagesUsageByUser(PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		const users = records.flatMap((record) => record.users);
+		expect(users).toHaveLength(1);
+		expect(users[0].totalCost).toBeCloseTo(0.042);
+		await expect(getUsedProviders(PROJECT_ID)).resolves.toEqual([]);
+	});
+
+	it('computes usage of a project that has used no model yet', async () => {
+		const records = await getMessagesUsageByUser(OTHER_PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(records).toEqual([{ date: expect.any(String), users: [] }]);
 	});
 
 	it('scopes every usage aggregate and provider to one user', async () => {

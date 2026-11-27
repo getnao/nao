@@ -14,11 +14,13 @@ import { getContextWorktreePath, invalidateContextProjectPrefix, toRepoPath } fr
 import type { GitIdentity } from '../../utils/git-identity';
 import { withCoAuthors } from '../../utils/git-identity';
 import { runGit, tryRunGit } from '../../utils/git-repo';
+import { chunk } from '../../utils/utils';
 import type { OpenReviewRequestResult } from '../review-request-provider';
 import { REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
 import {
 	assertCleanWorktree,
 	isCleanWorktree,
+	isGeneratedMetadataPath,
 	parseChangedFiles,
 	readStatus,
 	validateWorktreePath,
@@ -39,6 +41,7 @@ import {
 	validateBranch,
 } from './git-guards';
 import type {
+	CommitInput,
 	ContextExplorerGitContext,
 	ContextRepositoryProvider,
 	CreateBranchAndCommitInput,
@@ -46,10 +49,17 @@ import type {
 	OwnedContextBranchDeletionInput,
 	OwnedContextBranchDeletionResult,
 } from './types';
-import { fetchContextRepository, requireContextExplorerGit, resolveAfterBranchChange } from './worktree.service';
+import {
+	fetchContextRepository,
+	requireContextExplorerGit,
+	resolveAfterBranchChange,
+	updateContextWorktree,
+} from './worktree.service';
 
 const MAX_LISTED_UNPUSHED_COMMITS = 20;
 const BRANCH_FIELD_SEPARATOR = '\x1f';
+
+const GIT_ADD_BATCH_SIZE = 500;
 
 export async function getContextBranches(
 	repo: ResolvedContextRepo,
@@ -149,6 +159,22 @@ export async function switchContextBranch(
 	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider), context);
 }
 
+/**
+ * Brings the File Explorer branch up to date: the default branch catches up with the live context, a branch of others
+ * moves to its pushed head, and an own branch fast-forwards to its pushed head.
+ */
+export async function pullContextBranch(context: ContextExplorerGitContext): Promise<void> {
+	const { repo } = await requireContextExplorerGit(context);
+	const branch = readCurrentBranch(repo);
+	if (branch === null || branch === readDefaultBranch(repo)) {
+		await updateContextWorktree(context);
+	} else if (await isContextBranchOwnedByUser(context, branch)) {
+		await fastForwardOwnedBranch(context, branch);
+	} else {
+		await switchContextBranch(context, branch);
+	}
+}
+
 export async function createContextBranch(
 	context: ContextExplorerGitContext,
 	branch: string,
@@ -183,7 +209,7 @@ export async function createContextBranchAndCommit(
 
 export async function commitContextChanges(
 	context: ContextExplorerGitContext,
-	input: { paths: string[]; message: string },
+	input: CommitInput,
 ): Promise<{ commit: string }> {
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const commit = await commitSelectedChanges(repo, context.projectFolder, availableContext, input);
@@ -327,11 +353,11 @@ async function commitSelectedChanges(
 	repo: ResolvedContextRepo,
 	projectFolder: string,
 	context: ContextExplorerGitContext & { token: string },
-	input: { paths: string[]; message: string },
+	input: CommitInput,
 ): Promise<string> {
 	await assertCommitBranch(repo, context);
 	const changedPaths = new Set(parseChangedFiles(readStatus(repo), repo).map((file) => file.path));
-	const paths = [...new Set(input.paths.map(normalizeVirtualPath))];
+	const paths = input.paths === 'all' ? [...changedPaths] : [...new Set(input.paths.map(normalizeVirtualPath))];
 	if (paths.length === 0 || paths.some((filePath) => !changedPaths.has(filePath))) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Select one or more changed context files to commit.' });
 	}
@@ -339,9 +365,20 @@ async function commitSelectedChanges(
 		validateWorktreePath(repo, filePath);
 		return toRepoPath(repo, filePath);
 	});
+	const metadataPaths = [...changedPaths].filter(isGeneratedMetadataPath);
+	assertMetadataCommittedWithAllFiles(changedPaths, paths, metadataPaths);
+	const metadataRepoPaths = metadataPaths.map((filePath) => toRepoPath(repo, filePath));
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const author = await provider.getUserGitIdentity({ token: context.token, user: context.user });
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...repoPaths]);
+	const addPaths = [...new Set([...repoPaths, ...metadataRepoPaths])];
+	try {
+		for (const batch of chunk(addPaths, GIT_ADD_BATCH_SIZE)) {
+			runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...batch]);
+		}
+	} catch (error) {
+		tryRunGit(repo.worktreeRoot, ['reset', '-q', '--', ...addPaths]);
+		throw error;
+	}
 	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected files have no changes to commit.' });
 	}
@@ -352,6 +389,23 @@ async function commitSelectedChanges(
 		author,
 	);
 	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+}
+
+function assertMetadataCommittedWithAllFiles(
+	changedPaths: Set<string>,
+	selectedPaths: string[],
+	metadataPaths: string[],
+): void {
+	const selected = new Set(selectedPaths);
+	const hasUnselectedFile = [...changedPaths].some(
+		(filePath) => !isGeneratedMetadataPath(filePath) && !selected.has(filePath),
+	);
+	if (metadataPaths.length > 0 && hasUnselectedFile) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Generated files and metadata must be committed together. Select all synced files.',
+		});
+	}
 }
 
 async function assertCommitBranch(
@@ -387,6 +441,34 @@ function switchToBranchOfOthers(repo: ResolvedContextRepo, projectFolder: string
 		branch,
 		remoteRef,
 	]);
+}
+
+/** Refuses a branch holding unpushed commits, as taking the pushed ones would mean merging. */
+async function fastForwardOwnedBranch(context: ContextExplorerGitContext, branch: string): Promise<void> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	assertCleanWorktree(repo);
+	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	const remoteRef = `origin/${branch}`;
+	const behindCount = hasRef(repo, `refs/remotes/${remoteRef}`)
+		? readVerifiedCommitCount(repo, `${branch}..${remoteRef}`)
+		: 0;
+	if (!behindCount) {
+		return;
+	}
+	if (readVerifiedCommitCount(repo, `${remoteRef}..${branch}`) !== 0) {
+		throw new TRPCError({
+			code: 'CONFLICT',
+			message: `Branch ${branch} has commits that are not pushed. Push or undo them before pulling.`,
+		});
+	}
+	runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+		'merge',
+		'--ff-only',
+		'--quiet',
+		remoteRef,
+	]);
+	invalidateContextProjectPrefix(repo.worktreeRoot);
 }
 
 /** Null when the provider cannot list them for this user, for git to list them instead. */

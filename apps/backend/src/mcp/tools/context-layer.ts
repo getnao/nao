@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { executeSemanticQuery, executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ import {
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
 } from '../../services/semantic-layer.service';
+import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { generateStorySlug } from '../../utils/story-mount';
@@ -41,7 +43,8 @@ import {
 	updateCustomStoryForMcp,
 } from './custom-story-mcp';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
-import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
+import { jsonToolResult, registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
+import { NOT_LIVE_SETTINGS, saveMcpLiveSettings, STORY_LIVE_INPUT, type StoryLiveInput } from './story-live-settings';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
 	'Run a single SQL query against the connected warehouse. Read-only unless the workspace admin ' +
@@ -86,6 +89,11 @@ const CREATE_STORY_DESCRIPTION =
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
+	'STORY FILTERS: Hardcode `<filter options=\'["a","b"]\' />` only for universal constants that do not come from database rows. ' +
+	'Use `table` plus `column` for direct database-column values. For computed labels or other database-derived values, ' +
+	"run a separate `execute_sql` query that returns exactly one column named `value`, then set the filter's " +
+	'`options_query_id` to that query ID.\n\n' +
+	'LIVE STORIES: pass `live` when the user wants the story to stay up to date, e.g. "refresh it every Monday at 9am".\n\n' +
 	'IMPORTANT: once `create_story` returns, present its output directly to the user. Do NOT call ' +
 	'`display_chart` again for charts already embedded in the story content — the story embed renders ' +
 	'them automatically and re-calling `display_chart` would duplicate the output.';
@@ -95,7 +103,9 @@ const UPDATE_STORY_DESCRIPTION =
 	'current value.\n\n' +
 	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
-	'stays valid.';
+	'stays valid.\n\n' +
+	'LIVE STORIES: pass `live` to turn live on or off or change its schedule. Pass only `story_id` and `live` to ' +
+	'change the live settings without creating a new version.';
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
 type ExecuteSemanticQueryMcpInput = executeSemanticQuery.Input & { chat_id?: string };
@@ -323,16 +333,17 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					.describe(
 						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
 					),
+				live: STORY_LIVE_INPUT,
 				...(ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_INPUT : {}),
 			},
 			outputSchema: STORY_OUTPUT_SCHEMA,
 			_meta: uiToolMeta(STORY_APP_URI),
-			handler: async ({ title, content, query_data, chat_id, format, files }) => {
+			handler: async ({ title, content, query_data, chat_id, live, format, files }) => {
 				if (format === 'custom') {
 					if (content !== undefined) {
 						return errorResult('A custom story takes `files`, not `content`.');
 					}
-					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data }, ctx);
+					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data, live }, ctx);
 				}
 				if (files !== undefined) {
 					return errorResult('`files` only applies to `format: "custom"`.');
@@ -347,7 +358,12 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					return errorResult(story.error);
 				}
 
-				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);
+				await saveStandaloneStoryQuerySql(story, code, ctx);
+				const savedLive = await saveMcpLiveSettings({ ...story, ...NOT_LIVE_SETTINGS }, live);
+				if ('error' in savedLive) {
+					return errorResult(savedLive.error);
+				}
 
 				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 				const output: StoryMcpToolPayload = {
@@ -357,6 +373,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					createdAt: story.createdAt,
 					url: storyUrl(story.id),
 					chatUrl: storyChatUrl(story),
+					...savedLive,
 				};
 				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
 			},
@@ -400,11 +417,16 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					'Chat UUID to associate this revision with (e.g. `chatId` from `ask_nao`). ' +
 						"Sets the 'Open in nao' button on the story's embedded charts.",
 				),
+			live: STORY_LIVE_INPUT,
 			...(ctx.customStoryCreationEnabled ? UPDATE_CUSTOM_STORY_INPUT : {}),
 		},
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ story_id, title, content, query_data, chat_id, files, delete_paths }) => {
+		handler: async (input) => {
+			const { story_id, title, content, query_data, chat_id, live, files, delete_paths } = input;
+			if (live && isLiveOnlyUpdate(input)) {
+				return updateLiveSettingsOnly(story_id, live, ctx);
+			}
 			const customStory = ctx.customStoryCreationEnabled ? await resolveCustomStory(story_id, ctx) : null;
 			if (customStory) {
 				if (content !== undefined) {
@@ -412,7 +434,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				}
 				return updateCustomStoryForMcp(
 					customStory,
-					{ title, files: files ?? [], deletePaths: delete_paths ?? [], queryData: query_data },
+					{ title, files: files ?? [], deletePaths: delete_paths ?? [], queryData: query_data, live },
 					ctx,
 				);
 			}
@@ -448,15 +470,41 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
-			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx);
+			await cacheStoryQueryData(story, newCode, query_data, effectiveChatId, ctx);
+			await saveStandaloneStoryQuerySql(story, newCode, ctx);
+			const savedLive = await saveMcpLiveSettings({ ...story, title: newTitle }, live);
+			if ('error' in savedLive) {
+				return errorResult(savedLive.error);
+			}
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
 				url: storyUrl(story.id),
 				chatUrl: storyChatUrl(story),
+				...savedLive,
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);
 		},
+	});
+}
+
+function isLiveOnlyUpdate(input: Record<string, unknown>): boolean {
+	return Object.entries(input).every(([key, value]) => key === 'story_id' || key === 'live' || value === undefined);
+}
+
+/** Live settings belong to the story, not to a version, so changing only them leaves its history untouched. */
+async function updateLiveSettingsOnly(storyId: string, live: StoryLiveInput, ctx: McpContext): Promise<ToolResult> {
+	const story = (await resolveCustomStory(storyId, ctx)) ?? (await resolveStory(storyId, ctx));
+	const savedLive = await saveMcpLiveSettings(story, live);
+	if ('error' in savedLive) {
+		return errorResult(savedLive.error);
+	}
+	return jsonToolResult({
+		id: story.id,
+		title: story.title,
+		url: storyUrl(story.id),
+		chatUrl: storyChatUrl(story),
+		...savedLive,
 	});
 }
 
@@ -474,12 +522,13 @@ function errorResult(message: string): ToolResult {
 }
 
 async function cacheStoryQueryData(
-	storyId: string,
+	story: { id: string; isLive: boolean },
 	code: string,
 	queryData: StoryQueryDataMap | undefined,
 	chatId: string | null | undefined,
 	ctx: McpContext,
 ): Promise<void> {
+	const storyId = story.id;
 	const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyId);
 	const seededQueryData: StoryQueryDataMap = {
 		...((existingCache?.queryData as StoryQueryDataMap | null) ?? {}),
@@ -493,9 +542,21 @@ async function cacheStoryQueryData(
 	if (!resolvedQueryData) {
 		return;
 	}
-	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData);
+	const keptQuerySources = story.isLive ? (existingCache?.querySources ?? null) : null;
+	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData, undefined, keptQuerySources);
 	if (chatId) {
 		await pinQueryDataToChat(chatId, resolvedQueryData);
+	}
+}
+
+/** A standalone story keeps the SQL of its MCP queries, so it can go live without a chat to read it from. */
+async function saveStandaloneStoryQuerySql(
+	story: { id: string; chatId: string | null },
+	code: string,
+	ctx: McpContext,
+): Promise<void> {
+	if (!story.chatId) {
+		await copyMcpQueriesToStory(story.id, extractQueryIds(code), ctx);
 	}
 }
 

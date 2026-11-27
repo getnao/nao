@@ -1,7 +1,9 @@
 import { CONTEXT_EDITOR_ROLE, renderContextEditorPrompt } from '../../components/ai/context-editor-prompt';
 import { env } from '../../env';
 import { createContextEditorRecommendationTools } from '../../services/context-editor-recommendation-tools';
+import { createContextEditorSkillTools } from '../../services/context-editor-skill-tools';
 import { createContextEditorTools } from '../../services/context-editor-tools';
+import type { DescribedContextHubPage } from '../../services/context-hub-shown-page.service';
 import { analyticsToolsExcluding } from './analytics';
 import type { AgentProfile } from './types';
 
@@ -11,20 +13,21 @@ import type { AgentProfile } from './types';
  */
 export function contextEditorAgent({
 	editor,
-	openPath,
+	shown,
 }: {
 	editor: { id: string; name: string; email: string };
-	openPath: string | null;
+	shown: DescribedContextHubPage;
 }): AgentProfile {
 	const hasRecommendations = env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED;
 	return {
 		source: 'contextEditor',
 		tools: analyticsToolsExcluding([], {
 			...createContextEditorTools(editor),
+			...createContextEditorSkillTools(editor),
 			...(hasRecommendations && createContextEditorRecommendationTools(editor)),
 		}),
 		role: CONTEXT_EDITOR_ROLE,
-		promptAppendix: renderContextEditorPrompt({ openPath, hasRecommendations }),
+		promptAppendix: renderContextEditorPrompt({ shown, hasRecommendations }),
 		excludesUserRules: true,
 		excludesMemories: true,
 	};

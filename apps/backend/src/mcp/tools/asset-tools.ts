@@ -6,6 +6,7 @@ import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
+import { unscheduleStoryRefreshJob } from '../../services/story-refresh.service';
 import {
 	buildAgentRenderedChartText,
 	CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM,
@@ -31,6 +32,7 @@ import {
 } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 import { STORY_LIST_ITEM_SCHEMA, toStoryListItem } from './story-list-item';
+import { toStoryLiveOutput } from './story-live-settings';
 
 const DISPLAY_CHART_DESCRIPTION =
 	'Render an interactive chart embed from a previously executed query.\n\n' +
@@ -47,7 +49,7 @@ const DISPLAY_CHART_DATA_MODE_DESCRIPTION = DISPLAY_CHART_DESCRIPTION + CHART_DA
 const LIST_STORIES_DESCRIPTION = 'List nao stories.';
 
 const GET_STORY_DESCRIPTION =
-	'Fetch a single story with its latest content (`code`), version metadata, `url`, `chatUrl`, ' +
+	'Fetch a single story with its latest content (`code`), version metadata, live settings (`live`), `url`, `chatUrl`, ' +
 	'and a rendered HTML embed.\n\n' +
 	"Useful when you need the actual markdown of a story to get it's latest content and metadata.\n\n" +
 	'A custom story (`format: "custom"`) is an interactive app that only renders in nao: it returns its `url` ' +
@@ -340,7 +342,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				projectId: story.projectId,
 				code: version?.code ?? null,
 				version: version?.version ?? null,
-				isLive: story.isLive,
+				live: toStoryLiveOutput(story),
 				archived: story.archivedAt !== null,
 				createdAt: story.createdAt,
 				updatedAt: story.updatedAt,
@@ -363,6 +365,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
 			await storyQueries.archiveByStoryId(story.id);
+			await unscheduleStoryRefreshJob(story.id);
 			const output = { id: story.id, archived: true as const };
 			return {
 				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
@@ -382,6 +385,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		},
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
+			await unscheduleStoryRefreshJob(story.id);
 			await storyQueries.deleteStory(story.id);
 			const output = { id: story.id, deleted: true as const };
 			return {

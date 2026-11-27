@@ -3,24 +3,28 @@ import {
 	getChangedContextPaths,
 	isContextEditorFileToolName,
 	isContextEditorRecommendationToolName,
+	isContextEditorSkillToolName,
 } from '@nao/shared/context-editor';
 import type { ContextEditorFileChange, ContextRecommendationApplyResult } from '@nao/shared/context-editor';
 import type { UIMessage } from '@nao/backend/chat';
 
-import { useAgentMessages } from '@/contexts/agent.provider';
-import { getToolName, isToolSettled, isToolUIPart } from '@/lib/ai';
+import { useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { getToolName, haveSameToolCallIds, isToolSettled, isToolUIPart } from '@/lib/ai';
 
 export interface ContextEditorChanges {
 	/** The context files the agent changed. */
 	paths: string[];
 	/** Whether the agent applied, dismissed or reopened a recommendation. */
 	hasChangedRecommendations: boolean;
+	/** Whether the agent changed a personal skill or handled a request to share one. */
+	hasChangedSkills: boolean;
 }
 
 interface SettledChange {
 	toolCallId: string;
 	paths: string[];
 	hasChangedRecommendations: boolean;
+	hasChangedSkills: boolean;
 }
 
 /**
@@ -29,14 +33,14 @@ interface SettledChange {
  * reported once too.
  */
 export function useContextEditorChanges(onChange: (changes: ContextEditorChanges) => void) {
-	const messages = useAgentMessages();
+	const settledChanges = useAgentMessagesSelector(listSettledChanges, haveSameToolCallIds);
 	const reportedToolCallIdsRef = useRef(new Set<string>());
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
 
 	useEffect(() => {
 		const reportedToolCallIds = reportedToolCallIdsRef.current;
-		const newChanges = listSettledChanges(messages).filter((change) => !reportedToolCallIds.has(change.toolCallId));
+		const newChanges = settledChanges.filter((change) => !reportedToolCallIds.has(change.toolCallId));
 		if (newChanges.length === 0) {
 			return;
 		}
@@ -44,8 +48,9 @@ export function useContextEditorChanges(onChange: (changes: ContextEditorChanges
 		onChangeRef.current({
 			paths: newChanges.flatMap((change) => change.paths),
 			hasChangedRecommendations: newChanges.some((change) => change.hasChangedRecommendations),
+			hasChangedSkills: newChanges.some((change) => change.hasChangedSkills),
 		});
-	}, [messages]);
+	}, [settledChanges]);
 }
 
 function listSettledChanges(messages: UIMessage[]): SettledChange[] {
@@ -56,7 +61,8 @@ function listSettledChanges(messages: UIMessage[]): SettledChange[] {
 			}
 			const toolName = getToolName(part);
 			const hasChangedRecommendations = isContextEditorRecommendationToolName(toolName);
-			if (!isContextEditorFileToolName(toolName) && !hasChangedRecommendations) {
+			const hasChangedSkills = isContextEditorSkillToolName(toolName);
+			if (!isContextEditorFileToolName(toolName) && !hasChangedRecommendations && !hasChangedSkills) {
 				return [];
 			}
 			const paths = isContextEditorFileToolName(toolName)
@@ -65,7 +71,7 @@ function listSettledChanges(messages: UIMessage[]): SettledChange[] {
 						part.output as ContextEditorFileChange | ContextRecommendationApplyResult,
 					)
 				: [];
-			return [{ toolCallId: part.toolCallId, paths, hasChangedRecommendations }];
+			return [{ toolCallId: part.toolCallId, paths, hasChangedRecommendations, hasChangedSkills }];
 		}),
 	);
 }

@@ -24,9 +24,15 @@ import type {
 	ResolvedFilesContextAccess,
 	ResolvedSkillsAccess,
 } from '../../src/services/user-group-context-access.service';
+import type { PersonalSkill } from '../../src/types/user-skill';
 import { createToolContext, executeTool } from '../helpers/tool-context';
 
 const PROJECT_ID = 'load-skill-project';
+const MY_ORDERS: PersonalSkill = {
+	name: 'my-orders',
+	description: 'My weekly orders.',
+	body: 'Completed orders only.',
+};
 
 describe('load_skill tool with project skills', () => {
 	let projectRoot: string;
@@ -109,15 +115,43 @@ describe('load_skill tool with project skills', () => {
 		);
 	});
 
+	it('loads a personal skill of the user', async () => {
+		const output = await runLoadSkill('my-orders', { skillsAccess: { mode: 'all' }, personalSkills: [MY_ORDERS] });
+
+		expect(output).toEqual({ _version: '1', name: 'my-orders', body: 'Completed orders only.' });
+	});
+
+	it('serves the project skill over a personal skill of the same name', async () => {
+		const personalSkills = [{ ...MY_ORDERS, name: 'revenue' }];
+
+		const output = await runLoadSkill('revenue', { skillsAccess: { mode: 'all' }, personalSkills });
+
+		expect(output.body).toBe('Always use net revenue.');
+	});
+
+	it('lists personal skills among the available ones when a skill is missing', async () => {
+		const error = await runLoadSkill('unknown', {
+			skillsAccess: { mode: 'all' },
+			personalSkills: [MY_ORDERS],
+		}).catch((caught: Error) => caught);
+
+		expect((error as Error).message).toMatch(/Available:.*my-orders/);
+	});
+
 	const runLoadSkill = async (
 		name: string,
-		access: { skillsAccess: ResolvedSkillsAccess; filesContextAccess?: ResolvedFilesContextAccess },
+		access: {
+			skillsAccess: ResolvedSkillsAccess;
+			filesContextAccess?: ResolvedFilesContextAccess;
+			personalSkills?: PersonalSkill[];
+		},
 	) => {
 		const context = createToolContext({
 			projectId: PROJECT_ID,
 			projectFolder: projectRoot,
 			filesContextAccess: access.filesContextAccess ?? { enforced: false },
 			skillsAccess: access.skillsAccess,
+			personalSkills: access.personalSkills,
 		});
 		return (await executeTool(loadSkillTool, { name }, context)) as { name: string; body: string };
 	};

@@ -3,20 +3,23 @@ import {
 	BUILTIN_BOUNDARY_REGION_KEY_HINTS,
 	type ChartPluginManifestEntry,
 	type CustomBoundarySet,
+	NAO_INTERNAL_MCP_SERVER,
 	STORY_REFERENCE_TAG,
 } from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
 import type { InternalSkill } from '../../agents/skills';
-import { listInternalSkills } from '../../agents/skills';
-import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import { listInternalSkills, storyKitSkill } from '../../agents/skills';
+import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import { NAO_INTERNAL_MCP_DESCRIPTION } from '../../services/nao-internal-mcp';
 import type { SandboxSecretDefinition } from '../../services/sandbox-secret.service';
 import type { PreloadedSkill, Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import type { StorySummary } from '../../types/story-reference';
+import type { PersonalSkill } from '../../types/user-skill';
 import { formatCurrentDate } from '../../utils/date';
 import type { ConfiguredDatabase, ContextPresence } from '../../utils/nao-config';
 import {
@@ -26,7 +29,7 @@ import {
 	STORY_QUERIES_FILE,
 } from '../../utils/story-library';
 import { groupBy } from '../../utils/utils';
-import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
+import { getDialectSqlQueryRules, getDialectToolCallRules, LOCAL_DUCKDB_SQL_RULES } from './dialect-rules';
 import { NaoContextStructure, UserRulesSection } from './nao-context-structure';
 import { storyKitGuideItems } from './story-kit-guide';
 
@@ -43,6 +46,8 @@ type SystemPromptProps = {
 	skills?: Skill[];
 	/** Project skills injected in full; they are left out of the regular skills listing. */
 	preloadedSkills?: PreloadedSkill[];
+	/** Skills the user wrote for themselves; they have no file, so they are only reachable through load_skill. */
+	personalSkills?: PersonalSkill[];
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
@@ -88,6 +93,7 @@ export function SystemPrompt({
 	configuredDatabases = [],
 	skills = [],
 	preloadedSkills = [],
+	personalSkills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mapBoundaries = [],
@@ -108,10 +114,16 @@ export function SystemPrompt({
 	const hasStoryLibrary = hasTool('list') && hasTool('read');
 	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
-	const dialectToolCallRules = getDialectToolCallRules(connections);
-	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
+	const warehouseConnections = semanticLayerMode === 'exclusive' ? [] : connections;
+	const dialectToolCallRules = getDialectToolCallRules(warehouseConnections);
+	const dialectSqlQueryRules = getDialectSqlQueryRules(warehouseConnections);
 	const listedSkills = excludePreloadedSkills(skills, preloadedSkills);
-	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [...skills, ...preloadedSkills]);
+	const canAuthorCustomStories = customStoriesEnabled && hasTool('story') && hasTool('write');
+	const builtInSkills = excludeShadowedInternalSkills(internalSkills, [
+		...skills,
+		...preloadedSkills,
+		...personalSkills,
+	]).filter((skill) => skill.name !== storyKitSkill.name || canAuthorCustomStories);
 
 	return (
 		<Block>
@@ -123,11 +135,9 @@ export function SystemPrompt({
 				<Br />
 				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.
 				<Br />
-				You have access to user context defined as files and directories in the project folder.
-				<Br />
-				Databases content is defined as files in the project folder so you can easily search for information
-				about the database instead of querying the database directly (it's faster and avoids leaking sensitive
-				information).
+				The user's context, database content included, is defined as files in the project folder: search them
+				for information about a database instead of querying it directly (it's faster and avoids leaking
+				sensitive information).
 				<Br />
 				Tables and whole schemas from databases {hasStoryLibrary && 'and existing stories or story folders '}
 				can be mentioned using the @ trigger.
@@ -143,16 +153,15 @@ export function SystemPrompt({
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
-					<Bold>Efficient & Proactive</Bold>: Value the user's time. Be concise. Anticipate needs and act
-					without unnecessary hesitation.
+					<Bold>Efficient & Proactive</Bold>: Value the user's time. Anticipate needs and act without
+					unnecessary hesitation.
 				</ListItem>
 				<ListItem>
-					<Bold>Professional Tone</Bold>: Be professional and concise. Only use emojis when specifically asked
-					to.
+					<Bold>Professional Tone</Bold>: Be professional. Only use emojis when specifically asked to.
 				</ListItem>
 				<ListItem>
-					<Bold>Direct Communication</Bold>: Avoid stating obvious facts, unnecessary explanations, or
-					conversation fillers. Jump straight to providing value.
+					<Bold>Direct Communication</Bold>: Be concise. Avoid stating obvious facts, unnecessary
+					explanations, or conversation fillers. Jump straight to providing value.
 				</ListItem>
 			</List>
 			<Title level={2}>Multi-step requests</Title>
@@ -180,12 +189,9 @@ export function SystemPrompt({
 						<ListItem>
 							When a data question needs context you do not have yet (which tables, columns, joins or
 							definitions apply), delegate the discovery to the <Bold>explore</Bold> subagent with the{' '}
-							<Bold>task</Bold> tool instead of exploring the files yourself: give it a short{' '}
-							<Bold>description</Bold> as title, a self-contained prompt naming the business terms,
-							entities and time frame, and the thoroughness level to work at (quick, medium or very
-							thorough), then work from its report and read only what you must verify. Explore directly
-							when you already know where to look or a single file answers it. Pass <Bold>model_id</Bold>{' '}
-							only when the user explicitly asks for a specific model to run the subagent.
+							<Bold>task</Bold> tool instead of exploring the files yourself: name the business terms,
+							entities and time frame in its prompt, then work from its report and read only what you must
+							verify. Explore directly when you already know where to look or a single file answers it.
 						</ListItem>
 					),
 					hasTool('execute_sql') && semanticLayerMode !== 'exclusive' && (
@@ -198,11 +204,9 @@ export function SystemPrompt({
 					...(hasTool('clarification')
 						? [
 								<ListItem>
-									Use the <Bold>clarification</Bold> tool when the user's request is genuinely
-									ambiguous and proceeding would likely produce the wrong result (e.g. multiple
-									plausible tables, unclear time range, undefined metric). If you need to ask another
-									clarifying question after the user answers, call the <Bold>clarification</Bold> tool
-									again instead of asking in plain text, bullet lists, or examples.
+									Ask clarifying questions through the <Bold>clarification</Bold> tool, including a
+									follow-up question after the user answers, instead of asking in plain text, bullet
+									lists, or examples.
 								</ListItem>,
 							]
 						: []),
@@ -227,11 +231,10 @@ export function SystemPrompt({
 					canGrepSavedFiles={canGrepSavedFiles}
 					canRunSandbox={hasTool('execute_sandboxed_code')}
 					canExecuteSql={hasTool('execute_sql')}
-					canReplace={hasTool('str_replace')}
 				/>
 			)}
-			{customStoriesEnabled && hasTool('story') && hasTool('write') && (
-				<CustomStoriesBlock canReplace={hasTool('str_replace')} />
+			{canAuthorCustomStories && (
+				<CustomStoriesBlock canReplace={hasTool('str_replace')} canLoadSkill={hasTool('load_skill')} />
 			)}
 			{hasStoryLibrary && <ExistingStoriesBlock trustedStories={trustedStories} canGrep={hasTool('grep')} />}
 			{hasTool('execute_sql') && (
@@ -247,11 +250,6 @@ export function SystemPrompt({
 			<Title level={2}>Chart{hasTool('display_map') ? ' & Map' : ''} Rules</Title>
 			<List>
 				<ListItem>
-					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
-					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
-					any non-ISO-date strings.
-				</ListItem>
-				<ListItem>
 					Use "scatter" for correlations between two numeric variables (set x_axis_type to "number").
 				</ListItem>
 				<ListItem>
@@ -262,7 +260,13 @@ export function SystemPrompt({
 				</ListItem>
 				<ListItem>
 					Use "stacked_area" to show how multiple series compose a total over time (e.g. revenue by payment
-					method, users by plan) — requires 2+ series and pivoted data.
+					method, users by plan).
+				</ListItem>
+				<ListItem>
+					To draw one series per value of a column (a line per country, a stack per plan), query long rows
+					such as (month, country, revenue), keep one series and set breakdown_key to the column instead of
+					pivoting in SQL: values that appear later show up on refresh without editing the chart. Set
+					breakdown_limit when the column holds more than ~8 values.
 				</ListItem>
 				<ListItem>
 					Use "stacked_bar_100" or "stacked_area_100" for 100% stacked charts that normalize each category to
@@ -280,14 +284,8 @@ export function SystemPrompt({
 					automatically.
 				</ListItem>
 				<ListItem>
-					For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by default,
-					line and scatter charts auto-scale to a readable range rather than always starting at zero.
-				</ListItem>
-				<ListItem>
 					Use "mixed" to show multiple metrics on different scales in one chart: give each series its own
-					"series_type" ("bar", "line" or "area", defaults to "bar") and "y_axis" ("left" or "right", defaults
-					to "left"). A second Y-axis is drawn whenever any series uses {'"y_axis": "right"'}. These
-					per-series settings only apply to "mixed" charts.
+					"series_type" and "y_axis".
 				</ListItem>
 				<ListItem>
 					Use the <Bold>display_chart</Bold> tool with <Bold>{'chart_type: "table"'}</Bold> to present a table
@@ -301,12 +299,9 @@ export function SystemPrompt({
 					<ListItem>
 						For spatial data, use <Bold>display_map</Bold> instead of display_chart:
 						"points"/"scatter_bubble" for individual locations (optionally sized by a magnitude),
-						"choropleth" to shade regions by a numeric value. For choropleth geometry, prefer in order: (1){' '}
-						<Bold>region_boundaries</Bold> for covered built-in or custom sets; (2){' '}
-						<Bold>boundaries_url</Bold> with a public HTTPS GeoJSON URL; (3) <Bold>geometry_key</Bold> only
-						as a last resort when geometry lives in the warehouse with no URL alternative. Never SELECT
-						large geometry columns when a URL is available, and never fabricate boundary shapes. For skewed
-						values, set <Bold>color_scale</Bold> to "log" or "quantile" and keep value_key in raw units.
+						"choropleth" to shade regions by a numeric value. For choropleth geometry, prefer in order{' '}
+						<Bold>region_boundaries</Bold>, then <Bold>boundaries_url</Bold>, and <Bold>geometry_key</Bold>{' '}
+						only as a last resort.
 					</ListItem>
 				)}
 			</List>
@@ -317,9 +312,7 @@ export function SystemPrompt({
 						If you get an error, loop until you fix the error, search for the correct name using the list or
 						search tools.
 					</ListItem>,
-					<ListItem>
-						Never assume columns names, if available, use the columns.md file to get the column names.
-					</ListItem>,
+					<ListItem>Never guess column names: look them up in the table files first.</ListItem>,
 					<ListItem>
 						A LIMIT/TOP clause caps how many rows are returned, not how many exist. Never state a total or
 						an "exact" count based on the number of rows a limited query returned. To count rows, run a
@@ -367,7 +360,7 @@ export function SystemPrompt({
 				</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
-				{userRules && <UserRulesSection rules={userRules} />}
+				{userRules && <UserRulesSection rules={userRules} rulesFile={contextPresence?.rulesFile} />}
 
 				{connections.length > 0 && (
 					<Block>
@@ -412,6 +405,8 @@ export function SystemPrompt({
 						))}
 					</Block>
 				)}
+
+				{hasTool('load_skill') && personalSkills.length > 0 && <PersonalSkillsBlock skills={personalSkills} />}
 
 				{hasTool('load_skill') && builtInSkills.length > 0 && <BuiltInSkillsBlock skills={builtInSkills} />}
 
@@ -470,7 +465,10 @@ function excludePreloadedSkills(skills: Skill[], preloadedSkills: PreloadedSkill
 }
 
 /** load_skill serves the project skill over a built-in one of the same name. */
-function excludeShadowedInternalSkills(internalSkills: InternalSkill[], projectSkills: Skill[]): InternalSkill[] {
+function excludeShadowedInternalSkills(
+	internalSkills: InternalSkill[],
+	projectSkills: ReadonlyArray<{ name: string }>,
+): InternalSkill[] {
 	const projectSkillNames = new Set(projectSkills.map((skill) => skill.name));
 	return internalSkills.filter((skill) => !projectSkillNames.has(skill.name));
 }
@@ -499,6 +497,25 @@ function PreloadedSkillsBlock({ skills }: { skills: PreloadedSkill[] }) {
  * Only the names and descriptions live here. A skill body is long enough that carrying every
  * one of them in every request would cost more than it buys, so the agent loads what it needs.
  */
+function PersonalSkillsBlock({ skills }: { skills: PersonalSkill[] }) {
+	return (
+		<Block>
+			<Title level={2}>Personal Skills</Title>
+			<Span>
+				The user wrote these skills for themselves; they have no file in the context. Use one when the question
+				matches its description: call <Bold>load_skill</Bold> with its name first.
+			</Span>
+			<List>
+				{skills.map((skill) => (
+					<ListItem>
+						<Bold>{skill.name}</Bold> — {skill.description.trim()}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
 function BuiltInSkillsBlock({ skills }: { skills: InternalSkill[] }) {
 	return (
 		<Block>
@@ -524,12 +541,10 @@ function PermanentStorageBlock({
 	canGrepSavedFiles,
 	canRunSandbox,
 	canExecuteSql,
-	canReplace,
 }: {
 	canGrepSavedFiles: boolean;
 	canRunSandbox: boolean;
 	canExecuteSql: boolean;
-	canReplace: boolean;
 }) {
 	return (
 		<Block>
@@ -555,14 +570,8 @@ function PermanentStorageBlock({
 				</ListItem>
 				<ListItem>
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
-					export or update something, or when a result is clearly worth reusing later.{' '}
-					{canReplace && (
-						<>
-							To change part of a file that already exists, use <Bold>str_replace</Bold> with the exact
-							snippet rather than sending the whole file to <Bold>write</Bold> again.{' '}
-						</>
-					)}
-					Everything else in the tree is read-only. Do not save intermediate work nobody asked for.
+					export or update something, or when a result is clearly worth reusing later. Everything else in the
+					tree is read-only. Do not save intermediate work nobody asked for.
 					{canExecuteSql && (
 						<>
 							{' '}
@@ -609,16 +618,13 @@ function PermanentStorageBlock({
 					chip the user can click to preview the file and download it. Use it once per file, in the sentence
 					where you first mention it, on files under <Bold>/home</Bold> only — a bare path is not clickable.
 				</ListItem>
-				<ListItem>
-					Never give the full path in plain text, users might get confused about it as it's not clickable
-					directly in the chat.
-				</ListItem>
 			</List>
 		</Block>
 	);
 }
 
-function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
+/** The story-kit guide is long, so it is loaded as a skill whenever the run can load one. */
+function CustomStoriesBlock({ canReplace, canLoadSkill }: { canReplace: boolean; canLoadSkill: boolean }) {
 	return (
 		<Block>
 			<Title level={2}>Custom Stories</Title>
@@ -667,7 +673,16 @@ function CustomStoriesBlock({ canReplace }: { canReplace: boolean }) {
 						removes draft files and "revert" resets the draft to a published version. Published versions are
 						readable, not writable, at /stories/&lt;id&gt;/@v&lt;N&gt;/&lt;path&gt;.
 					</ListItem>,
-					...storyKitGuideItems(),
+					...(canLoadSkill
+						? [
+								<ListItem key='kit'>
+									Call <Bold>load_skill</Bold> with <Bold>{storyKitSkill.name}</Bold> before writing
+									or editing a custom story's files: it documents the @nao/story-kit blocks, theming,
+									layout, filters and saved state, which the starter app alone does not show. Classic
+									stories never need it.
+								</ListItem>,
+							]
+						: storyKitGuideItems()),
 				]}
 			</List>
 		</Block>
@@ -781,28 +796,16 @@ function LocalDatabaseBlock({
 							"SELECT q.region, q.revenue, f.budget FROM query_ab12cd34 AS q JOIN read_xlsx('/home/uploads/2026-01-31/budget.xlsx', sheet = 'FY26') AS f ON q.region = f.region"
 						}
 					</Bold>
-					. The table name is the query id exactly as the <Bold>Query ID</Bold> line of the tool output spells
-					it, never the name you gave the query.
+					.
 				</ListItem>
 			</List>
 			{canSaveResults && (
-				<>
-					<Span>
-						<Bold>save_to</Bold> keeps the result as a file as well as returning it. Pass a{' '}
-						<Bold>/home</Bold> path and a format: <Bold>parquet</Bold> for a step you intend to query again,
-						because it keeps the column types, and <Bold>csv</Bold> for something the user will open. The
-						extension has to match the format.
-					</Span>
-					<CodeBlock>
-						{`save_to: { path: "/home/exports/revenue-by-region.parquet", format: "parquet" }`}
-					</CodeBlock>
-					<Span>
-						Use it for a long computation worth keeping — a heavy join later steps build on, or an export
-						the user asked for — and tell them the path. Do not save every query: an ordinary answer is the
-						rows, not a file. Return it with the <Bold>saved-file</Bold> chip described above, not as a bare
-						path.
-					</Span>
-				</>
+				<Span>
+					<Bold>save_to</Bold> keeps the result as a file as well as returning it. Use it for a long
+					computation worth keeping — a heavy join later steps build on, or an export the user asked for. Do
+					not save every query: an ordinary answer is the rows, not a file. Return it with the{' '}
+					<Bold>saved-file</Bold> chip described above, not as a bare path.
+				</Span>
 			)}
 			<Span>
 				It is DuckDB, so write DuckDB SQL. The query itself only reads: writing a file is what{' '}
@@ -814,6 +817,11 @@ function LocalDatabaseBlock({
 					? 'For questions a warehouse can answer on its own, keep using the warehouse — this is for files and for results you already have.'
 					: 'It holds no warehouse data of its own: get the numbers from execute_semantic_query first, then reshape them here.'}
 			</Span>
+			<List>
+				{LOCAL_DUCKDB_SQL_RULES.map((rule) => (
+					<ListItem>{rule}</ListItem>
+				))}
+			</List>
 		</Block>
 	);
 }
@@ -877,8 +885,7 @@ function SemanticLayerQueryRules({ exclusive }: { exclusive: boolean }) {
 				end_time for plain date ranges.
 			</ListItem>
 			<ListItem>
-				A semantic result is a normal query result: its query id works with display_chart, stories and
-				page_query_result. To change it, call execute_semantic_query again; its SQL is not editable.
+				To change a semantic result, call execute_semantic_query again; its SQL is not editable.
 			</ListItem>
 		</>
 	);
@@ -1007,7 +1014,9 @@ function McpServersBlock({ servers, canUseCodemode }: { servers: string[]; canUs
 			</Span>
 			<List>
 				{servers.map((server) => (
-					<ListItem key={server}>{server}</ListItem>
+					<ListItem key={server}>
+						{server === NAO_INTERNAL_MCP_SERVER ? `${server}: ${NAO_INTERNAL_MCP_DESCRIPTION}` : server}
+					</ListItem>
 				))}
 			</List>
 		</Block>

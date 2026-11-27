@@ -11,6 +11,7 @@ import type { ContextExplorerSearch, TestDrawerSearch } from '@/lib/context-expl
 
 import { ContextFileRecommendations } from '@/components/context-hub/context-file-recommendations';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
+import { CloudSyncPanel } from '@/components/settings/cloud-sync';
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
@@ -39,7 +40,11 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useContextChanges } from '@/hooks/use-context-changes';
 import { useFileChangeMarks } from '@/hooks/use-file-change-marks';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { getTabShownAfterClosing, useOpenedTabs } from '@/hooks/use-opened-tabs';
+import { useContextFile, useContextFileTree } from '@/hooks/use-upstream-context';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
 	consumeHistoricalContextDiffSearch,
 	consumeOpenTestsSearch,
@@ -71,6 +76,8 @@ export function ContextFileTreeView({
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const isCloud = useIsCloud();
+	const { isAdmin } = usePermissions();
 	const {
 		path: initialPath,
 		from: historicalFrom,
@@ -183,7 +190,7 @@ export function ContextFileTreeView({
 		});
 	}, [testDrawerOpening, navigate]);
 
-	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
+	const fileTree = useContextFileTree();
 	const fileChangeMarks = useFileChangeMarks();
 	const changedFileCount = useContextChanges().changedFiles.data?.length ?? 0;
 	const rulesPreviewGroups = useQuery(trpc.contextExplorer.getRulesPreviewGroups.queryOptions());
@@ -192,10 +199,7 @@ export function ContextFileTreeView({
 		: rulesPreviewGroups.isError || !rulesPreviewGroups.data
 			? ({ status: 'error' } as const)
 			: ({ status: 'ready', ...rulesPreviewGroups.data } as const);
-	const fileContent = useQuery({
-		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
-		enabled: !!selectedPath,
-	});
+	const fileContent = useContextFile(selectedPath);
 	const savedFileContent = fileContent.data?.content;
 	const activeTestFile = useMemo(
 		() => resolveActiveTestFile({ activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent }),
@@ -299,6 +303,14 @@ export function ContextFileTreeView({
 			? { type: 'file', path: nextPath, openSource: false, closedFileTabs: paths }
 			: { type: 'empty', closedFileTabs: paths };
 	};
+
+	useKeyboardShortcuts({
+		'close-file-tab': () => {
+			if (selectedPath) {
+				closeFileTabs([selectedPath]);
+			}
+		},
+	});
 
 	const selectTestRun = (runId: string | null) => {
 		navigateTestDrawer({ test: activeTestPath ?? undefined, testRun: runId ?? undefined });
@@ -507,7 +519,7 @@ export function ContextFileTreeView({
 								) : (
 									<FileTree
 										changeMarks={fileChangeMarks}
-										entries={fileTree.data?.entries ?? []}
+										entries={fileTree.entries}
 										selectedPath={
 											historicalDiff?.path ??
 											selectedDiffPath ??
@@ -533,19 +545,22 @@ export function ContextFileTreeView({
 								)
 							}
 							changes={
-								<ContextGitPanel
-									selectedDiffPath={selectedDiffPath}
-									selectedUpstreamDiffPath={selectedUpstreamDiffPath}
-									hasUnsavedFileChanges={isViewerDirty}
-									onViewDiff={handleViewDiff}
-									onViewUpstreamDiff={handleViewUpstreamDiff}
-									onCommitted={handleChangesCommitted}
-									onDiscarded={handleLocalChangeDiscarded}
-									onDiscardAll={handleAllLocalChangesDiscarded}
-									onRepositoryChanged={handleRepositoryChanged}
-									onOpenTests={openTestSuite}
-								/>
+								!fileTree.data?.isManagedRepository ? (
+									<ContextGitPanel
+										selectedDiffPath={selectedDiffPath}
+										selectedUpstreamDiffPath={selectedUpstreamDiffPath}
+										hasUnsavedFileChanges={isViewerDirty}
+										onViewDiff={handleViewDiff}
+										onViewUpstreamDiff={handleViewUpstreamDiff}
+										onCommitted={handleChangesCommitted}
+										onDiscarded={handleLocalChangeDiscarded}
+										onDiscardAll={handleAllLocalChangesDiscarded}
+										onRepositoryChanged={handleRepositoryChanged}
+										onOpenTests={openTestSuite}
+									/>
+								) : undefined
 							}
+							sync={isCloud ? <CloudSyncPanel isAdmin={isAdmin} /> : undefined}
 							footer={
 								<FileHeaderProblems
 									selectedPath={shownFilePath}
@@ -606,9 +621,10 @@ export function ContextFileTreeView({
 											filePath={selectedPath}
 											content={fileContent.data?.content}
 											hash={fileContent.data?.hash}
-											isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
+											isLoading={fileContent.isLoading}
 											isError={fileContent.isError && !fileContent.data}
 											isEditable={fileContent.data?.isEditable === true}
+											isManagedRepository={fileTree.data?.isManagedRepository === true}
 											editabilityGuidance={fileContent.data?.guidance ?? null}
 											searchQuery={shouldSearchContent ? debouncedSearch : ''}
 											sourceAutoOpenRequestId={

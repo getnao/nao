@@ -85,6 +85,7 @@ export type StoryItem = {
 	storySlug?: string;
 	summary: StorySummary;
 	kpiPreviewData: QueryDataMap | null;
+	canShowThumbnail: boolean;
 	format: StoryFormat;
 	version: number;
 	isLive: boolean;
@@ -134,6 +135,82 @@ export function getFolderSubtreeIds(rootFolderIds: string[], folders: FolderItem
 
 export function isSystemFolder(folder: FolderItem): boolean {
 	return folder.systemType != null;
+}
+
+export function isTeamFolder(folder: FolderItem): boolean {
+	return folder.teamGroupIds.length > 0;
+}
+
+/** Subfolders of a team folder inherit its groups: only the team folder itself owns them. */
+export function ownsTeamGroups(folder: FolderItem, folders: FolderItem[]): boolean {
+	const parent = folders.find((candidate) => candidate.id === folder.parentId);
+	return isTeamFolder(folder) && !(parent && isTeamFolder(parent));
+}
+
+const GROUP_NAMES_FORMAT = new Intl.ListFormat('en', { type: 'conjunction' });
+
+export function describeTeamGroups(groupNames: string[]): string {
+	return `the ${GROUP_NAMES_FORMAT.format(groupNames)} ${groupNames.length === 1 ? 'group' : 'groups'}`;
+}
+
+export interface FolderShareAudience {
+	visibility: 'project' | 'specific';
+	groupIds: string[];
+}
+
+interface FolderOption {
+	id: string | null;
+	label: string;
+}
+
+const ROOT_FOLDER_OPTION: FolderOption = { id: null, label: 'Home' };
+
+/**
+ * Folders whose audience matches the share: the root and open folders for the whole project,
+ * otherwise the private folders and the team folders of the selected groups.
+ */
+export function listFittingFolders(tree: FolderItem[], share: FolderShareAudience): FolderOption[] {
+	const fitting = tree.filter((folder) => folderFitsShare(folder, share));
+	const options = fitting
+		.map((folder) => ({ id: folder.id, label: getFolderPath(tree, folder) }))
+		.sort((a, b) => a.label.localeCompare(b.label));
+	return folderFitsShare(null, share) ? [ROOT_FOLDER_OPTION, ...options] : options;
+}
+
+/** Keeps the current folder when it still fits, then the last used one, then the root or the private folder. */
+export function pickDefaultFolderId(
+	options: FolderOption[],
+	tree: FolderItem[],
+	preferredIds: (string | null | undefined)[],
+): string | null | undefined {
+	const preferred = preferredIds.find((id) => options.some((option) => option.id === id));
+	if (preferred !== undefined) {
+		return preferred;
+	}
+	const privateFolderId = tree.find((folder) => folder.systemType === 'private_folder')?.id;
+	const fallbackIds = [null, privateFolderId, options[0]?.id];
+	return fallbackIds.find((id) => id !== undefined && options.some((option) => option.id === id));
+}
+
+export function folderFitsShare(folder: FolderItem | null, share: FolderShareAudience): boolean {
+	if (folder === null) {
+		return share.visibility === 'project';
+	}
+	if (folder.systemType === 'shared_with_me') {
+		return false;
+	}
+	if (folder.visibility === 'private') {
+		return share.visibility === 'specific';
+	}
+	if (!isTeamFolder(folder)) {
+		return share.visibility === 'project';
+	}
+	return share.visibility === 'specific' && folder.teamGroupIds.every((groupId) => share.groupIds.includes(groupId));
+}
+
+export function getFolderPath(tree: FolderItem[], folder: FolderItem): string {
+	const parent = folder.parentId ? tree.find((candidate) => candidate.id === folder.parentId) : undefined;
+	return parent ? `${getFolderPath(tree, parent)} / ${folder.name}` : folder.name;
 }
 
 function isPrivateContext(folderId: string | null, folders: FolderItem[]): boolean {
@@ -202,6 +279,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+			canShowThumbnail: true,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -231,6 +309,7 @@ export function buildStoryItems({
 			storySlug: story.storySlug,
 			summary: story.summary,
 			kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+			canShowThumbnail: true,
 			format: story.format,
 			version: story.version,
 			isLive: story.isLive,
@@ -261,6 +340,7 @@ export function buildStoryItems({
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
 				kpiPreviewData: story.kpiPreviewData as QueryDataMap | null,
+				canShowThumbnail: story.canShowThumbnail,
 				format: story.format,
 				version: story.version,
 				isLive: story.isLive,
@@ -401,7 +481,7 @@ function createFolderScopeMatcher(folders: FolderItem[], currentFolderId: string
 		return () => true;
 	}
 	if (currentFolderId === '__shared_with_me__') {
-		return (item) => item.kind === 'shared-with-me';
+		return isInSharedWithMe;
 	}
 	const scopeFolderIds = collectFolderSubtreeIds(folders, currentFolderId);
 	return (item) => item.folderId !== null && scopeFolderIds.has(item.folderId);
@@ -463,9 +543,14 @@ function storyLink(storyId: string): StoryItem['link'] {
 
 function isAtCurrentLevel(item: StoryItem, currentFolderId: string | null): boolean {
 	if (currentFolderId === '__shared_with_me__') {
-		return item.kind === 'shared-with-me';
+		return isInSharedWithMe(item);
 	}
-	return item.folderId === currentFolderId && item.kind !== 'shared-with-me';
+	return item.folderId === currentFolderId && !isInSharedWithMe(item);
+}
+
+/** Stories shared with the user sit in "Shared with me", unless they are filed in a team folder the user sees. */
+function isInSharedWithMe(item: StoryItem): boolean {
+	return item.kind === 'shared-with-me' && item.folderId === null;
 }
 
 function systemFolderRank(folder: FolderItem): number {

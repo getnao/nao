@@ -1,4 +1,5 @@
-import { chartTypeRequiresXAxisKey, isBuiltinChartType, isPieChart, isStackedChartType } from '@nao/shared/chart-types';
+import { chartTypeSupportsBreakdown } from '@nao/shared/chart-series';
+import { builtinChartConfigError, isBuiltinChartType } from '@nao/shared/chart-types';
 import { displayChart } from '@nao/shared/tools';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
@@ -7,8 +8,7 @@ import { getQueryResult } from '../../services/query-result.service';
 import { createTool } from '../../utils/tools';
 
 export default createTool<displayChart.Input, displayChart.Output>({
-	description:
-		'Display a chart visualization or formatted table of the data from a previous `execute_sql` tool call.',
+	description: 'Display a chart visualization or formatted table of the data from a previous query result.',
 	inputSchema: displayChart.InputSchema,
 	outputSchema: displayChart.OutputSchema,
 
@@ -45,32 +45,21 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			return { _version: '1', success: true };
 		}
 
-		// Validate xAxisKey is provided for cartesian and polar charts
-		if (chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
-			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
-		}
-
-		// Validate pie and donut charts have exactly one series
-		if (isPieChart(chartType) && series.length !== 1) {
+		if (input.breakdown_key && !chartTypeSupportsBreakdown(chartType)) {
 			return {
 				_version: '1',
 				success: false,
-				error: `${chartType === 'donut' ? 'Donut' : 'Pie'} charts require exactly one series.`,
+				error: `${chartType} charts do not support breakdown_key: drop it (pie and donut slices come from x_axis_key).`,
 			};
 		}
 
-		// Validate series is not empty
-		if (series.length === 0) {
-			return { _version: '1', success: false, error: 'At least one series is required.' };
-		}
-
-		// Stacked charts require at least two series
-		if (isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
-			return {
-				_version: '1',
-				success: false,
-				error: `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. You may need to pivot the data to create a series for each stack.`,
-			};
+		const configError = builtinChartConfigError(chartType, {
+			xAxisKey,
+			seriesCount: series.length,
+			hasBreakdown: Boolean(input.breakdown_key),
+		});
+		if (configError) {
+			return { _version: '1', success: false, error: configError };
 		}
 
 		// TODO: check that the chart is displayable and that the data is valid

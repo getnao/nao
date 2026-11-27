@@ -14,7 +14,26 @@
 	health_timeout 2s
 }
 
+# Access log read by the telemetry agent (otel-collector/config.yaml). It goes to the data
+# volume because the agent cannot discover the logs of a container on the host network.
+(access_log) {
+	log {
+		output file /data/logs/access.log {
+			roll_size 50MiB
+			roll_keep 3
+		}
+		format filter {
+			request>uri query {
+				replace code REDACTED
+				replace token REDACTED
+				replace state REDACTED
+			}
+		}
+	}
+}
+
 moon.getnao.io {
+	import access_log
 	reverse_proxy localhost:5005 localhost:5006 {
 		import blue_green
 		flush_interval -1
@@ -22,10 +41,12 @@ moon.getnao.io {
 }
 
 licenses.getnao.io {
+	import access_log
 	reverse_proxy localhost:8585
 }
 
 app.getnao.io {
+	import access_log
 	@backoffice path /api/backoffice/*
 	handle @backoffice {
 		respond 404
@@ -39,6 +60,7 @@ app.getnao.io {
 }
 
 labs.getnao.io {
+	import access_log
 	reverse_proxy localhost:5015
 }
 

@@ -25,7 +25,9 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { assertRepositoryEditable } from '../services/managed-github-repository';
 import { resolveRepositoryToken } from '../services/shared-github-token.service';
+import { getAvailableModelsForUser } from '../services/user-group-llm-access.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -34,7 +36,6 @@ import {
 } from '../types/context-recommendation';
 import { llmProviderSchema } from '../types/llm';
 import { redactCredentialedUrls } from '../utils/credential-redaction';
-import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -122,7 +123,7 @@ export const contextRecommendationRoutes = {
 	}),
 
 	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => {
-		return getProjectAvailableModels(ctx.project.id);
+		return getAvailableModelsForUser(ctx.project.id, ctx.user.id);
 	}),
 
 	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
@@ -139,6 +140,7 @@ export const contextRecommendationRoutes = {
 			z.object({
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().min(1).optional(),
 				frequency: z.enum(CONTEXT_RECOMMENDATION_FREQUENCIES).optional(),
 				customSystemPromptInstructions: z.string().max(MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH).optional(),
 				autoCreatePrs: z.boolean().optional(),
@@ -160,6 +162,7 @@ export const contextRecommendationRoutes = {
 				await setContextRecommendationModel(ctx.project.id, {
 					provider: input.modelProvider,
 					modelId: input.modelId,
+					...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
 				});
 			}
 			if (input.frequency) {
@@ -187,6 +190,7 @@ export const contextRecommendationRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertRepositoryEditable(ctx.project.path);
 			await crQueries.updateConfig(ctx.project.id, {
 				repoFullName: input.repoFullName,
 				repoProvider: input.repoFullName ? (input.provider ?? 'github') : null,

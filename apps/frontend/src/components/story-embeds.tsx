@@ -1,15 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { memo, useMemo } from 'react';
+import { incompleteMapMessage } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { ChartType } from '@nao/shared/chart-types';
 
 import { DataTableCard } from '@/components/data-table-card';
+import GraphLoaderAnimated from '@/components/icons/graph-loader-animated';
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
+import { StoryChartFilterFailure } from '@/components/side-panel/story-chart-query';
 import { StoryMapEmbedShell } from '@/components/side-panel/story-map-embed';
 import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
 import { StoryMapRender } from '@/components/story-map-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { sortByDateKey } from '@/lib/charts.utils';
 import { cn } from '@/lib/utils';
@@ -29,14 +33,33 @@ function EmbedPlaceholder({ children }: { children: React.ReactNode }) {
 	);
 }
 
-function EmbedLoading({ label = 'Loading live data...' }: { label?: string }) {
+/** A stand-in with the size of a story chart, so a block that is still loading does not shift the layout. */
+export function StoryBlockSkeleton({ block = 'chart' }: { block?: 'chart' | 'map' }) {
 	return (
-		<EmbedPlaceholder>
-			<span className='flex items-center justify-center'>
-				<Loader2 className='size-4 animate-spin mr-2' />
-				{label}
-			</span>
-		</EmbedPlaceholder>
+		<div className='my-2 flex flex-col gap-4'>
+			<div className='flex h-6 items-center'>
+				<Skeleton className='h-4 w-1/3' />
+			</div>
+			<Skeleton
+				className={cn('flex w-full items-center justify-center', block === 'map' ? 'aspect-3/2' : 'h-72')}
+			>
+				<GraphLoaderAnimated className='h-auto w-4/5 max-w-96 text-muted-foreground' />
+			</Skeleton>
+		</div>
+	);
+}
+
+const TABLE_SKELETON_ROW_COUNT = 6;
+
+/** A stand-in shaped like a story table, so it is not mistaken for a chart while loading. */
+export function StoryTableSkeleton() {
+	return (
+		<div className='my-2 flex flex-col gap-2 rounded-lg border p-3'>
+			<Skeleton className='mb-2 h-4 w-1/3' />
+			{Array.from({ length: TABLE_SKELETON_ROW_COUNT }, (_, index) => (
+				<Skeleton key={index} className='h-6 w-full' />
+			))}
+		</div>
 	);
 }
 
@@ -59,7 +82,7 @@ function useLiveQueryData(queryId: string, liveQuery?: LiveQueryConfig) {
 		queryFn: () => null,
 		enabled: false,
 		...(liveQuery ? liveQuery.queryOptions(queryId) : {}),
-		...(liveQuery ? { staleTime: 0, enabled: true } : {}),
+		...(liveQuery ? { staleTime: 0, refetchOnWindowFocus: false, enabled: true } : {}),
 	});
 }
 
@@ -89,6 +112,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	isRefreshing = false,
 	isStreaming = false,
 	isDataPending = false,
+	unavailableMessage,
 }: {
 	chart: ParsedChartBlock;
 	queryData?: QueryDataMap | null;
@@ -97,6 +121,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	isRefreshing?: boolean;
 	isStreaming?: boolean;
 	isDataPending?: boolean;
+	unavailableMessage?: string;
 }) {
 	const resolvedData = useResolvedEmbedData(chart.queryId, { queryData, liveQuery });
 	const resolved = resolvedData.data;
@@ -111,21 +136,29 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
 	if (resolvedData.isLoading) {
-		return <EmbedLoading />;
+		return <StoryBlockSkeleton />;
 	}
 
 	if (!resolved) {
 		if (isStreaming || isDataPending) {
-			return <EmbedLoading label='Loading data...' />;
+			return <StoryBlockSkeleton />;
 		}
-		return <EmbedPlaceholder>Chart data unavailable (query: {chart.queryId})</EmbedPlaceholder>;
+		return (
+			<StoryChartFilterFailure queryId={chart.queryId}>
+				<EmbedPlaceholder>
+					{unavailableMessage ?? `Chart data unavailable (query: ${chart.queryId})`}
+				</EmbedPlaceholder>
+			</StoryChartFilterFailure>
+		);
 	}
 
 	if (displayData.length === 0) {
 		return (
-			<EmbedPlaceholder>
-				{hasActiveFilters ? 'No results match the selected filters' : 'No data to display'}
-			</EmbedPlaceholder>
+			<StoryChartFilterFailure queryId={chart.queryId}>
+				<EmbedPlaceholder>
+					{hasActiveFilters ? 'No results match the selected filters' : 'No data to display'}
+				</EmbedPlaceholder>
+			</StoryChartFilterFailure>
 		);
 	}
 
@@ -156,6 +189,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 					animate
 					normalSize
 					hideTotal={chart.hideTotal}
+					breakdownKey={chart.breakdownKey}
+					breakdownLimit={chart.breakdownLimit}
 				/>
 			</EmbedRefreshing>
 		</StoryChartEmbedShell>
@@ -171,6 +206,7 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	isStreaming = false,
 	isDataPending = false,
 	allowExpand,
+	unavailableMessage,
 }: {
 	map: ParsedMapBlock;
 	queryData?: QueryDataMap | null;
@@ -180,21 +216,29 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	isStreaming?: boolean;
 	isDataPending?: boolean;
 	allowExpand?: boolean;
+	unavailableMessage?: string;
 }) {
 	const resolvedData = useResolvedEmbedData(map.queryId, { queryData, liveQuery });
 	const resolved = resolvedData.data;
 	const displayData = resolved?.data ?? [];
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
+	// Outside the shell: the map edit dialog has no column fields, so it cannot add the missing ones.
+	if (map.missingAttributes) {
+		return <EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>;
+	}
+
 	if (resolvedData.isLoading) {
-		return <EmbedLoading />;
+		return <StoryBlockSkeleton block='map' />;
 	}
 
 	if (!resolved) {
 		if (isStreaming || isDataPending) {
-			return <EmbedLoading label='Loading data...' />;
+			return <StoryBlockSkeleton block='map' />;
 		}
-		return <EmbedPlaceholder>Map data unavailable (query: {map.queryId})</EmbedPlaceholder>;
+		return (
+			<EmbedPlaceholder>{unavailableMessage ?? `Map data unavailable (query: ${map.queryId})`}</EmbedPlaceholder>
+		);
 	}
 
 	if (displayData.length === 0) {
@@ -222,6 +266,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	isRefreshing = false,
 	isStreaming = false,
 	isDataPending = false,
+	unavailableMessage,
 }: {
 	table: ParsedTableBlock;
 	queryData?: QueryDataMap | null;
@@ -230,20 +275,25 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	isRefreshing?: boolean;
 	isStreaming?: boolean;
 	isDataPending?: boolean;
+	unavailableMessage?: string;
 }) {
 	const resolvedData = useResolvedEmbedData(table.queryId, { queryData, liveQuery });
 	const resolvedResult = resolvedData.data;
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
 	if (resolvedData.isLoading) {
-		return <EmbedLoading />;
+		return <StoryTableSkeleton />;
 	}
 
 	if (!resolvedResult) {
 		if (isStreaming || isDataPending) {
-			return <EmbedLoading label='Loading data...' />;
+			return <StoryTableSkeleton />;
 		}
-		return <EmbedPlaceholder>Table data unavailable (query: {table.queryId})</EmbedPlaceholder>;
+		return (
+			<EmbedPlaceholder>
+				{unavailableMessage ?? `Table data unavailable (query: ${table.queryId})`}
+			</EmbedPlaceholder>
+		);
 	}
 
 	if (!resolvedResult.data || resolvedResult.data.length === 0) {

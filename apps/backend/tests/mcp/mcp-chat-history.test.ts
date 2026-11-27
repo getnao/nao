@@ -119,7 +119,7 @@ describe('MCP search_chats', () => {
 });
 
 describe('MCP get_chat', () => {
-	it('returns the transcript with tool errors and feedback', async () => {
+	it('returns the transcript with thoughts, tool errors and feedback', async () => {
 		mocks.getChatProjectId.mockResolvedValue('project-1');
 		mocks.getChat.mockResolvedValue([uiChat(), 'user-2']);
 		mocks.getUserName.mockResolvedValue('Alice');
@@ -127,16 +127,24 @@ describe('MCP get_chat', () => {
 
 		const result = await client.callTool({ name: 'get_chat', arguments: { chat_id: 'chat-1' } });
 
-		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true });
+		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true, queryResultPreviews: true });
 		expect(result.structuredContent).toMatchObject({
 			id: 'chat-1',
 			author: { id: 'user-2', name: 'Alice' },
 			messages: [
-				{ id: 'message-1', role: 'user', text: 'What is our revenue?', toolCalls: [], feedback: null },
+				{
+					id: 'message-1',
+					role: 'user',
+					text: 'What is our revenue?',
+					thoughts: '',
+					toolCalls: [],
+					feedback: null,
+				},
 				{
 					id: 'message-2',
 					role: 'assistant',
 					text: 'I could not query the table.',
+					thoughts: 'Revenue lives in the orders table.\n\nThe table is missing, I should say so.',
 					toolCalls: [
 						{
 							toolName: 'execute_sql',
@@ -170,6 +178,23 @@ describe('MCP get_chat', () => {
 		};
 		expect(lastToolCall(withoutOutputs)).toEqual(successfulCall);
 		expect(lastToolCall(withOutputs)).toEqual({ ...successfulCall, output: '{"row_count":1}' });
+	});
+
+	it('returns long tool inputs in full only when asked', async () => {
+		const longSql = `select ${'amount, '.repeat(400)}id from sales`;
+		mocks.getChatProjectId.mockResolvedValue('project-1');
+		mocks.getChat.mockResolvedValue([uiChat({ withSuccessfulTool: true, sql: longSql }), 'user-2']);
+		mocks.getUserName.mockResolvedValue('Alice');
+		const client = await connect('admin');
+
+		const truncated = await client.callTool({ name: 'get_chat', arguments: { chat_id: 'chat-1' } });
+		const full = await client.callTool({
+			name: 'get_chat',
+			arguments: { chat_id: 'chat-1', full_tool_inputs: true },
+		});
+
+		expect((lastToolCall(truncated) as { input: string }).input).toContain('[truncated]');
+		expect((lastToolCall(full) as { input: string }).input).toBe(JSON.stringify({ sql_query: longSql }));
 	});
 
 	it('refuses chats from another project', async () => {
@@ -210,12 +235,12 @@ function projectChatListItem(overrides: Record<string, unknown>) {
 	};
 }
 
-function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
+function uiChat(options: { withSuccessfulTool?: boolean; sql?: string } = {}) {
 	const successfulTool = {
 		type: 'tool-execute_sql',
 		toolCallId: 'call-2',
 		state: 'output-available',
-		input: { sql_query: 'select * from sales' },
+		input: { sql_query: options.sql ?? 'select * from sales' },
 		output: { row_count: 1 },
 	};
 	return {
@@ -232,6 +257,7 @@ function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
 				role: 'assistant',
 				feedback: { messageId: 'message-2', vote: 'down', explanation: 'Wrong table' },
 				parts: [
+					{ type: 'reasoning', text: 'Revenue lives in the orders table.' },
 					{
 						type: 'tool-execute_sql',
 						toolCallId: 'call-1',
@@ -240,6 +266,8 @@ function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
 						errorText: 'Table orders does not exist',
 					},
 					...(options.withSuccessfulTool ? [successfulTool] : []),
+					{ type: 'reasoning', text: '' },
+					{ type: 'reasoning', text: 'The table is missing, I should say so.' },
 					{ type: 'text', text: 'I could not query the table.' },
 				],
 			},

@@ -6,7 +6,8 @@
     - table_name (str): Name of the table
     - dataset (str): Schema/dataset name
     - db (DatabaseContext): Database context with helper methods
-        - db.columns() -> list of dicts with: name, type, nullable, description
+        - db.columns() -> list of dicts with: name, type, nullable, description,
+          and optional fields (documented nested fields with: path, type, description)
         - db.row_count() -> int
         - db.description() -> str or None
 #}
@@ -34,6 +35,9 @@ _No description available._
 
 {% for col in columns %}
 - {{ col.name }} ({{ col.type }}{% if col.default_kind and col.default_expression %}, {{ col.default_kind }} {{ col.default_expression | truncate_middle(256) }}{% endif %}{% if col.description %}, "{{ col.description | truncate_middle(256) }}"{% endif %})
+{% for field in col.fields or [] %}
+  - {{ field.path }} ({{ field.type }}, "{{ field.description | truncate_middle(256) }}")
+{% endfor %}
 {% endfor %}
 
 {% set partitions = db.partition_columns() %}

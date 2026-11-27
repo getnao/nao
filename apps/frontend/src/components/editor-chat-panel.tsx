@@ -78,6 +78,7 @@ export function EditorChatPanel({
 
 	return (
 		<aside
+			ref={panelWidth.panelRef}
 			data-selection-ignore
 			style={{ width: panelWidth.width }}
 			className='relative flex h-full max-w-full shrink-0 flex-col border-l bg-background max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl'

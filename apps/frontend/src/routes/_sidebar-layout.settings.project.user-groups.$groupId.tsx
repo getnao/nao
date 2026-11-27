@@ -4,14 +4,14 @@ import { ChevronLeft } from 'lucide-react';
 import { useEffect } from 'react';
 
 import type { UserGroupEditorTab } from '@/components/settings/user-group-editor';
-import { UserGroupEditor } from '@/components/settings/user-group-editor';
+import { resolveUserGroupEditorTab, UserGroupEditor } from '@/components/settings/user-group-editor';
 import { requireAdmin } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups/$groupId')({
 	beforeLoad: requireAdmin,
 	validateSearch: (search: Record<string, unknown>): { tab: UserGroupEditorTab } => ({
-		tab: isUserGroupEditorTab(search.tab) ? search.tab : 'features',
+		tab: resolveUserGroupEditorTab(search.tab),
 	}),
 	component: UserGroupDetailPage,
 });
@@ -82,18 +82,5 @@ function UserGroupDetailPage() {
 				onDeleted={navigateToList}
 			/>
 		</div>
-	);
-}
-
-function isUserGroupEditorTab(value: unknown): value is UserGroupEditorTab {
-	return (
-		value === 'features' ||
-		value === 'context' ||
-		value === 'mcp' ||
-		value === 'skills' ||
-		value === 'security' ||
-		value === 'budget' ||
-		value === 'advanced' ||
-		value === 'sso'
 	);
 }

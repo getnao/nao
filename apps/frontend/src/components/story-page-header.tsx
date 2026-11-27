@@ -12,6 +12,7 @@ import {
 	RotateCcw,
 	Save,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import type { StoryDownloadOptions } from '@/components/story-download';
@@ -31,12 +32,14 @@ import { StoryChatButton } from '@/components/story-chat-button';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryArchiveMenuItem,
 	StoryCertifyMenuItem,
 	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
 	StoryFeedbackButtons,
 } from '@/components/story-header-actions';
+import { StoryFolderPickerDialog, StoryMoveToFolderMenuItem } from '@/components/story-move-to-folder';
 import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +50,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useMovableStory } from '@/hooks/use-movable-story';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
 import { requestAsk } from '@/stores/ask-bar';
@@ -134,6 +138,8 @@ export function StoryPageHeader({
 	versionControls,
 	elementSelection,
 }: StoryPageHeaderProps) {
+	const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
+	const movableStory = useMovableStory(storyId);
 	const liveMenu = live?.isLive && live.isInActionsMenu ? live : undefined;
 	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics || !!liveMenu;
 
@@ -193,6 +199,9 @@ export function StoryPageHeader({
 								{download && <StoryDownloadMenu {...download} />}
 								{storyId && <StoryCertifyMenuItem storyId={storyId} />}
 								{storyId && <StoryFavoriteMenuItem storyId={storyId} />}
+								{movableStory && (
+									<StoryMoveToFolderMenuItem onSelect={() => setIsFolderPickerOpen(true)} />
+								)}
 								{onOpenAnalytics && (
 									<DropdownMenuItem onSelect={onOpenAnalytics}>
 										<Info strokeWidth={2.25} />
@@ -203,6 +212,7 @@ export function StoryPageHeader({
 								{canDuplicate && storyId && (
 									<StoryDuplicateMenuItem storyId={storyId} versionNumber={viewedVersionNumber} />
 								)}
+								{storyId && <StoryArchiveMenuItem storyId={storyId} />}
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}
@@ -213,6 +223,9 @@ export function StoryPageHeader({
 				<StoryRefreshFailureBanner failure={live.lastRefreshFailure} isRetrying={live.isRefreshing} />
 			)}
 			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
+			{movableStory && isFolderPickerOpen && (
+				<StoryFolderPickerDialog story={movableStory} onClose={() => setIsFolderPickerOpen(false)} />
+			)}
 		</div>
 	);
 }

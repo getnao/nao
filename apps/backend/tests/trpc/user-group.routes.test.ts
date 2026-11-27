@@ -3,6 +3,7 @@ import {
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
 	EMPTY_SKILLS_ACCESS,
+	EMPTY_USER_GROUP_COLUMN_POLICIES,
 	MAX_PRELOADED_SKILLS,
 } from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
+	assertShareableUserGroupIds: vi.fn(),
 	assertUserGroupManageable: vi.fn(),
 	createUserGroup: vi.fn(),
 	createUserGroupWithinLimit: vi.fn(),
@@ -18,23 +20,32 @@ const mocks = vi.hoisted(() => ({
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
 	getFilesContextCatalog: vi.fn(),
+	getProjectLlmConfigs: vi.fn(),
 	listEffectiveEntraUserGroupMappings: vi.fn(),
 	listEffectiveOidcUserGroupMappings: vi.fn(),
+	getProjectColumnSecurity: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
 	getShareAudience: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	invalidateProjectViewerCaches: vi.fn(),
 	listUserGroups: vi.fn(),
 	listActiveUserGroups: vi.fn(),
+	listFolderNamesOnlyOwnedByGroup: vi.fn(),
+	listGroupFolderIds: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
 	revokeUnauthorizedProjectWideShares: vi.fn(),
 	env: { BETTER_AUTH_URL: 'http://localhost:5005/' } as Record<string, string | undefined>,
 	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setGroupBudget: vi.fn(),
+	setGroupSharedBudget: vi.fn(),
+	setGroupTeamFolders: vi.fn(),
 	setUserGroupMembership: vi.fn(),
 	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
+	updateUserGroupLlmAccess: vi.fn(),
+	updateProjectColumnSecurity: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
 	validateWarehouseRowPredicate: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
@@ -48,6 +59,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
+vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 vi.mock('../../src/env', () => ({ env: mocks.env }));
 vi.mock('../../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: mocks.getDatabaseContextCatalog,
@@ -56,19 +68,35 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
+vi.mock('../../src/queries/project-llm-config.queries', () => ({
+	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
+}));
+vi.mock('../../src/queries/story-viewer-data-cache.queries', () => ({
+	invalidateProjectViewerCaches: mocks.invalidateProjectViewerCaches,
+}));
 vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
 	createUserGroup: mocks.createUserGroup,
 	createUserGroupWithinLimit: mocks.createUserGroupWithinLimit,
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
+	getProjectColumnSecurity: mocks.getProjectColumnSecurity,
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
 	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	setUserGroupMemberships: mocks.setUserGroupMemberships,
 	updateUserGroup: mocks.updateUserGroup,
+	updateUserGroupLlmAccess: mocks.updateUserGroupLlmAccess,
+	updateProjectColumnSecurity: mocks.updateProjectColumnSecurity,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
+}));
+vi.mock('../../src/queries/story-folder.queries', () => ({
+	TeamFolderError: class TeamFolderError extends Error {},
+	listFolderNamesOnlyOwnedByGroup: mocks.listFolderNamesOnlyOwnedByGroup,
+	listGroupFolderIds: mocks.listGroupFolderIds,
+	setGroupTeamFolders: mocks.setGroupTeamFolders,
+	withProjectFolderLock: (_projectId: string, work: () => Promise<unknown>) => work(),
 }));
 vi.mock('../../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
@@ -79,7 +107,13 @@ vi.mock('../../src/services/license.service', () => ({
 		userGroups: 'user-groups',
 	},
 }));
-vi.mock('../../src/services/member-budget.service', () => ({ setGroupBudget: mocks.setGroupBudget }));
+vi.mock('../../src/services/member-budget.service', () => ({
+	setGroupBudget: mocks.setGroupBudget,
+	setGroupSharedBudget: mocks.setGroupSharedBudget,
+}));
+vi.mock('../../src/services/shareable-user-groups.service', () => ({
+	assertShareableUserGroupIds: mocks.assertShareableUserGroupIds,
+}));
 vi.mock('../../src/services/project-sharing.service', () => ({
 	getShareAudience: mocks.getShareAudience,
 	previewProjectWideShareRevocation: mocks.previewProjectWideShareRevocation,
@@ -106,8 +140,10 @@ vi.mock('../../src/services/warehouse-sql.service', () => ({
 	validateWarehouseRowPredicate: mocks.validateWarehouseRowPredicate,
 }));
 
+import { TeamFolderError } from '../../src/queries/story-folder.queries';
 import { router } from '../../src/trpc/trpc';
 import { userGroupRoutes } from '../../src/trpc/user-group.routes';
+import { logger } from '../../src/utils/logger';
 
 const testRouter = router(userGroupRoutes);
 const caller = createTestCaller(testRouter);
@@ -123,6 +159,7 @@ beforeEach(() => {
 	mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.role = 'admin';
+	mocks.listFolderNamesOnlyOwnedByGroup.mockResolvedValue([]);
 	mocks.getUserRoleInProject.mockImplementation(async (_projectId, userId) =>
 		userId === 'target-user-id' ? 'viewer' : mocks.role,
 	);
@@ -131,15 +168,19 @@ beforeEach(() => {
 	mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 	mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
 	mocks.getFilesContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
+	mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [] });
 	mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+	mocks.getProjectLlmConfigs.mockResolvedValue([]);
 	mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([]);
 	mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
+	mocks.updateProjectColumnSecurity.mockImplementation(async (_projectId, value) => value);
 	mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
 	mocks.validateWarehouseRowPredicate.mockImplementation(async (predicate) => predicate);
 	mocks.resolveUserGroupAccess.mockResolvedValue({
 		features: ['storyCreation'],
 		databaseAccess: RESTRICTED_DATABASE_ACCESS,
 		docsAccess: RESTRICTED_DOCS_ACCESS,
+		columnPolicies: [{ version: 1, policies: [] }],
 		rowPolicies: [{ version: 1, policies: [] }],
 		toolCallDensityPolicy: COMPACT_DENSITY_POLICY,
 	});
@@ -165,6 +206,7 @@ describe('user group routes', () => {
 			version: 1,
 			tables: [ORDERS_TABLE],
 		});
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 	});
 
 	it('rejects unlicensed row-security table additions', async () => {
@@ -220,6 +262,212 @@ describe('user group routes', () => {
 			message: 'Table main.orders is not in the synced catalog.',
 		});
 		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('validates and saves project column restrictions from the synced catalog', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['id', 'email'] }],
+		});
+
+		await expect(
+			caller.updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['email'] }],
+			}),
+		).resolves.toEqual({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['email'] }],
+		});
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', {
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['email'] }],
+		});
+	});
+
+	it('passes the expected column registry revision into updates', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const expectedCurrent = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		const next = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue(expectedCurrent);
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['cost', 'margin'] }],
+		});
+
+		await caller.updateColumnSecurity({ ...next, expectedCurrent });
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
+
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', next, expectedCurrent);
+	});
+
+	it('allows unlicensed column-security removal but rejects new restrictions', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			restrictedColumns: ['email'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [orders, customers] });
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['email'] }],
+		});
+
+		await expect(caller.updateColumnSecurity({ version: 1, tables: [orders] })).resolves.toEqual({
+			version: 1,
+			tables: [orders],
+		});
+		await expect(
+			caller.updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['email', 'phone'] }],
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+	});
+
+	it('allows removals while preserving another unchanged table missing from the catalog', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			restrictedColumns: ['cost'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [orders, customers] });
+
+		await expect(caller.updateColumnSecurity({ version: 1, tables: [customers] })).resolves.toEqual({
+			version: 1,
+			tables: [customers],
+		});
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', {
+			version: 1,
+			tables: [customers],
+		});
+	});
+
+	it('allows one unavailable column to be removed while preserving another', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['legacy_cost', 'legacy_margin'] }],
+		});
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['id'] }],
+		});
+
+		await expect(
+			caller.updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['legacy_margin'] }],
+			}),
+		).resolves.toEqual({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['legacy_margin'] }],
+		});
+	});
+
+	it('requires group table access before granting a restricted column', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const columnPolicies = {
+			version: 1 as const,
+			policies: [{ ...orders, grantedColumns: ['email'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['email'] }],
+		});
+
+		await expect(
+			caller.update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+				databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+				columnPolicies,
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('without access') });
+
+		await caller.update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			databaseAccess: { mode: 'all', strict: true },
+			columnPolicies,
+		});
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({
+				columnPolicies,
+				columnPoliciesRegistry: {
+					version: 1,
+					tables: [{ ...orders, restrictedColumns: ['email'] }],
+				},
+			}),
+		);
+	});
+
+	it('passes the validated column registry into group creation', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const registry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue(registry);
+
+		await caller.create({
+			name: 'Analysts',
+			databaseAccess: { mode: 'all', strict: true },
+			columnPolicies: {
+				version: 1,
+				policies: [{ ...orders, grantedColumns: ['cost'] }],
+			},
+		});
+
+		const call = mocks.createUserGroup.mock.calls[0];
+		expect(call[14]).toEqual({
+			version: 1,
+			policies: [{ ...orders, grantedColumns: ['cost'] }],
+		});
+		expect(call.at(-1)).toEqual(registry);
 	});
 
 	it('rejects unlicensed group creates and updates with row policies before mutation', async () => {
@@ -318,6 +566,66 @@ describe('user group routes', () => {
 		);
 	});
 
+	it('rejects unlicensed team folders but lets admins keep or remove them', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.listGroupFolderIds.mockResolvedValue(['board', 'finance']);
+		const update = (storyFolderIds: string[]) =>
+			caller.update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: DETAILED_DENSITY_POLICY,
+				storyFolderIds,
+			});
+
+		await expect(caller.create({ name: 'Analysts', storyFolderIds: ['board'] })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(update(['board', 'sales'])).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+
+		await update(['board']);
+		expect(mocks.setGroupTeamFolders).toHaveBeenCalledWith('project-id', 'group-id', ['board'], expect.any(String));
+	});
+
+	it.each([
+		{ case: 'removes it again', removalFails: false },
+		{ case: 'still reports why its folders failed when it cannot be removed', removalFails: true },
+	])('a new group whose team folders cannot be saved $case', async ({ removalFails }) => {
+		mocks.setGroupTeamFolders.mockRejectedValueOnce(
+			new TeamFolderError('Only active public folders can be team folders.'),
+		);
+		if (removalFails) {
+			mocks.deleteUserGroup.mockRejectedValueOnce(new Error('Database unavailable.'));
+		}
+
+		await expect(
+			caller.create({ name: 'Analysts', storyFolderIds: ['archived'], budgetLimitUsd: 50 }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Only active public folders can be team folders.' });
+		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
+		expect(logger.error).toHaveBeenCalledTimes(removalFails ? 1 : 0);
+	});
+
+	it('refuses team folders for a group stories cannot be shared with, like All users', async () => {
+		mocks.hasFeature.mockResolvedValue(true);
+		mocks.listGroupFolderIds.mockResolvedValue([]);
+		mocks.assertShareableUserGroupIds.mockRejectedValueOnce(
+			new Error('One or more user groups cannot be shared with.'),
+		);
+
+		await expect(
+			caller.update({
+				groupId: 'all-users-id',
+				featureGrants: [],
+				toolCallDensityPolicy: DETAILED_DENSITY_POLICY,
+				storyFolderIds: ['board'],
+			}),
+		).rejects.toThrow('cannot be shared with');
+		expect(mocks.assertShareableUserGroupIds).toHaveBeenCalledWith('project-id', ['all-users-id']);
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
 	it('allows group edits after a registry update prunes removed-table policies', async () => {
 		const customersPolicy = { ...ORDERS_POLICY_TABLE, table: 'customers', access: 'full' as const };
 		let storedPolicies = {
@@ -355,6 +663,7 @@ describe('user group routes', () => {
 		});
 
 		await caller.updateRowSecurity({ version: 1, tables: [ORDERS_TABLE] });
+		mocks.invalidateProjectViewerCaches.mockClear();
 		await caller.update({
 			groupId: 'group-id',
 			featureGrants: ['storyCreation'],
@@ -373,6 +682,7 @@ describe('user group routes', () => {
 				rowPoliciesRegistry: { version: 1, tables: [ORDERS_TABLE] },
 			}),
 		);
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 	});
 
 	it('rejects group row policies for tables outside the project registry', async () => {
@@ -511,7 +821,7 @@ describe('user group routes', () => {
 
 		await expect(
 			updateWithConditions([{ column: 'region', operator: 'equals', value: 'west' }]),
-		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid constraint column for main.orders.' });
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid filter column for main.orders.' });
 		expect(mocks.validateWarehouseRowPredicate).not.toHaveBeenCalled();
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
@@ -621,8 +931,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 	});
 
@@ -649,8 +962,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -707,8 +1023,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 	});
 
@@ -762,8 +1081,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 	});
 
@@ -793,8 +1115,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 	});
 
@@ -880,8 +1205,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 	});
 
@@ -926,6 +1254,39 @@ describe('user group routes', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
+	it('updates only the assigned LLM credentials', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'credential-a' }, { id: 'credential-b' }]);
+		mocks.updateUserGroupLlmAccess.mockResolvedValue({ id: 'group-id' });
+
+		await expect(
+			caller.updateLlmAccess({
+				groupId: 'group-id',
+				llmConfigIds: ['credential-a', 'credential-b'],
+				llmModelIdsByConfig: { 'credential-a': ['model-a', 'model-a'] },
+			}),
+		).resolves.toEqual({ id: 'group-id' });
+
+		expect(mocks.updateUserGroupLlmAccess).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			['credential-a', 'credential-b'],
+			{ 'credential-a': ['model-a'] },
+		);
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects model restrictions for an unassigned credential', async () => {
+		await expect(
+			caller.updateLlmAccess({
+				groupId: 'group-id',
+				llmConfigIds: ['credential-a'],
+				llmModelIdsByConfig: { 'credential-b': ['model-b'] },
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+		expect(mocks.updateUserGroupLlmAccess).not.toHaveBeenCalled();
+	});
+
 	it('saves share targets without the group itself or groups that are not active custom groups', async () => {
 		mocks.listActiveUserGroups.mockResolvedValue([
 			{ id: 'all-users', isDefault: true },
@@ -966,11 +1327,13 @@ describe('user group routes', () => {
 	it('unshares project-wide content no longer allowed after membership changes and group deletion', async () => {
 		await caller.setMembership({ groupId: 'group-id', userId: 'target-user-id', isMember: false });
 		expect(mocks.setUserGroupMembership).toHaveBeenCalled();
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 
 		mocks.revokeUnauthorizedProjectWideShares.mockClear();
 		await caller.delete({ groupId: 'group-id' });
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
@@ -1016,8 +1379,11 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 			DEFAULT_GROUP_SHARE_TARGETS,
 			false,
+			[],
+			{},
 		);
 	});
 
@@ -1056,6 +1422,16 @@ describe('user group routes', () => {
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
 		expect(mocks.setUserGroupMembership).toHaveBeenCalledWith('project-id', 'group-id', 'target-user-id', true);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('keeps a group that is the only one with access to a team folder', async () => {
+		mocks.listFolderNamesOnlyOwnedByGroup.mockResolvedValue(['Board']);
+
+		await expect(caller.delete({ groupId: 'group-id' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: expect.stringContaining('"Board"'),
+		});
+		expect(mocks.deleteUserGroup).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -1115,6 +1491,7 @@ describe('user group routes', () => {
 			['first-user-id', 'second-user-id'],
 			true,
 		);
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
@@ -1195,6 +1572,7 @@ describe('user group routes', () => {
 				storyCreation: true,
 				customStoryCreation: false,
 				automationCreation: false,
+				personalSkills: false,
 			},
 			toolCallDensityPolicy: COMPACT_DENSITY_POLICY,
 			canSeeAdvancedSettings: false,
@@ -1240,6 +1618,7 @@ describe('user group routes', () => {
 				storyCreation: true,
 				customStoryCreation: false,
 				automationCreation: false,
+				personalSkills: false,
 			},
 			toolCallDensityPolicy: COMPACT_DENSITY_POLICY,
 			canSeeAdvancedSettings: false,
@@ -1253,10 +1632,11 @@ describe('user group routes', () => {
 });
 
 describe('user group budget', () => {
-	it('saves the budget of a new group with the group itself', async () => {
-		await caller.create({ name: 'Analysts', budgetLimitUsd: 300 });
+	it('saves the budgets of a new group with the group itself', async () => {
+		await caller.create({ name: 'Analysts', budgetLimitUsd: 300, sharedBudgetLimitUsd: 2000 });
 
 		expect(mocks.setGroupBudget).toHaveBeenCalledWith('project-id', 'group-id', 300);
+		expect(mocks.setGroupSharedBudget).toHaveBeenCalledWith('project-id', 'group-id', 2000);
 	});
 
 	it('leaves the group budget untouched when no limit is sent', async () => {
@@ -1269,15 +1649,19 @@ describe('user group budget', () => {
 		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
 	});
 
-	it('rejects a group budget without the license before creating the group', async () => {
-		mocks.hasFeature.mockImplementation(async (feature) => feature !== 'user-budget');
+	it.each(['budgetLimitUsd', 'sharedBudgetLimitUsd'] as const)(
+		'rejects a %s without the license before creating the group',
+		async (budgetField) => {
+			mocks.hasFeature.mockImplementation(async (feature) => feature !== 'user-budget');
 
-		await expect(caller.create({ name: 'Analysts', budgetLimitUsd: 300 })).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-		});
-		expect(mocks.createUserGroup).not.toHaveBeenCalled();
-		expect(mocks.setGroupBudget).not.toHaveBeenCalled();
-	});
+			await expect(caller.create({ name: 'Analysts', [budgetField]: 300 })).rejects.toMatchObject({
+				code: 'FORBIDDEN',
+			});
+			expect(mocks.createUserGroup).not.toHaveBeenCalled();
+			expect(mocks.setGroupBudget).not.toHaveBeenCalled();
+			expect(mocks.setGroupSharedBudget).not.toHaveBeenCalled();
+		},
+	);
 });
 
 function updateWithConditions(conditions: Array<{ column: string; operator: string; value?: string }>) {

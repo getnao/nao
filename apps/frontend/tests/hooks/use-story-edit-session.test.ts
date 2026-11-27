@@ -10,7 +10,7 @@ import { isStoryContentQueryKey, useStoryEditSession } from '@/hooks/use-story-e
 type EditState = {
 	latestVersion: number | null;
 	latestAuthorName: string | null;
-	lock: { holderName: string; isMine: boolean; isYou: boolean; byAgent: boolean } | null;
+	lock: { holderName: string; isMine: boolean; isYou: boolean; byAgent: boolean; agentChatId: string | null } | null;
 };
 type MutationOptions = {
 	onSuccess?: (result: unknown, variables: { storyId: string }) => void;
@@ -49,7 +49,7 @@ vi.mock('@/main', () => ({
 vi.mock('@/lib/auth-client', () => ({ useSession: () => ({ data: { user: { name: 'Me' } } }) }));
 
 const TARGET = { storyId: 'story-1', chatId: 'chat-1', storySlug: 'revenue' };
-const ADA_EDITING = { holderName: 'Ada', isMine: false, isYou: false, byAgent: false };
+const ADA_EDITING = { holderName: 'Ada', isMine: false, isYou: false, byAgent: false, agentChatId: null };
 const LOCK_RENEW_MS = 20_000;
 
 describe('useStoryEditSession', () => {
@@ -160,7 +160,7 @@ describe('useStoryEditSession', () => {
 		mocks.editState = {
 			latestVersion: 1,
 			latestAuthorName: 'Ada',
-			lock: { holderName: 'Ada', isMine: false, isYou: false, byAgent: false },
+			lock: ADA_EDITING,
 		};
 
 		const { result } = renderHook(() => useStoryEditSession({ target: TARGET, isEditing: false }));
@@ -194,19 +194,26 @@ describe('useStoryEditSession', () => {
 		expect(mocks.invalidateQueries).toHaveBeenCalledOnce();
 	});
 
-	it('tells the viewer they are editing the story in another tab', () => {
+	it.each([
+		{ where: 'another tab', byAgent: false, agentChatId: null, ownEdit: 'otherTab' },
+		{ where: 'another chat', byAgent: true, agentChatId: 'chat-2', ownEdit: 'otherChat' },
+		{ where: 'the chat beside the story', byAgent: true, agentChatId: 'chat-3', ownEdit: 'thisChat' },
+	])('tells the viewer they are editing the story from $where', ({ byAgent, agentChatId, ownEdit }) => {
 		mocks.editState = {
 			latestVersion: 1,
 			latestAuthorName: 'Ada',
-			lock: { holderName: 'Me', isMine: false, isYou: true, byAgent: false },
+			lock: { holderName: 'Me', isMine: false, isYou: true, byAgent, agentChatId },
 		};
 
-		const { result } = renderHook(() => useStoryEditSession({ target: TARGET, isEditing: false }));
+		const { result } = renderHook(() =>
+			useStoryEditSession({ target: TARGET, isEditing: false, conversationChatId: 'chat-3' }),
+		);
 
 		expect(result.current).toMatchObject({
 			isLockedByOthers: true,
 			otherEditorName: null,
-			ownEditElsewhere: 'tab',
+			ownEdit,
+			canEdit: false,
 		});
 	});
 });

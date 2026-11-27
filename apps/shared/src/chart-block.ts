@@ -29,6 +29,8 @@ export type StoryChartBlockInput = Pick<
 	| 'show_legend'
 	| 'comparison_mode'
 	| 'hide_total'
+	| 'breakdown_key'
+	| 'breakdown_limit'
 > & {
 	title?: displayChart.KpiCardInput['title'];
 	x_axis_key?: displayChart.KpiCardInput['x_axis_key'];
@@ -57,7 +59,11 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
 	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${showLegendAttr}${comparisonModeAttr}${hideTotalAttr} />`;
+	const breakdownKeyAttr = input.breakdown_key
+		? ` breakdown_key="${escapeDoubleQuotedStoryAttr(input.breakdown_key)}"`
+		: '';
+	const breakdownLimitAttr = input.breakdown_limit !== undefined ? ` breakdown_limit="${input.breakdown_limit}"` : '';
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${showLegendAttr}${comparisonModeAttr}${hideTotalAttr}${breakdownKeyAttr}${breakdownLimitAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
@@ -132,6 +138,7 @@ export interface StoryFilterBlockInput {
 	table?: string;
 	database_id?: string;
 	options?: string[];
+	options_query_id?: string;
 	value_type?: StoryFilterValueType;
 	depends_on?: string;
 	allow_custom?: boolean;
@@ -143,8 +150,11 @@ export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
 	const tableAttr = input.table ? ` table="${escapeDoubleQuotedStoryAttr(input.table)}"` : '';
 	const databaseIdAttr = input.database_id ? ` database_id="${escapeDoubleQuotedStoryAttr(input.database_id)}"` : '';
 	const optionsAttr = input.options ? ` options='${escapeSingleQuotedStoryAttr(JSON.stringify(input.options))}'` : '';
+	const optionsQueryIdAttr = input.options_query_id
+		? ` options_query_id="${escapeDoubleQuotedStoryAttr(input.options_query_id)}"`
+		: '';
 	const valueTypeAttr = input.value_type ? ` value_type="${input.value_type}"` : '';
 	const dependsOnAttr = input.depends_on ? ` depends_on="${escapeDoubleQuotedStoryAttr(input.depends_on)}"` : '';
 	const allowCustomAttr = input.allow_custom ? ' allow_custom="true"' : '';
-	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr}${valueTypeAttr}${dependsOnAttr}${allowCustomAttr} />`;
+	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsQueryIdAttr}${optionsAttr}${valueTypeAttr}${dependsOnAttr}${allowCustomAttr} />`;
 }

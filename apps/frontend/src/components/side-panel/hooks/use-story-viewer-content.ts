@@ -77,11 +77,12 @@ export const useStoryViewerContent = ({
 		}
 	}, [isBridgingDraft, draftStory, currentVersion, isStoryInterrupted, isViewingLatest]);
 
+	const hasStreamJustEnded = wasStoryStreamingRef.current && !isStoryStreaming;
 	const shouldUseDraftStory = Boolean(
 		isViewingLatest &&
 		!isStoryInterrupted &&
 		draftStory &&
-		(draftStory.isStreaming || isBridgingDraft || !currentVersion),
+		(draftStory.isStreaming || isBridgingDraft || hasStreamJustEnded || !currentVersion),
 	);
 	const canUseDraftFallback = isViewingLatest && !isStoryInterrupted && !currentVersion;
 
@@ -116,16 +117,24 @@ export const useStoryViewerContent = ({
 		}),
 		enabled: Boolean(isReadonlyMode && readonlyAccess),
 	});
-	const theme = (isReadonlyMode ? readonlyThemeQuery.data : latestStoryQuery.data?.theme) ?? null;
+	const projectThemeQuery = useQuery({
+		...trpc.storyTheme.getActive.queryOptions(),
+		enabled: !isReadonlyMode,
+	});
+	const theme =
+		(isReadonlyMode ? readonlyThemeQuery.data : (latestStoryQuery.data?.theme ?? projectThemeQuery.data?.theme)) ??
+		null;
 
 	return {
 		storyTitle,
 		storyCode,
+		isStreaming: shouldUseDraftStory && isStoryStreaming,
 		queryData,
 		cachedAt,
 		lastRefreshFailure,
 		needsRefresh,
 		theme,
-		isLoading: latestStoryQuery.isLoading,
+		isLoading: latestStoryQuery.isLoading && storyCode === undefined,
+		isSaved: Boolean(isReadonlyMode || latestStoryQuery.data),
 	};
 };

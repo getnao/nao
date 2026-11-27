@@ -125,6 +125,7 @@ class StoryInspector {
 		document.addEventListener('pointerover', (event) => this.handlePointerOver(event), options);
 		document.documentElement.addEventListener('pointerleave', () => this.handlePointerLeave(), options);
 		document.addEventListener('click', (event) => this.handleClick(event), { ...options, capture: true });
+		document.addEventListener('dblclick', (event) => this.handleDoubleClick(event), { ...options, capture: true });
 		document.addEventListener('mouseup', () => this.showTextAsk(), options);
 		document.addEventListener('keyup', () => this.showTextAsk(), options);
 		document.addEventListener('selectionchange', () => this.handleSelectionChange(), options);
@@ -190,6 +191,13 @@ class StoryInspector {
 		event.preventDefault();
 		event.stopPropagation();
 		this.onAsk(describeElement(element));
+	}
+
+	private handleDoubleClick(event: MouseEvent): void {
+		if (this.isSelectingElements && event.target !== this.host && findInspectableElement(event.target)) {
+			event.preventDefault();
+			event.stopPropagation();
+		}
 	}
 
 	private showTextAsk(): void {

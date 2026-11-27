@@ -18,7 +18,7 @@ export const transcribeRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			try {
-				const text = await transcribeService.transcribeAudio(ctx.project.id, input.audio, {
+				const text = await transcribeService.transcribeAudio(ctx.project.id, ctx.user.id, input.audio, {
 					provider: input.provider,
 					modelId: input.modelId,
 				});
@@ -35,6 +35,6 @@ export const transcribeRoutes = {
 		}),
 
 	getModels: projectProtectedProcedure.query(async ({ ctx }) => {
-		return transcribeService.listAvailableTranscribeModels(ctx.project.id);
+		return transcribeService.listAvailableTranscribeModels(ctx.project.id, ctx.user.id);
 	}),
 };

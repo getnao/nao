@@ -1,7 +1,9 @@
-import type { McpAccess } from '@nao/shared';
+import { type McpAccess, NAO_INTERNAL_MCP_SERVER } from '@nao/shared';
 
+import type { ToolContext } from '../../types/tools';
 import { McpArgsValidationError, mcpService } from '../mcp';
 import { McpAuthRequiredError } from '../mcp-oauth';
+import { callNaoInternalMcpTool, listNaoInternalMcpTools } from '../nao-internal-mcp';
 import type { CodemodeFunction, CodemodeFunctionContext } from './sandbox';
 
 export const MCP_NAMESPACE = 'mcp';
@@ -35,6 +37,28 @@ export async function createMcpFunctions(options: McpFunctionsOptions): Promise<
 				callMcpTool(options, server, tool, args, context.signal),
 		})),
 	);
+}
+
+/** One `mcp.nao__internal.<tool>` function per tool of nao's own server, unless the run is restricted to others. */
+export async function createNaoInternalMcpFunctions(
+	context: ToolContext,
+	allowedServers: string[] | null,
+): Promise<CodemodeFunction[]> {
+	if (allowedServers && !allowedServers.includes(NAO_INTERNAL_MCP_SERVER)) {
+		return [];
+	}
+	const tools = await listNaoInternalMcpTools(context);
+	return tools.map((tool) => ({
+		path: [MCP_NAMESPACE, NAO_INTERNAL_MCP_SERVER, tool.name],
+		execute: async (args: unknown) =>
+			toScriptValue(
+				await callNaoInternalMcpTool(
+					context,
+					tool.name,
+					toArgumentsObject(args, NAO_INTERNAL_MCP_SERVER, tool.name),
+				),
+			),
+	}));
 }
 
 /**

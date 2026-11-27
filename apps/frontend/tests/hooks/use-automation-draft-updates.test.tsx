@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/main', () => ({ trpc: {} }));
-vi.mock('@/contexts/agent.provider', () => ({ useAgentMessages: () => mocks.messages }));
+vi.mock('@/contexts/agent.provider', () => ({
+	useAgentMessagesSelector: <T,>(selector: (messages: never) => T) => selector(mocks.messages as never),
+}));
 vi.mock('@/hooks/use-chat-id', () => ({ useChatId: () => 'chat-1' }));
 vi.mock('@/queries/use-chat-query', () => ({
 	useChatQuery: () => ({ data: mocks.savedMessages ? { messages: mocks.savedMessages } : undefined }),

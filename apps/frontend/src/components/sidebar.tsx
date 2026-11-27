@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
 import { ChevronRight, PanelLeft, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -23,10 +23,12 @@ import type {
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
+import { TrialOnboardingBanner } from '@/components/onboarding/trial-onboarding-banner';
 import { useSidebar } from '@/contexts/sidebar';
+import { useCanManagePersonalSkills } from '@/hooks/use-can-manage-personal-skills';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useGroupedChats } from '@/hooks/use-grouped-chats';
 import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { resetLastAppLocation, useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
@@ -69,7 +71,8 @@ export function Sidebar() {
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
-	const showContextHub = isAdmin || isContextAdmin;
+	const canManagePersonalSkills = useCanManagePersonalSkills();
+	const showContextHub = isAdmin || isContextAdmin || canManagePersonalSkills;
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
@@ -364,10 +367,7 @@ function SidebarNav({
 	isTrial: boolean;
 	resumeOnboarding: boolean;
 }) {
-	const groupedChats = useQuery({
-		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
-		placeholderData: keepPreviousData,
-	});
+	const groupedChats = useGroupedChats(groupBy, filters);
 	const unfilteredChats = useQuery(trpc.chat.listGrouped.queryOptions({ groupBy: 'none', filters: ['all'] }));
 	const onboardingChat = unfilteredChats.data?.groups
 		.flatMap((group) => group.chats)
@@ -386,7 +386,7 @@ function SidebarNav({
 	});
 	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
 
-	const groups = groupedChats.data?.groups.map((group) => ({
+	const groups = groupedChats?.groups.map((group) => ({
 		...group,
 		chats: group.chats.filter((chat) => !(onboardingNeedsAttention && chat.id === onboardingChatId)),
 	}));

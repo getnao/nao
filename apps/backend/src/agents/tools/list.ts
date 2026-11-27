@@ -5,9 +5,16 @@ import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
 import {
+	hasNaoInternalMcpTools,
+	isMcpSpecsFolder,
+	isNaoInternalMcpPath,
+	listNaoInternalMcpFolder,
+	naoInternalMcpFolderEntry,
+} from '../../services/nao-internal-mcp';
+import {
 	assertProjectContextPathAllowed,
 	isDocsProjectPath,
-	isProjectContextPathAllowed,
+	isProjectContextPathRenderAllowed,
 } from '../../services/project-context-path-access.service';
 import { toProjectPathError } from '../../services/project-path-error.service';
 import { isStorageEnabled } from '../../services/storage';
@@ -49,7 +56,19 @@ const listAnywhere = (virtualPath: string, context: ToolContext): Promise<list.E
 	if (isStoragePath(virtualPath)) {
 		return listStorage(virtualPath, context);
 	}
+	if (isNaoInternalMcpPath(virtualPath)) {
+		return listNaoInternalMcpFolder(context, virtualPath);
+	}
+	if (isMcpSpecsFolder(virtualPath) && hasNaoInternalMcpTools(context)) {
+		return listMcpSpecsFolder(virtualPath, context);
+	}
 	return listProjectFolder(virtualPath, context);
+};
+
+/** nao's own server shows up next to the project's, even in a project that declares none. */
+const listMcpSpecsFolder = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
+	const projectServers = await listProjectFolder(virtualPath, context).catch(() => []);
+	return [...projectServers, naoInternalMcpFolderEntry()];
 };
 
 const listStorage = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
@@ -141,7 +160,7 @@ async function readProjectDirectory(realPath: string, virtualPath: string, conte
 function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
 	try {
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind);
+		return isProjectContextPathRenderAllowed(context, virtualPath, canonical.virtualPath, kind);
 	} catch {
 		return false;
 	}

@@ -24,7 +24,6 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 
 	const codemodeEnabled = agentSettings.data?.experimental?.codemode ?? true;
 	const sandboxAvailable = agentSettings.data?.capabilities?.sandbox ?? true;
-	const dangerouslyWritePermEnabled = agentSettings.data?.sql?.dangerouslyWritePermEnabled ?? false;
 	const sandboxesEnabled = agentSettings.data?.experimental?.sandboxes ?? false;
 
 	const handleCodemodeChange = (enabled: boolean) => {
@@ -33,10 +32,6 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 				codemode: enabled,
 			},
 		});
-	};
-
-	const handleDangerouslyWritePermChange = (enabled: boolean) => {
-		updateAgentSettings.mutate({ sql: { dangerouslyWritePermEnabled: enabled } });
 	};
 
 	const handleSandboxesChange = (enabled: boolean) => {
@@ -91,19 +86,6 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						checked={sandboxesEnabled}
 						onCheckedChange={handleSandboxesChange}
 						disabled={!isAdmin || !sandboxAvailable || updateAgentSettings.isPending}
-					/>
-				}
-			/>
-			<SettingsControlRow
-				id='dangerously-write-perm'
-				label='Dangerous write permissions'
-				description='Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries. By default only SELECT queries are permitted.'
-				control={
-					<Switch
-						id='dangerously-write-perm'
-						checked={dangerouslyWritePermEnabled}
-						onCheckedChange={handleDangerouslyWritePermChange}
-						disabled={!isAdmin || updateAgentSettings.isPending}
 					/>
 				}
 			/>

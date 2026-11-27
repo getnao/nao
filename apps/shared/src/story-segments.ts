@@ -1,4 +1,4 @@
-import { buildStoryTableBlock } from './chart-block';
+import { buildStoryTableBlock, type StoryChartBlockInput } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 import {
 	STORY_FILTER_ID_REGEX,
@@ -6,6 +6,7 @@ import {
 	STORY_FILTER_VALUE_TYPES,
 	type StoryFilterType,
 	type StoryFilterValueType,
+	TYPED_VALUE_FILTER_TYPES,
 } from './sql-template';
 import {
 	type ResolvedStoryParameters,
@@ -40,6 +41,8 @@ export interface ParsedChartBlock {
 	showLegend?: boolean;
 	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
 	hideTotal?: boolean;
+	breakdownKey?: string;
+	breakdownLimit?: number;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -70,6 +73,8 @@ export interface ParsedMapBlock {
 	boundariesJoinProperty?: string;
 	geometryKey?: string;
 	title: string;
+	/** Coordinate columns a point map cannot render without; the block shows a placeholder naming them. */
+	missingAttributes?: string[];
 	/** The original `<map ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -96,6 +101,7 @@ export interface ParsedFilterBlock {
 	metric?: string;
 	/** The original `<filter ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
+	optionsQueryId?: string;
 }
 
 export const STORY_PARAMETER_TYPES = ['metric', 'value'] as const;
@@ -207,6 +213,8 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		showLegend: parseOptionalBooleanAttr(attrs.show_legend),
 		comparisonMode: (attrs.comparison_mode as ParsedChartBlock['comparisonMode']) || undefined,
 		hideTotal: attrs.hide_total === 'true',
+		breakdownKey: attrs.breakdown_key || undefined,
+		breakdownLimit: parseOptionalNumberAttr(attrs.breakdown_limit),
 	};
 }
 
@@ -229,9 +237,7 @@ export function parseMapBlock(attrString: string): ParsedMapBlock | null {
 		return null;
 	}
 	const mapType = MapTypeEnum.catch('points').parse(attrs.map_type);
-	if (mapType !== 'choropleth' && (!attrs.latitude_key || !attrs.longitude_key)) {
-		return null;
-	}
+	const missingAttributes = getMissingCoordinateAttributes(mapType, attrs);
 
 	return {
 		queryId: attrs.query_id,
@@ -251,7 +257,15 @@ export function parseMapBlock(attrString: string): ParsedMapBlock | null {
 		boundariesJoinProperty: attrs.boundaries_join_property || undefined,
 		geometryKey: attrs.geometry_key || undefined,
 		title: attrs.title || '',
+		...(missingAttributes.length > 0 && { missingAttributes }),
 	};
+}
+
+function getMissingCoordinateAttributes(mapType: MapType, attrs: Record<string, string>): string[] {
+	if (mapType === 'choropleth') {
+		return [];
+	}
+	return ['latitude_key', 'longitude_key'].filter((key) => !attrs[key]);
 }
 
 /** Maps a parsed story `<map>` block to the `displayMap` tool input consumed by the live and static renderers. */
@@ -277,6 +291,35 @@ export function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
 	};
 }
 
+/** Maps a parsed story `<chart>` block back to the input `buildStoryChartBlock` writes the tag from. */
+export function chartBlockToInput(chart: ParsedChartBlock): StoryChartBlockInput {
+	return {
+		query_id: chart.queryId,
+		chart_type: chart.chartType as StoryChartBlockInput['chart_type'],
+		x_axis_key: chart.xAxisKey || undefined,
+		x_axis_type: (chart.xAxisType || null) as StoryChartBlockInput['x_axis_type'],
+		x_axis_label: chart.xAxisLabel,
+		series: chart.series,
+		y_axis_min: chart.yAxisMin,
+		y_axis_max: chart.yAxisMax,
+		y_axis_label: chart.yAxisLabel,
+		y_axis_right_min: chart.yAxisRightMin,
+		y_axis_right_max: chart.yAxisRightMax,
+		y_axis_right_label: chart.yAxisRightLabel,
+		title: chart.title,
+		show_data_labels: chart.showDataLabels,
+		show_legend: chart.showLegend,
+		comparison_mode: chart.comparisonMode,
+		hide_total: chart.hideTotal,
+		breakdown_key: chart.breakdownKey,
+		breakdown_limit: chart.breakdownLimit,
+	};
+}
+
+export function incompleteMapMessage(map: ParsedMapBlock): string {
+	return `Map cannot be displayed: the <map> tag is missing ${map.missingAttributes?.join(', ')} (query: ${map.queryId})`;
+}
+
 export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 	const attrs = parseChartAttributes(attrString);
 	if (
@@ -292,9 +335,11 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 	const needsOptionsSource = filterType === 'select' || filterType === 'multi_select';
 	const hasHardcodedOptions = Boolean(options?.length);
 	const hasTableSource = Boolean(attrs.table && attrs.column);
-	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource && !attrs.dimension) {
+	const hasOptionsQuerySource = Boolean(attrs.options_query_id);
+	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource && !hasOptionsQuerySource && !attrs.dimension) {
 		return null;
 	}
+	const optionsQueryId = attrs.options_query_id;
 
 	return {
 		id: attrs.id,
@@ -304,7 +349,9 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 		...(attrs.table && { table: attrs.table }),
 		...(attrs.database_id && { databaseId: attrs.database_id }),
 		...(hasHardcodedOptions && { options }),
-		...(filterType === 'text' && isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
+		...(optionsQueryId && { optionsQueryId }),
+		...(TYPED_VALUE_FILTER_TYPES.includes(filterType) &&
+			isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
 		...(needsOptionsSource && attrs.depends_on && { dependsOn: attrs.depends_on }),
 		...(needsOptionsSource && attrs.allow_custom === 'true' && { allowCustom: true }),
 		...(attrs.dimension && { dimension: attrs.dimension }),
@@ -844,6 +891,13 @@ export function extractQueryIds(code: string): Set<string> {
 			}
 		}
 	}
+
+	for (const filter of getStoryFiltersFromCode(code)) {
+		if (filter.optionsQueryId) {
+			ids.add(filter.optionsQueryId);
+		}
+	}
+
 	return ids;
 }
 
@@ -914,4 +968,13 @@ export function splitCodeIntoSegments(code: string, parameters?: ResolvedStoryPa
 	}
 
 	return segments;
+}
+
+export function collectMapBlocks(segments: Segment[]): ParsedMapBlock[] {
+	return segments.flatMap((segment) => {
+		if (segment.type === 'map') {
+			return [segment.map];
+		}
+		return segment.type === 'grid' ? collectMapBlocks(segment.children) : [];
+	});
 }

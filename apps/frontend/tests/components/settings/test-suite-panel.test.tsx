@@ -20,6 +20,7 @@ vi.mock('@/main', () => ({
 			listTests: {
 				queryOptions: () => ({ queryKey: ['tests'], queryFn: mocks.listTests }),
 			},
+			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
 			getRun: {
 				queryOptions: (input: { runId: string }) => ({
 					queryKey: ['test-run', input.runId],
@@ -90,6 +91,43 @@ describe('TestSuitePanel', () => {
 		expect(screen.getByText('churn')).toBeTruthy();
 	});
 
+	it.each([
+		{ status: 'running', label: 'Queued' },
+		{ status: 'cancelled', label: 'Not run' },
+	])('lists the tests a $status run has not tried yet as $label', async ({ status, label }) => {
+		mocks.getRun.mockResolvedValue({
+			id: 'run-1',
+			status,
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			attempts: 1,
+			completedAttempts: 1,
+			totalAttempts: 2,
+			errorMessage: null,
+			comparison: null,
+			modelSummaries: [],
+			previousModelSummaries: [],
+			selection: ['revenue.yml', 'finance/margin.yml'],
+			results: [
+				{
+					testPath: 'revenue.yml',
+					testName: 'revenue',
+					tags: [],
+					passed: true,
+					message: 'match',
+					errorMessage: null,
+				},
+			],
+		});
+		renderPanel();
+
+		expect(
+			await screen.findByRole('button', {
+				name: new RegExp(`^${label}\\s*margin.*finance/margin\\.yml\\s*${label}$`),
+			}),
+		).toBeTruthy();
+		expect(filterLabels()).toEqual(['All2', 'Passed1', 'Failed0']);
+	});
+
 	it('ranks the models of a run and shows each test against each model', async () => {
 		mocks.getRun.mockResolvedValue(
 			multiModelRun([
@@ -103,11 +141,7 @@ describe('TestSuitePanel', () => {
 
 		const leaderboard = (await screen.findAllByRole('table'))[0];
 		const rows = within(leaderboard).getAllByRole('row') as HTMLTableRowElement[];
-		expect(rows.map((row) => row.cells[0].textContent)).toEqual([
-			'Model',
-			'claude-sonnet-5Most accurate',
-			'claude-haiku-5Best value',
-		]);
+		expect(rows.map((row) => row.cells[0].textContent)).toEqual(['Model', 'claude-sonnet-5MA', 'claude-haiku-5BV']);
 		expect(filterLabels()).toEqual(['All2', 'Passed1', 'Failed1', 'Models disagree1']);
 
 		fireEvent.click(screen.getByRole('radio', { name: /Models disagree/ }));

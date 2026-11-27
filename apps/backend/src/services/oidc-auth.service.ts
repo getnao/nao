@@ -31,7 +31,7 @@ export function augmentPluginsWithOidc(plugins: BetterAuthPlugin[]): void {
 					clientSecret: env.OIDC_CLIENT_SECRET!,
 					scopes: parseScopes(env.OIDC_SCOPES),
 					pkce: env.OIDC_PKCE !== 'false',
-					prompt: 'select_account',
+					prompt: getOidcPrompt(),
 					mapProfileToUser: async (profile) => {
 						if (!(await isOidcOrganizationRoleMappingActive())) {
 							return {};
@@ -69,6 +69,13 @@ export function isSocialProviderOidc(providerId: string | undefined): boolean {
 
 const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
 const DEFAULT_GROUPS_CLAIM = 'groups';
+const DEFAULT_PROMPT = 'select_account';
+
+/** `omit` sends no prompt parameter, for providers that reject the values they do not support. */
+function getOidcPrompt() {
+	const prompt = env.OIDC_PROMPT ?? DEFAULT_PROMPT;
+	return prompt === 'omit' ? undefined : prompt;
+}
 
 export function parseScopes(raw: string | undefined): string[] {
 	if (!raw) {

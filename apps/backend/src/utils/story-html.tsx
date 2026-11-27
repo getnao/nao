@@ -18,6 +18,7 @@ import {
 	formatChartValue,
 	formatCompactNumber,
 	indexBoundaries,
+	type KpiComparison,
 	labelize,
 	MAP_BOUNDARY_URLS,
 	type MapFeatureCollection,
@@ -35,6 +36,7 @@ import {
 	scaleBubbleRadius,
 	withOpacity,
 } from '@nao/shared';
+import { applyBreakdown } from '@nao/shared/chart-series';
 import type { ChartType } from '@nao/shared/chart-types';
 import {
 	type DateFormatSettings,
@@ -44,7 +46,12 @@ import {
 } from '@nao/shared/date';
 import { STORY_MAP_TILE_LAYERS } from '@nao/shared/story-map-tiles';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
+import {
+	collectMapBlocks,
+	incompleteMapMessage,
+	mapBlockToInput,
+	splitCodeIntoSegments,
+} from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
@@ -152,10 +159,11 @@ export async function generateStoryHtml(
 	const palette = storyExportPalette(options?.theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
-	const hasMap = segmentsIncludeMap(segments);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], staticMaps);
+	const maps = collectRenderableMaps(segments);
+	const hasMap = maps.length > 0;
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], staticMaps);
 	const basemaps = staticMaps
-		? await prefetchBasemaps(segments, queryData, inlinedBoundaries)
+		? await prefetchBasemaps(maps, queryData, inlinedBoundaries)
 		: new Map<string, Basemap>();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
@@ -194,12 +202,84 @@ export async function generateStoryEmailHtml(
 	customBoundaries?: CustomBoundarySet[],
 	theme?: StoryThemePair | null,
 ): Promise<StoryEmailHtml> {
+	const segments = splitCodeIntoSegments(flattenStoryTabs(story.code));
+	return generateEmailSegmentsHtml(segments, queryData, dateFormat, customBoundaries, theme);
+}
+
+/** Draws one parsed chart or map to a PNG, legend included, for exports that cannot carry the HTML around it. */
+export async function renderStoryVisualImage(
+	segment: Extract<Segment, { type: 'chart' | 'map' }>,
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	theme?: StoryThemePair | null,
+): Promise<Buffer | null> {
+	if (segment.type === 'map') {
+		const { images } = await generateEmailSegmentsHtml([segment], queryData, dateFormat, undefined, theme);
+		return images[0] ? Buffer.from(images[0].content) : null;
+	}
+	const queryRows = queryData?.[segment.chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!queryRows?.length || segment.chart.chartType === 'kpi_card') {
+		return null;
+	}
+	const { chart, rows } = resolveChartData(segment.chart, queryRows);
+	return generateChartImage({
+		config: toChartConfig(chart),
+		data: rows,
+		width: CHART_WIDTH,
+		height: CHART_HEIGHT,
+		margin: { top: 0, right: 0, bottom: 0, left: 0 },
+		includeLegend: true,
+		dateFormat: dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS },
+		palette: storyExportPalette(theme),
+	});
+}
+
+export interface KpiCardValue {
+	dataKey: string;
+	label: string;
+	value: string;
+	comparison: KpiComparison | null;
+}
+
+/** The latest value of each KPI series, with its change against the previous period when the chart asks for it. */
+export function kpiCardValues(chart: ParsedChartBlock, queryData: QueryDataMap | null): KpiCardValue[] {
+	const queryRows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!queryRows?.length) {
+		return [];
+	}
+	const { chart: resolved, rows } = resolveChartData(chart, queryRows);
+	const sortedRows = [...rows].sort((a, b) => {
+		const av = a[resolved.xAxisKey];
+		const bv = b[resolved.xAxisKey];
+		if (resolved.xAxisType === 'date') {
+			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
+		}
+		return 0;
+	});
+	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
+	return resolved.series.map((s) => {
+		const raw = lastRow[s.data_key];
+		return {
+			dataKey: s.data_key,
+			label: s.label ?? s.data_key,
+			value: typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? ''),
+			comparison: computeKpiComparison(sortedRows, resolved.xAxisKey, s.data_key, resolved.comparisonMode),
+		};
+	});
+}
+
+async function generateEmailSegmentsHtml(
+	segments: Segment[],
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	customBoundaries?: CustomBoundarySet[],
+	theme?: StoryThemePair | null,
+): Promise<StoryEmailHtml> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const palette = storyExportPalette(theme);
-	const flattened = flattenStoryTabs(story.code);
-	const segments = splitCodeIntoSegments(flattened);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], true);
-	const basemaps = await prefetchBasemaps(segments, queryData, inlinedBoundaries);
+	const maps = collectRenderableMaps(segments);
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], true);
+	const basemaps = await prefetchBasemaps(maps, queryData, inlinedBoundaries);
 	const sink = createEmailImageSink();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
@@ -234,12 +314,13 @@ function emailContainerStyle(palette: StoryExportPalette): React.CSSProperties {
 	};
 }
 
-function segmentsIncludeMap(segments: Segment[]): boolean {
-	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
+/** Maps missing their columns render a placeholder, so they need no boundaries, basemap or map library. */
+function collectRenderableMaps(segments: Segment[]): ParsedMapBlock[] {
+	return collectMapBlocks(segments).filter((map) => !map.missingAttributes);
 }
 
 async function prefetchCustomBoundaries(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	customBoundaries: CustomBoundarySet[],
 	staticMaps: boolean,
 ): Promise<InlinedBoundaries> {
@@ -248,27 +329,20 @@ async function prefetchCustomBoundaries(
 	const customKeysNeeded = new Set<string>();
 	const boundaryUrlsNeeded = new Set<string>();
 
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				// Static rendering resolves region geometry server-side, so it needs the built-in
-				// boundary sets inlined too — not just custom ones.
-				if (seg.map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
-					customKeysNeeded.add(seg.map.regionBoundaries);
-				}
-				if (seg.map.boundariesUrl) {
-					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
-				}
-				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
-				if (staticMaps && isPointMap) {
-					customKeysNeeded.add(WORLD_BACKDROP_KEY);
-				}
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
+	for (const map of maps) {
+		// Static rendering resolves region geometry server-side, so it needs the built-in
+		// boundary sets inlined too — not just custom ones.
+		if (map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
+			customKeysNeeded.add(map.regionBoundaries);
 		}
-	};
-	collect(segments);
+		if (map.boundariesUrl) {
+			boundaryUrlsNeeded.add(map.boundariesUrl);
+		}
+		const isPointMap = map.mapType === 'points' || map.mapType === 'scatter_bubble';
+		if (staticMaps && isPointMap) {
+			customKeysNeeded.add(WORLD_BACKDROP_KEY);
+		}
+	}
 
 	await Promise.all([
 		...[...customKeysNeeded].map(async (key) => {
@@ -300,23 +374,11 @@ async function prefetchCustomBoundaries(
 }
 
 async function prefetchBasemaps(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	queryData: QueryDataMap | null,
 	inlinedBoundaries: InlinedBoundaries,
 ): Promise<Basemaps> {
 	const result: Basemaps = new Map();
-	const maps: ParsedMapBlock[] = [];
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				maps.push(seg.map);
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
-		}
-	};
-	collect(segments);
-
 	const byteBudget = basemapByteBudgetForCount(new Set(maps.map(mapBasemapKey)).size);
 	await Promise.all(
 		maps.map(async (map) => {
@@ -522,15 +584,15 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	const dateFormat = useContext(DateFormatContext);
 	const emailSink = useContext(EmailImageSinkContext);
 	const palette = useContext(PaletteContext);
-	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
-	if (!rows?.length) {
+	const queryRows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
+	if (!queryRows?.length) {
 		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
 	}
 
-	const chart = resolveChartKeys(rawChart, rows);
+	const { chart, rows } = resolveChartData(rawChart, queryRows);
 
 	if (chart.chartType === 'kpi_card') {
-		return <KpiCards chart={chart} rows={rows} />;
+		return <KpiCards values={kpiCardValues(rawChart, queryData)} />;
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
@@ -591,16 +653,23 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 }
 
 /**
- * Query data may come from a re-execution whose column-name casing differs from
- * the one the chart was authored against (e.g. Snowflake uppercases unquoted
- * identifiers, DuckDB preserves them as written). Resolve the configured keys
- * against the actual row keys, mirroring the frontend chart components.
+ * Pivots a breakdown into one series per value, then resolves the configured keys against
+ * the actual row keys: a re-executed query may change column casing (e.g. Snowflake
+ * uppercases unquoted identifiers, DuckDB preserves them as written).
  */
-function resolveChartKeys(chart: ParsedChartBlock, rows: Record<string, unknown>[]): ParsedChartBlock {
+function resolveChartData(
+	chart: ParsedChartBlock,
+	queryRows: Record<string, unknown>[],
+): { chart: ParsedChartBlock; rows: Record<string, unknown>[] } {
+	const { rows, series } = applyBreakdown({ ...chart, rows: queryRows });
 	return {
-		...chart,
-		xAxisKey: resolveDataKey(rows, chart.xAxisKey),
-		series: chart.series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+		rows,
+		chart: {
+			...chart,
+			xAxisKey: resolveDataKey(rows, chart.xAxisKey),
+			series: series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+			breakdownKey: undefined,
+		},
 	};
 }
 
@@ -667,17 +736,8 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 	);
 }
 
-function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
+function KpiCards({ values }: { values: KpiCardValue[] }) {
 	const palette = useContext(PaletteContext);
-	const sortedRows = [...rows].sort((a, b) => {
-		const av = a[chart.xAxisKey];
-		const bv = b[chart.xAxisKey];
-		if (chart.xAxisType === 'date') {
-			return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
-		}
-		return 0;
-	});
-	const lastRow = sortedRows[sortedRows.length - 1] ?? {};
 	return (
 		<div
 			style={{
@@ -689,13 +749,9 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 				justifyContent: 'flex-start',
 			}}
 		>
-			{chart.series.map((s) => {
-				const raw = lastRow[s.data_key];
-				const value = typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? '');
-				const label = s.label ?? s.data_key;
-				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
+			{values.map(({ dataKey, label, value, comparison }) => {
 				return (
-					<div key={s.data_key} style={{ minWidth: 160 }}>
+					<div key={dataKey} style={{ minWidth: 160 }}>
 						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: palette.body }}>{label}</div>
 						<div
 							style={{
@@ -839,6 +895,9 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 
 function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
+	if (map.missingAttributes) {
+		return <Placeholder label={map.title || 'Map'} message={incompleteMapMessage(map)} />;
+	}
 	const rows = queryData?.[map.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={map.title || 'Map'} message='Data unavailable' />;

@@ -114,7 +114,7 @@ describe('agent route billing access', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.isOnboardingChat.mockResolvedValue(false);
 		mocks.assertProjectCloudBillingAccess.mockRejectedValue(accessError);
-		await agentRoutes({ addHook: mocks.addHook, post: mocks.post } as never);
+		await agentRoutes({ addHook: mocks.addHook, post: mocks.post, get: vi.fn() } as never);
 		const handler = mocks.post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
 
 		await expect(

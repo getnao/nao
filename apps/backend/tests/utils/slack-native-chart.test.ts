@@ -26,6 +26,23 @@ function barChart(overrides: Partial<SlackNativeChartInput['config']> = {}): Sla
 }
 
 describe('buildSlackNativeChart', () => {
+	it('draws one Slack series per breakdown value', () => {
+		const chart = buildSlackNativeChart({
+			config: barChart({ x_axis_key: 'month', series: [{ data_key: 'revenue' }], breakdown_key: 'plan' }),
+			data: [
+				{ month: 'jan', plan: 'pro', revenue: 120 },
+				{ month: 'jan', plan: 'team', revenue: 40 },
+				{ month: 'feb', plan: 'pro', revenue: 150 },
+				{ month: 'feb', plan: 'team', revenue: 55 },
+			],
+		});
+
+		expect(chart?.chart).toMatchObject({
+			categories: ['Jan', 'Feb'],
+			series: [{ name: 'pro' }, { name: 'team' }],
+		});
+	});
+
 	it('maps a bar chart to Slack series with one point per category', () => {
 		const chart = buildSlackNativeChart({ config: barChart({ y_axis_label: 'USD' }), data: monthlyRevenue });
 

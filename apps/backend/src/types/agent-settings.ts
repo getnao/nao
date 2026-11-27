@@ -1,10 +1,14 @@
+import type { SqlQueryTagConfig } from '@nao/shared/sql-query-tag';
 import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
+
+import type { DecisionModel } from './decision';
 
 export type WebSearchMode = 'provider';
 
 export interface AgentSettings {
 	memoryEnabled?: boolean;
 	mapEnabled?: boolean;
+	requireConversationFeedback?: boolean;
 	experimental?: {
 		codemode?: boolean;
 		sandboxes?: boolean;
@@ -17,6 +21,8 @@ export interface AgentSettings {
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
 		enforceExcludedColumns?: boolean;
+		/** Ignored when nao_config.yaml declares a `query_tag`, which wins over the admin settings. */
+		queryTag?: SqlQueryTagConfig & { enabled: boolean };
 	};
 	webSearch?: {
 		enabled?: boolean;
@@ -25,6 +31,10 @@ export interface AgentSettings {
 	semanticLayer?: {
 		mode?: SemanticLayerMode;
 	};
+	/** Model decisions run on; absent means the first model of a connected provider. */
+	decision?: DecisionModel;
+	/** Lets the decision model answer chat messages that only restyle a story chart, without an agent run. */
+	decisionQuickEdits?: boolean;
 	subagent?: {
 		/** Model subagents run on; null or absent means the model of the chat that spawned them. */
 		model?: LlmSelectedModel | null;

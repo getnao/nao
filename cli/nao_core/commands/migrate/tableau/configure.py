@@ -6,6 +6,7 @@ from yaml.nodes import MappingNode, ScalarNode
 
 from nao_core.config import resolve_project_path
 from nao_core.config.tableau import TableauConfig
+from nao_core.text_files import read_text
 from nao_core.ui import UI, ask_text
 
 
@@ -31,7 +32,7 @@ def configure() -> None:
         api_version=ask_text("Tableau API version:", default="3.21") or "3.21",
     )
 
-    config_path.write_text(update_tableau_section(config_path.read_text(), tableau))
+    config_path.write_text(update_tableau_section(read_text(config_path), tableau), encoding="utf-8")
 
     UI.success("Saved Tableau configuration to nao_config.yaml")
     UI.warn("nao_config.yaml contains a plaintext Tableau secret. Do not commit it.")

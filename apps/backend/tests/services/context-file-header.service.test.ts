@@ -137,6 +137,13 @@ describe('context file headers', () => {
 	});
 
 	it('summarizes each Markdown file by its header and the start of its text', async () => {
+		if (access.git.status !== 'available') {
+			throw new Error('Expected context repository');
+		}
+		writeFiles(access.git.repo.worktreeRoot, {
+			'new.md': '---\ntitle: New worktree file\n---\nNew body\n',
+		});
+
 		const summaries = await listContextFileSummaries('project', access);
 
 		expect(summaries.find((summary) => summary.path === '/owned.md')).toEqual({
@@ -145,6 +152,10 @@ describe('context file headers', () => {
 			description: null,
 			owner: 'ada@example.com',
 			excerpt: 'body',
+		});
+		expect(summaries.find((summary) => summary.path === '/new.md')).toMatchObject({
+			title: 'New worktree file',
+			excerpt: 'New body',
 		});
 		expect(summaries.find((summary) => summary.path === '/plain.md')?.excerpt).toBe('no header');
 		expect(summaries.some((summary) => summary.path === '/notes.txt')).toBe(false);

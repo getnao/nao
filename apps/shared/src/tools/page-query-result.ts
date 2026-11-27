@@ -6,7 +6,7 @@ export const InputSchema = z.object({
 	query_id: z
 		.string()
 		.describe(
-			'The id of a previous `execute_sql` tool call (e.g. "query_a1b2c3d4"). The query result must be from this conversation.',
+			'The id of a previous query result (e.g. "query_a1b2c3d4"), from `execute_sql` or a semantic query in this conversation.',
 		),
 	offset: z.number().int().min(0).optional().describe('Row index to start reading from (0-based, default 0).'),
 	limit: z.number().int().min(1).optional().describe('Maximum number of rows to return (default 20, at most 100).'),

@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { Timer } from 'lucide-react';
 
-import type { AutomationEventTriggers } from '@nao/shared/types';
+import type { AutomationEventTriggers, ShareRole } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getAutomationTriggerLabel, getEnabledNaoEvents, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
@@ -16,6 +16,8 @@ export type AutomationSummary = {
 	webhookEnabled: boolean;
 	eventTriggers: AutomationEventTriggers;
 	lastRunStartedAt: Date | string | null;
+	accessRole: 'owner' | ShareRole;
+	ownerName: string | null;
 };
 
 export function AutomationsList({
@@ -56,7 +58,7 @@ function AutomationsListRow({ item }: { item: AutomationSummary }) {
 			>
 				<div className='flex min-w-0 flex-col gap-0.5'>
 					<span className='truncate text-sm font-medium'>{item.title}</span>
-					<span className='truncate text-xs text-muted-foreground'>{getAutomationTriggerLabel(item)}</span>
+					<span className='truncate text-xs text-muted-foreground'>{describeAutomation(item)}</span>
 				</div>
 				<div className='flex shrink-0 items-center gap-3'>
 					<span className={cn('text-xs text-muted-foreground', !item.lastRunStartedAt && 'italic')}>
@@ -67,6 +69,14 @@ function AutomationsListRow({ item }: { item: AutomationSummary }) {
 			</Link>
 		</li>
 	);
+}
+
+function describeAutomation(item: AutomationSummary): string {
+	const trigger = getAutomationTriggerLabel(item);
+	if (item.accessRole === 'owner') {
+		return trigger;
+	}
+	return `${trigger} · Shared by ${item.ownerName ?? 'a former member'}`;
 }
 
 function AutomationStatusBadge({ item }: { item: AutomationSummary }) {

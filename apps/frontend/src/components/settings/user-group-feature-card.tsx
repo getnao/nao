@@ -1,8 +1,9 @@
-import { AppWindow, ArrowRight, Check, Clock3, FileText, Zap } from 'lucide-react';
+import { AppWindow, ArrowRight, Check, Clock3, FileText, Hammer, User, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { UserGroupFeature } from '@nao/shared';
 
 import { GRID_CARD_CLASS } from '@/components/item-card';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 interface UserGroupFeatureDefinition {
@@ -14,6 +15,8 @@ interface UserGroupFeatureDefinition {
 interface UserGroupFeatureCardProps {
 	feature: UserGroupFeatureDefinition;
 	selected: boolean;
+	inherited?: boolean;
+	effectiveSelected?: boolean;
 	onSelectedChange: (selected: boolean) => void;
 	disabledReason?: string;
 }
@@ -21,17 +24,21 @@ interface UserGroupFeatureCardProps {
 export function UserGroupFeatureCard({
 	feature,
 	selected,
+	inherited = false,
+	effectiveSelected = selected || inherited,
 	onSelectedChange,
 	disabledReason,
 }: UserGroupFeatureCardProps) {
-	const disabled = disabledReason !== undefined;
+	const inheritedOnly = inherited && !selected;
+	const inheritanceLabel = inherited ? (selected ? 'Also from All Users' : 'From All Users') : null;
+	const disabled = inheritedOnly || disabledReason !== undefined;
 	return (
 		<button
 			type='button'
-			aria-label={`${feature.label}. ${feature.description}`}
-			aria-pressed={selected}
+			aria-label={`${feature.label}. ${feature.description}${inheritanceLabel ? `. ${inheritanceLabel}` : ''}`}
+			aria-pressed={effectiveSelected}
 			disabled={disabled}
-			title={disabledReason}
+			title={inheritedOnly ? 'Granted by All Users' : disabledReason}
 			onClick={() => onSelectedChange(!selected)}
 			className={cn(
 				GRID_CARD_CLASS,
@@ -39,23 +46,32 @@ export function UserGroupFeatureCard({
 				'hover:border-primary/40 hover:bg-accent/20',
 				'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent',
 				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-				selected && 'border-primary bg-primary/[0.04] ring-1 ring-primary/40 hover:bg-primary/[0.06]',
+				effectiveSelected &&
+					!inheritedOnly &&
+					'border-primary bg-primary/[0.04] ring-1 ring-primary/40 hover:bg-primary/[0.06]',
 			)}
 		>
 			<UserGroupFeatureCardContent
 				feature={feature}
 				status={
-					<div
-						className={cn(
-							'absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border bg-background/90 transition-colors',
-							selected
-								? 'border-primary bg-primary text-primary-foreground'
-								: 'border-border text-transparent',
+					<>
+						{inheritanceLabel && (
+							<Badge variant='secondary' className='absolute left-2 top-2 z-10 text-[10px]'>
+								{inheritanceLabel}
+							</Badge>
 						)}
-						aria-hidden='true'
-					>
-						<Check className='size-3' strokeWidth={3} />
-					</div>
+						<div
+							className={cn(
+								'absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border bg-background/90 transition-colors',
+								effectiveSelected
+									? 'border-primary bg-primary text-primary-foreground'
+									: 'border-border text-transparent',
+							)}
+							aria-hidden='true'
+						>
+							<Check className='size-3' strokeWidth={3} />
+						</div>
+					</>
 				}
 			/>
 		</button>
@@ -108,6 +124,8 @@ function FeaturePreview({ feature }: { feature: UserGroupFeature }) {
 			return <CustomStoryCreationPreview />;
 		case 'automationCreation':
 			return <AutomationCreationPreview />;
+		case 'personalSkills':
+			return <PersonalSkillsPreview />;
 	}
 }
 
@@ -180,6 +198,29 @@ function AutomationCreationPreview() {
 			<div className='flex h-10 w-14 flex-col items-center justify-center gap-1 rounded-md border bg-background shadow-sm'>
 				<Zap className='size-3.5 text-primary' />
 				<div className='h-1 w-7 rounded-full bg-foreground/10' />
+			</div>
+		</div>
+	);
+}
+
+function PersonalSkillsPreview() {
+	return (
+		<div
+			data-testid='personal-skills-preview'
+			className='absolute left-1/2 top-1/2 flex h-14 w-24 -translate-x-1/2 -translate-y-1/2 flex-col gap-1.5 rounded-md border bg-background p-2 shadow-sm'
+			aria-hidden='true'
+		>
+			<div className='flex items-center gap-1.5'>
+				<Hammer className='size-3 text-violet-600 dark:text-violet-400' />
+				<div className='h-1 w-10 rounded-full bg-foreground/15' />
+			</div>
+			<div className='flex items-center gap-1.5'>
+				<User className='size-3 text-teal-700 dark:text-teal-400' />
+				<div className='h-1 w-8 rounded-full bg-foreground/10' />
+			</div>
+			<div className='flex items-center gap-1.5'>
+				<User className='size-3 text-teal-700 dark:text-teal-400' />
+				<div className='h-1 w-12 rounded-full bg-foreground/10' />
 			</div>
 		</div>
 	);
