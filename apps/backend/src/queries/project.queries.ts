@@ -685,6 +685,19 @@ export const getEnvVars = async (projectId: string): Promise<Record<string, stri
 	return (project?.envVars as Record<string, string>) ?? {};
 };
 
+export const getProjectEnvVarsByIdentity = async (
+	projectId: string,
+	orgId: string | null,
+): Promise<Record<string, string> | null> => {
+	const [project] = await db
+		.select({ envVars: s.project.envVars })
+		.from(s.project)
+		.where(and(eq(s.project.id, projectId), orgId === null ? isNull(s.project.orgId) : eq(s.project.orgId, orgId)))
+		.limit(1)
+		.execute();
+	return project?.envVars ?? null;
+};
+
 export const updateEnvVars = async (projectId: string, envVars: Record<string, string>): Promise<void> => {
 	await db.update(s.project).set({ envVars }).where(eq(s.project.id, projectId)).execute();
 };

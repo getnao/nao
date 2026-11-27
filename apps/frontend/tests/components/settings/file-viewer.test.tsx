@@ -9,13 +9,17 @@ import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { ReactNode } from 'react';
 import { FileViewer, isRootRulesPath } from '@/components/settings/file-viewer';
 
+const mocks = vi.hoisted(() => ({
+	syncStatus: { data: undefined as { run: { status: string } | null; syncingBy: string | null } | undefined },
+}));
+
 const owners = [{ id: 'ada', name: 'Ada Lovelace', email: 'ada@example.com' }];
 const ORDERS_FOLDER = '/databases/type=duckdb/database=shop/schema=main/table=orders';
 const defaultMutation = () => ({ isPending: false, mutate: vi.fn() });
 
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: vi.fn(() => defaultMutation()),
-	useQuery: vi.fn(() => ({ data: owners })),
+	useQuery: vi.fn((options) => (options.queryKey[0] === 'project-sync-status' ? mocks.syncStatus : { data: owners })),
 	useQueryClient: vi.fn(() => ({
 		invalidateQueries: vi.fn(),
 		setQueryData: vi.fn(),
@@ -59,6 +63,9 @@ vi.mock('@/main', () => ({
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: [] })) },
 			writeFile: { mutationOptions: vi.fn(() => ({})) },
 		},
+		projectSync: {
+			getStatus: { queryOptions: vi.fn(() => ({ queryKey: ['project-sync-status'] })) },
+		},
 	},
 }));
 
@@ -80,8 +87,41 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
-	vi.mocked(useQuery).mockImplementation(() => ({ data: owners }) as never);
+	mocks.syncStatus.data = undefined;
+	vi.mocked(useQuery).mockImplementation(
+		(options) => (options.queryKey[0] === 'project-sync-status' ? mocks.syncStatus : { data: owners }) as never,
+	);
 	vi.mocked(useMutation).mockImplementation(() => defaultMutation() as never);
+});
+
+describe('FileViewer saving', () => {
+	it.each([
+		{ name: 'their own sync is running', run: { status: 'running' }, syncingBy: null, isManagedRepository: false },
+		{
+			name: 'another admin is syncing a nao-managed project',
+			run: null,
+			syncingBy: 'Marie',
+			isManagedRepository: true,
+		},
+	])('pauses saving while $name', ({ run, syncingBy, isManagedRepository }) => {
+		mocks.syncStatus.data = { run, syncingBy };
+		renderViewer({ filePath: '/databases/sales.yaml', content: 'name: sales\n', isManagedRepository });
+
+		fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'name: edited\n' } });
+
+		const saveButton = screen.getByRole('button', { name: /Save/ });
+		expect(saveButton.hasAttribute('disabled')).toBe(true);
+		expect(saveButton.getAttribute('title')).toBe('Saving is paused until the project sync finishes.');
+	});
+
+	it("allows saving in a Git worktree while another admin's sync is running", () => {
+		mocks.syncStatus.data = { run: null, syncingBy: 'Marie' };
+		renderViewer({ filePath: '/databases/sales.yaml', content: 'name: sales\n', isManagedRepository: false });
+
+		fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'name: edited\n' } });
+
+		expect(screen.getByRole('button', { name: /Save/ }).hasAttribute('disabled')).toBe(false);
+	});
 });
 
 describe('FileViewer RULES preview', () => {
@@ -432,12 +472,14 @@ function renderViewer({
 	content,
 	rulesPreviewGroups = groups,
 	isEditable = true,
+	isManagedRepository = false,
 	hasMarkdownSourceViews,
 	onDraftChange,
 }: {
 	filePath: string;
 	content: string;
 	isEditable?: boolean;
+	isManagedRepository?: boolean;
 	hasMarkdownSourceViews?: boolean;
 	onDraftChange?: (path: string, content: string) => void;
 	rulesPreviewGroups?:
@@ -454,6 +496,7 @@ function renderViewer({
 			isLoading={false}
 			isError={false}
 			isEditable={isEditable}
+			isManagedRepository={isManagedRepository}
 			editabilityGuidance={null}
 			searchQuery=''
 			sourceAutoOpenRequestId={null}

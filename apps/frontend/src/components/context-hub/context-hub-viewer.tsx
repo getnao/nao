@@ -15,6 +15,7 @@ interface ContextHubViewerProps {
 	/** A change picked in the Changes tab, shown instead of the open file. */
 	diffPath: string | null;
 	isDirty: boolean;
+	isManagedRepository: boolean;
 	onOpenFile: (path: string) => void;
 	onDirtyChange: (isDirty: boolean) => void;
 }
@@ -26,6 +27,7 @@ export function ContextHubViewer({
 	path,
 	diffPath,
 	isDirty,
+	isManagedRepository,
 	onOpenFile,
 	onDirtyChange,
 }: ContextHubViewerProps) {
@@ -54,7 +56,12 @@ export function ContextHubViewer({
 			)}
 			<ContextFileRecommendations path={path} isDirty={isDirty} />
 			<div className='min-h-0 flex-1'>
-				<ContextHubFile path={path} onDirtyChange={onDirtyChange} onOpenFile={onOpenFile} />
+				<ContextHubFile
+					path={path}
+					isManagedRepository={isManagedRepository}
+					onDirtyChange={onDirtyChange}
+					onOpenFile={onOpenFile}
+				/>
 			</div>
 		</div>
 	);

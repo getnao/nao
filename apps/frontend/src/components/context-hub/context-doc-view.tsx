@@ -19,6 +19,7 @@ import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-me
 import { ContextHubViewer } from '@/components/context-hub/context-hub-viewer';
 import { OpenEditorChatButton } from '@/components/editor-chat-panel';
 import { NewSkillButton, NewSkillDialog, useNewSkillScope } from '@/components/personal-skills';
+import { CloudSyncPanel } from '@/components/settings/cloud-sync';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,8 @@ import { useContextChanges } from '@/hooks/use-context-changes';
 import { useTestSuite } from '@/hooks/use-upstream-context';
 import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
 import { getDocViewTestsPage } from '@/lib/context-explorer-search';
+import { useIsCloud } from '@/hooks/use-nao-mode';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
 	buildContextHubContent,
 	findTableOfPath,
@@ -70,6 +73,8 @@ export function ContextDocView({
 	const requestedPath = testsPage ? null : (contextSearch.path ?? null);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const isCloud = useIsCloud();
+	const { isAdmin } = usePermissions();
 	const [search, setSearch] = useState('');
 	const [isDirty, setIsDirty] = useState(false);
 	const [shownDiff, setShownDiff] = useState<ShownDiff | null>(null);
@@ -188,6 +193,7 @@ export function ContextDocView({
 							filesLabel='Context'
 							onSelectFiles={() => requestTarget({ type: 'file', path: null })}
 							changeCount={changedFileCount}
+							sync={isCloud ? <CloudSyncPanel isAdmin={isAdmin} /> : undefined}
 							viewMenu={
 								<div className='flex shrink-0 items-center gap-0.5'>
 									<OpenEditorChatButton
@@ -293,6 +299,7 @@ export function ContextDocView({
 									path={openPath}
 									diffPath={diffPath}
 									isDirty={isDirty}
+									isManagedRepository={fileTree.data?.isManagedRepository === true}
 									onOpenFile={openFile}
 									onDirtyChange={setIsDirty}
 								/>

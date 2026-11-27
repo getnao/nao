@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { DBProjectWarehouseCredentials } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -31,4 +31,22 @@ export async function getProjectWarehouseCredentials(projectId: string): Promise
 		.where(eq(s.projectWarehouseCredentials.projectId, projectId))
 		.execute();
 	return credentials ?? null;
+}
+
+export async function getProjectWarehouseCredentialsByIdentity(
+	projectId: string,
+	orgId: string | null,
+): Promise<DBProjectWarehouseCredentials | null> {
+	const [credentials] = await db
+		.select({ credentials: s.projectWarehouseCredentials })
+		.from(s.projectWarehouseCredentials)
+		.innerJoin(s.project, eq(s.project.id, s.projectWarehouseCredentials.projectId))
+		.where(
+			and(
+				eq(s.projectWarehouseCredentials.projectId, projectId),
+				orgId === null ? isNull(s.project.orgId) : eq(s.project.orgId, orgId),
+			),
+		)
+		.execute();
+	return credentials?.credentials ?? null;
 }

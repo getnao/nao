@@ -5,7 +5,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { createLocalStorage } from '@/lib/local-storage';
 import { cn } from '@/lib/utils';
 
-type ContextSidebarView = 'files' | 'changes';
+type ContextSidebarView = 'files' | 'changes' | 'sync';
 
 const sidebarViewStorage = createLocalStorage<ContextSidebarView>('nao-context-sidebar-view', 'files');
 
@@ -19,6 +19,7 @@ export function ContextSidebar({
 	changeCount,
 	files,
 	changes,
+	sync,
 	viewMenu,
 	footer,
 }: {
@@ -28,37 +29,47 @@ export function ContextSidebar({
 	changeCount: number;
 	files: ReactNode;
 	changes?: ReactNode;
+	sync?: ReactNode;
 	/** Sits at the end of the tab bar, like the menu switching to the doc view. */
 	viewMenu?: ReactNode;
 	/** Stays under both views, like a warning panel. */
 	footer?: ReactNode;
 }) {
 	const [view, setView] = useLocalStorage(sidebarViewStorage);
-	const activeView = changes === undefined ? 'files' : view;
+	const activeView =
+		(view === 'changes' && changes === undefined) || (view === 'sync' && sync === undefined) ? 'files' : view;
 
 	return (
 		<div className='flex h-full flex-col overflow-hidden bg-card'>
 			<TabBar label='Context Hub views' trailing={viewMenu}>
-				<EditorTab
-					label={filesLabel}
-					isActive={activeView === 'files'}
-					onSelect={() => {
-						setView('files');
-						onSelectFiles?.();
-					}}
-				/>
-				{changes !== undefined && (
+				<div className='flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
 					<EditorTab
-						label='Changes'
-						badge={changeCount > 0 ? changeCount : undefined}
-						isActive={activeView === 'changes'}
-						onSelect={() => setView('changes')}
+						label={filesLabel}
+						isActive={activeView === 'files'}
+						onSelect={() => {
+							setView('files');
+							onSelectFiles?.();
+						}}
 					/>
-				)}
+					{changes !== undefined && (
+						<EditorTab
+							label='Changes'
+							badge={changeCount > 0 ? changeCount : undefined}
+							isActive={activeView === 'changes'}
+							onSelect={() => setView('changes')}
+						/>
+					)}
+					{sync !== undefined && (
+						<EditorTab label='Sync' isActive={activeView === 'sync'} onSelect={() => setView('sync')} />
+					)}
+				</div>
 			</TabBar>
 			<div className={cn('min-h-0 flex-1', activeView !== 'files' && 'hidden')}>{files}</div>
 			{changes !== undefined && (
 				<div className={cn('min-h-0 flex-1', activeView !== 'changes' && 'hidden')}>{changes}</div>
+			)}
+			{sync !== undefined && (
+				<div className={cn('min-h-0 flex-1 overflow-auto', activeView !== 'sync' && 'hidden')}>{sync}</div>
 			)}
 			{footer}
 		</div>

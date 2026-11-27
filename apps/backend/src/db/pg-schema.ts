@@ -1755,6 +1755,7 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'project.synced',
 	'user_group.impersonation_started',
 	'user_group.impersonation_stopped',
 ] as const;
