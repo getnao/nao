@@ -401,8 +401,11 @@ def bundle_quickjs_wasm(project_root: Path, output_dir: Path) -> None:
     print(f"   QuickJS wasm: {output_dir / 'quickjs.wasm'}")
 
 
-def build_server(project_root: Path, output_dir: Path) -> None:
-    """Build the frontend and backend into a standalone server."""
+def build_server(project_root: Path, output_dir: Path, frontend_dist: Path | None = None) -> None:
+    """Build the frontend and backend into a standalone server.
+
+    A prebuilt `frontend_dist` is used as is: the frontend is the same on every platform, so CI builds it once.
+    """
     backend_dir = project_root / "apps" / "backend"
     frontend_dir = project_root / "apps" / "frontend"
 
@@ -432,15 +435,17 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     _ensure_platform_deps(project_root)
 
     # Step 2: Build frontend
-    print("\n🎨 Building frontend...")
-    run(["npx", "vite", "build"], cwd=frontend_dir)
+    if frontend_dist is None:
+        frontend_dist = build_frontend(frontend_dir)
+    else:
+        print(f"\n🎨 Using the prebuilt frontend in {frontend_dist}")
 
     # Step 3: Copy frontend dist to backend public folder
     print("\n📁 Copying frontend assets to backend...")
     backend_public = backend_dir / "public"
     if backend_public.exists():
         shutil.rmtree(backend_public)
-    shutil.copytree(frontend_dir / "dist", backend_public)
+    shutil.copytree(frontend_dist, backend_public)
 
     # Step 4: Compile backend CLI with Bun
     print("\n⚡ Compiling backend CLI with Bun...")
@@ -578,6 +583,12 @@ def build_server(project_root: Path, output_dir: Path) -> None:
         print(f"   Ripgrep: {output_dir / rg_binary_name}")
 
 
+def build_frontend(frontend_dir: Path) -> Path:
+    print("\n🎨 Building frontend...")
+    run(["npx", "vite", "build"], cwd=frontend_dir)
+    return frontend_dir / "dist"
+
+
 def build_package(cli_dir: Path) -> None:
     """Build the Python package with uv."""
     # Clean dist folder first
@@ -586,8 +597,8 @@ def build_package(cli_dir: Path) -> None:
         shutil.rmtree(dist_dir)
         print("🧹 Cleaned dist folder")
 
-    print("\n📦 Building Python package...")
-    run(["uv", "build"], cwd=cli_dir)
+    print("\n📦 Building Python wheel...")
+    run(["uv", "build", "--wheel"], cwd=cli_dir)
 
     version = get_current_version(cli_dir)
     print(f"\n✅ Build complete! (v{version})")
@@ -607,6 +618,10 @@ def build(
     bump: Annotated[
         BumpType | None,
         Parameter(help="Bump version before building (patch, minor, major)"),
+    ] = None,
+    frontend_dist: Annotated[
+        Path | None,
+        Parameter(help="Bundle this prebuilt frontend instead of building it"),
     ] = None,
 ) -> None:
     """Build the nao-core package.
@@ -657,7 +672,10 @@ def build(
             sys.exit(1)
         print("✓ Skipping server build (--skip-server)")
     elif needs_build:
-        build_server(project_root, output_dir)
+        if frontend_dist is not None and not (frontend_dist / "index.html").exists():
+            print(f"❌ No built frontend found in {frontend_dist}")
+            sys.exit(1)
+        build_server(project_root, output_dir, frontend_dist)
     else:
         print("✓ Server binary already exists, skipping build (use --force to rebuild)")
 
