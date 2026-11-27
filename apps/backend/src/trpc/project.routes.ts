@@ -212,10 +212,15 @@ async function resolveDatabricksListingSettings(
 	if (isCloud && input.baseUrl) {
 		await assertPublicBaseUrl(input.baseUrl);
 	}
+	const isSavedWorkspace = saved?.baseURL === baseUrl;
 	if (input.apiKey || input.credentials?.clientSecret) {
-		return { apiKey: input.apiKey ?? '', credentials: input.credentials, ...projectEndpointSettings(baseUrl) };
+		return {
+			apiKey: input.apiKey ?? '',
+			credentials: { ...(isSavedWorkspace && saved.credentials), ...input.credentials },
+			...projectEndpointSettings(baseUrl),
+		};
 	}
-	if (!saved || saved.baseURL !== baseUrl) {
+	if (!isSavedWorkspace) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: 'Enter a personal access token or service principal credentials for this workspace.',

@@ -294,6 +294,26 @@ describe('project.listDatabricksServingEndpoints', () => {
 		expect(new Headers(init.headers).get('Authorization')).toBe('Bearer dapi-saved');
 	});
 
+	it('signs in with the saved client ID when only a new secret is typed for the saved workspace', async () => {
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			provider: 'databricks',
+			credentialSource: 'database',
+			apiKey: '',
+			baseUrl: savedWorkspace,
+			credentials: { clientId: 'sp-saved', clientSecret: 'sp-old-secret' },
+			modelSettings: {},
+		});
+
+		await caller.listDatabricksServingEndpoints({
+			baseUrl: savedWorkspace,
+			credentials: { clientSecret: 'sp-new-secret' },
+		});
+
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe(`${savedWorkspace}/oidc/v1/token`);
+		expect(new Headers(init.headers).get('Authorization')).toBe(`Basic ${btoa('sp-saved:sp-new-secret')}`);
+	});
+
 	it('never sends the saved token to a workspace URL typed in the form', async () => {
 		await expect(
 			caller.listDatabricksServingEndpoints({ baseUrl: 'https://elsewhere.example.com' }),
