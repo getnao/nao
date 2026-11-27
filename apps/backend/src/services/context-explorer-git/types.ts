@@ -98,9 +98,12 @@ export interface LiveContextPullResult {
 	files: LiveContextPullFile[];
 }
 
-export interface CreateBranchAndCommitInput {
+export interface CreateBranchAndCommitInput extends CommitInput {
 	branch?: string;
-	paths: string[];
+}
+
+export interface CommitInput {
+	paths: string[] | 'all';
 	message: string;
 }
 

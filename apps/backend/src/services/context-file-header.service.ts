@@ -189,7 +189,7 @@ function canChangeOwner(file: FileContentResponse, reading: ContextFileHeaderRea
 
 async function listMarkdownPaths(projectId: string, access: ContextExplorerFileAccess): Promise<string[]> {
 	const entries = (await hasContextRepository(projectId))
-		? await getFileTree(access.projectFolder)
+		? await getFileTree(access)
 		: await getNaoDraftFileTree(access.draftOwner, access.projectFolder);
 	return collectMarkdownPaths(entries);
 }

@@ -4,9 +4,11 @@ import { resolveContextRepository } from '../utils/context-repo';
 import type { ContextExplorerFileAccess } from './context-explorer.service';
 import {
 	type ContextExplorerGitContext,
+	type ContextExplorerGitResolution,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 } from './context-explorer-git.service';
+import { readManagedGithubRepositoryFullName } from './managed-github-repository';
 import { resolveRepositoryProvider } from './shared-github-token.service';
 
 interface ContextExplorerUser {
@@ -22,10 +24,12 @@ export async function createSafeFileAccess(
 	user: ContextExplorerUser,
 ): Promise<ContextExplorerFileAccess> {
 	const context = await createGitContext(projectId, projectPath, user);
+	const git = await resolveContextExplorerGitSafely(context);
 	return {
 		projectFolder: context.projectFolder,
-		git: await resolveContextExplorerGitSafely(context),
+		git,
 		draftOwner: { projectId, userId: user.id },
+		managedRepository: await resolveManagedRepository(git, context),
 	};
 }
 
@@ -35,11 +39,24 @@ export async function createStrictFileAccess(
 	user: ContextExplorerUser,
 ): Promise<ContextExplorerFileAccess> {
 	const context = await createGitContext(projectId, projectPath, user);
+	const git = await resolveContextExplorerGit(context);
 	return {
 		projectFolder: context.projectFolder,
-		git: await resolveContextExplorerGit(context),
+		git,
 		draftOwner: { projectId, userId: user.id },
+		managedRepository: await resolveManagedRepository(git, context),
 	};
+}
+
+async function resolveManagedRepository(
+	git: ContextExplorerGitResolution,
+	context: ContextExplorerGitContext,
+): Promise<ContextExplorerFileAccess['managedRepository']> {
+	if (git.status !== 'unavailable' || git.reason !== 'no-repo') {
+		return null;
+	}
+	const repoFullName = await readManagedGithubRepositoryFullName(context.projectFolder);
+	return repoFullName ? { repoFullName, author: context.user } : null;
 }
 
 export async function createGitContext(

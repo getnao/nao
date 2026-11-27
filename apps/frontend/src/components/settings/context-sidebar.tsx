@@ -27,34 +27,39 @@ export function ContextSidebar({
 	onSelectFiles?: () => void;
 	changeCount: number;
 	files: ReactNode;
-	changes: ReactNode;
+	changes?: ReactNode;
 	/** Sits at the end of the tab bar, like the menu switching to the doc view. */
 	viewMenu?: ReactNode;
 	/** Stays under both views, like a warning panel. */
 	footer?: ReactNode;
 }) {
 	const [view, setView] = useLocalStorage(sidebarViewStorage);
+	const activeView = changes === undefined ? 'files' : view;
 
 	return (
 		<div className='flex h-full flex-col overflow-hidden bg-card'>
 			<TabBar label='Context Hub views' trailing={viewMenu}>
 				<EditorTab
 					label={filesLabel}
-					isActive={view === 'files'}
+					isActive={activeView === 'files'}
 					onSelect={() => {
 						setView('files');
 						onSelectFiles?.();
 					}}
 				/>
-				<EditorTab
-					label='Changes'
-					badge={changeCount > 0 ? changeCount : undefined}
-					isActive={view === 'changes'}
-					onSelect={() => setView('changes')}
-				/>
+				{changes !== undefined && (
+					<EditorTab
+						label='Changes'
+						badge={changeCount > 0 ? changeCount : undefined}
+						isActive={activeView === 'changes'}
+						onSelect={() => setView('changes')}
+					/>
+				)}
 			</TabBar>
-			<div className={cn('min-h-0 flex-1', view !== 'files' && 'hidden')}>{files}</div>
-			<div className={cn('min-h-0 flex-1', view !== 'changes' && 'hidden')}>{changes}</div>
+			<div className={cn('min-h-0 flex-1', activeView !== 'files' && 'hidden')}>{files}</div>
+			{changes !== undefined && (
+				<div className={cn('min-h-0 flex-1', activeView !== 'changes' && 'hidden')}>{changes}</div>
+			)}
 			{footer}
 		</div>
 	);
