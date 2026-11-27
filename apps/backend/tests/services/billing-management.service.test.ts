@@ -56,7 +56,7 @@ import {
 	createCloudResubscribeForAdmin,
 	createCloudTrialCheckoutForAdmin,
 	createCreditTopUpCheckoutForAdmin,
-	getCloudBillingOrganizationForAdmin,
+	loadCloudBillingOrganization,
 } from '../../src/services/billing-management.service';
 
 const adminInput = { userId: 'user-id', organizationId: 'org-id' };
@@ -74,14 +74,14 @@ describe('billing management organization loading', () => {
 		};
 		mocks.getOrganizationWithBilling.mockResolvedValue(organization);
 
-		await expect(getCloudBillingOrganizationForAdmin(adminInput)).resolves.toBe(organization);
+		await expect(loadCloudBillingOrganization('org-id')).resolves.toBe(organization);
 		expect(mocks.getOrganizationWithBilling).toHaveBeenCalledWith('org-id');
 	});
 
 	it('rejects a missing organization', async () => {
 		mocks.getOrganizationWithBilling.mockResolvedValue(null);
 
-		await expect(getCloudBillingOrganizationForAdmin(adminInput)).rejects.toMatchObject({
+		await expect(loadCloudBillingOrganization('org-id')).rejects.toMatchObject({
 			codeMessage: 'NOT_FOUND',
 		});
 	});
@@ -141,7 +141,7 @@ describe('billing management organization loading', () => {
 			});
 
 		await expect(
-			createCloudTrialCheckoutForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+			createCloudTrialCheckoutForAdmin({ ...adminInput, planKey: 'cloud_unlimited_monthly_v1', currency: 'usd' }),
 		).rejects.toThrow('already used its free trial');
 
 		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
@@ -163,12 +163,13 @@ describe('billing management organization loading', () => {
 		mocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/cloud');
 
 		await expect(
-			createCloudTrialCheckoutForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+			createCloudTrialCheckoutForAdmin({ ...adminInput, planKey: 'cloud_unlimited_monthly_v1', currency: 'usd' }),
 		).resolves.toBe('https://checkout.stripe.com/cloud');
 
 		expect(mocks.createCustomer).toHaveBeenCalledOnce();
 		expect(mocks.createCheckout).toHaveBeenCalledWith({
-			billingInterval: 'monthly',
+			planKey: 'cloud_unlimited_monthly_v1',
+			quantity: 1,
 			currency: 'usd',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
@@ -201,7 +202,7 @@ describe('billing management organization loading', () => {
 			});
 
 		await expect(
-			createCloudResubscribeForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+			createCloudResubscribeForAdmin({ ...adminInput, planKey: 'cloud_unlimited_monthly_v1', currency: 'usd' }),
 		).rejects.toThrow('A new subscription is not available');
 
 		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
@@ -238,12 +239,13 @@ describe('billing management organization loading', () => {
 		mocks.createResubscribe.mockResolvedValue('https://checkout.example.com');
 
 		await expect(
-			createCloudResubscribeForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+			createCloudResubscribeForAdmin({ ...adminInput, planKey: 'cloud_unlimited_monthly_v1', currency: 'usd' }),
 		).resolves.toBe('https://checkout.example.com');
 
 		expect(mocks.createResubscribe).toHaveBeenCalledWith({
 			allowMissingHistory: false,
-			billingInterval: 'monthly',
+			planKey: 'cloud_unlimited_monthly_v1',
+			quantity: 1,
 			currency: 'usd',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',

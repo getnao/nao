@@ -49,7 +49,7 @@ export const automationWebhookRoutes = async (app: App) => {
 			return reply.status(409).send({ error: 'Automation is paused' });
 		}
 
-		await assertProjectCloudBillingAccess(automation.projectId);
+		await assertProjectCloudBillingAccess(automation.projectId, automation.userId);
 		const run = await startAutomationRun(automationId, {
 			billingAccessVerifiedProjectId: automation.projectId,
 			requireEnabled: false,

@@ -64,6 +64,29 @@ function blankToUndefined(value: unknown): unknown {
 	return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
 
+const stripeIdentifier = z.string().trim().min(1);
+
+const stripeConfigSchema = z.object({
+	products: z.object({
+		legacyUnlimited: stripeIdentifier,
+		trial: stripeIdentifier,
+		team: stripeIdentifier,
+		unlimited: stripeIdentifier,
+		credit: stripeIdentifier,
+		platformFee: stripeIdentifier,
+	}),
+	prices: z.object({
+		trial: stripeIdentifier,
+		cloud_team_monthly_v1: stripeIdentifier,
+		cloud_team_yearly_v1: stripeIdentifier,
+		cloud_unlimited_monthly_v1: stripeIdentifier,
+		cloud_unlimited_yearly_v1: stripeIdentifier,
+	}),
+	portalConfigurationId: stripeIdentifier.optional(),
+});
+
+export type StripeConfig = z.output<typeof stripeConfigSchema>;
+
 const emittedDeprecationWarnings = new Set<string>();
 
 function resolveOidcGroupNaoRoleMapping(
@@ -374,38 +397,21 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
-	STRIPE_CLOUD_PRODUCT_ID: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_CLOUD_TRIAL_PRODUCT_ID: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_CREDIT_PRODUCT_ID: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-	STRIPE_PORTAL_CONFIGURATION_ID: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
+	STRIPE_CONFIG: z.preprocess(
+		blankToUndefined,
+		z
+			.string()
+			.transform((value, ctx) => {
+				try {
+					return JSON.parse(value) as unknown;
+				} catch {
+					ctx.addIssue({ code: 'custom', message: 'STRIPE_CONFIG must be valid JSON' });
+					return z.NEVER;
+				}
+			})
+			.pipe(stripeConfigSchema)
+			.optional(),
+	),
 
 	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
 	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
@@ -582,17 +588,7 @@ const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema)
 const envSchema = rawEnvSchema
 	.superRefine((data, ctx) => {
 		if (isCloudBillingEnabled(data)) {
-			for (const variable of [
-				'STRIPE_SECRET_KEY',
-				'STRIPE_WEBHOOK_SECRET',
-				'STRIPE_CLOUD_PRODUCT_ID',
-				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
-				'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
-				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
-				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
-				'STRIPE_CREDIT_PRODUCT_ID',
-				'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
-			] as const) {
+			for (const variable of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_CONFIG'] as const) {
 				if (!data[variable]) {
 					ctx.addIssue({
 						code: 'custom',

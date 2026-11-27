@@ -158,7 +158,7 @@ describe('MCP endpoint project scoping', () => {
 		expect(response.body).toContain('"serverInfo"');
 		expect(testState.createdForProjects).toEqual(['project-b']);
 		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledOnce();
-		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-b');
+		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-b', 'user-1');
 	});
 
 	it('rejects a project with restricted cloud billing before creating the server', async () => {

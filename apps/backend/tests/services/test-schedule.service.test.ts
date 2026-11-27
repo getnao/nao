@@ -47,6 +47,7 @@ import {
 	deleteTestSchedule,
 	InvalidTestScheduleError,
 	listTestSchedules,
+	resolveTestScheduleScope,
 	runScheduledTests,
 	setTestScheduleEnabled,
 	syncAllConfiguredTestSchedules,
@@ -271,6 +272,18 @@ describe('test schedules', () => {
 			models: undefined,
 			attempts: undefined,
 			isScheduled: true,
+		});
+	});
+
+	it.each([
+		{ case: 'who saved it while they can test the context', role: 'admin', ownerId: 'user-1' },
+		{ case: 'the project admin who replaces its owner', role: 'user', ownerId: 'admin-1' },
+	])('scopes a schedule to $case, so the scheduler pauses it without their seat', async ({ role, ownerId }) => {
+		mocks.getUserRoleInProject.mockResolvedValue(role);
+
+		await expect(resolveTestScheduleScope({ ...OWNER, ...RUN })).resolves.toEqual({
+			projectId: 'project-1',
+			ownerId,
 		});
 	});
 

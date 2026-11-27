@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 
 import { isManagedAiEnabled } from '../agents/managed-ai';
 import type { DBProject } from '../db/abstractSchema';
-import { isCloud } from '../env';
+import { isCloud, isCloudBillingEnabled } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as managedAiUsageQueries from '../queries/managed-ai-usage.queries';
@@ -67,9 +67,9 @@ export const accountRoutes = {
 		const summary = await creditWalletQueries.getCreditSummary(ctx.membership.orgId);
 		return { ...summary, organizationId: ctx.membership.orgId, enabled: isManagedAiEnabled() };
 	}),
-	/** Setup credits are only granted in cloud mode, so a self-hosted instance never welcomes anyone to them. */
+	/** Setup credits are only welcomed where cloud billing runs, so self-hosted and unbilled instances never show them. */
 	getOrganizationSetupCreditGrant: walletAdminProcedure.query(({ ctx }) =>
-		isCloud ? creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId) : null,
+		isCloudBillingEnabled() ? creditWalletQueries.getOrganizationSetupCreditGrant(ctx.membership.orgId) : null,
 	),
 	listCreditLedger: walletAdminProcedure.input(creditLedgerPaginationInput).query(({ ctx, input }) => {
 		return creditWalletQueries.listCreditLedger(ctx.membership.orgId, input);

@@ -69,6 +69,8 @@ export type NewSsoProvider = typeof sqliteSchema.ssoProvider.$inferInsert;
 export type DBOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferSelect;
 export type NewOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferInsert;
 
+export type DBOrganizationSeatState = typeof sqliteSchema.organizationSeatState.$inferSelect;
+
 export type DBStripeWebhookEvent = typeof sqliteSchema.stripeWebhookEvent.$inferSelect;
 export type NewStripeWebhookEvent = typeof sqliteSchema.stripeWebhookEvent.$inferInsert;
 

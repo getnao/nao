@@ -8,6 +8,7 @@ import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { cleanupContextWorktree } from './context-explorer-git.service';
 import { recordOrganizationJoinCandidate, recordProjectJoinCandidate } from './credit-grant.service';
+import { clearSeatSelectionAndSync, reserveSeat, syncOrganizationSeats } from './organization-seat.service';
 import { addProjectMemberWithUserGroups } from './project-user-group-membership.service';
 
 export async function addOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
@@ -48,7 +49,15 @@ export async function putOrganizationMember(
 	} else {
 		await createOrganizationMember({ orgId, userId, role });
 	}
+	await syncOrganizationSeats(orgId);
 	return { userId, role };
+}
+
+/** Gives the member the seat that was just bought for them, ahead of anyone already waiting for one. */
+export async function putOrganizationMemberWithSeat(orgId: string, userId: string, role: OrgRole) {
+	await reserveSeat(orgId, userId);
+	const existing = await orgQueries.getOrgMember(orgId, userId);
+	return putOrganizationMember(orgId, userId, existing?.role ?? role);
 }
 
 export async function removeOrganizationMember(
@@ -67,6 +76,7 @@ export async function removeOrganizationMember(
 	await orgQueries.removeOrgMemberFromProjects(orgId, userId);
 	await orgQueries.removeOrgMember(orgId, userId);
 	await cleanupLostOrgContextAccess(orgId, userId);
+	await clearSeatSelectionAndSync(orgId, userId);
 }
 
 export async function putProjectMember(projectId: string, userId: string, role: UserRole) {
@@ -91,6 +101,7 @@ export async function putProjectMember(projectId: string, userId: string, role: 
 	if (project.path && isContextRole(previousRole) && !isContextRole(role)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
 	}
+	await syncOrganizationSeats(project.orgId);
 	return { userId, role };
 }
 
@@ -105,6 +116,9 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 	if (project.path && !isContextRole(remainingRole)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
 	}
+	if (project.orgId) {
+		await clearSeatSelectionAndSync(project.orgId, userId);
+	}
 }
 
 async function createOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
@@ -114,6 +128,7 @@ async function createOrganizationMember(member: NewOrgMember): Promise<DBOrgMemb
 async function persistOrganizationMember<T>(member: NewOrgMember, persist: () => Promise<T>): Promise<T> {
 	const created = await persist();
 	await recordOrganizationJoinCandidate(member.orgId, member.userId);
+	await syncOrganizationSeats(member.orgId);
 	return created;
 }
 
@@ -122,6 +137,10 @@ async function createProjectMember(member: NewProjectMember, groupIds: string[] 
 		? await addProjectMemberWithUserGroups(member, groupIds)
 		: await projectQueries.addProjectMember(member);
 	await recordProjectJoinCandidate(member.projectId, member.userId);
+	const orgId = (await projectQueries.getProjectById(member.projectId))?.orgId;
+	if (orgId) {
+		await syncOrganizationSeats(orgId);
+	}
 	return created;
 }
 

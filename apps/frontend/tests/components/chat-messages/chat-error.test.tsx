@@ -101,6 +101,20 @@ it('offers billing management and retry actions for a billing access error', asy
 	});
 });
 
+it('explains a seat restriction as read-only access and offers billing management', () => {
+	mocks.error = new Error(
+		JSON.stringify({
+			error: 'Cloud billing seat access is restricted. Your organization has more people than seats.',
+		}),
+	);
+
+	render(<ChatError />);
+
+	expect(screen.getByRole('status').textContent).toContain('You have read-only access.');
+	expect(screen.getByRole('status').textContent).toContain('Add or reassign a seat');
+	expect(screen.getByRole('button', { name: 'Manage billing' })).toBeTruthy();
+});
+
 it('directs trial-eligible admins to finish project setup', () => {
 	mocks.access.trialAvailable = true;
 

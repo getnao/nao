@@ -18,6 +18,7 @@ import {
 	type SlackChannelDelivery,
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
+import type { JobScope } from '../services/scheduler.service';
 import { skillService } from '../services/skill';
 import type { AutomationIntegrationResult, AutomationRunTrigger, AutomationTriggerEvent } from '../types/automation';
 import type { UIMessage, UIMessagePart } from '../types/chat';
@@ -69,7 +70,7 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	});
 }
 
-export async function resolveAutomationProjectId(payload: AutomationJobPayload): Promise<string> {
+export async function resolveAutomationScope(payload: AutomationJobPayload): Promise<JobScope> {
 	const automationId = payload.automationId;
 	if (!automationId) {
 		throw new Error('automationId is required.');
@@ -78,7 +79,7 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 	if (!automation) {
 		throw new Error(`Automation not found: ${automationId}`);
 	}
-	return automation.projectId;
+	return { projectId: automation.projectId, ownerId: automation.userId };
 }
 
 /** Fails the automation runs of this instance and stops their agents, so a restart never leaves a run going. */

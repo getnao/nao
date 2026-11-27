@@ -16,6 +16,7 @@ import * as userQueries from '../queries/user.queries';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
 import { omitAccessDeniedQueries, refreshStoryById, refreshStoryForViewer } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
+import type { JobScope } from '../services/scheduler.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
 import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import type { EmailAttachment } from '../types/email';
@@ -84,7 +85,7 @@ async function saveRetrySkips(
 	}
 }
 
-export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPayload): Promise<string | null> {
+export async function resolveStoryDeliveryScope(payload: StoryDeliveryJobPayload): Promise<JobScope | null> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
@@ -96,7 +97,7 @@ export async function resolveStoryDeliveryProjectId(payload: StoryDeliveryJobPay
 	if (!projectId) {
 		throw new Error(`Story ${payload.storyId} is missing a project; cannot deliver.`);
 	}
-	return projectId;
+	return { projectId, ownerId: story.userId ?? (await storyQueries.getStoryOwnerId(story.id)) };
 }
 
 export async function runScheduledStoryDelivery(

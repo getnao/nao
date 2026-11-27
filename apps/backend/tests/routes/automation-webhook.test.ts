@@ -24,7 +24,7 @@ const AUTOMATION_ID = 'automation-1';
 const VALID_KEY_HEADERS = { authorization: 'Bearer nao_valid' };
 
 function buildAutomation(overrides: Record<string, unknown> = {}) {
-	return { id: AUTOMATION_ID, projectId: 'project-1', webhookEnabled: true, ...overrides };
+	return { id: AUTOMATION_ID, projectId: 'project-1', userId: 'user-1', webhookEnabled: true, ...overrides };
 }
 
 async function post(app: FastifyInstance, headers: Record<string, string> = {}) {
@@ -100,7 +100,7 @@ describe('automation webhook route', () => {
 
 		expect(res.statusCode).toBe(202);
 		expect(res.json()).toEqual({ runId: 'run-1', automationId: AUTOMATION_ID, status: 'running' });
-		expect(vi.mocked(assertProjectCloudBillingAccess)).toHaveBeenCalledWith('project-1');
+		expect(vi.mocked(assertProjectCloudBillingAccess)).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(vi.mocked(startAutomationRun)).toHaveBeenCalledWith(AUTOMATION_ID, {
 			billingAccessVerifiedProjectId: 'project-1',
 			requireEnabled: false,

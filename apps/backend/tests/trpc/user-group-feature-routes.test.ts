@@ -136,6 +136,7 @@ vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../../src/agents/profiles/messaging', () => ({ messagingAgent: vi.fn() }));
 vi.mock('../../src/agents/profiles/story-model', () => ({ storyModelAgent: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	resolveSeatedProjectRole: async (_project: unknown, _userId: string, role: unknown) => role,
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
 }));
@@ -279,7 +280,7 @@ describe('user group feature route enforcement', () => {
 			code: 'FORBIDDEN',
 			message: 'Cloud billing access is restricted',
 		});
-		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id', 'user-id');
 	});
 
 	it('preserves the Automation beta check before the creation grant', async () => {

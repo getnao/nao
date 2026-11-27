@@ -24,6 +24,7 @@ vi.mock('../../src/queries/user.queries', () => ({
 }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	isProjectUserReadOnly: vi.fn(async () => false),
 }));
 
 import {

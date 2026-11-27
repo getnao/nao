@@ -11,7 +11,7 @@ import * as userQueries from '../queries/user.queries';
 import type { FeedbackTriggerEvent } from '../types/automation';
 import { logger } from '../utils/logger';
 import { storyPath } from '../utils/story-links';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertProjectCloudBillingAccess, isProjectUserReadOnly } from './cloud-billing-access.service';
 
 const CHAT_FEEDBACK_OWNER_ROLES: readonly UserRole[] = ['admin', 'context_admin'];
 
@@ -93,7 +93,7 @@ async function triggerMatchingAutomations(
 
 	await assertProjectCloudBillingAccess(projectId);
 	for (const automation of candidates) {
-		if (!(await canOwnerReceive(automation))) {
+		if (!(await canOwnerReceive(automation)) || (await isProjectUserReadOnly(projectId, automation.userId))) {
 			continue;
 		}
 		const run = await startAutomationRun(automation.id, {

@@ -1,21 +1,29 @@
+import type { UserRole } from '@nao/shared/types';
+
 import { isCloudBillingEnabled } from '../env';
-import { getOrganizationBilling } from '../queries/billing.queries';
-import { getOrganizationById, isOrganizationDeactivated } from '../queries/organization.queries';
+import { getOrganizationWithBilling } from '../queries/billing.queries';
+import { isOrganizationDeactivated } from '../queries/organization.queries';
+import { listOrgSeatCandidates, type OrgSeatCandidate } from '../queries/organization-seat.queries';
 import { getProjectById, isProjectDeactivated } from '../queries/project.queries';
-import { type BillingStatus, isTrialAvailable } from '../types/billing';
+import {
+	type BillingStatus,
+	type CloudBillingTier,
+	findCloudBillingPlan,
+	FREE_TIER_SEAT_LIMIT,
+} from '../types/billing';
 import { HandlerError } from '../utils/error';
+import { isOpenProject } from '../utils/open-projects';
 
 const ACTIVE_RECONCILIATION_GRACE_MS = 24 * 60 * 60 * 1000;
 const BILLING_ACCESS_RESTRICTED_MESSAGE =
 	'Cloud billing access is restricted. Ask an organization admin to update billing.';
 const DEACTIVATED_MESSAGE = 'This workspace has been deactivated. Contact nao support to restore it.';
-const PROJECT_SETUP_REQUIRED_MESSAGE =
-	'Cloud billing access is restricted. Finish setting up your project to start the free trial.';
 
 type CloudBillingEntitlement = {
 	billingPlan?: string | null;
 	billingStatus: BillingStatus | null;
 	stripeSubscriptionId: string | null;
+	seatQuantity?: number | null;
 	trialEndsAt: Date | null;
 	currentPeriodStartsAt: Date | null;
 	currentPeriodEndsAt: Date | null;
@@ -24,10 +32,28 @@ type CloudBillingEntitlement = {
 	hasDefaultPaymentMethod?: boolean | null;
 };
 
-class CloudBillingAccessRestrictedError extends HandlerError {
-	constructor(message = BILLING_ACCESS_RESTRICTED_MESSAGE) {
-		super('FORBIDDEN', message);
-		this.name = 'CloudBillingAccessRestrictedError';
+/** `seatLimit` is null when every member gets a seat. */
+export type CloudEntitlement = {
+	tier: CloudBillingTier;
+	seatLimit: number | null;
+	paidAccessEndsAt: Date | null;
+};
+
+export type OrganizationSeats = {
+	entitlement: CloudEntitlement;
+	candidates: OrgSeatCandidate[];
+	readOnlyUserIds: Set<string>;
+};
+
+type SeatProject = string | { id: string; orgId: string | null };
+
+export class CloudBillingSeatRestrictedError extends HandlerError {
+	constructor() {
+		super(
+			'FORBIDDEN',
+			'Cloud billing seat access is restricted. Your organization has more people than seats. Ask an organization admin to add a seat.',
+		);
+		this.name = 'CloudBillingSeatRestrictedError';
 	}
 }
 
@@ -48,7 +74,7 @@ export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement
 			if (entitlement.stripeSubscriptionId === null) {
 				return getLocalTrialAccessEndsAt(entitlement);
 			}
-			if (entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled) {
+			if (entitlement.billingPlan && entitlement.hasDefaultPaymentMethod && !entitlement.cancellationScheduled) {
 				return addGrace(entitlement.trialEndsAt);
 			}
 			return earlierDate(entitlement.trialEndsAt, entitlement.billingAccessEndsAt);
@@ -61,6 +87,41 @@ export function getCloudBillingAccessEndsAt(entitlement: CloudBillingEntitlement
 		default:
 			return null;
 	}
+}
+
+/** Organizations without a live trial or paid plan fall back to the free tier. */
+export function resolveCloudEntitlement(
+	billing: CloudBillingEntitlement | null,
+	bypassBilling: boolean,
+	now = Date.now(),
+): CloudEntitlement {
+	if (!isCloudBillingEnabled() || bypassBilling) {
+		return { tier: 'bypass', seatLimit: null, paidAccessEndsAt: null };
+	}
+	const paidAccessEndsAt = getCloudBillingAccessEndsAt(billing);
+	const paidAccessAlive = paidAccessEndsAt !== null && paidAccessEndsAt.getTime() > now;
+	if (paidAccessAlive && billing?.billingStatus === 'trialing') {
+		return { tier: 'trial', seatLimit: null, paidAccessEndsAt };
+	}
+	const plan = paidAccessAlive ? findCloudBillingPlan(billing?.billingPlan) : null;
+	if (plan?.tier === 'unlimited') {
+		return { tier: 'unlimited', seatLimit: null, paidAccessEndsAt };
+	}
+	if (plan?.tier === 'team') {
+		return { tier: 'team', seatLimit: billing?.seatQuantity ?? 0, paidAccessEndsAt };
+	}
+	return { tier: 'free', seatLimit: FREE_TIER_SEAT_LIMIT, paidAccessEndsAt: null };
+}
+
+export async function getOrganizationCloudEntitlement(organizationId: string): Promise<CloudEntitlement> {
+	if (!isCloudBillingEnabled()) {
+		return resolveCloudEntitlement(null, true);
+	}
+	const organization = await getOrganizationWithBilling(organizationId);
+	if (!organization) {
+		throw new HandlerError('NOT_FOUND', 'Organization was not found');
+	}
+	return resolveCloudEntitlement(organization.billing, organization.bypassBilling);
 }
 
 export function isActiveLocalTrial(entitlement: CloudBillingEntitlement | null, now = Date.now()): boolean {
@@ -97,21 +158,7 @@ function getLocalTrialAccessEndsAt(entitlement: CloudBillingEntitlement | null):
 	return earlierDate(entitlement.trialEndsAt, entitlement.billingAccessEndsAt);
 }
 
-export async function hasOrganizationCloudBillingAccess(organizationId: string): Promise<boolean> {
-	if (await isOrganizationDeactivated(organizationId)) {
-		return false;
-	}
-	if (!isCloudBillingEnabled()) {
-		return true;
-	}
-	const organization = await getOrganizationById(organizationId);
-	if (organization?.bypassBilling) {
-		return true;
-	}
-	const billing = await getOrganizationBilling(organizationId);
-	return hasCloudBillingAccess(billing);
-}
-
+/** Every organization keeps at least free tier access, so only deactivation closes it. */
 export async function hasProjectCloudBillingAccess(projectId: string): Promise<boolean> {
 	if (await isProjectDeactivated(projectId)) {
 		return false;
@@ -120,28 +167,21 @@ export async function hasProjectCloudBillingAccess(projectId: string): Promise<b
 		return true;
 	}
 	const project = await getProjectById(projectId);
-	if (!project) {
-		return false;
-	}
-	if (!project.orgId) {
-		return false;
-	}
-	return hasOrganizationCloudBillingAccess(project.orgId);
+	return Boolean(project?.orgId);
 }
 
-export async function assertOrganizationCloudBillingAccess(organizationId: string): Promise<void> {
+/** With a `userId`, the person acting must also hold a seat in the organization. */
+export async function assertOrganizationCloudBillingAccess(organizationId: string, userId?: string): Promise<void> {
 	if (await isOrganizationDeactivated(organizationId)) {
 		throw new HandlerError('FORBIDDEN', DEACTIVATED_MESSAGE);
 	}
-	if (!(await hasOrganizationCloudBillingAccess(organizationId))) {
-		const billing = await getOrganizationBilling(organizationId);
-		throw new CloudBillingAccessRestrictedError(
-			isTrialAvailable(billing) ? PROJECT_SETUP_REQUIRED_MESSAGE : BILLING_ACCESS_RESTRICTED_MESSAGE,
-		);
+	if (userId && (await isUserReadOnly(organizationId, userId))) {
+		throw new CloudBillingSeatRestrictedError();
 	}
 }
 
-export async function assertProjectCloudBillingAccess(projectId: string): Promise<void> {
+/** With a `userId`, the person acting must also hold a seat in the project's organization. */
+export async function assertProjectCloudBillingAccess(projectId: string, userId?: string): Promise<void> {
 	if (await isProjectDeactivated(projectId)) {
 		throw new HandlerError('FORBIDDEN', DEACTIVATED_MESSAGE);
 	}
@@ -150,9 +190,75 @@ export async function assertProjectCloudBillingAccess(projectId: string): Promis
 	}
 	const project = await getProjectById(projectId);
 	if (!project?.orgId) {
-		throw new CloudBillingAccessRestrictedError();
+		throw new HandlerError('FORBIDDEN', BILLING_ACCESS_RESTRICTED_MESSAGE);
 	}
-	await assertOrganizationCloudBillingAccess(project.orgId);
+	if (userId) {
+		await assertProjectUserHasSeat(project, userId);
+	}
+}
+
+export async function getOrganizationSeats(
+	organizationId: string,
+	knownEntitlement?: CloudEntitlement,
+): Promise<OrganizationSeats> {
+	const [entitlement, candidates] = await Promise.all([
+		knownEntitlement ?? getOrganizationCloudEntitlement(organizationId),
+		listOrgSeatCandidates(organizationId),
+	]);
+	const seatedUserIds = resolveSeatedUserIds(candidates, entitlement.seatLimit);
+	return {
+		entitlement,
+		candidates,
+		readOnlyUserIds: new Set(candidates.filter(({ id }) => !seatedUserIds.has(id)).map(({ id }) => id)),
+	};
+}
+
+/** Admins always come first; a member an admin explicitly deselected never takes a seat. */
+export function resolveSeatedUserIds(candidates: OrgSeatCandidate[], seatLimit: number | null): Set<string> {
+	const eligible =
+		seatLimit === null
+			? candidates
+			: candidates
+					.filter(
+						({ membershipClass, selectedAt, selectionExplicit }) =>
+							membershipClass === 'org_admin' || selectedAt !== null || !selectionExplicit,
+					)
+					.slice(0, seatLimit);
+	return new Set(eligible.map(({ id }) => id));
+}
+
+export async function isUserReadOnly(organizationId: string, userId: string): Promise<boolean> {
+	if (!isCloudBillingEnabled()) {
+		return false;
+	}
+	const entitlement = await getOrganizationCloudEntitlement(organizationId);
+	if (entitlement.seatLimit === null) {
+		return false;
+	}
+	return (await getOrganizationSeats(organizationId, entitlement)).readOnlyUserIds.has(userId);
+}
+
+export async function isProjectUserReadOnly(project: SeatProject, userId: string): Promise<boolean> {
+	if (!isCloudBillingEnabled() || isOpenProject(typeof project === 'string' ? project : project.id)) {
+		return false;
+	}
+	const orgId = typeof project === 'string' ? (await getProjectById(project))?.orgId : project.orgId;
+	return orgId ? isUserReadOnly(orgId, userId) : false;
+}
+
+/** People without a seat keep viewing their projects, so the stored role is downgraded rather than removed. */
+export async function resolveSeatedProjectRole(
+	project: SeatProject,
+	userId: string,
+	role: UserRole | null,
+): Promise<UserRole | null> {
+	return role && role !== 'viewer' && (await isProjectUserReadOnly(project, userId)) ? 'viewer' : role;
+}
+
+export async function assertProjectUserHasSeat(project: SeatProject, userId: string): Promise<void> {
+	if (await isProjectUserReadOnly(project, userId)) {
+		throw new CloudBillingSeatRestrictedError();
+	}
 }
 
 function addGrace(date: Date | null): Date | null {

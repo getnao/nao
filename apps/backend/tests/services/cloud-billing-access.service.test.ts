@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	getOrganizationBilling: vi.fn(),
-	getOrganizationById: vi.fn(),
+	getOrganizationWithBilling: vi.fn(),
 	getProjectById: vi.fn(),
+	listOrgSeatCandidates: vi.fn(async () => []),
 	isCloudBillingEnabled: vi.fn(() => true),
 	isOrganizationDeactivated: vi.fn(async () => false),
 	isProjectDeactivated: vi.fn(async () => false),
 }));
 
-vi.mock('../../src/env', () => ({ isCloudBillingEnabled: mocks.isCloudBillingEnabled }));
-vi.mock('../../src/queries/billing.queries', () => ({ getOrganizationBilling: mocks.getOrganizationBilling }));
+vi.mock('../../src/env', () => ({ isCloud: true, isCloudBillingEnabled: mocks.isCloudBillingEnabled }));
+vi.mock('../../src/queries/organization-seat.queries', () => ({ listOrgSeatCandidates: mocks.listOrgSeatCandidates }));
+vi.mock('../../src/queries/billing.queries', () => ({ getOrganizationWithBilling: mocks.getOrganizationWithBilling }));
 vi.mock('../../src/queries/organization.queries', () => ({
-	getOrganizationById: mocks.getOrganizationById,
 	isOrganizationDeactivated: mocks.isOrganizationDeactivated,
 }));
 vi.mock('../../src/queries/project.queries', () => ({
@@ -72,6 +72,7 @@ describe('cloud billing access entitlement', () => {
 		[
 			'paying trial within conversion grace',
 			entitlement('trialing', {
+				billingPlan: 'cloud_team_monthly_v1',
 				stripeSubscriptionId: 'sub_trial',
 				trialEndsAt: recentlyPast,
 				billingAccessEndsAt: recentlyPast,
@@ -166,24 +167,6 @@ describe('cloud billing access entitlement', () => {
 		expect(isActiveTrialWithoutPaidPlan(unconfirmedTrial, now.getTime())).toBe(false);
 	});
 
-	it('matches paying trial expiration to the conversion-grace access window', () => {
-		const withinGrace = entitlement('trialing', {
-			stripeSubscriptionId: 'sub_trial',
-			trialEndsAt: recentlyPast,
-			billingAccessEndsAt: recentlyPast,
-			hasDefaultPaymentMethod: true,
-		});
-		const afterGrace = entitlement('trialing', {
-			stripeSubscriptionId: 'sub_trial',
-			trialEndsAt: past,
-			billingAccessEndsAt: past,
-			hasDefaultPaymentMethod: true,
-		});
-
-		expect(isExpiredTrialWithoutPaidPlan(withinGrace, now.getTime())).toBe(false);
-		expect(isExpiredTrialWithoutPaidPlan(afterGrace, now.getTime())).toBe(true);
-	});
-
 	it.each([
 		['expired local trial', entitlement('trialing', { trialEndsAt: past, billingAccessEndsAt: past }), true],
 		[
@@ -205,7 +188,6 @@ describe('project cloud billing access', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.isCloudBillingEnabled.mockReturnValue(true);
-		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
 	});
 
 	it('grants access without looking up the project when cloud billing is disabled', async () => {
@@ -219,27 +201,19 @@ describe('project cloud billing access', () => {
 		mocks.getProjectById.mockResolvedValue(null);
 
 		await expect(hasProjectCloudBillingAccess('missing-project')).resolves.toBe(false);
-		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
 	});
 
 	it('denies access for a legacy cloud project without an organization', async () => {
 		mocks.getProjectById.mockResolvedValue({ orgId: null });
 
 		await expect(hasProjectCloudBillingAccess('orphaned-project')).resolves.toBe(false);
-		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
 	});
 
-	it('delegates organization billing access for an assigned project', async () => {
+	it('keeps free tier access for an assigned project without reading its billing', async () => {
 		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
-		mocks.getOrganizationBilling.mockResolvedValue(
-			entitlement('active', {
-				billingPlan: 'cloud_monthly_v2',
-				currentPeriodEndsAt: new Date('2999-01-01T00:00:00.000Z'),
-			}),
-		);
 
 		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
-		expect(mocks.getOrganizationBilling).toHaveBeenCalledWith('organization-1');
+		expect(mocks.getOrganizationWithBilling).not.toHaveBeenCalled();
 	});
 
 	it('denies access to a deactivated project even when cloud billing is disabled', async () => {
@@ -249,23 +223,26 @@ describe('project cloud billing access', () => {
 		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(false);
 		await expect(assertProjectCloudBillingAccess('project-1')).resolves.toBeUndefined();
 	});
-
-	it('grants access without checking Stripe when the organization bypasses billing', async () => {
-		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
-		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
-		mocks.getOrganizationBilling.mockResolvedValue(null);
-
-		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
-		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
-	});
 });
 
 describe('cloud billing access assertions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.isCloudBillingEnabled.mockReturnValue(true);
-		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
-		mocks.getOrganizationBilling.mockResolvedValue(null);
+		mocks.getOrganizationWithBilling.mockResolvedValue({ bypassBilling: false, billing: entitlement('canceled') });
+		mocks.listOrgSeatCandidates.mockResolvedValue(
+			['user-1', 'user-2', 'user-3', 'user-4'].map((id, index) => ({
+				id,
+				name: id,
+				email: `${id}@example.com`,
+				orgRole: 'user',
+				projectRoles: [],
+				membershipClass: 'org_member',
+				joinedAt: new Date(index),
+				selectedAt: null,
+				selectionExplicit: false,
+			})),
+		);
 	});
 
 	it('rejects a deactivated organization before looking at its billing', async () => {
@@ -275,48 +252,29 @@ describe('cloud billing access assertions', () => {
 			codeMessage: 'FORBIDDEN',
 			message: 'This workspace has been deactivated. Contact nao support to restore it.',
 		});
-		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
+		expect(mocks.getOrganizationWithBilling).not.toHaveBeenCalled();
 	});
 
-	it('allows an organization that bypasses billing', async () => {
-		await expect(assertOrganizationCloudBillingAccess('organization-1')).resolves.toBeUndefined();
-		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
-	});
+	it.each([
+		['the organization', () => assertOrganizationCloudBillingAccess('organization-1', 'user-4')],
+		['a project', () => assertProjectCloudBillingAccess('project-1', 'user-4')],
+	])(
+		'keeps free tier seats for the first members of %s and leaves the rest read-only',
+		async (_label, assertSeat) => {
+			mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'organization-1' });
 
-	it('allows a project whose organization bypasses billing', async () => {
-		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
+			await expect(assertOrganizationCloudBillingAccess('organization-1', 'user-3')).resolves.toBeUndefined();
+			await expect(assertSeat()).rejects.toMatchObject({
+				codeMessage: 'FORBIDDEN',
+				name: 'CloudBillingSeatRestrictedError',
+			});
+		},
+	);
 
-		await expect(assertProjectCloudBillingAccess('project-1')).resolves.toBeUndefined();
-		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
-	});
+	it('gives every member a seat when the organization bypasses billing', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue({ bypassBilling: true, billing: null });
 
-	it('rejects an organization without billing access', async () => {
-		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
-
-		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
-			codeMessage: 'FORBIDDEN',
-			message: 'Cloud billing access is restricted. Finish setting up your project to start the free trial.',
-		});
-	});
-
-	it('rejects a project without billing access', async () => {
-		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
-		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
-
-		await expect(assertProjectCloudBillingAccess('project-1')).rejects.toMatchObject({
-			codeMessage: 'FORBIDDEN',
-			message: 'Cloud billing access is restricted. Finish setting up your project to start the free trial.',
-		});
-	});
-
-	it('keeps the billing message after the trial has been consumed', async () => {
-		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
-		mocks.getOrganizationBilling.mockResolvedValue(entitlement('canceled'));
-
-		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
-			codeMessage: 'FORBIDDEN',
-			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
-		});
+		await expect(assertOrganizationCloudBillingAccess('organization-1', 'user-4')).resolves.toBeUndefined();
 	});
 });
 

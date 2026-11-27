@@ -13,7 +13,7 @@ import {
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
 } from '@/lib/ai';
-import { isCloudBillingAccessError } from '@/lib/cloud-billing-access';
+import { isCloudBillingAccessError, isCloudBillingSeatError } from '@/lib/cloud-billing-access';
 import { cn } from '@/lib/utils';
 
 export interface Props {
@@ -56,7 +56,8 @@ export function ChatError({ className }: Props) {
 	const { isCopied, copy } = useCopyToClipboard();
 	const openOrganizationBilling = useOpenOrganizationBilling();
 	const parsed = error ? parseError(error) : null;
-	const isBillingAccessError = isCloudBillingAccessError(parsed);
+	const isSeatError = isCloudBillingSeatError(parsed);
+	const isBillingAccessError = isSeatError || isCloudBillingAccessError(parsed);
 	const billingAccess = useCloudBillingAccess({ enabled: isBillingAccessError });
 
 	if (
@@ -83,6 +84,7 @@ export function ChatError({ className }: Props) {
 		return (
 			<BillingAccessError
 				access={billingAccess.data}
+				isSeatError={isSeatError}
 				className={className}
 				isRunning={isRunning}
 				isAccessPending={billingAccess.isPending}
@@ -142,6 +144,7 @@ export function ChatError({ className }: Props) {
 
 function BillingAccessError({
 	access,
+	isSeatError,
 	className,
 	isRunning,
 	isAccessPending,
@@ -159,6 +162,7 @@ function BillingAccessError({
 				trialAvailable: boolean;
 		  }
 		| undefined;
+	isSeatError: boolean;
 	className?: string;
 	isRunning: boolean;
 	isAccessPending: boolean;
@@ -171,17 +175,23 @@ function BillingAccessError({
 }) {
 	return (
 		<Callout icon={CreditCardIcon} className={cn('px-4 py-3 text-sm', className)} role='status'>
-			<p className='font-medium text-foreground'>A subscription is needed to continue chatting.</p>
+			<p className='font-medium text-foreground'>
+				{isSeatError ? 'You have read-only access.' : 'A subscription is needed to continue chatting.'}
+			</p>
 			<p className='mt-1 text-muted-foreground'>
 				{isAccessPending
 					? 'Loading billing details...'
 					: isAccessError
 						? 'Billing details could not be loaded.'
-						: access?.trialAvailable
-							? access.canManageBilling
-								? 'Finish setting up your first project to start your free trial, then retry your message.'
-								: 'Ask an organization admin to finish setting up the first project, then retry your message.'
-							: 'Manage your subscription, then retry your message.'}
+						: isSeatError
+							? access?.canManageBilling
+								? 'Your organization has more people than seats. Add or reassign a seat, then retry your message.'
+								: 'Your organization has more people than seats. Ask an organization admin to add a seat.'
+							: access?.trialAvailable
+								? access.canManageBilling
+									? 'Finish setting up your first project to start your free trial, then retry your message.'
+									: 'Ask an organization admin to finish setting up the first project, then retry your message.'
+								: 'Manage your subscription, then retry your message.'}
 			</p>
 			<div className='mt-3 flex flex-wrap gap-2'>
 				{access?.canManageBilling && (

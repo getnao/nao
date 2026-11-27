@@ -34,6 +34,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
+import { resolveSeatedProjectRole } from '../services/cloud-billing-access.service';
 import { getDecisionKeysByLlmProvider } from '../services/decision.service';
 import {
 	type DefaultModelsOverview,
@@ -300,7 +301,8 @@ export const projectRoutes = {
 		if (!project) {
 			return null;
 		}
-		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+		const storedRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+		const userRole = await resolveSeatedProjectRole(project, ctx.user.id, storedRole);
 		return { id: project.id, name: project.name, path: project.path, userRole };
 	}),
 

@@ -14,6 +14,7 @@ import {
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
+import { syncOrganizationSeats } from './organization-seat.service';
 import { readDecodedIdTokenClaims, readVerifiedOidcIdTokenClaims } from './sso-token.service';
 
 export const DEFAULT_GROUPS_CLAIM = 'groups';
@@ -192,6 +193,7 @@ async function applyOrganizationRole(userId: string, role: OrgRole): Promise<voi
 
 	if (await canDemoteOrgMember(membership.orgId, membership.role, role)) {
 		await orgQueries.updateOrgMemberRole(membership.orgId, userId, role);
+		await syncOrganizationSeats(membership.orgId);
 	}
 }
 

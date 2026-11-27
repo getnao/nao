@@ -15,6 +15,7 @@ import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
 import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
 import { addProjectMember } from '../services/membership.service';
+import { syncOrganizationSeats } from '../services/organization-seat.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { addTeamMembers } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
@@ -80,6 +81,9 @@ export const userRoutes = {
 
 			if (input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
+				if (ctx.project.orgId) {
+					await syncOrganizationSeats(ctx.project.orgId);
+				}
 				const nextRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
 				if (
 					ctx.project.path &&

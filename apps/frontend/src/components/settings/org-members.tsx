@@ -4,7 +4,10 @@ import { useCallback, useState } from 'react';
 import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
-import type { AddMembersRequest, TeamMember } from '@/components/settings/team';
+import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plans';
+import type { AddMemberOutcome, AddMembersRequest, TeamMember } from '@/components/settings/team';
+import { CloudBillingChangeDialog } from '@/components/settings/cloud-billing-change-dialog';
+import { formatCloudPlanPrice, getCloudPlanName, getCloudPlanOffers } from '@/components/settings/cloud-billing-plans';
 import { AddMemberDialog, NewCredentialsDialog, RemoveMemberDialog, TeamMembersList } from '@/components/settings/team';
 import { EditMemberDialog } from '@/components/settings/team/edit-member-dialog';
 import { Button } from '@/components/ui/button';
@@ -14,8 +17,10 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useConfirmCloudBillingChange } from '@/hooks/use-organization-billing';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { getBrowserBillingCurrency } from '@/lib/billing-currency';
 import { trpc } from '@/main';
 
 export function OrgMembers() {
@@ -33,6 +38,7 @@ export function OrgMembers() {
 	const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 	const [resetTwoFactorMember, setResetTwoFactorMember] = useState<TeamMember | null>(null);
+	const [seatOffer, setSeatOffer] = useState<SeatOffer | null>(null);
 
 	const invalidateMembers = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
@@ -42,6 +48,14 @@ export function OrgMembers() {
 	const modifyMember = useMutation(trpc.organization.modifyMember.mutationOptions());
 	const removeOrgMember = useMutation(trpc.organization.removeMember.mutationOptions());
 	const resetPassword = useMutation(trpc.organization.resetMemberPassword.mutationOptions());
+	const previewMemberSeat = useMutation(trpc.billing.previewAddMemberWithSeat.mutationOptions());
+	const confirmMemberSeat = useConfirmCloudBillingChange(() =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getStatus.queryKey() }),
+		]),
+	);
 	const resetTwoFactor = useMutation(
 		trpc.organization.resetMemberTwoFactor.mutationOptions({
 			onSuccess: () => {
@@ -65,7 +79,24 @@ export function OrgMembers() {
 	const handleAdd = async (request: AddMembersRequest) => {
 		const outcomes = await addMember.mutateAsync({ members: request.members });
 		invalidateMembers();
+		void offerSeatForAddedMember(outcomes);
 		return outcomes;
+	};
+
+	const offerSeatForAddedMember = async (outcomes: AddMemberOutcome[]) => {
+		const added = outcomes.filter((outcome) => outcome.status === 'added');
+		if (!isCloud || added.length !== 1) {
+			return;
+		}
+		const status = await queryClient
+			.fetchQuery(trpc.billing.getStatus.queryOptions({ currency: getBrowserBillingCurrency() }))
+			.catch(() => null);
+		const email = added[0].email.toLowerCase();
+		const member = status?.members.find((candidate) => candidate.email.toLowerCase() === email);
+		const plan = getCloudPlanOffers(status?.currency ?? 'usd').find(({ key }) => key === status?.plan?.key);
+		if (status?.tier === 'team' && status.seatQuantity !== null && plan && member && !member.seated) {
+			setSeatOffer({ email: member.email, name: member.name, plan, seatQuantity: status.seatQuantity });
+		}
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
@@ -135,7 +166,7 @@ export function OrgMembers() {
 					<OrgUserStat
 						label='Active in the last 90 days'
 						value={userCountsQuery.data?.activeUsers}
-						hint='Distinct people who sent at least one message on any channel. This is the number that maps to licensed seats at renewal.'
+						hint='Distinct people who sent at least one message on any channel.'
 					/>
 				</div>
 				<SettingsCard
@@ -247,9 +278,34 @@ export function OrgMembers() {
 				onOpenChange={(open) => !open && setCredentials(null)}
 				credentials={credentials}
 			/>
+
+			<CloudBillingChangeDialog
+				open={!!seatOffer}
+				onOpenChange={(open) => !open && setSeatOffer(null)}
+				title={`Add a seat for ${seatOffer?.name}`}
+				description={`${seatOffer?.name} has read-only access because every seat is in use. Add a paid seat to give them full access.`}
+				plan={seatOffer?.plan ?? null}
+				current={
+					seatOffer && {
+						badge: 'Current',
+						name: getCloudPlanName('team', seatOffer.seatQuantity),
+						price: formatCloudPlanPrice(seatOffer.plan, seatOffer.seatQuantity),
+					}
+				}
+				initialSeats={seatOffer ? seatOffer.seatQuantity + 1 : null}
+				fixedSeats
+				allowPromotionCode={false}
+				seatUserCount={0}
+				onPreview={() => previewMemberSeat.mutateAsync({ email: seatOffer!.email, role: 'user' })}
+				onConfirm={(previewToken) =>
+					confirmMemberSeat.mutateAsync({ previewToken, requestId: crypto.randomUUID() })
+				}
+			/>
 		</>
 	);
 }
+
+type SeatOffer = { email: string; name: string; plan: CloudPlanOffer; seatQuantity: number };
 
 function OrgUserStat({ label, value, hint }: { label: string; value?: number; hint?: string }) {
 	const caption = (

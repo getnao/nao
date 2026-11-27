@@ -5,12 +5,13 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestQueryClient } from '../helpers/query-client';
 import type { ReactNode } from 'react';
-import { useOrganizationBilling } from '@/hooks/use-organization-billing';
+import { useConfirmCloudBillingChange, useOrganizationBilling } from '@/hooks/use-organization-billing';
 
 const mocks = vi.hoisted(() => ({
 	getStatus: vi.fn(),
 	getStatusInput: vi.fn(),
 	mutationInput: vi.fn(),
+	mutationResults: {} as Record<string, unknown>,
 }));
 
 vi.mock('@/main', () => {
@@ -27,11 +28,27 @@ vi.mock('@/main', () => {
 		mutationOptions: (options: object) => ({
 			mutationFn: (input: unknown) => {
 				mocks.mutationInput(name, input);
-				return new Promise<never>(() => {});
+				return name in mocks.mutationResults
+					? Promise.resolve(mocks.mutationResults[name])
+					: new Promise<never>(() => {});
 			},
 			...options,
 		}),
 	});
+	const mutations = [
+		'createTrialCheckoutSession',
+		'createPortalSession',
+		'createPaymentMethodSession',
+		'createResubscribeSession',
+		'resumeSubscription',
+		'syncStripeBilling',
+		'previewChange',
+		'confirmChange',
+		'selectSeats',
+		'switchToFree',
+		'keepPlan',
+		'cancelPendingChange',
+	];
 	return {
 		trpc: {
 			billing: {
@@ -39,31 +56,27 @@ vi.mock('@/main', () => {
 				getInvoices: query('getInvoices', async () => []),
 				getUpcomingInvoice: query('getUpcomingInvoice', async () => null),
 				getAccess: query('getAccess', async () => null),
-				createTrialCheckoutSession: mutation('createTrialCheckoutSession'),
-				createPortalSession: mutation('createPortalSession'),
-				createPaymentMethodSession: mutation('createPaymentMethodSession'),
-				createResubscribeSession: mutation('createResubscribeSession'),
-				resumeSubscription: mutation('resumeSubscription'),
-				syncStripeBilling: mutation('syncStripeBilling'),
+				...Object.fromEntries(mutations.map((name) => [name, mutation(name)])),
+			},
+			organization: {
+				getMembers: query('getMembers', async () => []),
+				getUserCounts: query('getUserCounts', async () => null),
 			},
 		},
 	};
 });
 
-describe('useOrganizationBilling', () => {
-	afterEach(() => {
-		cleanup();
-		vi.clearAllMocks();
-		vi.restoreAllMocks();
-	});
+afterEach(() => {
+	cleanup();
+	vi.clearAllMocks();
+	vi.restoreAllMocks();
+	mocks.mutationResults = {};
+	window.location.hash = '';
+});
 
+describe('useOrganizationBilling', () => {
 	it('stops checkout polling once Stripe confirms the subscription', async () => {
-		mocks.getStatus.mockResolvedValue({
-			hasStripeSubscription: true,
-			paidPlanSelected: true,
-			status: 'trialing',
-			canManageBilling: false,
-		});
+		mocks.getStatus.mockResolvedValue({ hasStripeSubscription: true, paidPlanSelected: true, status: 'trialing' });
 
 		const { result } = renderHook(() => useOrganizationBilling({ checkout: 'success' }), { wrapper });
 
@@ -73,71 +86,41 @@ describe('useOrganizationBilling', () => {
 		expect(result.current.checkoutFeedback).toBeNull();
 	});
 
-	it('uses the selected available plan when no Stripe subscription exists', async () => {
-		const yearlyPlan = {
-			key: 'cloud_yearly',
-			name: 'nao Cloud',
-			amount: 2_000_000,
-			currency: 'usd',
-			interval: 'year',
-			intervalCount: 1,
-		};
-		mocks.getStatus.mockResolvedValue({
-			hasStripeSubscription: false,
-			plan: {
-				key: 'cloud_monthly',
-				name: 'nao Cloud',
-				amount: 150_000,
-				currency: 'usd',
-				interval: 'month',
-				intervalCount: 1,
-			},
-			availablePlans: {
-				monthly: {
-					key: 'cloud_monthly',
-					name: 'nao Cloud',
-					amount: 200_000,
-					currency: 'usd',
-					interval: 'month',
-					intervalCount: 1,
-				},
-				yearly: yearlyPlan,
-			},
-			status: null,
-			canManageBilling: true,
-		});
-
-		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
-
-		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
-		act(() => {
-			result.current.setSelectedBillingInterval('yearly');
-		});
-		expect(result.current.plan).toEqual(yearlyPlan);
-	});
-
-	it('uses the first valid browser locale for plans and Checkout', async () => {
+	it.each([
+		[{ trialAvailable: true }, 'createTrialCheckoutSession'],
+		[{ trialAvailable: false, needsPaidPlanSelection: false }, 'createResubscribeSession'],
+	])('sends the chosen plan, seats and browser currency to Checkout (%o)', async (billing, mutation) => {
 		vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['not a locale']);
 		vi.spyOn(navigator, 'language', 'get').mockReturnValue('en_FR');
-		mocks.getStatus.mockResolvedValue({
-			hasStripeSubscription: false,
-			status: null,
-			canManageBilling: true,
-		});
+		mocks.getStatus.mockResolvedValue({ hasStripeSubscription: false, status: null, ...billing });
 
 		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
 
 		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
 		expect(mocks.getStatusInput).toHaveBeenCalledWith({ currency: 'eur' });
 		act(() => {
-			result.current.openTrialCheckout();
+			void result.current.startCheckout('cloud_team_yearly_v1', 5);
 		});
 		await waitFor(() =>
-			expect(mocks.mutationInput).toHaveBeenCalledWith('createTrialCheckoutSession', {
-				billingInterval: 'monthly',
+			expect(mocks.mutationInput).toHaveBeenCalledWith(mutation, {
+				planKey: 'cloud_team_yearly_v1',
+				seats: 5,
 				currency: 'eur',
 			}),
 		);
+	});
+});
+
+describe('useConfirmCloudBillingChange', () => {
+	it('sends the admin to the Stripe invoice instead of refreshing when payment is pending', async () => {
+		mocks.mutationResults.confirmChange = { status: 'payment_pending', hostedInvoiceUrl: '#invoice' };
+		const onCompleted = vi.fn().mockResolvedValue(undefined);
+
+		const { result } = renderHook(() => useConfirmCloudBillingChange(onCompleted), { wrapper });
+		await act(() => result.current.mutateAsync({ previewToken: 'token', requestId: 'request' }));
+
+		expect(window.location.hash).toBe('#invoice');
+		expect(onCompleted).not.toHaveBeenCalled();
 	});
 });
 

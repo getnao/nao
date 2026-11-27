@@ -89,6 +89,7 @@ vi.mock('../../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	resolveSeatedProjectRole: async (_project: unknown, _userId: string, role: unknown) => role,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
 vi.mock('../../src/services/user-group-availability.service', () => ({

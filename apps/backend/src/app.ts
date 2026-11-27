@@ -14,7 +14,7 @@ import {
 	AUTOMATION_JOB_NAME,
 	automationHandler,
 	interruptRunningAutomations,
-	resolveAutomationProjectId,
+	resolveAutomationScope,
 } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
@@ -30,7 +30,7 @@ import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
-	resolveContextRecommendationsProjectId,
+	resolveContextRecommendationsScope,
 } from './handlers/context-recommendations.handler';
 import {
 	INVITATION_CLEANUP_JOB_NAME,
@@ -45,12 +45,12 @@ import {
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import {
-	resolveStoryDeliveryProjectId,
+	resolveStoryDeliveryScope,
 	STORY_DELIVERY_JOB_NAME,
 	storyDeliveryHandler,
 } from './handlers/story-delivery.handler';
 import {
-	resolveStoryRefreshProjectId,
+	resolveStoryRefreshScope,
 	STORY_REFRESH_JOB_NAME,
 	storyRefreshHandler,
 } from './handlers/story-refresh.handler';
@@ -106,7 +106,7 @@ import { slackService } from './services/slack';
 import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { validateCloudBillingConfiguration } from './services/stripe.service';
 import {
-	resolveTestScheduleProjectId,
+	resolveTestScheduleScope,
 	runScheduledTests,
 	syncAllConfiguredTestSchedules,
 	TEST_SCHEDULE_JOB_NAME,
@@ -580,10 +580,10 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
 	});
 
-	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
-	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
-	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
-	registerJob(TEST_SCHEDULE_JOB_NAME, runScheduledTests, { resolveProjectId: resolveTestScheduleProjectId });
+	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveScope: resolveAutomationScope });
+	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveScope: resolveStoryRefreshScope });
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveScope: resolveStoryDeliveryScope });
+	registerJob(TEST_SCHEDULE_JOB_NAME, runScheduledTests, { resolveScope: resolveTestScheduleScope });
 	registerJob(TEST_SCHEDULE_SYNC_JOB_NAME, syncAllConfiguredTestSchedules);
 	await ensureRecurring({
 		name: TEST_SCHEDULE_SYNC_JOB_NAME,
@@ -636,7 +636,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		registerJob(CONTEXT_RECOMMENDATIONS_JOB_NAME, contextRecommendationsHandler, {
-			resolveProjectId: resolveContextRecommendationsProjectId,
+			resolveScope: resolveContextRecommendationsScope,
 		});
 		try {
 			await ensureContextRecommendationsSchedules();

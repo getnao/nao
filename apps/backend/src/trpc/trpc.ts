@@ -1,4 +1,3 @@
-import type { UserRole } from '@nao/shared/types';
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import superjson from 'superjson';
@@ -12,6 +11,7 @@ import * as userQueries from '../queries/user.queries';
 import {
 	assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess,
+	resolveSeatedProjectRole,
 } from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
@@ -71,10 +71,11 @@ export function cloudBillingMiddleware<TContext, TInput = unknown>(
 		if (!scope) {
 			return next();
 		}
+		const userId = (ctx as Partial<Context>).session?.user.id;
 		if (scope.organizationId) {
-			await assertOrganizationCloudBillingAccess(scope.organizationId);
+			await assertOrganizationCloudBillingAccess(scope.organizationId, userId);
 		} else if (scope.projectId) {
-			await assertProjectCloudBillingAccess(scope.projectId);
+			await assertProjectCloudBillingAccess(scope.projectId, userId);
 		} else {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Cloud billing organization was not found' });
 		}
@@ -186,7 +187,11 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ty
 					: 'No project configured',
 		});
 	}
-	const userRole: UserRole | null = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
+	const userRole = await resolveSeatedProjectRole(
+		project,
+		ctx.user.id,
+		await projectQueries.getUserRoleInProject(project.id, ctx.user.id),
+	);
 
 	return next({ ctx: { project, userRole } });
 });
@@ -236,7 +241,11 @@ export function resourceProjectProcedure<T extends { projectId: string }>(
 			throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
 		}
 
-		const userRole: UserRole | null = await projectQueries.getUserRoleInProject(resource.projectId, ctx.user.id);
+		const userRole = await resolveSeatedProjectRole(
+			resource.projectId,
+			ctx.user.id,
+			await projectQueries.getUserRoleInProject(resource.projectId, ctx.user.id),
+		);
 		if (!userRole) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 		}
@@ -301,7 +310,7 @@ export const cloudBillingProjectImportProcedure = organizationProtectedProcedure
 	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
 		const billing = await getOrganizationBilling(ctx.organization.id);
 		if (!isTrialAvailable(billing)) {
-			await assertOrganizationCloudBillingAccess(ctx.organization.id);
+			await assertOrganizationCloudBillingAccess(ctx.organization.id, ctx.user.id);
 		}
 	}
 	return next({ ctx });

@@ -124,10 +124,6 @@ export function formatBillingPrice(amount: number, currency: string): string {
 	}).format(majorAmount);
 }
 
-export function formatBillingInterval(interval: string, intervalCount: number): string {
-	return intervalCount === 1 ? interval : `${intervalCount} ${interval}s`;
-}
-
 export function formatBillingStatus(status: string | null): string {
 	return status ? capitalizeWords(status.replaceAll('_', ' ')) : 'Not configured';
 }

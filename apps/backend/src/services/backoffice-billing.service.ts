@@ -4,7 +4,7 @@ import type { DBOrganizationBilling } from '../db/abstractSchema';
 import { isCloudBillingEnabled } from '../env';
 import * as backofficeBillingQueries from '../queries/backoffice-billing.queries';
 import * as billingQueries from '../queries/billing.queries';
-import { type BillingStatus, CLOUD_BILLING_PLANS, type CloudBillingInterval } from '../types/billing';
+import { type BillingStatus, findCloudBillingPlan } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
 import { getCreditsOverview } from './backoffice-credits.service';
@@ -38,7 +38,8 @@ export function toBillingSummary(bypassBilling: boolean, billing: DBOrganization
 		state: billingState(bypassBilling, billing?.billingStatus ?? null),
 		status: billing?.billingStatus ?? null,
 		plan: billing?.billingPlan ?? null,
-		interval: billingInterval(billing?.billingPlan ?? null),
+		interval: findCloudBillingPlan(billing?.billingPlan)?.interval ?? null,
+		seatQuantity: billing?.seatQuantity ?? null,
 		hasAccess: !isCloudBillingEnabled() || bypassBilling || hasCloudBillingAccess(billing),
 		accessEndsAt: getCloudBillingAccessEndsAt(billing),
 		trialStartedAt: billing?.trialStartedAt ?? null,
@@ -109,11 +110,6 @@ function billingState(bypassBilling: boolean, status: BillingStatus | null): Bac
 	return status ? 'churned' : 'none';
 }
 
-function billingInterval(plan: string | null): CloudBillingInterval | null {
-	const entry = Object.entries(CLOUD_BILLING_PLANS).find(([, definition]) => definition.key === plan);
-	return entry ? (entry[0] as CloudBillingInterval) : null;
-}
-
 async function loadOrganizationStripeDetail(billing: DBOrganizationBilling, stripeCustomerId: string) {
 	const subscriptionId = billing.stripeSubscriptionId;
 	const [plan, invoices, upcomingInvoice] = await Promise.all([
@@ -135,8 +131,7 @@ async function loadSubscriptionPlan(billing: DBOrganizationBilling) {
 		return null;
 	}
 	const currency = await stripeService.getCloudSubscriptionCurrency(billing.stripeSubscriptionId);
-	const { subscriptionPlan } = await stripeService.getCloudBillingPlans(billing.stripePriceId, 'usd', currency);
-	return subscriptionPlan;
+	return stripeService.getCloudSubscriptionPlan(billing.stripePriceId, currency);
 }
 
 async function loadRevenue(organizations: OrganizationWithBillingRow[]) {
