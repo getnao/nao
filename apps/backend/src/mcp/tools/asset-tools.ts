@@ -31,6 +31,7 @@ import {
 	resolveStory,
 } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
+import { registerStoryFolderTools } from './story-folders';
 import { STORY_LIST_ITEM_SCHEMA, toStoryListItem } from './story-list-item';
 import { toStoryLiveOutput } from './story-live-settings';
 
@@ -87,6 +88,7 @@ export function registerAssetTools(server: McpServer, ctx: McpContext, customBou
 	registerDisplayChart(server, ctx);
 	registerDisplayMap(server, ctx, customBoundaries ?? []);
 	registerStoryManagementTools(server, ctx);
+	registerStoryFolderTools(server, ctx);
 }
 
 function registerDisplayChart(server: McpServer, ctx: McpContext): void {

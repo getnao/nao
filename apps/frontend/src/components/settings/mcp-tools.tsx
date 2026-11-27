@@ -76,6 +76,8 @@ const MCP_TOOL_GROUPS: McpToolGroup[] = [
 			{ name: 'get_story', description: 'Fetches a story with its latest content.' },
 			{ name: 'archive_story', description: 'Archives a story, which can be restored from the UI.' },
 			{ name: 'delete_story', description: 'Deletes a story and its versions for good.' },
+			{ name: 'list_story_folders', description: 'Lists the story folders the user can see.' },
+			{ name: 'move_story', description: 'Moves a story to a folder, sharing it with whoever sees that folder.' },
 		],
 	},
 	{

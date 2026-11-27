@@ -4,24 +4,23 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
-import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { assertCanShareToProject, assertCanShareWith } from '../services/project-sharing.service';
+import { assertCanShareWith } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
-import { assertStoryNotBeingEdited, getFolderAccess } from '../services/story-folder-access.service';
-import { getFolderViewer } from '../services/story-folder-viewer.service';
+import { getFolderAccess } from '../services/story-folder-access.service';
+import {
+	assertCanMoveStory,
+	assertCanPlaceInDestination,
+	assertCanSeeFolder,
+	assertCanShareWithAudience,
+	assertFolderInProject,
+	type FolderContext,
+	getViewer,
+	moveStoryForUser,
+	resolveMoveTarget,
+} from '../services/story-folder-move.service';
 import { canSendProcedure, projectProtectedProcedure } from './trpc';
-
-type FolderContext = { user: { id: string }; project: { id: string }; userRole: UserRole | null };
-
-async function assertFolderInProject(folderId: string, ctx: FolderContext, label = 'Folder') {
-	const folder = await storyFolderQueries.getFolderById(folderId);
-	if (!folder || folder.projectId !== ctx.project.id) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
-	}
-	return folder;
-}
 
 function assertCanModifyFolder(folder: DBStoryFolder, userId: string, userRole: UserRole | null) {
 	if (folder.ownerId !== userId && userRole !== 'admin') {
@@ -37,26 +36,6 @@ async function assertCanModifyFolders(folderIds: string[], ctx: FolderContext) {
 	}
 }
 
-function getViewer(ctx: FolderContext) {
-	return getFolderViewer(ctx.project.id, ctx.user.id, ctx.userRole);
-}
-
-/** Private folders of other users and team folders of other groups do not exist for the user. */
-async function assertCanSeeFolder(folder: DBStoryFolder, ctx: FolderContext, label = 'Folder') {
-	if (!(await storyFolderQueries.canSeeFolder(folder, await getViewer(ctx)))) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: `${label} not found.` });
-	}
-}
-
-/** Filing items in a folder shares its stories with the folder's audience, which the user must be allowed to reach. */
-async function assertCanShareWithAudience(audience: storyFolderQueries.FolderAudience, ctx: FolderContext) {
-	if (audience.kind === 'project') {
-		await assertCanShareToProject(ctx.project.id, ctx.user.id);
-	} else if (audience.kind === 'groups') {
-		await assertCanShareWith(ctx.project.id, ctx.user.id, { groupIds: audience.groupIds });
-	}
-}
-
 async function assertCanShareMovedFolder(folderId: string, newParentId: string | null, ctx: FolderContext) {
 	const [currentAudience, nextAudience] = await Promise.all([
 		storyFolderQueries.resolveFolderAudience(folderId),
@@ -64,15 +43,6 @@ async function assertCanShareMovedFolder(folderId: string, newParentId: string |
 	]);
 	if (!storyFolderQueries.isSameAudience(currentAudience, nextAudience)) {
 		await assertCanShareWithAudience(nextAudience, ctx);
-	}
-}
-
-function assertCanPlaceInDestination(target: DBStoryFolder | null, userId: string) {
-	if (target && target.visibility === 'private' && target.ownerId !== userId) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'You can only move items into your own private folder.',
-		});
 	}
 }
 
@@ -110,42 +80,12 @@ async function assertCanCreateFolder(parentId: string | null, groupIds: string[]
 	await assertCanCreateTeamFolder(groupIds, ctx);
 }
 
-async function resolveMoveTarget(folderId: string | null, ctx: FolderContext, label = 'Target folder') {
-	if (!folderId) {
-		assertCanPlaceInDestination(null, ctx.user.id);
-		return null;
-	}
-	const target = await assertFolderInProject(folderId, ctx, label);
-	await assertCanSeeFolder(target, ctx, label);
-	assertCanPlaceInDestination(target, ctx.user.id);
-	return target;
-}
-
 async function assertCanMoveFolder(folderId: string, target: DBStoryFolder | null, ctx: FolderContext) {
 	const folder = await assertFolderInProject(folderId, ctx);
 	await assertCanSeeFolder(folder, ctx);
 	assertCanModifyFolder(folder, ctx.user.id, ctx.userRole);
 	assertCanChangeFolderScope(folder, target, ctx.user.id);
 	return folder;
-}
-
-async function assertCanMoveStory(storyId: string, ctx: FolderContext): Promise<string> {
-	const storyProjectId = await storyQueries.getStoryProjectId(storyId);
-	if (storyProjectId !== ctx.project.id) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
-	}
-
-	const storyOwnerId = await storyQueries.getStoryOwnerId(storyId);
-	if (!storyOwnerId) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-	}
-
-	if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the owner or an admin can move this story.' });
-	}
-
-	await assertStoryNotBeingEdited(storyId);
-	return storyOwnerId;
 }
 
 async function assertTargetOutsideMovedFolders(folderIds: string[], targetFolderId: string | null) {
@@ -303,18 +243,7 @@ export const storyFolderRoutes = {
 	moveStory: canSendProcedure
 		.input(z.object({ storyId: z.string(), folderId: z.string().nullable() }))
 		.mutation(async ({ input, ctx }) => {
-			const storyOwnerId = await assertCanMoveStory(input.storyId, ctx);
-			await storyFolderQueries.moveStoryToFolder(input.storyId, input.folderId, {
-				storyOwnerId,
-				projectId: ctx.project.id,
-				assertAllowed: async () => {
-					await resolveMoveTarget(input.folderId, ctx, 'Folder');
-					await assertCanShareWithAudience(
-						await storyFolderQueries.resolveFolderAudience(input.folderId),
-						ctx,
-					);
-				},
-			});
+			await moveStoryForUser(input.storyId, input.folderId, ctx);
 		}),
 
 	bulkMove: canSendProcedure

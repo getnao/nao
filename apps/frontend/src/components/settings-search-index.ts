@@ -977,6 +977,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'get_story',
 			'archive_story',
 			'delete_story',
+			'list_story_folders',
+			'move_story',
 			'search_chats',
 			'get_chat',
 			'list_tests',

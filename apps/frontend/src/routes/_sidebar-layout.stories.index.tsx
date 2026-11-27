@@ -171,14 +171,17 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	const userStories = useQuery({
 		...trpc.story.listAll.queryOptions({ projectId: storiesProjectId }),
 		enabled: !!storiesProjectId,
+		staleTime: 0,
 	});
 	const standaloneStories = useQuery({
 		...trpc.story.listStandalone.queryOptions(),
 		enabled: !!activeProjectId,
+		staleTime: 0,
 	});
 	const sharedStories = useQuery({
 		...trpc.storyShare.list.queryOptions({ projectId: storiesProjectId ?? '' }),
 		enabled: !!storiesProjectId,
+		staleTime: 0,
 	});
 	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!activeProjectId });
 	const storyViewCounts = useQuery({
@@ -201,6 +204,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	const folderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
 		enabled: !!activeProjectId,
+		staleTime: 0,
 	});
 	const archivedFolderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: true }),
@@ -209,6 +213,7 @@ function StoriesPage({ view }: { view: StoriesView | null }) {
 	const folderItems = useQuery({
 		...trpc.storyFolder.listItems.queryOptions(),
 		enabled: !!activeProjectId,
+		staleTime: 0,
 	});
 
 	const currentUserName = session?.user?.name ?? 'Me';
