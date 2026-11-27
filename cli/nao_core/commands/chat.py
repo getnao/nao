@@ -153,6 +153,8 @@ def build_llm_env(llm: LLMConfig) -> dict[str, str]:
             env.update(_bedrock_env(provider_config))
         elif provider_config.provider == LLMProvider.VERTEX:
             env.update(_vertex_env(provider_config))
+        elif provider_config.provider == LLMProvider.DATABRICKS:
+            env.update(_databricks_env(provider_config))
 
     return env
 
@@ -180,6 +182,15 @@ def _vertex_env(provider_config: ProviderConfig) -> dict[str, str]:
         env["VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON"] = provider_config.service_account_json
     if provider_config.key_file:
         env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(provider_config.key_file).resolve())
+    return env
+
+
+def _databricks_env(provider_config: ProviderConfig) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if provider_config.client_id:
+        env["DATABRICKS_CLIENT_ID"] = provider_config.client_id
+    if provider_config.client_secret:
+        env["DATABRICKS_CLIENT_SECRET"] = provider_config.client_secret
     return env
 
 

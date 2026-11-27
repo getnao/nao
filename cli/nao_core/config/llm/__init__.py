@@ -21,6 +21,7 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
+    DATABRICKS = "databricks"
     QWEN = "qwen"
     MINIMAX = "minimax"
     MOONSHOT = "moonshot"
@@ -81,6 +82,14 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
             "GOOGLE_VERTEX_LOCATION",
             "VERTEX_GOOGLE_APPLICATION_CREDENTIALS",
         ),
+    ),
+    LLMProvider.DATABRICKS: ProviderAuthConfig(
+        env_var="DATABRICKS_TOKEN",
+        api_key="optional",
+        base_url_env_var="DATABRICKS_HOST",
+        alternative_env_vars=("DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET"),
+        hint="Optional — set client_id and client_secret instead to sign in with a service principal",
+        requires_base_url=True,
     ),
     LLMProvider.QWEN: ProviderAuthConfig(
         env_var="DASHSCOPE_API_KEY",
@@ -274,6 +283,8 @@ class ProviderConfig(BaseModel):
     gcp_location: str | None = Field(default=None, description="GCP location (only for Vertex)")
     service_account_json: str | None = Field(default=None, description="Service account JSON (only for Vertex)")
     key_file: str | None = Field(default=None, description="Path to service account key file (only for Vertex)")
+    client_id: str | None = Field(default=None, description="Service principal client ID (only for Databricks)")
+    client_secret: str | None = Field(default=None, description="Service principal client secret (only for Databricks)")
     models: list[ModelConfig] = Field(
         default_factory=list, description="The models to expose for this provider, in display order"
     )
@@ -364,6 +375,7 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
+            questionary.Choice("Databricks Model Serving (AI Gateway)", value="databricks"),
             questionary.Choice("Qwen (Alibaba Cloud Model Studio)", value="qwen"),
             questionary.Choice("MiniMax", value="minimax"),
             questionary.Choice("Moonshot (Kimi)", value="moonshot"),
@@ -389,6 +401,8 @@ class ProviderConfig(BaseModel):
 
         aws_profile = None
 
+        if LLMProvider(llm_provider) is LLMProvider.DATABRICKS:
+            return cls.prompt_databricks_config()
         if LLMProvider(llm_provider) is NAMED_PROVIDER:
             name = ask_provider_name()
             base_url = ask_text(
@@ -451,6 +465,48 @@ class ProviderConfig(BaseModel):
             service_account_json=service_account_json or None,
             key_file=key_file or None,
         )
+
+    @classmethod
+    def prompt_databricks_config(cls) -> "ProviderConfig":
+        """Ask for a workspace and its credentials, then for the serving endpoints to use as models."""
+        from nao_core.config.llm.databricks import list_chat_endpoints
+
+        base_url = ask_text(
+            "Enter the Databricks workspace URL (e.g. https://dbc-xxxxxxxx-xxxx.cloud.databricks.com):",
+            required_field=True,
+        )
+        auth_mode = ask_select(
+            "Select Databricks authentication mode:",
+            choices=[
+                questionary.Choice("Personal access token", value="token"),
+                questionary.Choice("Service principal (OAuth client ID and secret)", value="service_principal"),
+            ],
+        )
+        api_key = client_id = client_secret = None
+        if auth_mode == "token":
+            api_key = ask_text("Enter the personal access token:", password=True, required_field=True)
+        else:
+            client_id = ask_text("Enter the service principal client ID:", required_field=True)
+            client_secret = ask_text("Enter the service principal client secret:", password=True, required_field=True)
+
+        config = cls(
+            provider=LLMProvider.DATABRICKS,
+            base_url=base_url,
+            api_key=api_key,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+        try:
+            endpoints = list_chat_endpoints(config)
+            UI.info("Chat serving endpoints of the workspace:")
+            UI.bullets(endpoints or ["(none)"])
+        except Exception as error:
+            UI.warn(f"Could not list the serving endpoints: {error}")
+
+        answer = ask_text("Serving endpoints to use as models (comma separated):", required_field=True) or ""
+        endpoint_ids = dict.fromkeys(endpoint.strip() for endpoint in answer.split(",") if endpoint.strip())
+        config.models = [ModelConfig(id=endpoint_id) for endpoint_id in endpoint_ids]
+        return config
 
 
 class LLMConfig(BaseModel):
