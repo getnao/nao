@@ -1,15 +1,34 @@
 import { vi } from 'vitest';
 
-/** Radix popovers and menus measure their content with ResizeObserver, which jsdom does not implement. */
+/**
+ * Radix popovers and menus measure their content with ResizeObserver, which jsdom does not implement.
+ * Returns a function that notifies every observing callback, to stand in for a resize.
+ */
 export function stubResizeObserver() {
+	const observingCallbacks = new Set<ResizeObserverCallback>();
 	vi.stubGlobal(
 		'ResizeObserver',
 		class {
-			observe() {}
+			private readonly callback: ResizeObserverCallback;
+
+			constructor(callback: ResizeObserverCallback) {
+				this.callback = callback;
+			}
+
+			observe() {
+				observingCallbacks.add(this.callback);
+			}
+
 			unobserve() {}
-			disconnect() {}
+
+			disconnect() {
+				observingCallbacks.delete(this.callback);
+			}
 		},
 	);
+	return () => {
+		observingCallbacks.forEach((callback) => callback([], {} as ResizeObserver));
+	};
 }
 
 /** jsdom does not implement scrollIntoView; it stays writable so later test files on the same worker can replace it. */

@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { StoryFilterSelections } from '@nao/shared/sql-template';
 
 import type { StoryFilterApi, StoryFilterTargets, StoryQueryFilterStatuses } from '@/hooks/use-story-filters';
@@ -15,7 +15,7 @@ export type StoryQuerySqlSource = {
 
 type StoryFilterHover = {
 	hoveredFilterId: string | null;
-	setHoveredFilterId: (filterId: string | null) => void;
+	setHoveredFilterId: Dispatch<SetStateAction<string | null>>;
 };
 
 const StoryQuerySqlContext = createContext<StoryQuerySqlSource | null>(null);
